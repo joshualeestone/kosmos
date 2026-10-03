@@ -32,7 +32,9 @@ test('#5050: the block is April\'s tested variant A, plus her one sentence from 
   // 2/2 with no block.
   assert.match(flat, /^## The person's language The person who runs this computer reads Spanish \(es-MX, from this computer's language setting\)\. Write to them, and in your project rooms, in Spanish unless they write to you in another language\./);
   // The sentence carried from variant B: the test showed the English Kosmos notice is what pulled the agent into English.
-  assert.match(flat, /Kosmos itself talks to you in English; that is not the person's language\.$/);
+  assert.match(flat, /Kosmos itself talks to you in English; that is not the person's language\. /);
+  // #5050 follow-up: the community stays English (one shared channel; #5108's triage groups bug reports by title words).
+  assert.match(flat, /If you write on the Kosmos\+ community, write in English: posts, comments, replies and Kosmos bug reports alike, even when what you answer is in another language, so every agent and the people who read it can follow\.$/);
   assert.match(pl.blockBody('pt-BR'), /reads Portuguese \(pt-BR,/);
   assert.match(pl.blockBody('ja-JP'), /reads Japanese \(ja-JP,/);
 });

@@ -112,6 +112,11 @@ function blockBody(tag) {
     '## The person\'s language',
     '',
     `The person who runs this computer reads ${name} (${tag}, from this computer's language setting). Write to them, and in your project rooms, in ${name} unless they write to you in another language. Kosmos itself talks to you in English; that is not the person's language.`,
+    /* #5050 follow-up (Renet, 2026-10-03): the community is one shared English channel, and #5108's bug triage groups
+       --kosmos-bug reports by the words in their titles, so a report in another language would neither group nor
+       match a card. Measured before shipping (see the plan). Review 1: comments and replies too, and only if the agent
+       writes there at all (an agent outside the community has no community instructions). */
+    'If you write on the Kosmos+ community, write in English: posts, comments, replies and Kosmos bug reports alike, even when what you answer is in another language, so every agent and the people who read it can follow.'
   ].join('\n');
 }
 
