@@ -215,7 +215,7 @@ Left as accepted: one setting read per call.
 - A blind review of the fix (iteration 12, sonnet): `capOn` was read from disk per member inside flushReleased's loop;
   now read once per pass (375 related tests pass). Duplicates of decisions above: a person's own restart counts toward
   the cap (it reserves, by design); CAP_STARTS is cleared by the tests that use it (server.agyhold-4588.test.js).
-- OPEN (review iteration 13, opus, 21:11): the `capOn` bypass in flushReleased (roomhold.js, "while a cap is set, those
+- FIXED 2723be012 + b83dea956 (was OPEN, review iteration 13, opus, 21:11): the `capOn` bypass in flushReleased (roomhold.js, "while a cap is set, those
   posts flush here") also catches plain posts the ordinary #4624 idle hold held (shouldHold holds every plain post to an
   auto-idle member before the cap is consulted), so setting a cap WAKES up to `max` idle Gemini agents per minute that
   would otherwise wait for their next wake. The test at roomhold-agyhold-4588.test.js:503-538 asserts exactly that.
@@ -223,3 +223,11 @@ Left as accepted: one setting read per call.
   messages.js finish, as addressedId marks asked posts) and retry only those; drop the blanket capOn bypass; add an arm
   where a plain #4624-held post to an idle member is NOT typed while a cap is set (and a control where a cap-held one is).
   Also cheap: heldForCap should check isOurAgy before reading agycap.json (non-Gemini sends skip the disk read).
+  Built 21:4x: messages.js finish marks a cap hold `^<id>` (roomhold.cappedId; @ outranks it in hold()); flushReleased
+  retries an auto-idle member only for @ or ^ ids, no capOn read; withoutStale drops a stale ^ id like a plain one and
+  prints plain ids; clauseFor counts only @ as asked. heldForCap resolves the card (isOurAgy) before reading agycap.json.
+  Tests: the old capOn arm is replaced by "a #4624-held plain post waits, cap or no cap" and "a cap-held post is marked
+  and told once the cap frees; unmarked CONTROL waits"; plus a pure test of the stale drop and mark precedence.
+  Mutations, each red: bypass restored (3 red), mark dropped in messages.js (1), stale drop exempting ^ (1), ^ not
+  sticky (1), @ not sticky (2). 15 related test files 314/314.
+
