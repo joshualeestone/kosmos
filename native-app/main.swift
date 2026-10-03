@@ -335,6 +335,16 @@ func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
     return a == b
 }
 
+/// #5167: PURE, for --kosmos-app-mode-selftest. Whether the page on screen is a board this app may save
+/// downloads from: a Kosmos+ computer (isKosmosPlusURL) or this computer's own board over loopback http.
+/// A foreign site that ends up in the window is neither, so it cannot save its own files.
+func isBoardPage(_ page: URL?) -> Bool {
+    guard let page = page else { return false }
+    if isKosmosPlusURL(page) { return true }
+    guard page.scheme?.lowercased() == "http", page.user == nil, let host = page.host?.lowercased() else { return false }
+    return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
 /// #5167: PURE, for --kosmos-app-mode-selftest. Where a saved download goes: `dir` (the person's
 /// Downloads), under the name the page or server suggested, made safe and never over an existing file.
 /// WebKit already reduces the suggestion to a file name; this does not rely on that. A path separator,
@@ -345,6 +355,9 @@ func downloadDestination(dir: URL, suggested: String, exists: (URL) -> Bool) -> 
         if s == "/" || s == ":" || s == "\\" { return "-" }
         if s.value < 0x20 || s.value == 0x7f { return " " }
         return Character(s)
+    }.filter { c in   // direction controls would let "x\u{202E}fdp.app" show as a .pdf in Finder
+        !c.unicodeScalars.contains { (0x200E...0x200F).contains($0.value) || (0x202A...0x202E).contains($0.value)
+                                     || (0x2066...0x2069).contains($0.value) }
     }).trimmingCharacters(in: .whitespacesAndNewlines)
     while name.hasPrefix(".") { name.removeFirst() }
     name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2696,7 +2709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            click did nothing at all. Only from the page's own origin (isSameOriginDownload); anything else
            falls through to the policy below unchanged. */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
-           isSameOriginDownload(url, page: committedPageURL) {
+           isBoardPage(committedPageURL), isSameOriginDownload(url, page: committedPageURL) {
             decisionHandler(.download)
             return
         }
@@ -2725,8 +2738,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         if let http = navigationResponse.response as? HTTPURLResponse, let url = http.url,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
-           disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment"),
-           isSameOriginDownload(url, page: committedPageURL) {
+           disposition.split(separator: ";", maxSplits: 1).first
+               .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() == "attachment" }) == true,
+           isBoardPage(committedPageURL), isSameOriginDownload(url, page: committedPageURL) {
             decisionHandler(.download)
             return
         }
@@ -2753,6 +2767,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         download.delegate = self
     }
 
+    /// #5167: a download the person started that does not save is said, never only logged (a click that
+    /// does nothing is the bug #5167 fixes). Swapped out by --kosmos-app-download-selftest, which has no one
+    /// to press OK.
+    static var downloadAlertPresenter: ((String) -> Void)?
+
+    /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
+    private var downloadsTold: Set<ObjectIdentifier> = []
+
+    private func tellDownloadFailed(_ detail: String) {
+        if let present = AppDelegate.downloadAlertPresenter { present(detail); return }
+        let alert = NSAlert()
+        alert.messageText = "Kosmos could not save that file"
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = webView?.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+    }
+
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
     private var downloadsInFlight: [ObjectIdentifier: URL] = [:]
 
@@ -2765,6 +2797,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.allow)
         } else {
             logLine("#5167: refused a download's redirect to another origin")
+            downloadsTold.insert(ObjectIdentifier(download))
+            tellDownloadFailed("The file pointed to another website, so Kosmos did not save it.")
             decisionHandler(.cancel)
         }
     }
@@ -2776,11 +2810,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let dir = AppDelegate.downloadsDirOverride
                 ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
             logLine("#5167: no Downloads folder, so a download was not saved")
+            tellDownloadFailed("This computer has no Downloads folder Kosmos can find, so the file was not saved.")
             completionHandler(nil)
             return
         }
+        let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path })
         let dest = downloadDestination(dir: dir, suggested: suggestedFilename) {
-            FileManager.default.fileExists(atPath: $0.path)
+            FileManager.default.fileExists(atPath: $0.path) || taken.contains($0.standardizedFileURL.path)
         }
         downloadsInFlight[ObjectIdentifier(download)] = dest
         logLine("#5167: saving a download to Downloads as \(dest.lastPathComponent)")
@@ -2791,6 +2827,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// sees where it went. 📌 PINNED selector: an optional method with a wrong signature is never called.
     @objc(downloadDidFinish:)
     func downloadDidFinish(_ download: WKDownload) {
+        downloadsTold.remove(ObjectIdentifier(download))
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
         /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
@@ -2799,6 +2836,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         var props: [String: Any] = [kLSQuarantineAgentNameKey as String: "Kosmos",
                                     kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String]
         if let from = download.originalRequest?.url { props[kLSQuarantineDataURLKey as String] = from }
+        if let page = committedPageURL { props[kLSQuarantineOriginURLKey as String] = page }
         values.quarantineProperties = props
         var marked = dest
         do { try marked.setResourceValues(values) } catch {
@@ -2812,6 +2850,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
+        // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
+        // it did not start (WebKit refusing a download on its own) is said like any other failure.
+        if downloadsTold.remove(ObjectIdentifier(download)) == nil {
+            tellDownloadFailed("The file could not be saved to Downloads (\(error.localizedDescription)).")
+        }
     }
 
     private func showStartupFailureAlert(detail: String, title: String = "Kosmos could not start") {
@@ -4908,6 +4951,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     try? FileManager.default.createDirectory(at: dl, withIntermediateDirectories: true)
     AppDelegate.downloadsDirOverride = dl
+    var told: [String] = []
+    AppDelegate.downloadAlertPresenter = { told.append($0) }
     var port: UInt16 = 0
     func reply(_ path: String) -> String {
         let body = "kosmos " + path
@@ -4920,18 +4965,21 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=same href=/same.txt download>a</a>"
                 + "<a id=att href=/att>b</a>"
                 + "<a id=redir href=/redir download>c</a>"
+                + "<a id=redir2 href=/redir2 download>g</a>"
                 + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
+                + "<a id=last href=/last.txt download>f</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
         case "/att2": return ok("Content-Disposition: attachment; filename=\"att2.txt\"\r\n")
+        case "/redir2": return "HTTP/1.1 302 Found\r\nLocation: /ok2.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/redir": return "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(port)/redirected.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         default: return ok("")
         }
     }
     let params = NWParameters.tcp
-    params.requiredInterfaceType = .loopback   // nothing off this Mac can reach it during a build
+    params.requiredInterfaceType = .loopback   // nothing off this computer can reach it during a build
     guard let listener = try? NWListener(using: params, on: .any) else { print("download selftest: no listener"); exit(1) }
     listener.newConnectionHandler = { conn in
         conn.start(queue: .main)
@@ -4962,8 +5010,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     }
     func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
     /* A click that should save a file waits for that file (up to 10s), so a busy build box cannot fail a
-       good product on a fixed sleep. One that should save nothing waits 2s: a late file still lands before
-       the folder is read at the end, and is counted there. */
+       good product on a fixed sleep. One that should save nothing waits 2s, and a same-origin download
+       clicked LAST is waited for before the folder is read, so a late file from an earlier click is
+       already there to be counted. */
     func click(_ id: String, expect: String? = nil, then: @escaping () -> Void) {
         load {
             web.evaluateJavaScript("document.getElementById('\(id)').click()") { _, _ in }
@@ -4978,22 +5027,24 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     listener.stateUpdateHandler = { state in
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir") { click("foreign") { click("foreignatt") {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
             var bad = 0
             func row(_ ok: Bool, _ why: String) { if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
+            row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
             row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("foreign.txt"), "A LINK TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("att2.txt"), "AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING")
             let q = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", nil, 0, 0, 0)
             row(q > 0, "a saved file carries the quarantine mark")
             let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
-            row(all.sorted() == ["att.txt", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(told.count == 1, "THE REFUSED REDIRECT IS SAID TO THE PERSON, once, and nothing else is (told: \(told.count))")
             try? FileManager.default.removeItem(at: dl)
-            print(bad == 0 ? "\ndownload-check: all good (7 rows)" : "\ndownload-check: \(bad) row(s) wrong")
+            print(bad == 0 ? "\ndownload-check: all good (9 rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } }
+        } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
@@ -5762,6 +5813,18 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     dl("https://user@josh.kosmosplus.com/x", "https://josh.kosmosplus.com/", false, "a user part is refused")
     dl("blob:https://josh.kosmosplus.com/1234", "https://josh.kosmosplus.com/", false, "blob: is not saved (nothing in the page makes one to download)")
     dl("https://josh.kosmosplus.com/x", nil, false, "no page yet: nothing is saved")
+    func board(_ s: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = isBoardPage(s.flatMap { URL(string: $0) })
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "board" : "not").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    board("https://josh.kosmosplus.com/#kst=abc", true, "a Kosmos+ computer is a board page")
+    board("http://127.0.0.1:16180/", true, "this computer's own board is a board page")
+    board("https://stripe.com/pay", false, "A FOREIGN SITE IN THE WINDOW CANNOT SAVE ITS OWN FILES")
+    board("http://example.com/", false, "nor can a foreign http site")
+    board("https://127.0.0.1/", false, "loopback over https is not the board")
+    board(nil, false, "no page yet")
     func dest(_ suggested: String, _ taken: Set<String>, _ want: String, _ why: String) {
         ran += 1
         let dir = URL(fileURLWithPath: "/D", isDirectory: true)
@@ -5778,6 +5841,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     dest(".zshrc", [], "zshrc", "a leading dot does not make a hidden file")
     dest("a:b", [], "a-b", "a colon is a separator to Finder")
     dest("a\nb.txt", [], "a b.txt", "control characters become spaces")
+    dest("invoice\u{202E}fdp.app", [], "invoicefdp.app", "A DIRECTION CONTROL CANNOT DISGUISE AN APP AS A PDF")
     dest("", [], "Download", "an empty name gets one")
     dest("..", [], "Download", "and so does ..")
     dest(String(repeating: "x", count: 300) + ".pdf", [], String(repeating: "x", count: 196) + ".pdf", "a long name is cut to 200 bytes, keeping its extension")
@@ -5801,7 +5865,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 64
+    let expected = 71
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
