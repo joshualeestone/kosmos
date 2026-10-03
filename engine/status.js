@@ -7718,7 +7718,29 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
       const onClaude = (p) => !nonClaude(p.runner)
         && !isAntigravityCommand(p.command) && !isCodexCommand(p.command) && !isGrokCommand(p.command);   // a pane not yet tagged: its command says
       const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
-      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
+      /* #5018 (Josh): say which provider and email account the agents are signed in under, and name them the way he
+         named them. Every agent here runs on Claude (filtered above). The email is the account the credential's config
+         folder is signed in to (unset or empty: the default ~/.claude); null when it cannot be read, and the page then
+         names no email rather than a guess. */
+      const accounts = require('./accounts');
+      const nameOf = opts.displayName || ((n) => { try { return readIdentity(n).displayName || n; } catch { return n; } });
+      const emailOf = opts.emailOf || ((ccd) => {
+        try {
+          const set = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
+          /* Unset or empty: the default account's record (~/.claude.json, accounts.identityOf). Set to any value,
+             even ~/.claude itself: Claude Code reads <that folder>/.claude.json, the same set-vs-unset split as the
+             keychain entry (loginexpiry.serviceNameFor), so that file is read directly. */
+          if (!set) {
+            const id = accounts.identityOf(path.join(accounts.homeDir(), '.claude'));
+            return id && typeof id.email === 'string' && id.email ? id.email : null;
+          }
+          const acct = JSON.parse(fs.readFileSync(path.join(set, '.claude.json'), 'utf8')).oauthAccount;
+          const email = acct && (typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
+          return typeof email === 'string' && email ? email : null;
+        } catch { return null; }
+      });
+      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
+        .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf) }));
     },
   });
 }

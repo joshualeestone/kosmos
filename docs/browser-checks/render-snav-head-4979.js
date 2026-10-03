@@ -26,7 +26,11 @@
  * wraps to two lines): every pill moves below the taller header. (A window resize; the observer on
  * the header is what the taller-header arms below exercise.)
  *
- * A taller header (a Kosmos+ bar or a notice, stood in for by a block added inside .apphead) at
+ * #5018: notices no longer grow the header; they float below it in #topnotes. The floating-notice arm adds a 460x90
+ * stand-in notice in its own slot in #topnotes (not the login slot, which every status poll empties), at 900x700 in
+ * the tab view scrolled halfway, and asserts every pill is below the stack, the first pill takes a hit-test click, and
+ * the Allow card (#askcard) is below the stack too. Both engines.
+ * A taller header (a Kosmos+ bar, stood in for by a block added inside .apphead) at
  * 1200x600: grown by 100px the whole nav no longer fits, so it must scroll with the page or show every
  * pill; grown by 40px it still fits, so it stays sticky with every pill below the taller header.
  *
@@ -74,6 +78,7 @@ function chk(ok, label, extra) {
   let aboveRan = 0;
   let resizeRan = 0;
   let tallRan = 0;
+  let notesRan = 0;
   try {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
@@ -204,6 +209,47 @@ function chk(ok, label, extra) {
           }
           await page.close();
         }
+        /* #5018: a notice that floats below the header (a wide one, in the login notice's slot) must not cover the nav:
+           the nav sticks below the stack, and its first pill takes the click. */
+        {
+          const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+          await page.goto(URL + '/?tab=settings&sec=mac');
+          await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+          await page.evaluate(() => {
+            // Its own slot div in the stack (the status poll empties #login-adv-slot every 5s, and would remove it).
+            const slot = document.createElement('div'); slot.dataset.check5018 = 'slot';
+            const n = document.createElement('div');
+            n.className = 'utoast login-adv';
+            n.style.cssText = 'width:460px;height:90px;pointer-events:auto;';
+            n.textContent = 'a stand-in notice';
+            slot.appendChild(n);
+            document.getElementById('topnotes').appendChild(slot);
+            const ask = document.getElementById('askcard'); if (ask) ask.hidden = false;   // the Allow card, shown
+          });
+          await page.waitForTimeout(400);
+          await page.evaluate(() => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, Math.round(m / 2)); });
+          await page.waitForTimeout(200);
+          const r = await page.evaluate(() => {
+            const nb = document.getElementById('topnotes').getBoundingClientRect();
+            const pills = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length);
+            const first = pills[0]; const fb = first.getBoundingClientRect();
+            const hit = document.elementFromPoint(fb.left + fb.width / 2, fb.top + fb.height / 2);
+            const ask = document.getElementById('askcard'); const ab = ask && ask.getClientRects().length ? ask.getBoundingClientRect() : null;
+            const y0 = Math.round(scrollY);   // the halfway scroll the nav assertions were made at
+            window.scrollTo(0, 0);            // the Allow card sits at the top of the page: measure it there
+            const nb0 = document.getElementById('topnotes').getBoundingClientRect();
+            const ab0 = ab ? document.getElementById('askcard').getBoundingClientRect() : null;
+            return { y: y0, consolidated: document.body.classList.contains('consolidated'), notesH: Math.round(nb.height), notesBottom: Math.round(nb.bottom), navPos: getComputedStyle(document.getElementById('s-nav')).position,
+              underNotes: pills.filter((x) => x.getBoundingClientRect().top < nb.bottom - 0.5).length, firstTakesClick: Boolean(hit && first.contains(hit)),
+              askShown: Boolean(ab0), askBelowNotes: Boolean(ab0 && ab0.top >= nb0.bottom - 0.5), askTop: ab0 ? Math.round(ab0.top) : null, notesBottomTop: Math.round(nb0.bottom) };
+          });
+          const tag = `${engineName} a floating notice, 900x700 mac, scrolled halfway`;
+          chk(r.y > 0 && !r.consolidated && r.notesH >= 90 && r.navPos === 'sticky' && r.askShown, `${tag}: control: the tab view, the notice and the Allow card show, the page scrolled and the nav is sticky`, JSON.stringify(r));
+          chk(r.underNotes === 0 && r.firstTakesClick, `${tag}: every pill is below the floating notice, and the first one takes the click`, JSON.stringify(r));
+          chk(r.askBelowNotes, `${tag}: at the top of the page the Allow card is below the floating notice, never under it`, JSON.stringify(r));
+          notesRan += 1;
+          await page.close();
+        }
         /* The consolidated view: Settings from the user menu, inside Projects, its own scroll box. */
         await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
         for (const width of [1000, 1280]) {
@@ -242,7 +288,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16 && shortRan === 8 && aboveRan === 8 && resizeRan === 2 && tallRan === 8 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} consRan=${consRan}`);
+  chk(ran === 16 && shortRan === 8 && aboveRan === 8 && resizeRan === 2 && tallRan === 8 && notesRan === 2 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header, floating-notice and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} notesRan=${notesRan} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
