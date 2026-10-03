@@ -338,12 +338,21 @@ func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
 /// downloads from: a Kosmos+ computer (isKosmosPlusURL), or the board this app loaded (`board`, the
 /// host and port it resolved; nil on a connect computer). A foreign site, or another local server, that
 /// ends up in the window is neither, so it cannot save its own files.
+/// #5167: the names no computer can be given on Kosmos+, so a page under one is a Kosmos+ service, not a
+/// board. A COPY of RESERVED_NAMES in kosmos-relay coordinator/src/signin.rs (2026-10-03, c91521c1); add a
+/// name there, add it here.
+let kosmosPlusReservedLabels: Set<String> = [
+    "www", "api", "app", "relay", "coordinator", "admin", "mail", "smtp", "mx", "ns", "ns1", "ns2", "dns",
+    "status", "help", "support", "kosmos", "billing", "community", "docs", "forum", "blog", "news", "cdn", "static",
+    "assets", "autodiscover", "autoconfig", "login", "log-in", "signin", "sign-in", "signup", "sign-up", "setup",
+    "register", "auth", "account", "accounts", "checkout", "pay", "payment", "payments", "secure", "verify",
+]
+
 func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
     guard let page = page else { return false }
     if isKosmosPlusURL(page) {
-        // Kosmos+'s own sites (sign-in, the public community feed) are not a computer's board.
         let label = page.host?.lowercased().split(separator: ".").first.map(String.init) ?? ""
-        return !["login", "community", "www"].contains(label)
+        return !kosmosPlusReservedLabels.contains(label)
     }
     guard let board = board, page.user == nil, let scheme = page.scheme?.lowercased(),
           scheme == "http" || scheme == "https", let host = page.host?.lowercased()
@@ -2719,8 +2728,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.download)
             return
         }
-        // A download this app will not save is refused, not loaded in the window instead. Said only for the
-        // page's own frame: a frame inside it cannot put up the app's sheets.
+        // A download this app will not save is refused, not loaded in the window instead. Said only when it
+        // targets the page's own frame (a frame's own download is only logged).
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             if navigationAction.targetFrame?.isMainFrame == true {
@@ -2767,7 +2776,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 decisionHandler(.download)
             } else {
                 logLine("#5167: refused an attachment that is not from this board")
-                tellDownloadFailed("The file came from somewhere Kosmos does not save from, so it was not saved.", quiet: true)
+                tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
+                    ? "The file came from somewhere Kosmos does not save from, so it was not saved."
+                    : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
                 decisionHandler(.cancel)
             }
             return
@@ -2779,7 +2790,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if !navigationResponse.canShowMIMEType {
             logLine("#5167: a response this window cannot show, not from this board, was not loaded")
-            tellDownloadFailed("That file came from somewhere Kosmos does not save from, so it was not opened or saved.", quiet: true)
+            tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
+                ? "That file came from somewhere Kosmos does not save from, so it was not opened or saved."
+                : "This page is not a board Kosmos saves files from, so the file was not opened or saved.", quiet: true)
         }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
@@ -2836,6 +2849,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
     private var downloadsInFlight: [ObjectIdentifier: URL] = [:]
+    private var downloadPages: [ObjectIdentifier: URL] = [:]
 
     /// #5167: a download's redirect to another origin is refused, so the same-origin rule holds for
     /// every hop, not only the first.
@@ -2877,6 +2891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             FileManager.default.fileExists(atPath: $0.path) || taken.contains($0.standardizedFileURL.path)
         }
         downloadsInFlight[ObjectIdentifier(download)] = dest
+        downloadPages[ObjectIdentifier(download)] = committedPageURL   // the page it came from, for its mark
         logLine("#5167: saving a download to Downloads as \(dest.lastPathComponent)")
         completionHandler(dest)
     }
@@ -2886,6 +2901,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(downloadDidFinish:)
     func downloadDidFinish(_ download: WKDownload) {
         downloadsTold.remove(ObjectIdentifier(download))
+        let fromPage = downloadPages.removeValue(forKey: ObjectIdentifier(download))
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
         /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
@@ -2901,7 +2917,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return c.url
         }
         if let from = originOnly(download.originalRequest?.url) { props[kLSQuarantineDataURLKey as String] = from }
-        if let page = originOnly(committedPageURL) { props[kLSQuarantineOriginURLKey as String] = page }
+        if let page = originOnly(fromPage) { props[kLSQuarantineOriginURLKey as String] = page }
         values.quarantineProperties = props
         var marked = dest
         do { try marked.setResourceValues(values) } catch {
@@ -2922,6 +2938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(download:didFailWithError:resumeData:)
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
+        downloadPages.removeValue(forKey: ObjectIdentifier(download))
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
         // it did not start (WebKit refusing a download on its own) is said like any other failure.
@@ -5010,12 +5027,15 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. It runs as a
        computer that runs agents (the default mode); a connect computer is not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    /* Above the worst case of a run where NOTHING saves (six 5s file waits, four 2s ones, eleven page
-       loads), so a product that saves nothing prints its rows and is judged, not timed out. */
-    DispatchQueue.main.asyncAfter(deadline: .now() + 150) { print("download selftest TIMED OUT"); exit(1) }
+    /* Above the worst case of a run where NOTHING saves (six 5s file waits, seven 2s ones counting the
+       burst, fourteen page loads; measured 81s), so a product that saves nothing is judged, not timed out. */
+    let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 150) {
+        try? FileManager.default.removeItem(at: dl)
+        print("download selftest TIMED OUT"); exit(1)
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     try? FileManager.default.createDirectory(at: dl, withIntermediateDirectories: true)
     AppDelegate.downloadsDirOverride = dl
     var told: [String] = []
@@ -5973,6 +5993,8 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     board("https://josh.kosmosplus.com/#kst=abc", true, "a Kosmos+ computer is a board page")
     board("https://login.kosmosplus.com/", false, "KOSMOS+ SIGN-IN IS NOT A BOARD")
     board("https://community.kosmosplus.com/", false, "THE PUBLIC COMMUNITY FEED IS NOT A BOARD")
+    board("https://coordinator.kosmosplus.com/", false, "THE COORDINATOR (a live alias of sign-in) IS NOT A BOARD")
+    board("https://status.kosmosplus.com/", false, "no reserved name is a board (the coordinator's own list)")
     board("http://127.0.0.1:16180/", true, "this computer's own board is a board page")
     board("https://stripe.com/pay", false, "A FOREIGN SITE IN THE WINDOW CANNOT SAVE ITS OWN FILES")
     board("http://example.com/", false, "nor can a foreign http site")
@@ -6025,7 +6047,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 77
+    let expected = 79
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
