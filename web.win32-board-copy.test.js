@@ -227,10 +227,11 @@ test('NIT 1 (review round 2): open, then a file shown instead, then open again l
     ];
     // eslint-disable-next-line no-new-func
     const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
-      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'return ' + body)(
+      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'filesPvOpen', 'return ' + body)(
       { getElementById: (id) => (id === msgId ? msg : null) },
       async () => answers.shift(),
       'proj', (s) => s, (s) => s, false, 'PARTIAL NOTE', false,
+      () => false,   // #4997: the full-page preview did not take this row (these arms are about the open path)
     );
     const click = { target: { closest: () => ({ dataset: { doc: 'notes.pdf', ref: 'notes.pdf' } }) } };
     await handler(click);
@@ -252,10 +253,11 @@ test('#2245: after an open, a list that was cut short keeps its partial note (Vi
       const msg = { textContent: 'before' };
       // eslint-disable-next-line no-new-func
       const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
-        'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'return ' + body)(
+        'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'filesPvOpen', 'return ' + body)(
         { getElementById: (id) => (id === msgId ? msg : null) },
         async () => ({ ok: true, json: async () => ({ ok: true }) }),
         'proj', (s) => s, (s) => s, flag === 'view' && partial, 'PARTIAL NOTE', flag === 'rail' && partial,
+        () => false,   // #4997: not a previewed row
       );
       await handler({ target: { closest: () => ({ dataset: { doc: 'a/b.pdf' } }) } });
       return msg.textContent;
