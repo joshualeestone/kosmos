@@ -80,7 +80,10 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   so it has its own card (#5167) rather than riding this day-one web fix.
 
 ## Not tested, stated so it is not read as covered
-- A real Safari or iPhone over a live relay: Playwright WebKit with a stubbed route is the nearest arm.
+- A real Safari or iPhone over a live relay: Playwright WebKit with a stubbed route is the nearest arm, and it is
+  weaker than Chromium's. Measured 2026-10-03: an <a download> passes through page.route in neither engine, and
+  headless WebKit fires no download event for it, so the WebKit arm of R1 proves the page clicked an anchor with
+  `download` and the right address, not that a file was saved. Chromium's arm requires the real download event.
 - A cancelled download closing the descriptor (pipeline's documented behaviour, not exercised).
 - A file that shrinks between the fstat and the read (the reset path), and a file swapped between the gates and
   the open (the identity refusal): both need a seam between two async steps to test, and neither has one.
