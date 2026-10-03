@@ -33,7 +33,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - `engine/team.js` sets `createdByName` and `askedAt` on every member: the asking agent's token name and its request
   time when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
   `engine/create.js` records them on the birth.
-- Tests: `server.agent-remove-4475.test.js` (33); `engine/remove.test.js` (a real removal ends the identity in the
+- Tests: `server.agent-remove-4475.test.js` (34); `engine/remove.test.js` (a real removal ends the identity in the
   history and a restore does not erase it); `engine/delete-leftover.test.js` (deleting a stopped, never-removed
   agent's leftovers ends it too); `server.team-agent-token-1279.test.js` (the agent path records the exact token name
   and askedAt for a creator whose sessionName differs; the board-token path records none; END TO END: an agent makes
@@ -101,6 +101,8 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - A newer `partial` birth of the name ends the older agent-made one's ownership; a `partial` creation is never
   removable by its creator. Agents made before this change (no `createdByName`), and creators whose token carries no
   name (before #4792), cannot remove; the person can.
+- A history that cannot be read refuses, and so does a line in it that does not parse (an end not written whole is
+  read as an end for every name); each end is written on a fresh line, so a torn one cannot swallow the next.
 - A history that cannot be read refuses. A failed append is logged; it is caught by nothing else, so the residual is
   an agent ended on a full disk.
 - Accepted premise: the wall clock orders an end after the birth it ends (both are ISO times from it). A backward
@@ -111,7 +113,8 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - Not done: a `kosmos` verb for removal. The doctrine tells agents to use a command or ask the person; with no verb,
   the person still removes from the board. A verb is a follow-up if a PM agent needs it.
 - Not bounded: `ended-agents.jsonl` is append-only, written on creates and removals only (not restarts), and read
-  whole on each token-only removal. Low volume today; a follow-up if it grows.
+  whole on each token-only removal. An agent can grow it by asking POST /api/team to make agents (each create past its
+  name checks adds a line). Low volume today; a follow-up noted on #4475.
 - Not atomic: create reads `tookTokens` before its own revoke, unlocked; a remote token issued for the name inside
   that window is revoked by the create without the flag. Narrow (the person issuing a remote token for a name an
   agent is creating at that moment), accepted.
@@ -121,7 +124,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 33/33, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
+- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 34/34, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
@@ -130,6 +133,6 @@ and cannot force a removal; the person (the board token) removes any agent exact
   `tookTokens`, create not recording it, the shared-key check removed, a malformed history time skipped, a malformed
   birth time accepted, the birth's `slug` ignored, the `slug === target` check removed, `tookTokens` checking only the
   typed name's key, the launch hand-off deny removed, an empty name set read as nothing ended, an unreadable token
-  file read as no other name, plus (re-run on this code at
+  file read as no other name, a torn history line skipped, the fresh-line write removed, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
