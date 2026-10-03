@@ -234,7 +234,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
       let joinDelayMs = 0;     // review 1: hold the pairing round open, as the tunnel's real round can take seconds
       let confirmRefuse = '';  // review 1: a confirm the tunnel refuses (code_expired)
-      await page.route('**/api/remote/join', async (route) => { if (joinDelayMs) await new Promise((r) => setTimeout(r, joinDelayMs)); return route.fulfill(json(join)); });
+      let joinGets = 0;        // review 6: each GET is a signed pairing round, so the endings must not poll
+      let joinFailOnce = false; // review 6: a failed round on load must not spend the read on load
+      await page.route('**/api/remote/join', async (route) => { joinGets += 1; if (joinDelayMs) await new Promise((r) => setTimeout(r, joinDelayMs));
+        if (joinFailOnce) { joinFailOnce = false; return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }); }
+        return route.fulfill(json(join)); });
       await page.route('**/api/remote/join/confirm', (route, req) => { confirmBody = JSON.parse(req.postData() || '{}');
         if (confirmRefuse) { const why = confirmRefuse; confirmRefuse = ''; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: why }) }); }
         join = { ...join, confirmed: true }; return route.fulfill(json({ ok: true, confirmed: true, with: 'homemac' })); });
@@ -280,6 +284,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.' && !jr.button && !jr.code && jr.pill === 'Connected',
         `${tag} #4794: allowed, then the code ran out unconfirmed: said, no button (review 5)`, JSON.stringify(jr));
+      /* Review 6: that ending lasts until this computer pairs again, so it is said once and never polled for, and it does
+         not take the status line: an outage after it is still said. */
+      const getsAtEnd = joinGets;
+      jr = await readJoin(); jr = await readJoin();
+      chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.' && joinGets === getsAtEnd, `${tag} #4794: the ran-out ending stays and runs no more pairing rounds (review 6)`, JSON.stringify({ jr, rounds: joinGets - getsAtEnd }));
+      remoteNow = { ...REMOTE, status: { state: 'down', because: 'the relay cannot be reached' } };
+      jr = await readJoin();
+      chk(jr.shown && /relay cannot be reached/.test(jr.status), `${tag} #4794: an outage after the ending is still said (review 6)`, JSON.stringify(jr));
       /* Too many tries: still held, every attempt used, no code (the tunnel's failed). */
       join = { ...join, held: true, failed: true };
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
@@ -300,20 +312,42 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => paintPlusJoin());
       const old = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim());
       chk(old === 'That code ran out. A new one is on its way.', `${tag} #4794: a code past 10 minutes by the page's clock reads as run out`, old);
-      /* CONTROL: connected and confirmed (not waiting), the block is gone. */
-      join = { ...join, held: false, confirmed: true };
+      /* Review 6: allowed (not held) and past the page's 10 minutes, no new code follows: it says the ending, and keeps
+         reading until the tunnel's own answer, which then stays as the ending. */
+      join = { ...join, held: false };
       remoteNow = REMOTE;
       jr = await readJoin();
+      chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.' && !jr.button, `${tag} #4794: allowed and past 10 minutes: the ending, not "a new one is on its way" (review 6)`, JSON.stringify(jr));
+      join = { ...join, join_code: '', confirm_expired: true };
+      jr = await readJoin(); jr = await readJoin();
+      chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.', `${tag} #4794: the tunnel's ran-out answer keeps the ending up (review 6)`, JSON.stringify(jr));
+      /* CONTROL: a fresh page, connected and confirmed: the read on load answers and the block stays away (an ending is
+         only said for a pairing this page watched). */
+      join = { ...join, held: false, confirmed: true, confirm_expired: false, join_code: '246 810' };
+      remoteNow = REMOTE;
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_CODE_AT = 0; });
+      jr = await readJoin(); jr = await readJoin();
       chk(!jr.shown && jr.pill === 'Connected', `${tag} #4794 CONTROL: connected, no pairing block`, JSON.stringify(jr));
       /* Review 5: a page loaded AFTER the other computer's Allow, with the code still up. Nothing earlier on this page has
          an answer, so only the one read on load can find it. CONTROL first: with that read already spent, it stays hidden. */
       join = { ...join, held: false, confirmed: false, confirm_expired: false, failed: false, join_code: '135 790', on: 'homemac' };
-      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_PROBED = true; PLUS_JOIN_CODE_AT = 0; });
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = true; PLUS_JOIN_CODE_AT = 0; });
       jr = await readJoin(); jr = await readJoin();
       chk(!jr.shown, `${tag} #4794 CONTROL: without the read on load, a reloaded page never finds the code (review 5)`, JSON.stringify(jr));
-      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_CODE_AT = 0; });
-      jr = await readJoin(); jr = await readJoin();
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_CODE_AT = 0; });
+      /* Review 6: the first read on load fails (a busy round): it is not spent, and the next paint reads again. */
+      joinFailOnce = true;
+      jr = await readJoin();
+      const spent = await page.evaluate(() => PLUS_JOIN_PROBED);
+      chk(!jr.shown && spent === false, `${tag} #4794: a failed read on load is not counted as done (review 6)`, JSON.stringify({ jr, spent }));
+      jr = await readJoin();
       chk(jr.shown && jr.code === '135 790' && jr.button && jr.pill === 'Connected', `${tag} #4794: reloaded after the Allow, the code and The codes match come back (review 5)`, JSON.stringify(jr));
+      /* Review 6: The codes match after the Allow completes the pairing; it says so rather than vanishing. */
+      await page.click('#plus-join-match');
+      await page.waitForFunction(() => /Matched with/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      jr = await readJoin();
+      chk(jr.shown && jr.text === 'Matched with homemac.' && !jr.button && !jr.code && confirmBody && confirmBody.code === '135 790',
+        `${tag} #4794: matched after the Allow says "Matched with homemac." (review 6)`, JSON.stringify({ jr, confirmBody }));
       /* Not me on a computer joining names it the way its sheet did (review round 5). */
       pending = [{ device_id: 'd-pc2', name: 'Laptop2', code: 'M5-N6', first_seen: now() - 20, joining_computer: 'laptop2' }];
       await page.evaluate(() => pollAsk());

@@ -63,3 +63,21 @@ Shots for Mona: both screens, light and dark, plus 390.
 - New lines for Mona (not yet seen by her):
   C (allowed, code still up): "If <name> showed this same code when you allowed it, press The codes match."
   D (allowed, ran out): "This computer is connected, but the code ran out before it was matched here, so it does not trust <name> yet."
+
+## Review 6 (blind Sonnet): 0 blockers, 5 warnings, root cause one: the after-Allow endings were forced through the poll gate
+- Split live from endings. LIVE (plusJoinLive: held, or a code up and unconfirmed) polls and stands in for the
+  coordinator's sentence. ENDINGS after the Allow (PLUS_JOIN_NOTE: ran out, or matched) are said once for a pairing this
+  page watched, never polled (each read is a signed round), never take the status line (an outage after one is still
+  said), and are never claimed by the read on load (a later load shows nothing for a finished pairing).
+- Not held and past the page's 10 minutes: stays live (keeps reading) and says the ending, not "a new one is on its
+  way" (only a held round starts a new code); the tunnel's ran-out answer then keeps the ending up.
+- The read on load counts only once a real answer arrives (a busy or failed round does not spend it); a live answer
+  opens the block at once rather than on the next paint.
+- "The codes match" after the Allow says "Matched with <name>." instead of vanishing.
+- Browser-check arms for each, incl. a round counter (no polling in the ending) and a 502-once fixture.
+- Decided: an ending is NOT shown on a later page load. Rejected: showing "does not trust <name>" permanently, because
+  in slice 1 nothing reads that trust (vouches are slice 2), it would have no action to offer, and keeping it fresh means
+  a signed round per load forever. Weakest premise: that the person is watching when the code runs out; a person who
+  walks away and comes back never learns it. Slice 2, when trust starts to matter, should own a recovery and a durable
+  notice.
+- New line for Mona: E (matched after the Allow): "Matched with <name>."

@@ -44823,7 +44823,7 @@ async function paintPlus() {
   if (!(up && st.dataset && st.dataset.copyFail)) {
     /* #4794: while the pairing block shows (held), its line is the one wait message: the sentence stays empty, so it does
        not come back for the length of each pairing round and get read out again (review 1). */
-    const joinHeld = r.on === true && typeof plusJoinShows === 'function' && plusJoinShows(PLUS_JOIN);
+    const joinHeld = r.on === true && typeof plusJoinLive === 'function' && plusJoinLive(PLUS_JOIN);
     st.textContent = (up || joinHeld)
       ? ''
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
@@ -44834,15 +44834,23 @@ async function paintPlus() {
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
     /* Waiting to be allowed, or allowed with a code still up and unconfirmed. Otherwise the pairing is over: forget the
        last answer, so a later wait (a Forget and a fresh sign-in) never shows this one's state (review 3). */
-    PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinShows(PLUS_JOIN));
+    /* An ending said after the Allow (review 6) belongs to the pairing it ended: a new wait, Off, or a Forget clears it. */
+    if (r.on !== true || r.enrolled !== true || stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
+    PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
     if (PLUS_JOIN_WAITING) plusJoinTick();
     else {
       if (PLUS_JOIN) { PLUS_JOIN = null; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0; }
       paintPlusJoin();
       /* Review 5: a page loaded after the other computer's Allow has no last answer, so the gate above never opens and a
-         code still up (or one that ran out unconfirmed) would never show. Read the pairing once per page; the next paint
-         keeps polling if that answer shows. */
-      if (!PLUS_JOIN_PROBED && r.on === true && r.enrolled === true) { PLUS_JOIN_PROBED = true; plusJoinTick(); }
+         code still up would never show. Read the pairing on load, and count it only once a real answer came back
+         (review 6: a busy or failed round must not spend it). A live answer opens the block at once. */
+      if (!PLUS_JOIN_PROBED && r.on === true && r.enrolled === true) {
+        plusJoinTick().then((answered) => {
+          if (!answered) return;
+          PLUS_JOIN_PROBED = true;
+          if (!PLUS_JOIN_WAITING && plusJoinLive(PLUS_JOIN)) { PLUS_JOIN_WAITING = true; paintPlusJoin(); }
+        });
+      }
     }
   }
   /* #1014: only a real address earns an instruction. While the tunnel is
@@ -44874,27 +44882,30 @@ var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under th
 var PLUS_JOIN_LAST_CODE = '';
 var PLUS_JOIN_GEN = 0;         // bumped by a confirm (and when waiting ends): a round that began before it is stale
 var PLUS_JOIN_CODE_AT = 0;     // when the current code first showed, by this page's clock
-var PLUS_JOIN_PROBED = false;  // the one read on page load (review 5)
+var PLUS_JOIN_PROBED = false;  // the read on page load got a real answer (review 5)
+var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pairing ended after the Allow, said once (review 6)
 /* The tunnel withdraws an unconfirmed code REVEAL_TIMEOUT_SECS (600 s) after it appeared, but only during a round that
    succeeds; by the page's own clock a code that old is treated as run out, even if rounds keep failing (review 3). */
-var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: plusJoinShows is hoisted and may run before this line
-/* Whether the pairing block shows. Held, OR a code is up and not yet confirmed: the tunnel keeps the code after the
-   other computer's Allow ("the person may press Allow on the other computer first and confirm here after"), so the
-   block must outlive waiting-allow until it is confirmed or runs out (review 3). */
-function plusJoinShows(j) {
+var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
+/* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
+   up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
+   the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
+   page's 10 minutes stays live until a round answers, so the tunnel's own "ran out" is read rather than missed (review 6). */
+function plusJoinLive(j) {
   if (!j || j.supported !== true) return false;
-  const code = /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
-  return j.held === true || (!!code && !j.confirmed && Date.now() - PLUS_JOIN_CODE_AT < PLUS_JOIN_CODE_MS) || plusJoinRanOut(j);
+  return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
 }
 /* Allowed, but the code ran out before it was confirmed here. The tunnel says so only once it is no longer held: while
    held, the round that withdraws a code also starts a new attempt and clears the flag (pairing.rs owe_commitment). It
-   stays until this computer pairs again, so it is read slowly (review 5). */
+   stays until this computer pairs again, so it is NOT live: said once, as the ending of a pairing this page watched
+   (review 6), never polled for (each read is a signed round) and never claimed on a later load. */
 function plusJoinRanOut(j) {
   return !!j && j.held !== true && j.confirm_expired === true && j.confirmed !== true && j.failed !== true;
 }
-/* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). */
+/* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). Resolves true
+   when a real answer came back. */
 async function plusJoinTick() {
-  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < (plusJoinRanOut(PLUS_JOIN) ? 60000 : 4000)) { paintPlusJoin(); return; }
+  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return false; }
   PLUS_JOIN_BUSY = true;
   const gen = PLUS_JOIN_GEN;
   /* Only a real answer replaces the last one: a round that failed (the tunnel's round lock, a Forget in progress, a
@@ -44905,10 +44916,12 @@ async function plusJoinTick() {
   if (got && gen === PLUS_JOIN_GEN) {
     const was = PLUS_JOIN && PLUS_JOIN.join_code, now = got.join_code;
     if (now && now !== was) PLUS_JOIN_CODE_AT = Date.now();   // a new code: its own clock starts
+    if (plusJoinRanOut(got) && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.on || PLUS_JOIN.on || '' };
     PLUS_JOIN = got;
   }
   PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
   paintPlusJoin();
+  return !!got;
 }
 /* Read out a character at a time, a pause between the two groups, as the Allow card reads its code: "4 8 2, 9 1 5". */
 function plusJoinSpoken(code) { return String(code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', '); }
@@ -44919,16 +44932,26 @@ function paintPlusJoin() {
   const el = document.getElementById('plus-join');
   if (!el) return;
   const j = PLUS_JOIN;
-  const show = PLUS_JOIN_WAITING && plusJoinShows(j);
-  el.hidden = !show;
-  if (!show) { if (el.innerHTML) el.innerHTML = ''; return; }
+  const live = PLUS_JOIN_WAITING && plusJoinLive(j);
+  const note = PLUS_JOIN_NOTE;
+  el.hidden = !live && !note;
+  let html;
+  if (!live) {
+    if (!note) { if (el.innerHTML) el.innerHTML = ''; return; }
+    /* An ending, said once under the status: it does not take the coordinator's sentence (review 6: an outage after it
+       must still be said). */
+    const nn = askEsc(note.name || 'your other computer');
+    html = note.kind === 'matched' ? '<p class="plus-join-say">Matched with ' + nn + '.</p>'
+      : '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + nn + ' yet.</p>';
+    if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+    return;
+  }
   /* One wait message, not two: the coordinator's sentence goes while this block shows. */
   const st = document.getElementById('plus-status'); if (st && st.textContent) st.textContent = '';
   const name = askEsc(j.on || (Array.isArray(j.asked_of) && j.asked_of[0]) || 'your other computer');
   const stale = PLUS_JOIN_CODE_AT && Date.now() - PLUS_JOIN_CODE_AT >= PLUS_JOIN_CODE_MS && !j.confirmed;
   const code = !stale && /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
   if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
-  let html;
   if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + ', press Not me on this request, then sign this computer in again.</p>';
   else if (code && j.confirmed) html = '<p class="plus-join-say">Matched. Now press Allow on ' + name + '.</p>' + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
@@ -44936,7 +44959,9 @@ function paintPlusJoin() {
       : 'If ' + name + ' showed this same code when you allowed it, press The codes match.') + '</p>' + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
-  else if (plusJoinRanOut(j)) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
+  /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
+     round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
+  else if (j.held !== true && stale) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
   else if (j.confirm_expired || stale) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
   else html = '<p class="plus-join-say">Working out the code with ' + name + '...</p>';
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
@@ -44949,7 +44974,14 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   let res = null;
   try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
   PLUS_JOIN_GEN += 1;
-  if (res && res.ok) { PLUS_JOIN_MSG = ''; if (PLUS_JOIN) PLUS_JOIN.confirmed = true; }
+  if (res && res.ok) {
+    PLUS_JOIN_MSG = '';
+    if (PLUS_JOIN) {
+      PLUS_JOIN.confirmed = true;
+      /* Already allowed: the pairing is complete, and the block (no longer live) says so once (review 6). */
+      if (PLUS_JOIN.held !== true) PLUS_JOIN_NOTE = { kind: 'matched', name: PLUS_JOIN.on || '' };
+    }
+  }
   else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
     /* The tunnel's confirm refusals, worded (engine joinConfirm tags them). */
