@@ -1075,12 +1075,19 @@ run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/
 # an address planted in an agent's role by the page scan ("this screen shows
 # real data"). Exit 3 alone is not enough: the preflight firing first would
 # pass the page arm without the page scan ever running.
+# kosmos#5135: when an arm passes, its run's own "FAIL  " lines are the planted
+# failure it was meant to produce, so they print as "CONTROL (expected): " and a
+# person scanning the cut log for reds is not sent after them. An arm that does
+# not pass prints its output untouched, so a real red still reads as one. The
+# cover arms below do the same.
 for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
   run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
-      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      3:*"$2"*) echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
+      3:*"$2"*) printf "%s\n" "$out" | sed "s/^FAIL  /CONTROL (expected): /"
+        echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
@@ -1096,10 +1103,12 @@ done
 for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
-      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      2:*"$3"*) echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
+      2:*"$3"*) printf "%s\n" "$out" | sed "s/^FAIL  /CONTROL (expected): /"
+        echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_rest%%:*}" "${_rest#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done
