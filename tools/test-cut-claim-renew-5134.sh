@@ -152,12 +152,14 @@ if [ -f "$CLAIM" ] && [ "$(awk '{print $1}' "$CLAIM")" = foreign-cookie ]; then 
 else fail "the foreign claim did not survive the cut's release"; fi
 
 # Arm 8 (review 1): a renewal IN FLIGHT when the step ends is reaped before the release, so it cannot land after it.
-# A slow claim (a marker, then 1.5 s) holds the renewer inside kosmos_claim_machine; the cut waits for the marker and
+# A slow claim that ignores TERM (a marker, then 1.5 s) holds the renewer inside a renewal; the cut waits for the marker and
 # then ends. Without the wait in _cut_renew_stop the renewal lands after the release and the claim is back.
 rm -f "$CLAIM" "$T/inclaim"
 cut_run '
   eval "$(declare -f kosmos_claim_machine | sed "1s/kosmos_claim_machine/_real_claim_machine/")"
-  kosmos_claim_machine() { if [ "${KOSMOS_CLAIM_KEEP_LABEL:-0}" = 1 ]; then : > "'"$T"'/inclaim"; sleep 1.5; fi; _real_claim_machine "$@"; }
+  # The renewal runs in a subshell that ignores TERM: a renewal the stop cannot cut short (as when the claim'"'"'s own mv is
+  # already under way). The renewer'"'"'s TERM trap then runs only after it, so only the wait can order it before the release.
+  kosmos_claim_machine() { if [ "${KOSMOS_CLAIM_KEEP_LABEL:-0}" = 1 ]; then ( trap "" TERM; : > "'"$T"'/inclaim"; sleep 1.5; _real_claim_machine "$@" ); else _real_claim_machine "$@"; fi; }
   step "== inflight =="
   for _ in $(seq 1 50); do [ -f "'"$T"'/inclaim" ] && break; sleep 0.1; done
   cut_record_done 0
