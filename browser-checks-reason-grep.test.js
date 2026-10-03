@@ -374,7 +374,7 @@ const SITE_COUNTS = {
   'render-fed-external-3311.js': [2, 0],
   'render-fed-plus-gate.js': [2, 2],
   'render-federation-invite-4649.js': [1, 2],
-  'render-fields.js': [2, 0],
+  'render-fields.js': [5, 0],
   'render-file-preview-4930.js': [1, 0],
   'render-files-preview-4997.js': [1, 1],
   'render-first-run.js': [1, 0],
