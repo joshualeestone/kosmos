@@ -12058,7 +12058,8 @@ window.kosmosMeasureScrollbarWidth();
         <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
       <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-      <div class="mstep">
+      <!-- #5091: the CURRENT provider's account and model rows, hidden whole while a switch to another provider is armed. -->
+      <div class="mstep" id="d-current-rows">
         <div class="frow">
           <select id="d-account" aria-label="Account this agent runs on"></select>
           <button class="btn" type="button" id="d-account-go" disabled>Move</button>
@@ -47166,7 +47167,10 @@ function fillSwitchAccounts() {
      switch route takes an account for each of them. `keyed` is the menu's provider id
      when it is one of those, else ''. The OpenAI-only sentences below (unreadable,
      all dead) stay OpenAI's: they describe engine behaviour measured for codex. */
-  const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : '';
+  /* #5091 (Josh, 10-02 22:10): a switch TO Claude offers its accounts too ("when i change the top to claude, i dont get
+     my list of emails"). The engine now takes the pick (setProvider -> setAccount). Its list is Move's rule for a Claude
+     destination: a Claude row that shares the agents' history, and not signed out. */
+  const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : (prov.value === 'anthropic' ? 'anthropic' : '');
   paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
   paintAgyOption(prov, CURRENT ? providerOf(CURRENT) : ''); agyAsk();   // #3568
   paintMuseOption(prov, CURRENT ? providerOf(CURRENT) : '');   // #3939 3c-3b
@@ -47190,7 +47194,15 @@ function fillSwitchAccounts() {
      engine cannot drift - which is what this card reports them doing. */
   const list = ACCOUNTS.filter((x) => keyed && acctProvider(x) === keyed
     && (!x.connection || x.connection.state !== 'none')
-    && x.offerable !== false);
+    && x.offerable !== false
+    && (keyed !== 'anthropic' || x.memoryShared));
+  /* #5091: while a switch to ANOTHER provider is armed, the rows below speak for the agent's CURRENT provider
+     ("It runs on your Google subscription through Antigravity, so there is no account to move it to", "Gemini picks
+     its own model"), which is false for the switch being set up; they are hidden until the menu is back on it. */
+  /* The whole block (account row, its line, the model row) is the current provider's, so it goes as one; nothing else
+     sets this block's hidden, so a repaint of the rows inside it cannot bring it back while the switch is armed. */
+  { const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = armed; }
+
   /* Hidden for THREE reasons, and the condition below names all of them because a
      comment that names one is how a reader concludes the others are bugs:
        not OpenAI    switching back to Anthropic has no OpenAI account to pick
@@ -47320,7 +47332,7 @@ function fillSwitchAccounts() {
      options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
-  sel.setAttribute('aria-label', switchKeyedSay('OpenAI sign-in to run on', keyed));
+  sel.setAttribute('aria-label', keyed === 'anthropic' ? 'Claude account to run on' : switchKeyedSay('OpenAI sign-in to run on', keyed));   // #5091
   sel.hidden = false;
   /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
      `changeProviderNow` disables this select while a switch is in flight and re-enables it
@@ -48240,7 +48252,14 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
               if (switchAcctSending()) return 'and it runs on the ' + label + ' account shown above.';
               return 'and with no ' + label + ' account shown above it runs on this computer\'s own ' + label + ' key, if one is set up.';
             })())
-        : 'It runs on your main Claude account and Claude’s default model until you change them.'),
+        /* #5091: a switch to Claude can carry a picked account now, so the main-account sentence is said only when
+           the picker is not sending one. */
+        : ((() => {
+          const on = switchAcctShown();
+          if (on) return 'It will run on ' + on + ', on Claude’s default model until you change it.';
+          if (switchAcctSending()) return 'It runs on the Claude account shown above, on Claude’s default model until you change it.';
+          return 'It runs on your main Claude account and Claude’s default model until you change them.';
+        })())),
     go: 'Switch and restart',
     /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
        switch, worded for what it is doing -- "Setting up OpenAI" (which may install/authorise)
