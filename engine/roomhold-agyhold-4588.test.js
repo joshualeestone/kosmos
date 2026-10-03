@@ -597,3 +597,46 @@ test('#4588 ask 3: a cap-marked id is dropped when stale like a plain one, and t
   assert.equal(roomhold.plainId(capped), 'm2');
   assert.equal(roomhold.isAddressed(capped), false);
 });
+
+/* #4588 ask 3 review 14: a post held while the member WORKED is told at its turn end. When the cap refuses that turn-end
+   line the member is idle with no wake coming, so the ids go back with the cap's mark and the minute retry tells them
+   once the cap frees. CONTROL: the quota refusing the same line puts them back unmarked (the follow-up's rule). */
+test('#4588 ask 3: a turn-end flush the cap refuses puts its posts back marked, and the retry tells them once the cap frees; a quota refusal does not mark (CONTROL)', async () => {
+  const capSetting = require('./agycap-setting');
+  const room = () => room3().concat([fleet.agent('zed', AGY)]);
+  const withZed = (board, busy, quotaUntil) => rosterOf(board, quotaUntil).map((c) => (String(c.sessionName).replace(/-discord$/, '') === 'zed' ? { ...c, state: busy ? 'working' : 'idle' } : c));
+  for (const by of ['cap', 'quota']) {
+    chat.resetForTests(); messages.resetForTests(); poolReset();
+    for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+    if (by === 'cap') assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true }); else fs.rmSync(capSetting.FILE, { force: true });
+    try {
+      await withFleetAsync(room(), async (board) => {
+        report('mara', 'working');
+        armSender('leo-discord');
+        arm();
+        const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, withZed(board, false, null), MEMBERS);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the #4624 hold kept the post for the working member, unmarked');
+        // Her turn ends (automatic idle); the turn-end line meets the cap (zed working) or the quota (a reset ahead).
+        assert.equal(selfreport.record('mara', { state: 'idle', because: 'test', auto: true }).recorded, true);
+        agyquota.CAP_STARTS.clear();
+        const refused = arm();
+        const r1 = by === 'cap' ? withZed(board, true, null) : withZed(board, false, AHEAD());
+        const flushed = await roomhold.flushOnIdle('mara', flushDeps(r1));
+        assert.deepEqual(flushed.map((d) => d.state), [chat.DELIVERY.COULD_NOT], 'fixture: the turn-end line was held');
+        assert.deepEqual(typedTo(refused, 'mara'), []);
+        if (by === 'cap') {
+          assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.cappedId(sent.id)], 'a cap-refused turn-end line put its post back unmarked');
+          agyquota.CAP_STARTS.clear();
+          const tmux = arm();
+          const freed = withZed(board, false, null);
+          const after = await roomhold.flushReleased(freed, releasedDeps(freed, Date.now()));
+          assert.deepEqual(after.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]], 'the post was stranded');
+          assert.match(typedTo(tmux, 'mara')[0] || '', new RegExp('\\(' + sent.id + '\\)'));
+          assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        } else {
+          assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'a quota refusal marked the post');
+        }
+      });
+    } finally { fs.rmSync(capSetting.FILE, { force: true }); agyquota.CAP_STARTS.clear(); poolReset(); }
+  }
+});

@@ -258,11 +258,15 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
     let state;
+    let capped = false;
     try {
       const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
       state = sent && sent.state;
+      capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
     } catch { state = DELIVERY.COULD_NOT; }
-    if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, ids);
+    /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
+       posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
+    if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
     out.push({ projectId, n: ids.length, state });
   }
   return out;
