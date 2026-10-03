@@ -600,3 +600,14 @@ test('#5151: the harnesses export KOSMOS_INTERNAL_RUN=1 at the top level', () =>
     assert.match(fs.readFileSync(path.join(REPO, f), 'utf8'), /^export KOSMOS_INTERNAL_RUN=1\b/m, `${f} must export KOSMOS_INTERNAL_RUN=1 at the top level`);
   }
 });
+
+test('#5151: tools/fed-own-e2e.js boardEnv (built by hand) names the dead-port URLs and the internal mark', () => {
+  /* boots() does not see this file's spawn shape (the server path is a variable), so the tools/*.js scan above
+     cannot guard it: pin the hand-built env directly. */
+  const src = fs.readFileSync(path.join(REPO, 'tools', 'fed-own-e2e.js'), 'utf8');
+  const m = /function boardEnv\([^)]*\) \{([\s\S]*?)\n\}/.exec(src);
+  assert.ok(m, 'boardEnv not found in tools/fed-own-e2e.js; this pin has gone blind');
+  for (const kv of ["AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created'", "AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback'", "KOSMOS_INTERNAL_RUN: '1'"]) {
+    assert.ok(m[1].includes(kv), `fed-own-e2e boardEnv must set ${kv}`);
+  }
+});
