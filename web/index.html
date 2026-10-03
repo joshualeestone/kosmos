@@ -47114,6 +47114,15 @@ const SWITCH_ACCT_ALLDEAD = 'None of your OpenAI sign-ins are working right now,
      list unreadable        -> false (the `unreadable` guard); "we could not read
                                it" is not "we checked and none works", and must
                                not fire the refusal on a machine that is fine. */
+/* #5091: true when the list was read and no Claude account can take a switched agent (none shares the agents'
+   history with a state other than 'none'): the switch would restart it onto a dead or separate login. */
+function claudeNoTarget(accounts, unreadable) {
+  if (unreadable) return false;
+  const claude = (accounts || []).filter((x) => x && acctProvider(x) === 'anthropic');
+  if (!claude.length) return false;
+  return !claude.some((x) => x.memoryShared && (!x.connection || x.connection.state !== 'none') && x.offerable !== false);
+}
+const SWITCH_CLAUDE_NONE = 'There is no Claude account on this computer that can take it: the main one is signed out and no other shares your agents\u2019 history. Sign in to Claude in Settings, AI Models, then switch.';
 function openaiAllDead(accounts, unreadable) {
   if (unreadable) return false;
   const openai = (accounts || []).filter((x) => x && x.provider === 'openai');
@@ -47253,8 +47262,10 @@ function fillSwitchAccounts() {
        ⇒ Strip OUR half and leave the engine's, which is the more specific sentence and not
        ours to delete. */
     if (pmsg0 && SWITCH_ACCT_SAID && pmsg0.textContent === SWITCH_ACCT_SAID) { pmsg0.textContent = ''; SWITCH_ACCT_SAID = ''; }
-    else if (pmsg0 && pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)) {
-      pmsg0.textContent = pmsg0.textContent.slice(0, -(SWITCH_ACCT_UNREADABLE.length + 1));
+    else if (pmsg0 && [SWITCH_ACCT_UNREADABLE, switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic')].some((u) => pmsg0.textContent.endsWith(' ' + u))) {
+      /* #5091: a refused Claude switch appends Claude's form of the line, so either form is ours to strip. */
+      const u = [SWITCH_ACCT_UNREADABLE, switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic')].find((x) => pmsg0.textContent.endsWith(' ' + x));
+      pmsg0.textContent = pmsg0.textContent.slice(0, -(u.length + 1));
       SWITCH_ACCT_SAID = '';  /* same reset as the sibling branch; an asymmetry here is what goes wrong on the next edit */
     }
     /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
@@ -47916,6 +47927,11 @@ async function changeProviderNow(say) {
      must not fire this) and at least one OpenAI account exists but none is live.
      Mirrors the picker's own filter (connection.state !== 'none'). This is the
      real refusal; fillSwitchAccounts only shows the sentence. */
+  if (want === 'anthropic' && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE)) {   // #5091
+    if (msg) { msg.textContent = SWITCH_CLAUDE_NONE; SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE; }
+    tell(SWITCH_CLAUDE_NONE, false);
+    return;
+  }
   if (want === 'openai' && openaiAllDead(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
     if (msg) { msg.textContent = SWITCH_ACCT_ALLDEAD; SWITCH_ACCT_SAID = SWITCH_ACCT_ALLDEAD; }
     tell(SWITCH_ACCT_ALLDEAD, false);
@@ -47950,6 +47966,7 @@ async function changeProviderNow(say) {
   if (acctSel) acctSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
+    const sentAccount = (acctSel && !acctSel.hidden) ? acctSel.value : null;   // #5091: kept for the repaint after
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -47965,7 +47982,7 @@ async function changeProviderNow(say) {
          The claim about who chose it travels separately and stays conservative. */
       body: JSON.stringify({
         provider: want,
-        account: (acctSel && !acctSel.hidden) ? acctSel.value : null,
+        account: sentAccount,
         picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
       }),
     });
@@ -48039,8 +48056,20 @@ async function changeProviderNow(say) {
     const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude' }[want];
     /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
        starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
-    if ((restarted || (out.outcome === 'partial' && out.provider === want && /starting again now/.test(out.because || '')))
-      && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
+    const moved = restarted || (out.outcome === 'partial' && out.provider === want && out.restarted === true);
+    if (moved && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
+    /* #5091 round 3: the current rows come back after the switch, so they must speak for the NEW provider. The poll never
+       repaints an open panel, so the open agent takes the runner (and the Claude account) the switch just confirmed, and
+       the account and model rows are repainted from it, as Move does after its own success. */
+    if (moved && CURRENT && CURRENT.sessionName === forAgent) {
+      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '' };
+      if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
+      CURRENT.model = null;
+      CURRENT.account = (want === 'anthropic' && sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null;
+      accountsDropped();
+      try { await paintAccountPicker(CURRENT); } catch { /* the switch's own sentence is the answer */ }
+      try { if (CURRENT && CURRENT.sessionName === forAgent) await paintModelPicker(CURRENT); } catch { /* same */ }
+    }
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -48112,8 +48141,9 @@ async function changeProviderNow(say) {
        longer describes the region. A tracker that outlives what it tracks is the drift it
        was introduced to prevent. */
     SWITCH_ACCT_SAID = '';
-    if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(SWITCH_ACCT_UNREADABLE) === -1) {
-      msg.textContent = msg.textContent + ' ' + SWITCH_ACCT_UNREADABLE;
+    const unreadableLine = want === 'anthropic' ? switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic') : SWITCH_ACCT_UNREADABLE;   // #5091
+    if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(unreadableLine) === -1) {
+      msg.textContent = msg.textContent + ' ' + unreadableLine;
     }
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {

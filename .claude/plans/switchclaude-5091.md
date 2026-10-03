@@ -63,4 +63,14 @@ account and need a second restart.
   current rows (model change, account move) hide with them (.d-current-hint). NIT4: the hint arm asserts the line says
   "Claude account" (an empty line passed). NIT5: the comment says what the list rule is (state not 'none', Move's rule),
   not "not signed out". Measured: engine 8/8; Windows double write reasoned by the reviewer (cache forgotten on install).
-- Round 3: PENDING.
+- Round 3 (opus, blind, whole change): 0 BLOCKER, 3 SHOULD-FIX, 3 NIT, taken (23:0x). SF1 (the screenshot's defect one step
+  later): after a successful switch the current rows came back still speaking for the OLD provider (nothing repaints an open
+  panel; my round-1 arm checked visibility only). The open agent now takes the runner and Claude account the switch confirmed
+  and the account and model rows are repainted, as Move does. SF2: with no Claude account that can take it (the main signed
+  out, nothing else sharing history), the dialog promised the main account and restarted onto a dead login; the switch now
+  refuses with the remedy (Settings, AI Models), like OpenAI's all-dead rule. SF3: a refused Claude switch whose list re-read
+  failed appended OpenAI's unreadable line; it appends Claude's form, and either form is stripped. NIT1: the dry-run comment
+  (a Claude pick is validated by a read even under dry-run). NIT2: the partial reply carries restarted:true/false and the page
+  keys on it, not on a sentence. Not taken: NIT3 (a setAccount job-write failure right after the switch's own write reads
+  "is switched ... nothing changed"; vanishingly rare, the sentence is setAccount's own).
+- Round 4: PENDING.
