@@ -81,3 +81,15 @@ mentions on main are code comments only (checked: server.js 5259/5270, index.htm
 Draft (finalize + review when noplace-5127 lands, which also fixes the Claude-Code-missing create refusal):
   title "Setup points to real places", line: "When Kosmos tells you where to fix something, it now names a real place:
   Settings, AI Models, or AI Settings on an agent's page."
+
+## Final (06:30): Mona's noplace-5127 merged (#5138, 799ea2f0e); line 1 folded; #5093 replaces #5108 in slot 5
+- Review 6 (sonnet, line 1 vs main with all four merges): CONVERGED. No user-facing copy still names a nonexistent
+  place ("Accounts tab", "Terminal tab" hits are comments/fixtures only); "AI Settings" (agent page) and "AI Models"
+  (Settings tab, index.html 11639) are real. NIT taken: narrower line "Setup messages that pointed to a tab that does
+  not exist now say Settings, AI Models or an agent's AI Settings." Title "Setup points to real places".
+- Slot 5 now #5093 (merged e2940200): "A computer with remote access off now reads "Remote access off" on your
+  Kosmos+ account page, not "Answering now"." (reviewed in round 1). Verified the quoted text is the coordinator's
+  own: relay coordinator/src/signin.html:1915-1917 "Remote access off, last heard from ..."; live build 8901bb2c.
+- #5108 dropped (lowest for a newcomer; it stays in the release entry).
+Final five: #5126+#5136+#5138 (setup places), #5118 (language), #5101 (switch to Claude), #5104 (safeguards
+question), #5093 (Kosmos+ remote access off).

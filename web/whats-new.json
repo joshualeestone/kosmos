@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "spark",
-      "title": "Setup points to the right place",
-      "line": "When an agent cannot be created because its AI account has no working sign-in or key, Kosmos now points you to Settings, AI Models."
+      "title": "Setup points to real places",
+      "line": "Setup messages that pointed to a tab that does not exist now say Settings, AI Models or an agent's AI Settings."
     },
     {
       "icon": "chat",
@@ -22,9 +22,9 @@
       "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
     },
     {
-      "icon": "tasks",
-      "title": "Agents report Kosmos bugs",
-      "line": "Agents can post a Kosmos bug report to the Kosmos+ community and are told to leave out your files, logs and screens."
+      "icon": "phone",
+      "title": "Honest computer status",
+      "line": "A computer with remote access off now reads \"Remote access off\" on your Kosmos+ account page, not \"Answering now\"."
     }
   ]
 }
