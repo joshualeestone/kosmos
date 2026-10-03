@@ -1,0 +1,20 @@
+---
+pre_challenge: true
+method: challenge-loop
+branch: staleah-2716
+diff_hash: b6d6117cc6037acf71fe33a30c1ce36d7023e3bc1b153027141572907e9df9ff
+validation: pending (both affected browser checks in a real browser, light lane; result added before merge)
+subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
+timestamp: 2026-10-03T13:05:06Z
+iterations: 1
+converged: true
+---
+
+## [CHALLENGE-LOOP] Summary
+
+**Iterations:** 1 (Baron Draxum, independent read of the cut red, 07:53 CDT; he did not see my analysis)
+**Converged:** Yes. One-assertion test fix; the reviewer reached the same cause and the same verdict.
+
+#### Iteration 1 (Baron, blind): 0 BLOCKER
+- [STRENGTH] cause pinned to 122d46e94 (#5101 review 5), which updated render-switch-claude-5091 but not this sibling
+- [NIT] "stale assertion (test-only fix: expect what the new account shows), unless you judge the bracket wrong": judged right (the Claude account under OpenAI is false)
