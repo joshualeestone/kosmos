@@ -93,7 +93,9 @@ const CODEX_OUT_OF_CREDITS = [
     chk(pick.current === false, "#5091: the current provider's rows (its account line, its model row) are hidden while a switch is set up");
     // Round 1 (the blocker): the line under the Claude list speaks for Claude, never OpenAI.
     const hint = await page.$eval('#d-provider-msg', (e) => e.textContent);
-    chk(!/OpenAI/.test(hint), '#5091: the line under the Claude list does not name OpenAI', JSON.stringify(hint));
+    chk(!/OpenAI/.test(hint) && /Claude account/.test(hint), '#5091: the line under the Claude list speaks for Claude (and is there), not OpenAI', JSON.stringify(hint));
+    const hints = await page.evaluate(() => [...document.querySelectorAll('.d-current-hint')].map((h) => h.hidden));
+    chk(hints.length === 2 && hints.every(Boolean), "#5091: the current rows' two help lines go with them", JSON.stringify(hints));
     // Round 1: a repaint of the agent's own provider (the path an Antigravity or Muse agent takes, whose account picker
     // returns early) brings the current rows back.
     const repainted = await page.evaluate(() => { paintProviderPicker(CURRENT); const c = document.getElementById('d-current-rows'); return !!c && !c.hidden; });

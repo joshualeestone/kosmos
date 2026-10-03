@@ -2191,7 +2191,7 @@ function setProvider(name, provider, opts) {
     const moved = setAccount(clean, claudePick.dir, opts);
     if (moved && moved.outcome === OUTCOME.REFUSED) {
       const why = String(moved.because || '').replace(/[.\s]+$/, '');
-      return { outcome: OUTCOME.PARTIAL, because: `${spoken} now runs on Claude, but on your main Claude account: it could not move to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
     }
   }
   return {

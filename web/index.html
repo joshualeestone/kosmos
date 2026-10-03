@@ -12237,8 +12237,8 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <p class="dhint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
-    <p class="dhint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
+    <p class="dhint d-current-hint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+    <p class="dhint d-current-hint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
   <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
@@ -47253,7 +47253,7 @@ function paintProviderPicker(a) {
   if (acctSel0) acctSel0.hidden = true;
   /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
      (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
-  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; }
+  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -47396,7 +47396,8 @@ function fillSwitchAccounts() {
      all dead) stay OpenAI's: they describe engine behaviour measured for codex. */
   /* #5091 (Josh, 10-02 22:10): a switch TO Claude offers its accounts too ("when i change the top to claude, i dont get
      my list of emails"). The engine now takes the pick (setProvider -> setAccount). Its list is Move's rule for a Claude
-     destination: a Claude row that shares the agents' history, and not signed out. */
+     destination: a Claude row that shares the agents' history and whose connection state is not 'none' (a row whose
+     badge reads rejected while its state is connected is still offered, exactly as Move offers it). */
   const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : (prov.value === 'anthropic' ? 'anthropic' : '');
   paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
   paintAgyOption(prov, CURRENT ? providerOf(CURRENT) : ''); agyAsk();   // #3568
@@ -47429,7 +47430,12 @@ function fillSwitchAccounts() {
   /* The whole block (account row, its line, the model row) is the current provider's, so it goes as one; nothing else
      sets this block's hidden, so a repaint of the rows inside it cannot bring it back while the switch is armed. */
   /* Not `armed`: after a switch the menu value is '' (armed reads true there), and the block must come back. */
-  { const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = !!CURRENT && !!prov.value && prov.value !== providerOf(CURRENT); }
+  {
+    const other = !!CURRENT && !!prov.value && prov.value !== providerOf(CURRENT);
+    const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = other;
+    // Round 2: the two lines under the block describe ITS controls (model change, account move); they go with it.
+    for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = other;
+  }
 
   /* Hidden for THREE reasons, and the condition below names all of them because a
      comment that names one is how a reader concludes the others are bugs:
@@ -48254,7 +48260,10 @@ async function changeProviderNow(say) {
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
     const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude' }[want];
-    if (restarted && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
+    /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
+       starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
+    if ((restarted || (out.outcome === 'partial' && out.provider === want && /starting again now/.test(out.because || '')))
+      && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
