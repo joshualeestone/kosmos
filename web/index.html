@@ -47124,6 +47124,8 @@ function claudeNoTarget(accounts, unreadable) {
   return !claude.some((x) => x.memoryShared && (!x.connection || x.connection.state !== 'none') && x.offerable !== false);
 }
 const SWITCH_CLAUDE_NONE = 'There is no Claude account on this computer that can take it: none is signed in that shares your agents\u2019 history. Sign in to Claude in Settings, AI Models, then switch.';
+// #5091 (Renet): said when Switch is pressed while the accounts are still being read, instead of switching to the main one.
+const SWITCH_ACCT_CHECKING = 'Still checking which accounts it can use. Press Switch again in a moment.';
 function openaiAllDead(accounts, unreadable) {
   if (unreadable) return false;
   const openai = (accounts || []).filter((x) => x && x.provider === 'openai');
@@ -47142,6 +47144,36 @@ let SWITCH_ACCT_SAID = '';
    control appear at all. The feature's own test calls that call site the entire feature.
    ⇒ Guarding the rare path and leaving the common one bare is the wrong way round, and two
    spellings of the same recovery is how they drift. */
+/* #5091 (Renet's review, the blocker): an Antigravity or Muse agent's paintAccountPicker returns BEFORE its accounts
+   fetch, so on a fresh page nothing has read /api/accounts. Choosing Claude then showed no list, Switch sent no account
+   and the agent landed on the main one: Josh's exact case. So a keyed switch reads the list itself when nobody has, and
+   refills when it lands. It shares paintAccountPicker's one in-flight fetch and its epoch, and writes the list only
+   through accountsRead / accountsUnreadable, so the two loaders cannot disagree.
+   ⚠️ ONCE PER AGENT, ON PURPOSE. A failed read leaves ACCOUNTS_LOADED false, so "read when not loaded" alone would refetch
+   on every refill, for ever. After one try the existing unreadable lines speak, as they do for every other agent.
+   SWITCH_ACCT_ENSURING names the agent whose read is in flight, so Switch can wait rather than send no account. */
+let SWITCH_ACCT_ENSURED_FOR = null;
+let SWITCH_ACCT_ENSURING = null;
+function switchAccountsEnsure(forAgent) {
+  SWITCH_ACCT_ENSURED_FOR = forAgent;
+  SWITCH_ACCT_ENSURING = forAgent;
+  const mine = ++ACCT_PICKER_EPOCH;
+  if (!ACCT_PICKER_FETCH) {
+    ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
+      .then((res) => (res.ok
+        ? res.json().then((body) => ({ ok: true, accounts: (body || {}).accounts || [] }))
+        : { ok: false, accounts: [] }))
+      .catch(() => ({ ok: false, accounts: [] }))
+      .finally(() => { ACCT_PICKER_FETCH = null; });
+  }
+  ACCT_PICKER_FETCH
+    .then((got) => { if (got && got.ok) accountsRead(got.accounts); else if (mine === ACCT_PICKER_EPOCH) accountsUnreadable(); })
+    .catch(() => { if (mine === ACCT_PICKER_EPOCH) accountsUnreadable(); })
+    .finally(() => {
+      if (SWITCH_ACCT_ENSURING === forAgent) SWITCH_ACCT_ENSURING = null;
+      if (CURRENT && CURRENT.sessionName === forAgent) fillSwitchAccountsSafely();   // a newer agent's panel is left alone
+    });
+}
 function fillSwitchAccountsSafely() {
   try {
     fillSwitchAccounts();
@@ -47197,6 +47229,8 @@ function fillSwitchAccounts() {
      there" rule this file keeps, and the sibling #d-account is disabled for the
      same agent for the same reason. */
   const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
+  // #5091 (Renet): nobody has read the list for this agent (an Antigravity/Muse panel never does); read it, refill on landing.
+  if (keyed && armed && !ACCOUNTS_LOADED && SWITCH_ACCT_ENSURED_FOR !== CURRENT.sessionName) switchAccountsEnsure(CURRENT.sessionName);
   /* #1488: AND OFFERABLE. When AGENT_WORKFORCE_CODEX_HOME names a home,
      engine/create.js collapses the OpenAI accounts to that ONE home and refuses every
      other, so without this line the menu offered rows the engine could only refuse -
@@ -48188,6 +48222,11 @@ async function changeProviderNow(say) {
 document.getElementById('d-provider-go').addEventListener('click', () => {
   /* Round 7: refuse before the dialog, which would otherwise promise the main Claude account first. */
   { const p0 = document.getElementById('d-provider'); const m0 = document.getElementById('d-provider-msg');
+    /* #5091 (Renet): the list is still being read for this agent; Switch now would send no account (the main one). */
+    if (p0 && CURRENT && SWITCH_ACCT_ENSURING === CURRENT.sessionName) {
+      if (m0) { m0.textContent = SWITCH_ACCT_CHECKING; SWITCH_ACCT_SAID = SWITCH_ACCT_CHECKING; }
+      return;
+    }
     if (p0 && p0.value === 'anthropic' && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
       if (m0) { m0.textContent = SWITCH_CLAUDE_NONE; SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE; }
       return;
