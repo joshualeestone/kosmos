@@ -71,3 +71,27 @@ Caught by existing tests on the way: web.not-running's strict proxy (offline row
 (snapshot rows lacked it), render-talk-goldencard (the snapshot's key set changed: re-captured with the tool).
 97 related test files 2197 pass, then 73 files 1961 pass after the look and label change.
 Browser: render-connlost-reconnect-3410 gains a crash-loop phase (the word, the look, the sentence, the members list).
+
+## Review 1 (blind, opus, 11:1x): 2 BLOCKERs, 3 WARNINGs, 3 NITs
+- [BLOCKER] The phone tick read safeRoster(), which holds only agents with a live session: a looping agent is missing
+  most minutes, so the first push was late and later sightings re-pushed (every phonenotify cooldown), and it cost a
+  snapshot a minute. FIXED: crashloop.tellLoops (pure) over the run files (crashloop.keys); a key is forgotten only
+  when its OWN read says not looping. Test: told once, not again while looping, a missing pass not forgotten, told
+  again after it ends.
+- [BLOCKER] cardStOf returned CARD_ST.needs_you (pres on) whatever the presence: an offline looping agent drew a
+  live dot and present tense, and Start (its one recovery control) hid. FIXED: { st: 'attn', pres: <its state's> },
+  as #4006's failed restart. Test: a stopped looping row keeps stopped's pres; CONTROL no loop unchanged.
+- [WARNING] The deliberate exclusion read the disruption record, which status.js clears on the first live reading
+  and which holds only the latest. FIXED: disruption.begin (the one door) writes a "kosmos <epoch>" line into the
+  run file, which nothing clears; every mark excludes the run it falls in. Test through read() after clear().
+- [WARNING] A launch that fails before the watch loop (a missing runner: the likeliest day-one loop) wrote nothing.
+  FIXED: record_run start opens the launch block (before any `|| exit 1`); a start whose end never came ends at the
+  next start (about launchd's 30 s throttle: short), so a fast-failing launch counts, a TERM'd deliberate restart's
+  mark falls inside its span, and a reboot reads long. Test: four start-only lines read as a loop.
+- [WARNING] A removed then re-created agent inherited the old run file. FIXED: remove.js (with its disruption clear),
+  delete-leftover.js and create.js call crashloop.forget. Test: forget removes it.
+- [NIT] An open run under 2 min keeps looping:true after a fix, for up to 2 min. KEPT: during a loop the open run IS
+  the next attempt; clearing at 30 s would flap the card every retry.
+- [NIT] "Open it to see what it shows" for an offline row: covered now that Start shows (B2).
+- [NIT] Windows writes no run files: said on the card (Mac-first beta).
+Re-mutated after the fixes: see the commit; 168 related test files 3620/0, the new file 16/16.
