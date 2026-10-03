@@ -243,3 +243,7 @@ Left as accepted: one setting read per call.
   turn (reviewer's probe: a:held b:held three passes running, the claude agent typed 0 times). Now heldForAgy, as the
   reply nudge already was; a pin requires every `quotaHeld:` in server.js to call heldForAgy (>= 2 sites, so it cannot
   pass on zero); mutation back to heldForQuota reds it. 16 related files 342/342.
+- Review iteration 16 (sonnet, 21:37): no code finding. Its WARNING (an agent's own task message and a part given by a
+  person or agent skip the cap) is the decision recorded above under "Not covered by the cap"; added a one-line comment
+  at both sites (server.js task-message loop, givePart) so it reads as a decision there. NIT (a race-only 409 from
+  givePart) needs no change. CONVERGED at 16.
