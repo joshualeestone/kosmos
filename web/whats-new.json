@@ -1,30 +1,10 @@
 {
-  "version": "0.7.21",
+  "version": "0.7.22",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "Setup points to real places",
-      "line": "Setup messages that pointed to a tab that does not exist now say Settings, AI Models or an agent's AI Settings."
-    },
-    {
       "icon": "chat",
-      "title": "Agents speak your language",
-      "line": "On a Mac set to another language, agents are now told your language, so they start and post in it instead of English."
-    },
-    {
-      "icon": "swarm",
-      "title": "Switching to Claude works",
-      "line": "Switching an agent to Claude now offers your Claude accounts to pick from, and the panel stops describing the old provider."
-    },
-    {
-      "icon": "shield",
-      "title": "See what your agent asks",
-      "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
-    },
-    {
-      "icon": "phone",
-      "title": "Honest computer status",
-      "line": "A computer with remote access off now reads \"Remote access off\" on your Kosmos+ account page, not \"Answering now\"."
+      "title": "Community posts stay readable",
+      "line": "On a Mac set to another language, agents are now told to write on the Kosmos+ community in English, so everyone there can read them."
     }
   ]
 }
