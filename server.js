@@ -2591,6 +2591,70 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
+/* #4475: the newest `created` or `partial` birth line for the agent `name`, or null when the birth log has none. A
+   line is matched by the board name its create acted on (`slug`, recorded since #4475), else by the slug of its typed
+   name. tokenOnlyRemoveRefusal refuses any birth that is not `created` or has no `slug`, so a newer partial line, or an
+   older-format one, ends the older one. */
+function agentBirthOf(name) {
+  let want; try { want = create.slugFor(name); } catch { return null; }
+  if (!want) return null;
+  let births;
+  try { births = create.createdLog(); } catch { return null; }
+  if (!Array.isArray(births)) return null;
+  let newest = null;
+  for (const b of births) {
+    if (!b || (b.outcome !== 'created' && b.outcome !== 'partial') || !b.name) continue;
+    let slug = (typeof b.slug === 'string' && b.slug) ? b.slug : null;
+    if (!slug) { try { slug = create.slugFor(b.name); } catch { slug = String(b.name); } }
+    if (slug === want) newest = b;
+  }
+  return newest;
+}
+/* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
+   (tokenOnlyRemoveRefusal answers null for yes, or the sentence to refuse with.)
+   Only when all of these hold, else refused:
+   - the target's newest birth is `created` and carries `createdByName` and `askedAt`: the exact token name of the
+     agent that asked for it through POST /api/team, and when it asked (engine/team.js records them only for an agent
+     that is not the setup guide). The person's paths record neither, so a fixed creator word they write ("operator",
+     "kosmos") never makes an agent its owner;
+   - the caller's token carries its name, and it is `createdByName` exactly;
+   - no token stood for the name when it was made (`tookTokens`): a live remote agent holds no folder, job or pane,
+     so create can take its name, and this keeps the asking agent from then removing that remote agent's name;
+   - no token of another name stands under the target's key now (sendertoken.keyHoldsOthers): removal revokes the
+     whole key, so it would also end that other agent (a remote "Dr.Kip" issued beside a made "drkip");
+   - neither identity has ended since (sendertoken.endedSince: the history `revoke` writes, which every path that
+     ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
+     target is checked from after its birth (its own creation revokes its name before the birth is written); the
+     creator from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
+     is then never the one the birth is about, except by the two paths that mint without revoking (adopting after
+     deleting files by hand outside Kosmos, and a remote token the person issues again; engine/sendertoken.js). The
+     agent profile id does not show this: it survives a removal and is carried to a new agent of the same name.
+     Ownership does not come back on restore. */
+/* The refusals, so the agent (and the person it tells) hears the real reason, not "not yours" for every one. */
+const REMOVE_NOT_YOURS = 'an agent can remove only an agent it created; the person removes other agents from the board';
+const REMOVE_SHARED_KEY = 'removing this agent would also end another agent\'s sign-in, so the person removes it from the board';
+const REMOVE_UNCHECKED = 'Kosmos could not check who made this agent just now; the person can remove it from the board';
+/* null when allowed, else the sentence to answer with. */
+function tokenOnlyRemoveRefusal(caller, target) {
+  if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return REMOVE_NOT_YOURS;
+  const birth = agentBirthOf(target);
+  if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return REMOVE_NOT_YOURS;
+  if (birth.slug !== target) return REMOVE_NOT_YOURS;   // the create acted on exactly this board name (not a cut typed name)
+  if (birth.createdByName !== caller.name || birth.tookTokens === true) return REMOVE_NOT_YOURS;
+  if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return REMOVE_NOT_YOURS;
+  const others = sendertoken.keyHoldsOthers(target);
+  if (others === 'other') return REMOVE_SHARED_KEY;
+  if (others) return REMOVE_UNCHECKED;   // a token there that cannot be told whose it is
+  let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
+  const targetGone = sendertoken.endedSince([target], birth.at);
+  const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });
+  if (targetGone === null || creatorGone === null) {
+    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ')');
+    return REMOVE_UNCHECKED;
+  }
+  return (targetGone === false && creatorGone === false) ? null : REMOVE_NOT_YOURS;
+}
+
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
    (read activeAgentsCreatedBy, then createTeam writes births).
    🔑 WHAT MAKES IT ATOMIC TODAY is NOT this lock: the route runs the count read
@@ -3918,11 +3982,12 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
-   token is that agent, never the person. Person-only routes (removing, restarting or
-   reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and
-   keep requiring the board token. The header only, never `token` in the body: this gate runs before the body is
-   read, and the handlers resolve the header first (presentedAgentToken), so both see the same
-   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
+   POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board
+   token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations.
+   The header only, never `token` in the body: this gate runs before the body is read, and the handlers resolve the
+   header first (presentedAgentToken), so both see the same caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT
+   network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
    does not see it: what stops an internet caller there is the tunnel itself, which forwards only
    for an admitted device and then presents the person's board token anyway (read from
@@ -3997,7 +4062,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
    (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
+   handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
+   `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -4153,8 +4221,8 @@ function agentTokenOk(req) {
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
    terminal, every agent's CLI today), else the caller for tokenOnlyOnProject (below), or '' when the
-   token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
-   so this is the same header read twice.
+   token names nobody. For handlers that read no body (the reads, and DELETE .../removal, #4475): the gate has already
+   checked the token, so this is the same header read twice.
    #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
    carded caller, or by the stored key while no second name holds a named token (tokenOnlyOnProject's key arm). An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
    a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
@@ -7144,9 +7212,11 @@ const server = http.createServer(async (req, res) => {
            its pane-fallback (the thing report/reply's denyPaneFallback guards) is
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
+        const askedAt = new Date().toISOString();   // #4475: once the body is read, before the caller is resolved (recorded on births)
         const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
+        let creatorTokenName = null;
         if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
@@ -7161,6 +7231,10 @@ const server = http.createServer(async (req, res) => {
           if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
           effectiveCreator = sender.card.sessionName;
           callerKind = 'agent';
+          /* #4475: the creator's exact name as its token carries it, recorded on each birth so the removal route can
+             match its creator exactly (the sessionName above is a slug or a store key, both lossy). A key-only token
+             (before #4792) carries none, and its births are then not removable by it. */
+          try { const named = sendertoken.resolveName(presented); creatorTokenName = (named && named.ok === true && typeof named.name === 'string' && named.name) ? named.name : null; } catch { creatorTokenName = null; }
         } else {
           // OPERATOR path: no agent token, so on an enforcing board the board token
           // is required (computed only here -- it is never read on the agent path).
@@ -7355,6 +7429,8 @@ const server = http.createServer(async (req, res) => {
           members: overCap ? members : liveMembers,
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
           fromGuide,
+          creatorTokenName,   // #4475: recorded on each birth (createdByName) for an agent that is not the guide
+          askedAt,            // #4475: recorded beside it (askedAt)
         };
         let result;
         if (callerKind === 'agent') {
@@ -7487,6 +7563,18 @@ const server = http.createServer(async (req, res) => {
        inert on every refusal except `untied`, so this cannot stop or hide the
        wrong thing. Absent = today's behaviour exactly. */
     const force = /[?&]force=(?:1|true)\b/i.test(req.url || '');
+    /* #4475 step 3: an agent that came through on its own token alone may remove only an agent it created, and never
+       with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
+    const tokenOnly = agentTokenOnlyCaller(req);
+    if (tokenOnly !== null) {
+      /* The engine acts on the name as sent; the ownership check below matches by slug. So a token-only caller names
+         the agent exactly by its board name (the slug), and the two cannot read different agents. */
+      let board; try { board = create.slugFor(name); } catch { board = null; }
+      if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
+      if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
+      const refused = tokenOnlyRemoveRefusal(tokenOnly, name);
+      if (refused) { sendJson(res, 403, { error: refused }); return; }
+    }
     let done;
     // ⚠️ Guarded for the reason given on the route above, and it matters most
     // here: this is the call that has already disabled a launchd job by the

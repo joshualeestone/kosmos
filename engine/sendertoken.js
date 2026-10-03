@@ -99,6 +99,24 @@ const MAX_LIVE = 32;
 function fileFor(sessionName) {
   return path.join(DIR, store.safeKey(sessionName) + '.json');
 }
+/* #4475: does any token stand for this name's key right now? Only a file that is plainly not there reads as no; one
+   that cannot be checked (a folder that cannot be read, a bad name) reads as yes. */
+function holdsTokens(sessionName) {
+  try { fs.statSync(fileFor(sessionName)); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
+}
+/* #4475: does this name's key hold a token that is not named exactly `sessionName`? revoke takes the whole key, so
+   removing `sessionName` would end that one too. Answers 'other' (a named token of another spelling with the same key,
+   "Dr.Kip" beside "drkip"), 'unknown' (a token with no name, as before #4792, or a file there that cannot be read: it
+   cannot be told whose it is), or false. */
+function keyHoldsOthers(sessionName) {
+  if (!holdsTokens(sessionName)) return false;
+  let held;
+  try { held = readTokens(sessionName); } catch { return 'unknown'; }
+  if (held.length === 0) return 'unknown';   // the file is there but readTokens could not read a token from it
+  if (held.some((t) => typeof t.name === 'string' && t.name && t.name !== String(sessionName))) return 'other';
+  if (held.some((t) => typeof t.name !== 'string' || !t.name)) return 'unknown';
+  return false;
+}
 
 /**
  * Read the stored tokens, tolerating #1000's single-token shape.
@@ -236,6 +254,55 @@ function othersTokens(held, sessionName) {
   return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
 }
 
+/* #4475: the history of names whose tokens were revoked, appended and never rewritten: the name and when. That is
+   every name whose agent was removed or had what was left of it deleted, and every name create got past its name
+   checks for (create revokes there, so a create refused by a later check writes a line too: any create attempt
+   that far, by anyone, ends ownership of that name, which only ever refuses more). A
+   restart retires one run and does not come here. The removal route reads it so an agent's ownership of an agent it
+   created ends at the first line for either name after it was made. NOT covered, because these mint without
+   revoking: a name freed by deleting an agent's files by hand, outside Kosmos, and then adopted; and a remote token
+   the person issues again under a name (POST /api/agent-token), which carries that name's identity on, so a remote
+   creator re-issued its name keeps what it made. The births it is compared with record the board name each create
+   acted on (`slug`), so a name here and a birth there are the same spelling. */
+function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
+function noteEnded(sessionName) {
+  try {
+    fs.mkdirSync(path.dirname(endedLogFile()), { recursive: true });
+    // A leading newline too, so a line torn by an earlier failed write ends there and does not swallow this one.
+    fs.appendFileSync(endedLogFile(), '\n' + JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
+    return true;
+  } catch (e) {
+    console.error('#4475: could not add ' + sessionName + ' to the history of ended agents (' + ((e && e.message) || 'threw') + ')');
+    return false;
+  }
+}
+/* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
+   `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
+   caller uses true to REFUSE, so matching more names only refuses more. A line that does not parse, has no name, or
+   has a time it cannot order may be an end that could not be written whole: the answer is then null (cannot tell),
+   which the caller also refuses on, with its own words. Blank lines are skipped. */
+const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+function endedSince(names, sinceIso, opts = {}) {
+  if (typeof sinceIso !== 'string' || !ISO_MS.test(sinceIso)) return null;   // a time we cannot order against refuses
+  const create = require('./create');   // lazy: create.js requires this file
+  const slug = (n) => { try { return create.slugFor(n); } catch { return null; } };
+  const want = new Set((names || []).map(slug).filter(Boolean));
+  if (want.size === 0) return null;   // no name to look for: refuse rather than answer "nothing ended"
+  const since = String(sinceIso);
+  let raw;
+  try { raw = fs.readFileSync(endedLogFile(), 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    let r; try { r = JSON.parse(line); } catch { return null; }
+    if (!r || typeof r.name !== 'string') return null;
+    if (!want.has(slug(r.name))) continue;
+    // Times compare as strings only in toISOString's one fixed form; a line in any other form cannot be ordered.
+    if (typeof r.at !== 'string' || !ISO_MS.test(r.at)) return null;
+    if (r.at > since || (opts.inclusive === true && r.at === since)) return true;
+  }
+  return false;
+}
+
 /** Drop EVERY token for an agent. A deleted or recreated agent stops speaking.
  *  #1782: under the lock, so a straggler `mint` cannot land its write between the
  *  read and this unlink and resurrect a token the recreate meant to erase -
@@ -243,6 +310,7 @@ function othersTokens(held, sessionName) {
  *  #4844: deliberately WHOLE-KEY, also taking another name's tokens under the same key; see othersTokens for why a
  *  narrowed revoke is unsafe. */
 function revoke(sessionName) {
+  noteEnded(sessionName);   // #4475: first, so a revoke that fails below still ends ownership (the refusing direction)
   let held;
   try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
   catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
@@ -561,4 +629,4 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, endedSince, endedLogFile, holdsTokens, keyHoldsOthers, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };

@@ -349,6 +349,24 @@ test('the job label is recorded at removal, so restoring cannot guess wrong', ()
   assert.ok(record.removedAt, 'no time was recorded, so the removed list cannot be ordered');
 });
 
+test('#4475: a removal ends the agent in the history sendertoken.revoke keeps, and a restore does not erase it', () => {
+  const sendertoken = require('./sendertoken');
+  const name = foreignAgent('history-kept');
+  boardShows(name, `${name}-discord`);
+  const before = new Date(Date.now() - 1000).toISOString();
+  assert.equal(sendertoken.endedSince([name], before), false, 'CONTROL: the history already named it before any removal');
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(sendertoken.endedSince([name], before), true, 'the removal was not added to the history');
+  assert.equal(sendertoken.endedSince([name], new Date(Date.now() + 60000).toISOString()), false, 'a removal was read as later than it was');
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.restore(name).outcome, remove.OUTCOME.RESTORED);
+  assert.equal(sendertoken.endedSince([name], before), true, 'the restore erased the history, so ownership would come back');
+  assert.equal(sendertoken.endedSince([], before), null, 'asked about no name at all, it answered "nothing ended" instead of refusing');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The round trip
 // ─────────────────────────────────────────────────────────────────────────────

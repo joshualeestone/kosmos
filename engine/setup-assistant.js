@@ -508,6 +508,27 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps);
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
+  /* #4475: every agent's sender-token files. A token-only agent's own token comes in its environment
+     (KOSMOS_AGENT_TOKEN, minted by the supervisor before launch); another agent's token read from this folder would
+     let this agent act as that agent, including removing the agents that one made. ONE THING IT COSTS: the Mac CLI's
+     outbox keep (a send made while another Kosmos is the one open, answered 421) resolves the sender by reading this
+     folder (engine/outbox.js resolveKeepSender), so for a token-only agent that send is refused, not kept. */
+  const senderTokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
+  /* And the supervisor's launch hand-off, where each agent's token waits in a file until its pane starts. The
+     supervisor writes it under ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, and an installed supervisor's $_app is
+     the data root (create.supervisorPath is <data root>/bin/agent-supervisor.sh). The pane entry reads it before this
+     agent's sandbox exists. NOT closed here: another agent's token in its process environment (`ps -E` as the same
+     Mac user), and typing into another agent's tmux pane. */
+  const appRoot = deps.appRoot || path.resolve(__dirname, '..');
+  const launchSecretDirs = [...new Set([
+    ...tokenRoots.map((r) => path.join(r, 'launch-secrets')),                  // the installed supervisor: its $_app is the data root
+    ...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')),    // AGENT_WORKFORCE_DATA (a named world)
+    path.join(appRoot, 'launch-secrets'),                                      // a supervisor run from the app folder itself
+  ])];
+  /* #4475: and the records the board trusts about who made and who ended which agent, written only by the board and
+     the supervisor (outside this sandbox): a token-only agent that could write them could forge a birth naming itself
+     the creator, erase an ended identity, list itself token-only or not, or plant a token for another name. */
+  const trustedFiles = tokenRoots.flatMap((r) => ['created.jsonl', 'ended-agents.jsonl', 'agent-token-only.json'].map((f) => path.join(r, f)));
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
   const concreteHomes = accountConfigHomes(home);
@@ -518,9 +539,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
+    ...senderTokenDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
+    ...launchSecretDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
+    ...senderTokenDirs.map((p) => `Edit(${ruleAbs(p)}/**)`),
+    ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles };
+  return { deny, settingsDir, tokenPaths, tokenTmps, senderTokenDirs, launchSecretDirs, trustedFiles, settingsFiles };
 }
 
 /*
@@ -574,8 +599,8 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
-      const denyReadPaths = rules.tokenPaths.map(realOrLeaf);
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf)];
+      const denyReadPaths = [...rules.tokenPaths, ...rules.senderTokenDirs, ...rules.launchSecretDirs].map(realOrLeaf);
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.senderTokenDirs.map(realOrLeaf), ...rules.trustedFiles.map(realOrLeaf)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },

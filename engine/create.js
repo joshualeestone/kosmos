@@ -4067,6 +4067,16 @@ async function accountConnectable({ provider, accountDir } = {}) {
 }
 
 function createAgent(opts) {
+  /* #4475: did a token already stand for this name when we were asked? A live remote agent holds no folder, job or
+     pane, so create can take its name, and its own revoke then clears that agent's tokens. The birth says so, and the
+     removal route never lets the asking agent remove such a name. */
+  let tookTokens = false;
+  try {
+    // The name create revokes (its slug). Also the typed spelling's key, which create does not revoke: an over-refusal
+    // on purpose (a remote agent on that key makes this birth unremovable by its creator), never a gap. A typed name
+    // that cannot be keyed throws, which also reads as taken: such a birth is never removable by its creator.
+    tookTokens = Boolean(opts && opts.name) && (sendertoken.holdsTokens(slugFor(String(opts.name))) || sendertoken.holdsTokens(String(opts.name)));
+  } catch { tookTokens = true; }
   const out = createAgentInner(opts);
   /* The name as typed, because a refusal can be ABOUT the spelling; role and
      model as asked for, since a refused creation wrote no plist to read them
@@ -4094,6 +4104,15 @@ function createAgent(opts) {
        recorded, never a gate. */
     createdBy: (opts && opts.createdBy) ? String(opts.createdBy).slice(0, 120) : null,
     purpose: (opts && opts.purpose) ? String(opts.purpose).slice(0, 300) : null,
+    /* #4475: the exact token name of the agent that asked for this one on its own token, and when it asked, set only
+       by engine/team.js; the removal route lets that agent remove it. The name is not sliced, because the route
+       compares it exactly. Absent otherwise (older lines, the person's creates, the guide's). */
+    ...((opts && typeof opts.createdByName === 'string' && opts.createdByName) ? { createdByName: String(opts.createdByName) } : {}),
+    ...((opts && typeof opts.askedAt === 'string' && opts.askedAt) ? { askedAt: String(opts.askedAt).slice(0, 40) } : {}),
+    ...(tookTokens ? { tookTokens: true } : {}),
+    /* #4475: the board name this create acted on, exactly. `name` above is the typed name cut to 120 characters,
+       whose slug can differ from it (a long name padded with spaces), so the removal route matches on this. */
+    ...((out && typeof out.name === 'string' && out.name) ? { slug: out.name } : {}),
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
     /* #170: the same id the profile carries, on the creation line, so "was
