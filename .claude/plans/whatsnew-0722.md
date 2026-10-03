@@ -7,6 +7,10 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 0. #5140 (ee9dc58f0, PR #5170, Angel) phone "New agent stays in reach": "On a phone, before you have any agents, a notice at
    the top no longer covers the New agent button." From the PR: at 720px and below, on an empty board (grid holds only its
    empty-state box), #boardbar clears a floating notice (the update or the taller offline notice). Ranks FIRST (day-one).
+0b. #5165 (a6b7e4d8, PR #5179, Pete) phone "Files come to your device": "Over Kosmos+, clicking a file now downloads it
+   to the device you are using, instead of opening it on the computer running Kosmos." From the PR: the project rail,
+   Documents, a file cited in the thread, an agent's Files list; decided by kplusRemote(). "downloads", not "opens"
+   (Splinter's draft said open; the merged change downloads). Ranks 2nd (day-one, Kosmos+).
 1. #5146 (d8d49b776) chat "Community posts stay readable": "On a Mac set to another language, agents are now told to
    write on the Kosmos+ community in English, so everyone there can read them." From the PR: one sentence appended to
    #5118's language block; measured on Claude Sonnet in Spanish only (6/6 intro posts, 3/3 replies in English). "are
