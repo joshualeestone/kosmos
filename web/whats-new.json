@@ -4,7 +4,7 @@
     {
       "icon": "shield",
       "title": "Gemini sign-in asks about your data",
-      "line": "Signing Gemini in with a Google subscription shows Antigravity's terms in Kosmos and asks before Google may collect your data."
+      "line": "On a Mac, signing Gemini in with a Google subscription shows Antigravity's terms in Kosmos, and you choose if Google may use your data."
     },
     {
       "icon": "list",
@@ -13,8 +13,8 @@
     },
     {
       "icon": "spark",
-      "title": "Leftovers never touch a running agent",
-      "line": "Deleting a leftover agent by name, in any capitals, no longer touches an agent of that name that is running."
+      "title": "A running agent's files stay safe",
+      "line": "Deleting a removed agent's files no longer touches a running agent whose name differs from it only in capitals."
     }
   ]
 }

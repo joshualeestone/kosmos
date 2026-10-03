@@ -9,7 +9,7 @@ main for 0.7.20 (tools/whats-new-check.js).
    "let Google collect my data" box ticked; the old flow would have opted the person in).
 2. Settings stays clickable: #4979 / PR #4991 (c7708fb24). The sticky nav sits 16px below the measured app header;
    when it cannot fit it scrolls with the page instead of hiding pills.
-3. Leftovers never touch a running agent: #5003 / PR #5057 (2446c5cea). delete-leftover plan() compares case-blind on
+3. A running agent's files stay safe: #5003 / PR #5057 (2446c5cea). delete-leftover plan() compares case-blind on
    Mac and Windows, so a leftover asked in another case refuses while the agent runs.
 
 ## Candidates
@@ -22,3 +22,8 @@ main for 0.7.20 (tools/whats-new-check.js).
 - #5052, #5045: test-only.
 
 ## Review rounds
+- Round 1 (opus): FIXED W: line 1 is Mac only (Windows' win32agysignin is unchanged): "On a Mac, ...". FIXED W: line 1's
+  "asks before Google may collect" overstated (the box starts as Antigravity has it, ticked on 1.2.12+; the person
+  chooses and nothing is sent until Agree): "and you choose if Google may use your data". FIXED W: "leftover" is not a
+  word the app uses (it says removed agents / "Delete its files..."): line 3 and its title reworded. Line 2 true in both
+  layouts. Nothing important left out.
