@@ -675,17 +675,17 @@ step "== 1b-ii. the What's new highlights are for this version (#3955) =="
 # $V; round 12: a check that could not run is said as such, not as "no highlights").
 whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
   local rc=0
-  node "$1/tools/whats-new-check.js" "$V" "$1/web/whats-new.json" >/dev/null 2>&1 || rc=$?
+  node "$1/tools/whats-new-check.js" "$V" "$1/web/whats-new.json" --platform=mac >/dev/null 2>&1 || rc=$?
   case "$rc" in
     0) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced; web/whats-new.json is for $V, so the \"Kosmos has been updated\" window will show." ;;
-    3) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights, so there will be no \"Kosmos has been updated\" window for it." ;;
+    3) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights for the Mac, so there will be no \"Kosmos has been updated\" window for it." ;;
     *) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check could not run (exit $rc), so whether $V shows a \"Kosmos has been updated\" window is not known." ;;
   esac
 }
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
   whats_new_optout_note "$REPO"
 else
-  node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" || exit 1
+  node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac || exit 1
 fi
 
 step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
@@ -857,7 +857,7 @@ step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955)
 # leaves the bump already pushed, as a step 7 versions-entry refusal would; it means the file changed
 # under the cut, which is worth stopping for.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ]; then
-  node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1
+  node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" --platform=mac || exit 1
 else
   whats_new_optout_note "$BUILD"   # round 12: what actually ships is said again, from the frozen tree
 fi

@@ -38,7 +38,7 @@ const MAX_LINE = 140;    // one sentence of about 90 to 120
 const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
 /* A version like 0.6.98: the one pattern for this module and tools/whats-new-check.js (round 12). */
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
-/* #5224: the platforms a highlight can be for, and the whole words (case-sensitive) that name each. */
+/* #5224: the platforms a highlight can be for, and the words that name each. */
 const PLATFORMS = Object.freeze(['mac', 'windows']);
 /* Matched in any case ("macos", "MacOS", "PCS"), except the all-lower-case words in NOT_PLATFORM_WORDS: a
    window on screen, a MAC address written as "mac". "OS X" is two words and is matched as a pair. */
