@@ -1055,7 +1055,7 @@ test('#3728: a member takes a rotate only from the pinned owner, and the old epo
   say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-rm', { from: 'Owner', kind: 'person', text: 'in flight' }) });
   await settle();
   // After the grace, the old key opens nothing (a revoked member posting under it).
-  t.mock.timers.tick(11 * 60 * 1000);
+  t.mock.timers.tick(91 * 1000);
   say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-rm', { from: 'Revoked', kind: 'person', text: 'still here' }) });
   say(seat, { event: 'message', data: fedseal.seal(k1, 1, 'room-rm', { from: 'Owner', kind: 'person', text: 'current' }) });
   await settle();
@@ -1756,12 +1756,29 @@ test('#5197: a remaining member opens a revoked member\'s old key for 90 s after
   say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, k1, 1, 'room-5197', Date.now()) });
   await settle();
   assert.strictEqual(fedseal.roomState('proj-5197-m').epoch, 1, 'fixture: rotated');
-  t.mock.timers.tick(60 * 1000);
-  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'In flight', kind: 'person', text: 'at 60 s' }) });
+  t.mock.timers.tick(89 * 1000);
+  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'In flight', kind: 'person', text: 'at 89 s' }) });
   await settle();
-  t.mock.timers.tick(60 * 1000);   // 2 minutes after the rotation: the revoked member is still posting
-  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'Revoked', kind: 'person', text: 'at 2 min' }) });
+  t.mock.timers.tick(2 * 1000);    // 91 s after the rotation: the revoked member is still posting
+  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'Revoked', kind: 'person', text: 'at 91 s' }) });
   await settle();
-  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['at 60 s'], 'a member opened the old key past 90 s');
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['at 89 s'], 'a member opened the old key past 90 s');
   assert.ok(h.notes.some((n) => /earlier key arrived after that key was retired/.test(n.text)), 'refused for some other reason: ' + JSON.stringify(h.notes));
+});
+
+test('#5197: a member that joined after a rotation is not told a key was retired for an epoch it never held', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T21:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-late', { role: 'member', edge_id: 'edge-5197-late' });
+  const k2 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5197-late', { role: 'member', s: fedseal.randomSecret(), code: 'code-late', peer: owner.pub, epoch: 2, keys: { 2: k2 } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-late');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197-late', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5197-late', { from: 'Lagging', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  assert.ok(!h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
 });

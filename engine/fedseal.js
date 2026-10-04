@@ -32,7 +32,8 @@
  * member on the old key (it holds its posts once it sees a newer epoch). Freshness is judged against each Mac's own clock: a clock off by more than an
  * hour refuses genuine messages (the room says to check the clock). The 90 s grace after
  * a key rotation is judged the same way, so a member clock running ahead of the owner's
- * refuses posts sealed just before a rotation (#5197). Nonces are random 96-bit under one room key, safe to about 2^32 messages per
+ * refuses posts sealed just before a rotation (#5197).
+ * Nonces are random 96-bit under one room key, safe to about 2^32 messages per
  * epoch, far past any room's life at the inbound budget (2,000 rows a day).
  */
 const crypto = require('node:crypto');
