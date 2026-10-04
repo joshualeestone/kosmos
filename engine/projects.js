@@ -546,6 +546,14 @@ let fsWorldForTests = null;
 function setFsWorldForTests(world) { fsWorldForTests = world || null; }
 function realpathOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.realpath ? fsWorldForTests.realpath(p) : resolveReal(p); }
 function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : fs.statSync(p); }
+/* #4997: the listed walk's lstat, through the same world (a world without one reads its stat: a fake folder has no links). */
+function lstatOfFolderPath(p) {
+  if (!fsWorldForTests) return fs.lstatSync(p);
+  const st = (fsWorldForTests.lstat || fsWorldForTests.stat || fs.lstatSync)(p);
+  if (typeof st.isSymbolicLink === 'function') return st;
+  return { isFile: () => st.isFile(), isDirectory: () => st.isDirectory(), isSymbolicLink: () => false,
+    dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs };
+}
 function accessOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.access ? fsWorldForTests.access(p) : fs.accessSync(p, fs.constants.R_OK); }
 
 function folderState(folder) {
@@ -1692,7 +1700,7 @@ function resolveListedFile(folder, name, where = 'this project', opts = null) {
     for (let i = 0; i < segs.length; i++) {
       at = path.join(at, segs[i]);
       let lst;
-      try { lst = fs.lstatSync(at); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
+      try { lst = lstatOfFolderPath(at); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
       const last = i === segs.length - 1;
       if (lst.isSymbolicLink()) return { ok: false, because: 'that is not a file in ' + where };
       if (!last && (!lst.isDirectory() || LIST_SKIP_DIRS.has(segs[i]))) return { ok: false, because: 'that is not a file in ' + where };
