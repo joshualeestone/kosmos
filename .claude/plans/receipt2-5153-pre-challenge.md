@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: receipt2-5153
-diff_hash: 3d630cd42d408b74a70c701804aeb7dc1afa9a0f48d306831f3621e10b253b72
-validation: passed (Mortals full suite at e5814e87e, 14968 tests 0 fail, hash 5e23235133fb, 2026-10-03 19:06 CDT; after merging slice 1's design-review change (page only): all web.* and related tests 2477/2477; then only docs/browser-checks/mobile-shots.js screens changed (verify without case, the Tasks tab shown), which the suite does not run; shots taken 8/8 on Mortals)
+diff_hash: 267620c7c42f7ff0e70c49a2ca541675d6be981000a656bbfebbaa6e348f28b8
+validation: passed (Mortals full suite at e5814e87e, 14968 tests 0 fail, hash 5e23235133fb, 2026-10-03 19:06 CDT; after merging slice 1's design-review change (page only): all web.* and related tests 2477/2477; then only docs/browser-checks/mobile-shots.js screens changed (verify without case, the Tasks tab shown), which the suite does not run; shots taken 8/8 on Mortals; then slice 1's 44px toggle fix merged (CSS only), gates pass)
 subdir_audit: passed
-timestamp: 2026-10-04T01:04:18Z
+timestamp: 2026-10-04T01:54:45Z
 iterations: 4
 converged: true
 ---
