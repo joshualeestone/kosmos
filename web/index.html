@@ -19607,7 +19607,7 @@ const PRESSAY = {
 /* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
    off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
 const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
-function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.crashLoop && a.crashLoop.looping === true) return { st: 'attn', pres: (CARD_ST[a.state] || CARD_ST.unknown).pres }; /* #5154 slice A: a crash loop wears the needs-you look; review 1: its PRESENCE stays its state's (an offline agent between crashes keeps its offline dot, tense and Start), like #4006's failed restart */ if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -19640,6 +19640,9 @@ function glyphOf(a) {
   return GLYPH[st];
 }
 function stateCopyOf(a) {
+  /* #5154 slice A: Kosmos keeps restarting it and it keeps stopping. First, because between crashes its state can
+     read working or idle, and that word on a red card would contradict the sentence under it. */
+  if (a && a.crashLoop && a.crashLoop.looping === true) return { label: 'Keeps stopping', attn: true };
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
   // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
@@ -19771,6 +19774,14 @@ function waitingLine(w) {
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
+  /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
+     Placed before the state rules: between crashes the agent can read working or idle, which is what hid the loop.
+     Copy: Mona Lisa (10-03): no 'stop it' (there is no stop control, and launchd keeps restarting), and 'what it shows'
+     (after a restart the last screen is gone). */
+  if (a && a.crashLoop && a.crashLoop.looping === true) {
+    const n = Number(a.crashLoop.count) || 3;
+    return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -20153,7 +20164,9 @@ function roleLine(a, titles) {
    aligned with engine/status.js needsPerson. */
 function agentNeedsAttention(a) {
   return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
-    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')));
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
+    // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
+    || (a.crashLoop && a.crashLoop.looping === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
@@ -55030,6 +55043,11 @@ function memberDotClass(row) {
  * never as something healthy, and never as nothing at all.
  */
 function pjMember(m, suppressTold, withMinus, hideState) {
+  /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
+     borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
+  if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
+    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+  }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the
      row reads that FIRST and the pill and the row agree by construction; the latest /api/status

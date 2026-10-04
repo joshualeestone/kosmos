@@ -946,6 +946,7 @@ const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent 
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
+const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
@@ -2205,9 +2206,14 @@ function safeRoster() {
     const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
     /* #3726: the roster carries where the automatic reconnect stands, as /api/status's rows do (the
        same expression), so the project routes can tell a connection Kosmos has given up on. */
-    return agents.filter((a) => !gone.has(a.sessionName)).map((a) => (a.state === 'connection_lost'
-      ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
-      : a));
+    return agents.filter((a) => !gone.has(a.sessionName)).map((a) => {
+      const withReconnect = a.state === 'connection_lost'
+        ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
+        : a;
+      // #5154 slice A: the roster carries the crash loop too, as /api/status's rows do, so routes counting
+      // "needs the person" (status.needsPerson) agree with the board.
+      return a.isNamedOurs ? Object.assign({}, withReconnect, { crashLoop: crashloop.read(a.sessionName) }) : withReconnect;
+    });
   } catch {
     return null;
   }
@@ -5039,6 +5045,9 @@ const server = http.createServer(async (req, res) => {
         /* #3410: where the automatic reconnect stands, only for a connection_lost agent (null
            otherwise, and null when the self-heal is not running, so the page promises nothing). */
         reconnect: a.state === 'connection_lost' ? connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) : null,
+        /* #5154 slice A: Kosmos has restarted this agent LOOP_RUNS times in WINDOW_MS and each run ended within
+           SHORT_RUN_MS (engine/crashloop.js). Only for an agent we started (its supervisor writes the run file). */
+        crashLoop: a.isNamedOurs ? crashloop.read(a.sessionName) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -5252,6 +5261,9 @@ const server = http.createServer(async (req, res) => {
                    #668 row too: it answers "is there a pane here to act on",
                    and there is not. */
                 running: false,
+                /* #5154 slice A: stated on the offline row too. Between crashes a looping agent can have no session
+                   at all, which is exactly when this row is the one the board draws. */
+                crashLoop: crashloop.read(k.name),
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
@@ -20115,6 +20127,30 @@ function start(port = PORT) {
         if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
+      /* #5154 slice A: a crash loop is said on the card (engine/crashloop.js, /api/status's crashLoop) and, once per loop,
+         sent to the person's phone as a needs_you, since a new user cannot diagnose an agent that dies on start. Once per
+         EPISODE: a session is told when it starts looping and forgotten when it stops, so a later loop tells again
+         (phonenotify's own needs_you cooldown is the second guard). Logged every time it is told, so the threshold
+         can be tuned from real boards. Reading the run files only; it never restarts or stops anything. unref'd. */
+      const CRASHLOOP_TOLD = new Set();
+      const crashLoopTick = setInterval(() => {
+        try {
+          /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no
+             session, so a roster-based tick missed it most minutes and re-pushed each time it reappeared; it also
+             cost a full snapshot a minute. A session is forgotten ONLY when its own read says the loop is over. */
+          let names = new Map();
+          try { for (const a of safeRoster() || []) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName); } catch { /* names are a courtesy */ }
+          crashloop.tellLoops({
+            keys: crashloop.keys(), told: CRASHLOOP_TOLD, readOne: (key) => crashloop.read(key),
+            tell: (key, c) => {
+              const shown = names.get(key) || key;
+              process.stdout.write(`crash-loop: ${shown} (${key}) restarted ${c.count} times in ${crashloop.WINDOW_MS / 60000} min, each run under ${crashloop.SHORT_RUN_MS / 60000} min; told the person\n`);
+              phonenotify.happened({ kind: 'needs_you', id: 'crashloop:' + key + ':' + c.firstAt, agent: shown, session: key, project: null });
+            },
+          });
+        } catch { /* never breaks the board */ }
+      }, 60 * 1000);
+      if (crashLoopTick && typeof crashLoopTick.unref === 'function') crashLoopTick.unref();
       resolve(server);
     };
     server.once('error', onError);
