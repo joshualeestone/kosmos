@@ -194,7 +194,7 @@ function handleEvent(projectId, line, checked) {
         // once per EDGE_FRESH_MS), so a remaining member that missed a rotation catches up
         // without waiting for the next pass. The refused post itself is not resent (#5192).
         // The epoch is unauthenticated, so a forger can trigger this too: the limit bounds it,
-        // and it only re-sends sealed frames to pinned members.
+        // and it only re-sends sealed frames, one to each pinned member.
         if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && !isFresh(s.rotatesResentAt, now)) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
@@ -490,8 +490,8 @@ const REVOKE_GRACE_MS = 90 * 1000;
    check first, so a revoke bites within seconds rather than at the next 60 s pass. One
    check per room per this long, however many posts arrive (they wait on the same one). */
 const EDGE_FRESH_MS = 15 * 1000;
-/* Posts held per room while a check is out. A room's minute budget (INBOUND_PER_WINDOW)
-   keeps no more than this anyway, so past it a post is treated as over that budget. */
+/* Posts held per room while a check is out: the room's minute COUNT budget
+   (INBOUND_PER_WINDOW), so past it a post is treated as over that budget. */
 const HELD_MAX = INBOUND_PER_WINDOW;
 /* How long a member holds its posts after seeing a message sealed one epoch ahead of
    its own (it missed a rotation; the owner re-sends each pass). The epoch on an
@@ -712,8 +712,9 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const link = safeLink(projectId);
     if (link && link.role === 'owner') {
-      s.edgeAskedAt = now;
       const ask = sharedEdges(now);
+      // The answer's own ask time: one joined from another room may be older than this post.
+      s.edgeAskedAt = ask.askedAt;
       s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });
     }
   }

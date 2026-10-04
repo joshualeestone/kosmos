@@ -1545,3 +1545,32 @@ test('#5191: a replay of a post already shown is refused at once and asks Kosmos
   assert.strictEqual(h.asked, asked, 'a replay of a shown post triggered an edges request');
   assert.deepStrictEqual(shown(h), ['shown once']);
 });
+
+test('#5191: a room that joined another room\'s answer asks again once that answer is 15 s old', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const a = await pinnedRoom('proj-5191-ja', 'rja', 1);
+  const inv = newInvite('rjb-0');
+  fedseal.stashInvite('ref-rjb', inv);
+  federation.recordLink('proj-5191-jb', { role: 'owner', ref: 'ref-rjb' });
+  a.h.edges = a.h.edges.concat([{ id: 'edge-' + inv.invite, project_ref: 'ref-rjb', status: 'active', invite_id: inv.invite }]);
+  await fedseats.ensure('proj-5191-jb');
+  const seatB = a.h.spawned[a.h.spawned.length - 1];
+  say(seatB, { event: 'connected', room: 'room-rjb', expires_at: 9 });
+  await settle();
+  say(seatB, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), 'room-rjb') });
+  await settle();
+  const postB = (text) => say(seatB, { event: 'message', data: fedseal.seal(fedseal.roomState('proj-5191-jb').keys[0], 0, 'room-rjb', { from: 'Guest', kind: 'person', text }) });
+  t.mock.timers.tick(20 * 1000);
+  const asked = a.h.asked;
+  a.post('A at 0');
+  await settle();
+  t.mock.timers.tick(14 * 1000);
+  postB('B at 14');          // joins A's answer, asked at 0
+  await settle();
+  assert.strictEqual(a.h.asked - asked, 1);
+  t.mock.timers.tick(2 * 1000);
+  postB('B at 16');          // that answer is 16 s old: B must ask again, not wait for the pass
+  await settle();
+  assert.strictEqual(a.h.asked - asked, 2, 'B waited on its own ask time instead of the answer\'s');
+  assert.deepStrictEqual(a.h.recorded.map((r) => r.text).slice(-3), ['A at 0', 'B at 14', 'B at 16']);
+});
