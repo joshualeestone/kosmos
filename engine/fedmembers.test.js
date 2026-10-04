@@ -122,7 +122,7 @@ test('#4649: Remove revokes only a connection of THIS project, and passes the co
   assert.strictEqual(wrong.status, 404);
   assert.ok(!other.routes().includes('/v1/mac/federation/revoke'), 'another project\'s member was revoked from this project\'s screen');
   const ok = await fedmembers.remove(other, 'club', 'e-club');
-  assert.deepStrictEqual(ok, { status: 200, body: { removed: true } });
+  assert.deepStrictEqual([ok.status, ok.body], [200, { removed: true }]);
   assert.deepStrictEqual(other.calls.filter((c) => c.route === '/v1/mac/federation/revoke').map((c) => c.body), [{ edge_id: 'e-club' }]);
   const refused = stubRemote({ '/v1/mac/federation/edges': edges, '/v1/mac/federation/revoke': { ok: false, because: 'no active connection to revoke (already removed, or not yours).' } });
   const r = await fedmembers.remove(refused, 'club', 'e-club');
@@ -207,4 +207,39 @@ test('#4649 review round 2: a link recorded by another path while the coordinato
   assert.strictEqual(out.body.code, undefined, 'a code was handed out for a room this board will not sit in');
   assert.strictEqual(federation.linkFor('raced').ref, 'ref-own-code', 'the own-code link was overwritten, orphaning the computers joined by it');
   assert.deepStrictEqual(fedmembers.rowsFor('raced'), []);
+});
+
+test('#4649 review round 3: someone who joined through a code with no row here (the create screen) is still listed, and can be removed', async () => {
+  federation.recordLink('created', { role: 'owner', ref: 'ref-created' });
+  const edges = { ok: true, data: { as_owner: [edge('e-dana', 'ref-created', 'inv-from-create-screen', 'active', 1700000000)], as_member: [] } };
+  const remote = stubRemote({ '/v1/mac/federation/edges': edges, '/v1/mac/federation/revoke': { ok: true, data: { ok: true } } });
+  const m = await fedmembers.members(remote, 'created');
+  assert.deepStrictEqual(m.body.invites.map((r) => [r.invite_id, r.state, r.edge_id, r.label]), [['inv-from-create-screen', 'joined', 'e-dana', null]],
+    'a member who joined through a create-screen code is invisible, so the owner can neither see nor remove them');
+  const rm = await fedmembers.remove(remote, 'created', 'e-dana');
+  assert.strictEqual(rm.status, 200);
+  assert.strictEqual(rm.roomLine, 'You removed them. They no longer get new messages from this room.');
+});
+
+test('#4649 review round 3: every stored time is in unix seconds, as expires_at is', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer, '/v1/mac/federation/invite/withdraw': { ok: true, data: { ok: true } } });
+  const t0 = Math.floor(Date.now() / 1000);
+  const out = await fedmembers.invite(remote, { project: 'units', invited_kind: 'person', label: 'Ana' }, here(['units']));
+  await fedmembers.withdraw(remote, 'units', out.body.invite_id);
+  const row = fedmembers.rowsFor('units')[0];
+  for (const k of ['made_at', 'withdrawn_at']) {
+    assert.ok(Math.abs(row[k] - t0) < 5, k + ' is not in seconds: ' + row[k]);
+  }
+});
+
+test('#4649 review round 3: Remove gives the room line with the owner\'s label, sealed or not', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer, '/v1/mac/federation/revoke': { ok: true, data: { ok: true } } });
+  const made = await fedmembers.invite(remote, { project: 'lined', invited_kind: 'person', label: 'Dana Ruiz' }, here(['lined']));
+  const ref = federation.linkFor('lined').ref;
+  remote.calls.length = 0;
+  const r2 = stubRemote({ '/v1/mac/federation/edges': { ok: true, data: { as_owner: [edge('e-l', ref, made.body.invite_id)], as_member: [] } },
+    '/v1/mac/federation/revoke': { ok: true, data: { ok: true } } });
+  const rm = await fedmembers.remove(r2, 'lined', 'e-l');
+  // The invite went through federation.invite, which seals the room (#3728).
+  assert.strictEqual(rm.roomLine, 'You removed Dana Ruiz. New messages here are sealed with a new key they do not have.');
 });

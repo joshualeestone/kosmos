@@ -17489,6 +17489,7 @@ const server = http.createServer(async (req, res) => {
             ? await fedmembers.invite(remote, body, {
               projectExists: (id) => { try { return !!projects.get(id); } catch { return false; } },
               projectName: (id) => { try { const p = projects.get(id); return p && p.name; } catch { return null; } },
+              projectDesc: (id) => { try { const p = projects.get(id); return p && p.description; } catch { return null; } },
               // The same createdAt fedseats.stampOf compares a link with (its deps below), so the link is this project's.
               projectCreated: (id) => { try { const p = projects.get(id, []); return p ? (p.createdAt || null) : null; } catch { return null; } },
             })
@@ -17524,6 +17525,7 @@ const server = http.createServer(async (req, res) => {
         const out = pathname === '/api/federation/remove'
           ? await fedmembers.remove(remote, body.project, body.edge_id)
           : await fedmembers.withdraw(remote, body.project, body.invite_id);
+        if (out.roomLine) { try { messages.roomNote(body.project, out.roomLine); } catch { /* the note is furniture */ } }
         sendJson(res, out.status, out.body);
       })
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));

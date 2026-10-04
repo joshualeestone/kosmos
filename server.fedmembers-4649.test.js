@@ -75,7 +75,7 @@ test('#4649: a process caller is refused on Members, Remove and Withdraw before 
 });
 
 test('#4649: from the screen: invite from an existing project, see it in Members, then joined, remove it, withdraw another', async () => {
-  const made = projects.create({ name: 'Spring Launch' });
+  const made = projects.create({ name: 'Spring Launch', description: 'The spring launch plan.' });
   const pid = made.id || (made.project && made.project.id);
   assert.ok(pid, 'no project was made, so nothing below proves anything');
   const inv = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person', label: 'Dana Ruiz' }, SCREEN);
@@ -89,6 +89,7 @@ test('#4649: from the screen: invite from an existing project, see it in Members
   assert.equal(sent.project_ref, link.ref);
   assert.equal(sent.project_name, 'Spring Launch', 'the coordinator got a name other than the project\'s own');
   assert.equal(sent.label, undefined, 'the owner\'s label left this computer');
+  assert.equal(sent.project_desc, 'The spring launch plan.', 'the description sent is not the project\'s own on this board');
 
   let m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
   assert.equal(m.status, 200, JSON.stringify(m.json));

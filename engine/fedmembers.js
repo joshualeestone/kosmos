@@ -77,7 +77,7 @@ function markWithdrawn(projectId, inviteId, at) {
   const list = own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
   const row = list.find((r) => r && r.invite_id === inviteId);
   if (!row) return false;
-  row.withdrawn_at = at;
+  row.withdrawn_at = Math.floor(at / 1000);
   writeAll(all);
   return true;
 }
@@ -117,7 +117,9 @@ function ownerLinkOf(projectId) {
 /**
  * Invite from a project. A body naming `project` (an existing project's id) uses that project's owner ref, making
  * and recording one when the project was never shared; a body with `project_ref` is the create screen's path, as
- * today. Either way the invite is recorded here with the owner's label. `projectExists(id)` answers whether the
+ * today. Only the first is recorded here (the create screen invites before the project exists, so it has no id
+ * to file the row under); Members still lists anyone who joined through such a code, from the coordinator's
+ * connections, with no label. `projectExists(id)` answers whether the
  * project is on this board, and `projectName(id)` its name.
  */
 /* Invites for one project run one at a time: two at once on a never-shared project would each mint a ref, and the
@@ -132,7 +134,7 @@ function invite(remote, body, deps = {}) {
   next.finally(() => { if (inviteChains.get(key) === next) inviteChains.delete(key); }).catch(() => {});
   return next;
 }
-async function inviteNow(remote, body, { projectExists, projectName, projectCreated, now = Date.now() } = {}) {
+async function inviteNow(remote, body, { projectExists, projectName, projectDesc, projectCreated, now = Date.now() } = {}) {
   const label = cleanLabel(body && body.label);
   let projectId = null;
   let req = body;
@@ -154,6 +156,9 @@ async function inviteNow(remote, body, { projectExists, projectName, projectCrea
     }
     // The project's name on this board, never one the request supplied (the coordinator shows it to the invitee).
     req = Object.assign({}, body, { project_ref: ref, project_name: (projectName && projectName(projectId)) || projectId });
+    // And its description on this board, never the request's (review round 3).
+    const desc = projectDesc ? projectDesc(projectId) : null;
+    if (typeof desc === 'string' && desc.trim()) req.project_desc = desc; else delete req.project_desc;
     delete req.project;
   }
   const out = await federation.invite(remote, req);
@@ -177,7 +182,8 @@ async function inviteNow(remote, body, { projectExists, projectName, projectCrea
   }
   if (projectId) {
     try {
-      recordInvite(projectId, { invite_id: out.body.invite_id, label, kind: req.invited_kind, made_at: now, expires_at: out.body.expires_at });
+      // Every time here is in unix SECONDS, as the coordinator's expires_at is (review round 3).
+      recordInvite(projectId, { invite_id: out.body.invite_id, label, kind: req.invited_kind, made_at: Math.floor(now / 1000), expires_at: out.body.expires_at });
     } catch (err) {
       /* The code works whether or not it is listed here; the Members list says the record could not be kept. */
       console.error('#4649: an invite was made but not recorded on this computer: ' + String((err && err.message) || 'unknown').slice(0, 200));
@@ -218,6 +224,15 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
       state, edge_id: edge ? edge.id : null, joined_at: edge ? edge.created_at : null,
     };
   });
+  /* Review round 3: a connection with no row here (its code was made on the create screen, or on another of this
+     account's computers) is still someone in the room. It is listed, with no label, so it can be removed. */
+  if (edges) {
+    const known = new Set(rows.map((r) => r.invite_id));
+    const extra = edges.filter((e) => !known.has(e.invite_id))
+      .map((e) => ({ invite_id: e.invite_id, label: null, kind: e.member_kind || null, made_at: null, expires_at: null,
+        state: e.status === 'active' ? 'joined' : 'removed', edge_id: e.id, joined_at: e.created_at }));
+    out.push(...extra.sort((a, b) => b.joined_at - a.joined_at));
+  }
   let sealed = false;
   try { sealed = !!(o.link && require('./fedseal').isSealedRef(o.link.ref)); } catch { sealed = false; }
   return { status: 200, body: { owner: true, sealed, invites: out, checked_at: checkedAt } };
@@ -235,7 +250,16 @@ async function remove(remote, projectId, edgeId) {
   if (!edge) return { status: 404, body: { error: 'That member is not in this project.' } };
   const r = await remote.macRequest('POST', MAC_REVOKE, { edge_id: edgeId });
   if (!r || !r.ok) return { status: 502, body: { error: (r && r.because) || 'Kosmos could not remove them just now. Try again in a moment.' } };
-  return { status: 200, body: { removed: true } };
+  /* The room line the contract promises, written here (the screen does not): the owner's label when there is one. */
+  let label = null;
+  try { const row = rowsFor(projectId).find((x) => x && x.invite_id === edge.invite_id); label = row ? row.label : null; } catch { label = null; }
+  let sealed = false;
+  try { sealed = require('./fedseal').isSealedRef(o.link.ref); } catch { sealed = false; }
+  const who = label || 'them';
+  const line = sealed
+    ? 'You removed ' + who + '. New messages here are sealed with a new key they do not have.'
+    : 'You removed ' + who + '. They no longer get new messages from this room.';
+  return { status: 200, body: { removed: true }, roomLine: line };
 }
 
 /** Withdraw an unused invite (slice 2's coordinator route). */

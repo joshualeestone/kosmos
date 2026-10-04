@@ -32,9 +32,11 @@ The build plan is on #4649 (comment 5982094423), and the board API contract is t
 1. A member's edge row carries the same `invite_id` the owner's invite returned (coordinator fed.rs: every edge
    redeemed from an invite carries its id, #3728). True on relay main; if a later coordinator drops it, every row
    reads `pending` forever.
-2. A project shared with outsiders before this change has no rows (invites from the create screen were not
-   recorded): its Members list is empty until a new invite. Accepted; the joined edges are still listed by the
-   coordinator for the room itself.
+2. (Corrected in review round 3; my first wording was false.) An invite made on the CREATE screen is never recorded
+   here: the project does not exist yet, so there is no id to file it under. That holds after this change too, not
+   only for older invites. Members therefore also lists every connection on the project's ref that has no row, as
+   joined or removed with no label, so anyone in the room can be seen and removed. A create-screen code nobody has
+   used yet is not listed (the coordinator lists no unused invite) and cannot be withdrawn from here; it lapses.
 3. Remove relies on the owner's next room check to rotate the key (up to the 60 s pass, #5191's window).
 
 ## Review round 1 (opus): 3 blockers, all fixed with a test that reds when the fix is removed
@@ -49,8 +51,14 @@ The build plan is on #4649 (comment 5982094423), and the board API contract is t
   Withdraw keys on the coordinator's own sentences (slice 2: "already been used", "already withdrawn", "no such
   invite") and on the connector's "does not sign" / a bare HTTP 404 for an older connector or coordinator.
 
+## Review round 3 (opus): 2 warnings, fixed
+- Create-screen joiners were invisible and unremovable (above, premise 2). Fixed and tested.
+- made_at and withdrawn_at were milliseconds while expires_at is seconds. All stored times are seconds now.
+- Also: the room line on Remove is written by the board (the contract said so; the plan had said the screen),
+  worded by whether the room is sealed; the description sent is the project's on this board, like the name.
+
 ## Tests
 engine/fedmembers.test.js (10), server.fedmembers-4649.test.js (4), engine/federation.test.js and
-server.federation-3311.test.js: 60/60. Mutations, each red on its own test: Remove without the project check; the
+server.federation-3311.test.js: 63/63. Mutations, each red on its own test: Remove without the project check; the
 label sent to the coordinator; Members without the screen gate; the invite-time stamp; no stale-link forget; no
 per-project serialization; no forget on project removal.
