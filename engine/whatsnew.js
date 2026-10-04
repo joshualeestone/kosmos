@@ -41,7 +41,8 @@ const VERSION_RE = /^\d+\.\d+\.\d+$/;
 /* #5224: the platforms a highlight can be for, and the words that name each. */
 const PLATFORMS = Object.freeze(['mac', 'windows']);
 /* Matched in any case ("macos", "MacOS", "PCS"), except the all-lower-case words in NOT_PLATFORM_WORDS: a
-   window on screen, a MAC address written as "mac". "OS X" is two words and is matched as a pair. */
+   window on screen, a MAC address written as "mac". So a careless "on a mac" or "on windows" is NOT caught
+   (docs/releasing.md says so). "OS X" is two words and is matched as a pair. */
 const PLATFORM_WORDS = Object.freeze({
   mac: ['Mac', 'Macs', 'macOS', 'Macintosh', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
   windows: ['Windows', 'PC', 'PCs'],
