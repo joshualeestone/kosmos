@@ -158,10 +158,13 @@ async function inviteNow(remote, body, { projectExists, projectName, projectDesc
     /* Its name and description on this board, never the request's (review round 3), cut to the bounds
        federation.invite enforces: a long description the owner never typed into the invite must not refuse it
        (review round 4). */
-    const name = String((projectName && projectName(projectId)) || projectId).slice(0, federation.NAME_MAX);
+    /* Cut to at most n UTF-16 units (the unit federation.invite counts in) by whole CHARACTERS, never inside an
+       emoji (review round 5): half a surrogate pair is not valid text to send. */
+    const cut = (v, n) => { let o = ''; for (const ch of v) { if (o.length + ch.length > n) break; o += ch; } return o; };
+    const name = cut(String((projectName && projectName(projectId)) || projectId), federation.NAME_MAX);
     req = Object.assign({}, body, { project_ref: ref, project_name: name });
     const desc = projectDesc ? projectDesc(projectId) : null;
-    if (typeof desc === 'string' && desc.trim()) req.project_desc = desc.slice(0, federation.DESC_MAX); else delete req.project_desc;
+    if (typeof desc === 'string' && desc.trim()) req.project_desc = cut(desc, federation.DESC_MAX); else delete req.project_desc;
     delete req.project;
   }
   const out = await federation.invite(remote, req);
@@ -174,12 +177,27 @@ async function inviteNow(remote, body, { projectExists, projectName, projectDesc
        route sharing it with this account's other computers is synchronous and not in the invite chain). Writing ours
        over it would orphan the computers already joined by that code, so this invite hands out no code instead; the
        coordinator's invite lapses unused. */
-    let now2 = null;
-    try { now2 = federation.linkFor(projectId); } catch { now2 = undefined; }
+    /* Every refusal from here on is after federation.invite stashed this code's sealing half under the new ref; that
+       half is dropped, so no secret is kept for a room nothing will ever name (review round 5). */
+    const unstash = () => {
+      const dot = String(out.body.code || '').lastIndexOf('.');
+      if (dot > 0) { try { require('./fedseal').spendInvite(linkToRecord.ref, out.body.code.slice(dot + 1)); } catch { /* best effort */ } }
+    };
+    if (projectExists && !projectExists(projectId)) {
+      unstash();
+      return { status: 404, body: { error: 'That project was removed while the code was being made, so no code was made.' } };
+    }
+    let now2;
+    try { now2 = federation.linkFor(projectId); } catch (err) {
+      unstash();
+      return { status: 500, body: { error: (err && err.message) || 'we cannot read the connected-projects record on this computer right now' } };
+    }
     if (now2 !== null) {
+      unstash();
       return { status: 409, body: { reason: 'changed', error: 'This project\'s sharing changed while the code was being made, so no code was made. Try again.' } };
     }
     try { federation.recordLink(projectId, linkToRecord); } catch (err) {
+      unstash();
       return { status: 500, body: { error: 'We could not record this shared project on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
     }
   }

@@ -207,6 +207,9 @@ test('#4649 review round 2: a link recorded by another path while the coordinato
   assert.deepStrictEqual([out.status, out.body.reason], [409, 'changed'], JSON.stringify(out));
   assert.strictEqual(out.body.code, undefined, 'a code was handed out for a room this board will not sit in');
   assert.strictEqual(federation.linkFor('raced').ref, 'ref-own-code', 'the own-code link was overwritten, orphaning the computers joined by it');
+  // Review round 5: the refused code's sealing half is not kept under a ref nothing names.
+  const sentRef = remote.calls[0].body.project_ref;
+  assert.deepStrictEqual(fedseal.pendingInvites(sentRef), [], 'a refused invite left its sealing secret stashed');
   assert.deepStrictEqual(fedmembers.rowsFor('raced'), []);
 });
 
@@ -252,4 +255,27 @@ test('#4649 review round 4: a project name or description longer than the coordi
   assert.strictEqual(out.status, 200, 'a long description the owner never typed into the invite refused it: ' + JSON.stringify(out));
   assert.strictEqual(remote.calls[0].body.project_desc.length, federation.DESC_MAX);
   assert.strictEqual(remote.calls[0].body.project_name.length, federation.NAME_MAX);
+});
+
+test('#4649 review round 5: a name is cut by characters, never inside an emoji', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const emoji = '\u{1F680}';   // two UTF-16 units
+  const out = await fedmembers.invite(remote, { project: 'emoji', invited_kind: 'person' },
+    { projectExists: () => true, projectName: () => 'a' + emoji.repeat(300), projectDesc: () => emoji.repeat(1200) });
+  assert.strictEqual(out.status, 200, 'an emoji name or description refused the invite: ' + JSON.stringify(out));
+  const b = remote.calls[0].body;
+  assert.ok(!/[\ud800-\udbff]$/.test(b.project_name) && !/[\ud800-\udbff]$/.test(b.project_desc), 'a cut left half an emoji at the end');
+  // 'a' then whole emoji: the longest whole-character prefix inside each bound, in the units the coordinator counts.
+  assert.strictEqual(b.project_name, 'a' + emoji.repeat((federation.NAME_MAX - 1) / 2 | 0));
+  assert.strictEqual(b.project_desc, emoji.repeat(federation.DESC_MAX / 2));
+});
+
+test('#4649 review round 5: a project removed while the coordinator answered gets no link, no row and no stashed secret', async () => {
+  let exists = true;
+  const remote = stubRemote({ '/v1/mac/federation/invite': () => { exists = false; return inviteAnswer(); } });
+  const out = await fedmembers.invite(remote, { project: 'vanished', invited_kind: 'person' }, { projectExists: () => exists, projectName: () => 'V' });
+  assert.strictEqual(out.status, 404, JSON.stringify(out));
+  assert.strictEqual(federation.linkFor('vanished'), null);
+  assert.deepStrictEqual(fedmembers.rowsFor('vanished'), []);
+  assert.deepStrictEqual(fedseal.pendingInvites(remote.calls[0].body.project_ref), []);
 });
