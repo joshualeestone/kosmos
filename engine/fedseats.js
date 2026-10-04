@@ -52,7 +52,20 @@ const INBOUND_ROWS_PER_DAY = 2000;
 const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
-const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer
+const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;
+/* #5193: a member's edge revoked by the owner, told in one plain sentence. The connector's own
+   reason for it reads "...that connection has been revoked. Ask to be re-invited. (HTTP 409 on
+   /v1/mac/federation/room-ticket)", which shows a raw path and says "ask" twice. */
+const REVOKED_REFUSAL = /\brevoked\b/i;
+const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
+/** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
+    (the room's sentence says what to do), and without a trailing full stop. */
+function plainReason(why) {
+  return String(why || '')
+    .replace(/\s*\(HTTP \d{3}[^)]*\)/gi, '')
+    .replace(/\s*Ask to be re-invited\.?/gi, '')
+    .trim().replace(/[.\s]+$/, '') || 'the connection ended';
+}   // #4645: either wording of the retired answer
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
 /* The longest stdout line kept while waiting for its newline. The connector
@@ -154,7 +167,10 @@ function handleEvent(projectId, line, heldAt) {
     // the owner leaving, so the note (and its "ask the owner") is a member's.
     const link = safeLink(projectId);
     if (!link || link.role !== 'member') return;
-    say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
+    // #5193: one plain sentence, said once (the edges check may have said it already).
+    if (s.revokedNoted) return;
+    if (REVOKED_REFUSAL.test(s.ended)) { s.revokedNoted = true; say(projectId, REVOKED_NOTE); return; }
+    say(projectId, 'This computer is no longer connected to the external project: ' + plainReason(s.ended) + '. To take part again, ask the owner for a new code.');
     return;
   }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
@@ -694,6 +710,33 @@ function isFresh(at, now) {
   const age = now - (Number.isFinite(at) ? at : 0);
   return age >= 0 && age < EDGE_FRESH_MS;
 }
+/** #5193: end a member's seat whose edge the owner revoked, at once, as the connector's own
+    refusal (code 3) would about two minutes later: the room is told once, the link keeps the
+    ending across a restart, and held posts go with it (setStatus 'ended'). */
+function endRevokedMember(projectId, s, link) {
+  if (!s || s.stopped || s.status === 'ended') return;
+  s.ended = 'the owner removed this computer from the project';
+  if (!s.revokedNoted) { s.revokedNoted = true; say(projectId, REVOKED_NOTE); }
+  try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended })); } catch { /* ends again at its next ticket ask */ }
+  setStatus(projectId, 'ended');
+  s.stopped = true;   // the child's close then neither restarts it nor tells the room again
+  if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+  if (s.child) letGo(s.child);
+}
+/** #5193: a member reads its own edge in the edges answer (the coordinator lists a revoked edge
+    with status 'revoked'). Only an edge listed as revoked ends the seat: a missing one or a
+    failed answer changes nothing (a partial answer must not lock a member out). */
+async function memberEdgeCheck(projectId, ask, seat) {
+  let r;
+  try { r = await ask; } catch { return; }
+  const s = seats.get(projectId);
+  if (!s || (seat && s !== seat)) return;
+  const link = safeLink(projectId);
+  if (!link || link.role !== 'member' || !link.edge_id) return;
+  if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_member)) return;
+  const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
+  if (e && e.status === 'revoked') endRevokedMember(projectId, s, link);
+}
 function sharedEdges(now) {
   if (macEdges && isFresh(macEdges.askedAt, now)) return macEdges;
   const ask = { askedAt: now, promise: null };
@@ -987,6 +1030,12 @@ async function ensureAll() {
   }
   for (const id of Object.keys(links)) {
     const link = links[id];
+    // #5193: a member checks its own edge on the same one edges request.
+    if (link && link.role === 'member' && link.edge_id && !link.ended) {
+      const seat = seats.get(id);
+      if (seat) { try { await memberEdgeCheck(id, edges(), seat); } catch { /* next pass */ } }
+      continue;
+    }
     if (!link || link.role !== 'owner') continue;
     try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
   }
@@ -1019,6 +1068,13 @@ const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
  */
 function post(projectId, msg) {
   const m = msg || {};
+  // #5193: a member that posts asks whether it is still in the room (the shared answer, so at
+  // most one request per EDGE_FRESH_MS for the whole Mac), and a revoke is told within seconds.
+  const s = seats.get(projectId);
+  const l = s && s.status === 'connected' ? safeLink(projectId) : null;
+  if (l && l.role === 'member' && l.edge_id && deps) {
+    memberEdgeCheck(projectId, sharedEdges(Date.now()).promise, s).catch(() => {});
+  }
   // Only the public fields: the hold's own (invites, sealedHeld...) cannot be set from outside.
   return sendPost(projectId, { from: m.from, kind: m.kind, text: m.text, files: m.files }, 0);
 }

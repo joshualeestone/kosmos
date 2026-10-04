@@ -36,7 +36,7 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     macRequest: async () => {
       h.asked += 1;
       if (h.gate || gate) await (h.gate || gate);
-      return h.edges ? { ok: true, data: { as_owner: h.edges, as_member: [] } } : { ok: false, because: 'no' };
+      return h.edges || h.memberEdges ? { ok: true, data: { as_owner: h.edges || [], as_member: h.memberEdges || [] } } : { ok: false, because: 'no' };
     },
     recordExternal: (projectId, msg) => recorded.push({ projectId, ...msg }),
     onStatus: (projectId, status) => statuses.push([projectId, status]),
@@ -366,14 +366,76 @@ test('a seat that ends says why in the room, once, and a later post says it has 
   federation.recordLink('proj-end', { role: 'member', edge_id: 'edge-end' });
   const h = harness();
   await fedseats.ensure('proj-end');
-  say(h.spawned[0], { event: 'ended', because: 'that connection has been revoked. Ask to be re-invited.' });
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
   await tick();
   h.spawned[0].emit('exit', 3);
-  const ended = h.notes.filter((n) => n.projectId === 'proj-end' && /no longer connected/.test(n.text));
+  // #5193: one plain sentence, no raw HTTP path, "ask" once.
+  const ended = h.notes.filter((n) => n.projectId === 'proj-end' && /no longer connected|removed this computer/.test(n.text));
   assert.equal(ended.length, 1, JSON.stringify(h.notes));
-  assert.match(ended[0].text, /revoked/);
+  assert.strictEqual(ended[0].text, 'The owner removed this computer from the project. Ask them for a new code to join again.');
   assert.strictEqual(fedseats.post('proj-end', { from: 'x', kind: 'person', text: 'still there?' }), false);
   assert.match(h.notes[h.notes.length - 1].text, /has ended/);
+});
+
+async function memberRoom(id) {
+  federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
+  const h = harness();
+  await fedseats.ensure(id);
+  say(h.spawned[0], { event: 'connected', room: 'room-' + id, expires_at: 9 });
+  await tick();
+  return h;
+}
+const REVOKED_5193 = 'The owner removed this computer from the project. Ask them for a new code to join again.';
+
+test('#5193: a member that posts right after a revoke is told at once, in one plain sentence, and the seat ends', async () => {
+  const h = await memberRoom('proj-5193-post');
+  h.memberEdges = [{ id: 'edge-proj-5193-post', status: 'revoked' }];
+  assert.strictEqual(fedseats.post('proj-5193-post', { from: 'B', kind: 'person', text: 'still here?' }), true);
+  await settle();
+  const told = h.notes.filter((n) => n.projectId === 'proj-5193-post' && /removed this computer|no longer connected/.test(n.text));
+  assert.deepStrictEqual(told.map((n) => n.text), [REVOKED_5193], JSON.stringify(h.notes));
+  assert.ok(!h.notes.some((n) => /HTTP|\/v1\//.test(n.text)), 'a raw path reached the room');
+  assert.strictEqual(fedseats.statusOf('proj-5193-post'), 'ended');
+  assert.ok(federation.readLinks()['proj-5193-post'].ended, 'the ending was not kept across a restart');
+  // The connector's own refusal, arriving later, does not tell the room again.
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
+  await tick();
+  h.spawned[0].emit('exit', 3);
+  await tick();
+  assert.strictEqual(h.notes.filter((n) => /removed this computer|no longer connected/.test(n.text)).length, 1, JSON.stringify(h.notes));
+  assert.strictEqual(fedseats.post('proj-5193-post', { from: 'B', kind: 'person', text: 'and now?' }), false);
+});
+
+test('#5193: the pass ends a revoked member without a post', async () => {
+  const h = await memberRoom('proj-5193-pass');
+  h.memberEdges = [{ id: 'edge-proj-5193-pass', status: 'revoked' }];
+  await fedseats.ensureAll();
+  await settle();
+  assert.strictEqual(fedseats.statusOf('proj-5193-pass'), 'ended');
+  assert.deepStrictEqual(h.notes.filter((n) => n.projectId === 'proj-5193-pass').map((n) => n.text), [REVOKED_5193]);
+});
+
+test('#5193: an active, missing or unanswered edge does not end a member', async () => {
+  for (const [label, edges] of [['active', [{ id: 'edge-proj-5193-ok-active', status: 'active' }]], ['missing', [{ id: 'edge-someone-else', status: 'revoked' }]], ['failed', null]]) {
+    const id = 'proj-5193-ok-' + label;
+    const h = await memberRoom(id);
+    h.memberEdges = edges;
+    assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'hi' }), true);
+    await fedseats.ensureAll();
+    await settle();
+    assert.strictEqual(fedseats.statusOf(id), 'connected', label);
+    assert.ok(!h.notes.some((n) => /removed this computer|no longer connected/.test(n.text)), label + ': ' + JSON.stringify(h.notes));
+  }
+});
+
+test('#5193: an ending for another reason is told without its HTTP trailer', async () => {
+  federation.recordLink('proj-5193-other', { role: 'member', edge_id: 'edge-5193-other' });
+  const h = harness();
+  await fedseats.ensure('proj-5193-other');
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: no such connection. (HTTP 404 on /v1/mac/federation/room-ticket)' });
+  await tick();
+  const told = h.notes.filter((n) => /no longer connected/.test(n.text));
+  assert.deepStrictEqual(told.map((n) => n.text), ['This computer is no longer connected to the external project: Kosmos+ refused this Mac: no such connection. To take part again, ask the owner for a new code.']);
 });
 
 test('an inbound message that cannot be saved is said in the room and does not throw', async () => {
