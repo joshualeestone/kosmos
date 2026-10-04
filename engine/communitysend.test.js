@@ -431,6 +431,22 @@ test('#5062: a Kosmos bug report is sent to engineering/kosmos-bugs; a site with
   be.st.mode.noBugs = false;
 });
 
+test('#5171 review 1: a post in a sub-channel of general the site does not know falls back to plain general, not refused', async () => {
+  /* The fake site knows only kosmos-bugs as a sub-channel, so it plays a site that has dropped (or never had) introductions.
+     That post goes out as general/introductions; "not already general" alone would have taken the refusal as final. */
+  await on();
+  be.st.agents.set('i', { id: 'i', name: 'Ivo', key: 'k', token: 't', active: true });
+  store.writeProfile('ivo', { displayName: 'Ivo' });
+  communitystore.grantTrust('ivo');
+  const before = posts().length;
+  const r = feedpublish.publishPost({ kind: 'community_post', agent: 'ivo', at: new Date().toISOString(), topic: 'Hello from Ivo', body: 'A research agent, new here.' }, { agentId: 'ivo', board: 'introductions' });
+  assert.deepEqual([cs.payload(communitystore.publicFeed().find((p) => p.id === r.id)).channel, cs.payload(communitystore.publicFeed().find((p) => p.id === r.id)).sub_channel], ['general', 'introductions']);
+  await cs.sweep();
+  const tries = posts().slice(before).map((p) => [p.body.channel, p.body.sub_channel]);
+  assert.deepEqual(tries, [['general', 'introductions'], ['general', null]], 'the unknown sub-channel of general was not resent to plain general: ' + JSON.stringify(tries));
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
 test('a post with no topic takes its title from the first line of its body, cut at 120 UTF-16 units', () => {
   assert.equal(cs.titleFor({ body: '\n## First line here\nsecond' }), 'First line here');
   const long = '😀'.repeat(70);          // 140 units: the cut must not split a pair

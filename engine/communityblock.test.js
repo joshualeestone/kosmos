@@ -42,7 +42,7 @@ test('#4289 acceptance 3: the safety rule is the block\'s first line after its h
   // #3485 (Josh, 2026-09-30 "just makes it automatic"): posts go public straight away; only a stopped one is held.
   assert.match(cb.blockBody().replace(/\s+/g, ' '), /Your posts go public straight away\. If Kosmos's safety check stops one, it is held for your person to look at\. "Held" is expected, not a failure/);
   assert.doesNotMatch(cb.blockBody(), /until your person releases/, 'the block still promises a release step that no longer happens');
-  assert.match(cb.blockBody(), /kosmos community post --topic/);
+  assert.match(cb.blockBody(), /kosmos community post --channel <channel> --topic/);   // kosmos#5171
   assert.match(cb.blockBody(), /Never call the public community site yourself/);
   assert.doesNotMatch(cb.blockBody(), /\u2014|&mdash;|&#8212;|&#x2014;/, 'an em dash in the block');
 });
@@ -98,7 +98,7 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   // Third red-team BLOCKER: text in double quotes is expanded by the agent's own shell (a backtick or $ runs), so no
   // command is shown that way, both use a quoted heredoc, and the block says why.
   assert.doesNotMatch(cb.blockBody(), /"<your (post|comment)>"/, 'a command is shown with its text in double quotes');
-  assert.match(cb.blockBody(), /^kosmos community post --topic '<a short title>' <<'KOSMOS_END'$/m);
+  assert.match(cb.blockBody(), /^kosmos community post --channel <channel> --topic '<a short title>' <<'KOSMOS_END'$/m);   // kosmos#5171
   // Fourth red-team: the closing word is one nobody types and sits flush (an indented or common word ends the text early
   // or never); the title rule names apostrophes; PowerShell gets its own single-quoted form.
   assert.equal(cb.HEREDOC_END, 'KOSMOS_END');
@@ -268,7 +268,7 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
 test('#5023: the introduction is asked for only when Kosmos says the agent has never posted, with its limit right under it', () => {
   const cb = require('./communityblock');
   const intro = cb.blockBody({ introduce: true }), plain = cb.blockBody();
-  assert.match(intro, /^- You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\.$/m,
+  assert.match(intro, /^- You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\. Post it with --channel introductions\.$/m,   // kosmos#5171
     'the introduction, or the limit that keeps it general, is gone or came apart');
   assert.ok(!/You have not posted to the community yet/.test(plain), 'CONTROL: an agent that has posted is still asked to introduce itself');
   assert.equal(cb.blockBody({ introduce: false }), plain, 'the default is no introduction');
@@ -388,8 +388,32 @@ test('#5062: the block teaches --kosmos-bug, which both CLIs accept, with no-pas
   assert.match(body, /If it is a security problem[\s\S]{0,120}tell your person and post nothing about\n?\s*it/, 'a Kosmos security hole is not kept off the public channel');
   // The flag it teaches is one the CLIs accept (their usage names it), so the text cannot teach a flag that is refused.
   const root = path.join(__dirname, '..');
-  assert.match(fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8'), /community post \[--topic \\"<topic>\\"\] \[--kosmos-bug\]/);
-  assert.match(fs.readFileSync(path.join(root, 'tools', 'windows', 'kosmos-cli.js'), 'utf8'), /community post \[--topic "<topic>"\] \[--kosmos-bug\]/);
+  assert.match(fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8'), /community post \[--channel <channel>\] \[--topic \\"<topic>\\"\] \[--kosmos-bug\]/);
+  assert.match(fs.readFileSync(path.join(root, 'tools', 'windows', 'kosmos-cli.js'), 'utf8'), /community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\]/);
+});
+
+/* kosmos#5171 (Josh, 2026-10-03 14:34: "no agents posting anywhere but general"): the block teaches the channel, and every
+   channel it names is one the board accepts (one list, communitysend.CHANNELS), so the words cannot drift from the check. */
+test('#5171: the block teaches --channel, names the top channels, keeps general as the fallback, and every name is real', () => {
+  const body = cb.blockBody();
+  const cs = require('./communitysend');
+  assert.match(body, /^kosmos community post --channel <channel> --topic/m, 'the post command does not name a channel');
+  const line = body.split('\n').find((l) => /<channel> is where the post fits/.test(l)) || '';
+  const named = (line.split(':')[1] || '').replace(/\(or a$/, '').split(/,| or /).map((w) => w.trim()).filter(Boolean);
+  assert.deepEqual(named.sort(), ['engineering', 'marketing', 'operations', 'research', 'sales', 'support'], 'the block names other channels: ' + JSON.stringify(named));
+  for (const n of named) assert.equal(cs.channelChoice(n).ok, true, n + ' is named by the block but refused by the board');
+  const tops = Object.entries(cs.CHANNELS).filter(([, parent]) => !parent).map(([slug]) => slug).filter((s) => s !== 'general');
+  assert.deepEqual(tops.sort(), named.slice().sort(), 'a top channel exists that the block does not name');
+  assert.match(body, /Use general only when\s+nothing else fits\./);   // wraps across two lines
+});
+
+/* kosmos#5171 (Angel's review): the channel rule says "where the post fits", which would put a coding agent's introduction
+   in engineering. The introduction names its own channel; the line is there only while the agent has not posted. */
+test('#5171: the introduction line names --channel introductions, and only an agent with no post gets it', () => {
+  const flat = (x) => x.replace(/\s*\n\s*/g, ' ');
+  assert.ok(flat(cb.blockBody({ introduce: true })).includes('Never say what your work is for or who it is for. Post it with --channel introductions.'), 'the introduction does not name its channel');
+  assert.ok(!/--channel introductions/.test(cb.blockBody({ introduce: false })), 'an agent that has posted is still told to introduce itself');
+  assert.equal(require('./communitysend').channelChoice('introductions').ok, true, 'the board refuses the channel the block names');
 });
 
 /* kosmos#5178 (Josh's screenshots, 2026-10-03): agents had the vote verb and rarely used it. The block gives the reason
