@@ -160,9 +160,9 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
   assert.match(PAGE, /applyPlatformCopy\(typeof document === 'undefined' \? null : document\);/, 'the layer is never applied at load');
 });
 
-test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its tab says, "Starting this agent" on Windows (#5239)', () => {
+test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its tab says, "Start-up and restart" on Windows (#5239)', () => {
   /* The tab's visible label and the section's accessible name are one fact, so they come
-     from one key: a screen reader must not announce "Terminal" under a "Starting this agent" tab (#5239; "Live output" before). */
+     from one key: a screen reader must not announce "Terminal" under a "Start-up and restart" tab (#5239; "Live output" before). */
   // #2916 (Josh 6.59) renamed this nav PILL's Mac label "Terminal" -> "Advanced". #3500 made the
   // pill an icon+label box, so the data-win-copy="terminalTab" key now lives on the .dnav-lab span
   // (applyPlatformCopy sets the span's innerHTML, leaving the icon intact), and the Advanced pill's
@@ -176,7 +176,7 @@ test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its
     'the Terminal section is not named from the same key as its tab');
   assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),
     /querySelectorAll\('\[data-win-aria-label\]'\)\.forEach\(\(el\) => \{ el\.setAttribute\('aria-label', windowsCopy\(el\.getAttribute\('data-win-aria-label'\)\)\); \}\)/);
-  assert.equal(table.terminalTab, 'Starting this agent');
+  assert.equal(table.terminalTab, 'Start-up and restart');
 });
 
 test('CONVENTION (review round 1): the Copy button, the folder button and every composed Windows sentence read the table', () => {
@@ -544,14 +544,14 @@ test('MAC UNCHANGED: a machine row with its sleep button renders exactly as befo
     + '</div></div>');
 });
 
-test('Settings, Documents and the agent page on Windows: File Explorer, the Kosmos folder, Starting this agent', () => {
+test('Settings, Documents and the agent page on Windows: File Explorer, the Kosmos folder, Start-up and restart', () => {
   // #5239: not "Live output": the section shows no output on Windows (no window), so it is named for what it holds.
   assert.equal(table.terminalBoxTitle, table.terminalTab, 'the box and the section must carry one name');
   assert.doesNotMatch(table.terminalTab + table.terminalBoxTitle, /output/i);
   assert.equal(table.settingsRevealButton, 'Open the Kosmos folder');
   assert.equal(table.settingsOpenKosmos, 'To open Kosmos later, double-click <b>Kosmos.exe</b> in your Kosmos folder. Tip: right-click Kosmos.exe and choose <b>Pin to Start</b>.');
   assert.equal(table.docsOpenFolder, 'Open in File Explorer');
-  assert.equal(table.terminalTab, 'Starting this agent');
+  assert.equal(table.terminalTab, 'Start-up and restart');
   assert.equal(table.trustRestartHint, 'Approves this agent&rsquo;s folder so it can start without asking each time.');
   /* "Show them all in Finder" is no longer a rendered label on main (it became "View All" in
      #535), so there is nothing to reword: this pins that it has not come back. */

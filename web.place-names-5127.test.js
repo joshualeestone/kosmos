@@ -4,7 +4,7 @@
  * places that do not exist. Other wordings ("its Terminal", "Terminal view") are not caught; a bare "Terminal" is
  * legitimate, since the Mac box is headed "This agent's Terminal".
  * - There is no "Terminal tab": an agent's screen is a box under the AI Settings pill on its page ("This agent's
- *   Terminal" on a Mac, "Starting this agent" on Windows, #5239), so sentences point at AI Settings, which both platforms show.
+ *   Terminal" on a Mac, "Start-up and restart" on Windows, #5239), so sentences point at AI Settings, which both platforms show.
  *   The Codex hook refusals are shown ON the agent's page and only ever reach a Mac (Windows is turned away first), so they name the Mac heading and
  *   where it is ("look at This agent's Terminal under AI Settings on this page"); the
  *   not-running message can show elsewhere, with no session, so it names only the place ("on its page").

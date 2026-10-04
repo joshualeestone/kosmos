@@ -4,7 +4,7 @@
 box title (terminalBoxTitle) no longer promise output the section never shows; both read one name, pinned by tests.
 
 ## Decided
-- Name: "Starting this agent". On Windows the box holds Trust & Restart (Open Terminal is data-win-hide), whose own
+- Name: "Start-up and restart". On Windows the box holds Trust & Restart (Open Terminal is data-win-hide), whose own
   hint is "Approves this agent's folder so it can start without asking each time"; the window box below says there
   is no window (#5223 / PR #5226). Both keys keep one value (the a11y rule: section name = its title).
 - Rejected: a real live view of the stream-json output (the card's option 2): a feature, not a rename; a separate card
