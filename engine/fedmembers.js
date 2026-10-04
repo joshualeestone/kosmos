@@ -62,6 +62,10 @@ function cleanLabel(v) {
   return s ? s.slice(0, LABEL_MAX) : null;
 }
 
+/* Cut to at most n UTF-16 units (the unit federation.invite counts in) by whole CHARACTERS, never inside an emoji
+   (review round 5): half a surrogate pair is not valid text to send. */
+function cut(v, n) { let o = ''; for (const ch of v) { if (o.length + ch.length > n) break; o += ch; } return o; }
+
 function rowsFor(projectId) {
   const all = readAll();
   return own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
@@ -158,9 +162,6 @@ async function inviteNow(remote, body, { projectExists, projectName, projectDesc
     /* Its name and description on this board, never the request's (review round 3), cut to the bounds
        federation.invite enforces: a long description the owner never typed into the invite must not refuse it
        (review round 4). */
-    /* Cut to at most n UTF-16 units (the unit federation.invite counts in) by whole CHARACTERS, never inside an
-       emoji (review round 5): half a surrogate pair is not valid text to send. */
-    const cut = (v, n) => { let o = ''; for (const ch of v) { if (o.length + ch.length > n) break; o += ch; } return o; };
     const name = cut(String((projectName && projectName(projectId)) || projectId), federation.NAME_MAX);
     req = Object.assign({}, body, { project_ref: ref, project_name: name });
     const desc = projectDesc ? projectDesc(projectId) : null;

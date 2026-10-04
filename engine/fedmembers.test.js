@@ -279,3 +279,17 @@ test('#4649 review round 5: a project removed while the coordinator answered get
   assert.deepStrictEqual(fedmembers.rowsFor('vanished'), []);
   assert.deepStrictEqual(fedseal.pendingInvites(remote.calls[0].body.project_ref), []);
 });
+
+test('#4649 review round 6: a links record that cannot be read after the coordinator answered refuses, and keeps no stashed secret', async () => {
+  const linksFile = path.join(require('./store').ROOT, federation.FILE);
+  const before = fs.existsSync(linksFile) ? fs.readFileSync(linksFile) : null;
+  const remote = stubRemote({ '/v1/mac/federation/invite': () => { fs.writeFileSync(linksFile, '{ damaged'); return inviteAnswer(); } });
+  try {
+    const out = await fedmembers.invite(remote, { project: 'unreadable', invited_kind: 'person' }, here(['unreadable']));
+    assert.strictEqual(out.status, 500, JSON.stringify(out));
+    assert.strictEqual(out.body.code, undefined, 'a code was handed out though its link could not be checked');
+    assert.deepStrictEqual(fedseal.pendingInvites(remote.calls[0].body.project_ref), [], 'the refused code\'s sealing half was kept');
+  } finally {
+    if (before) fs.writeFileSync(linksFile, before); else fs.rmSync(linksFile, { force: true });
+  }
+});
