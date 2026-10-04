@@ -2485,6 +2485,8 @@ cmd_whoami() {
 cmd_keep_copy() {
   local _p="${1:-}" _cwd="${2:-}" _sid="${3:-}"
   [ -n "$_p" ] || exit 0
+  # A name with a control character is not sent at all (review 1): rewriting it would name a different, real file.
+  case "$_p$_cwd" in *[[:cntrl:]]*) exit 0 ;; esac
   _kc_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r\n' '   '; }
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in

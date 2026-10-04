@@ -4,20 +4,25 @@
  * #5153 slice 4: undo a closed task's file changes (the recommended call on the card, 2026-10-03; Josh can override).
  *
  * 🔑 KOSMOS'S OWN COPY, TAKEN JUST BEFORE AN EDIT. While the switch is on, the report hook asks the board to keep a
- * copy of a file just before a Claude agent edits it (keep()). A closed task's undo puts each file the agent edited
- * during the task back to the copy kept before its FIRST edit in that task. Claude Code's own rewind backups were
- * measured and rejected: undocumented, and each is a file at some turn of the conversation, not "before this edit".
+ * copy of a file just before a Kosmos agent's Claude session edits it (keep()). A closed task's undo puts each file the
+ * agent edited during the task back to the copy kept before its first edit in that task. Claude Code's own rewind
+ * backups were measured and rejected: undocumented, and each is a file at some turn of the conversation, not "before
+ * this edit".
  *
- * 🛑 WHAT IT NEVER DOES
- *   - delete a file: one the agent created is MOVED into Kosmos's own undone folder;
- *   - overwrite a file changed after the task closed (by anyone): listed, skipped;
- *   - touch a file with no copy (switch off, too big, a command's change, another provider): listed, never guessed;
- *   - restore without first saving the file's current version beside the copies, so an undo can be undone by hand;
- *   - act on its own: plan() lists, the person chooses, apply() does only what was chosen and is still safe.
- * A file another agent also edited while this task was held is listed and skipped unless the person chooses it.
+ * 🛑 WHAT IT NEVER DOES (review 1 found the first version could write through a link: never again)
+ *   - delete a file: one the agent created is MOVED into Kosmos's own folder;
+ *   - write through a link, into a folder, or where the file's folder now resolves somewhere else: the file must still
+ *     be a plain file (or absent) in the same real folder, and the copy is written beside it then renamed into place;
+ *   - overwrite without saving the current version first;
+ *   - touch a file changed or deleted after the task closed, or one with no copy;
+ *   - keep copies of anything but a Kosmos agent's own sessions (never the person's own Claude sessions);
+ *   - act on its own: plan() lists, the person chooses, apply() redoes the plan and does only what is chosen and safe.
+ * A file whose history the copies cannot vouch for is marked, not offered as "before this task": the switch turned on
+ * after the agent began, the same agent's other task overlapping, another agent's edit meanwhile.
  *
- * Copies live under store.ROOT/undo, on this computer only, for KEEP_DAYS; a file over MAX_BYTES gets no copy.
- * The switch is its own file (undo.json, like community.json): no file is OFF.
+ * STORAGE (review 1): copies are content-addressed blobs (one per distinct content) plus one index line per keep, all
+ * under store.ROOT/undo, folders 0700 and files 0600. Turning the switch off deletes them; a sweep drops what is older
+ * than KEEP_DAYS at board start and at most daily. A file over MAX_BYTES gets no copy.
  */
 
 const fs = require('node:fs');
@@ -29,92 +34,180 @@ const taskchat = require('./taskchat');
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP_DAYS = 30;
 const CHANGED_SLACK_MS = 2000;   // a write in the same moment as the close is the agent's own last edit
+const SESSIONS_TTL_MS = 60 * 1000;
 
 const dir = () => path.join(store.ROOT, 'undo');
 const switchFile = () => path.join(store.ROOT, 'undo.json');
-const copiesDir = () => path.join(dir(), 'copies');
-const keyOf = (p) => crypto.createHash('sha256').update(p).digest('hex').slice(0, 24);
+const blobsDir = () => path.join(dir(), 'blobs');
+const indexFile = () => path.join(dir(), 'index.jsonl');
+const mkdirPrivate = (d) => { fs.mkdirSync(d, { recursive: true, mode: 0o700 }); try { fs.chmodSync(d, 0o700); } catch { /* best effort */ } };
+const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-/** The switch: { on, ok }. No file is OFF (ok true); a file that cannot be read is OFF with ok false. */
+/** The switch: { on, ok, since }. No file is OFF; a file that cannot be read is OFF with ok false. */
 function read() {
   let raw;
-  try { raw = fs.readFileSync(switchFile(), 'utf8'); } catch (err) { return { on: false, ok: !err || err.code === 'ENOENT' }; }
-  try { const v = JSON.parse(raw); return { on: v && v.on === true, ok: true }; } catch { return { on: false, ok: false }; }
+  try { raw = fs.readFileSync(switchFile(), 'utf8'); } catch (err) { return { on: false, ok: !err || err.code === 'ENOENT', since: null }; }
+  try { const v = JSON.parse(raw); return { on: v && v.on === true, ok: true, since: v && v.on === true && typeof v.since === 'string' ? v.since : null }; }
+  catch { return { on: false, ok: false, since: null }; }
 }
-function setOn(on) {
+/* Turning it on records when (a hold that began earlier has no copies from before it); turning it off deletes every
+   copy kept, so "off" means nothing of the person's files is held. */
+function setOn(on, now = Date.now()) {
   fs.mkdirSync(store.ROOT, { recursive: true });
+  const was = read();
+  const since = on === true ? (was.on && was.since ? was.since : new Date(now).toISOString()) : null;
   const tmp = switchFile() + '.' + process.pid + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ on: on === true }));
+  fs.writeFileSync(tmp, JSON.stringify({ on: on === true, ...(since ? { since } : {}) }));
   fs.renameSync(tmp, switchFile());
+  if (on !== true) { try { fs.rmSync(dir(), { recursive: true, force: true }); } catch { /* the sweep tries again */ } }
   return read();
 }
 
+/* ---- whose session is this: only a Kosmos agent's own Claude sessions get copies ---- */
+let sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() };
+function agentSessions(now = Date.now()) {
+  if (sessionsCache.at && now - sessionsCache.at < SESSIONS_TTL_MS) return sessionsCache;
+  const byAgent = new Map();
+  const folders = new Map();
+  try {
+    const known = require('./register').known();
+    const create = require('./create');
+    const { canonicalOnDisk } = require('./trust');
+    const { configRoots } = require('./status');
+    for (const name of known.ok ? known.names : []) {
+      let folder;
+      try { folder = canonicalOnDisk(create.workerDir(name)); } catch { continue; }
+      folders.set(name, folder);
+      const ids = new Set();
+      const flats = [...new Set([folder, create.workerDir(name)].map((p) => String(p).replace(/[^A-Za-z0-9]/g, '-')))];
+      for (const root of configRoots()) for (const flat of flats) {
+        let names = [];
+        try { names = fs.readdirSync(path.join(root, 'projects', flat)); } catch { continue; }
+        for (const n of names) if (n.endsWith('.jsonl')) ids.add(n.slice(0, -6));
+      }
+      byAgent.set(name, ids);
+    }
+  } catch { /* nobody known: nothing is kept */ }
+  sessionsCache = { at: now, byAgent, folders };
+  return sessionsCache;
+}
+function ownerOf(cwd, session, now) {
+  const { byAgent, folders } = agentSessions(now);
+  const { canonicalOnDisk } = require('./trust');
+  let canon = '';
+  try { canon = cwd ? canonicalOnDisk(cwd) : ''; } catch { canon = ''; }
+  for (const [name, ids] of byAgent) if (session && ids.has(session)) return name;
+  for (const [name, folder] of folders) if (canon && canon === folder) return name;
+  return null;
+}
+let lastSweep = 0;
+function resetForTests() { sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
+
+/* ---- the index: one line per copy kept ---- */
+function readIndex() {
+  let raw = '';
+  try { raw = fs.readFileSync(indexFile(), 'utf8'); } catch { return []; }
+  const out = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    try {
+      const r = JSON.parse(line);
+      const at = Date.parse(r && r.at);
+      if (r && typeof r.path === 'string' && typeof r.id === 'string' && Number.isFinite(at)) out.push({ ...r, atMs: at });
+    } catch { /* a torn line is skipped */ }
+  }
+  return out;
+}
+
 /**
- * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }.
- * `cwd` is the session's folder (which agent's work this is), `session` its id. A missing file is recorded as
- * not existing (an undo then moves the created file aside). A link, a folder or a file over MAX_BYTES is not kept.
+ * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }. A missing file is
+ * recorded as not existing (an undo then moves the created file aside). Not kept: switch off, a path that is not
+ * absolute or carries control characters, a session or folder that is not a Kosmos agent's, a link, a folder, a file
+ * over MAX_BYTES.
  */
 function keep(file, { cwd = '', session = '', now = Date.now() } = {}) {
   try {
-    if (!read().on) return { kept: false, because: 'off' };
-    if (typeof file !== 'string' || !path.isAbsolute(file)) return { kept: false, because: 'not-absolute' };
+    const sw = read();
+    if (!sw.on) return { kept: false, because: 'off' };
+    if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { kept: false, because: 'not-absolute' };
+    const who = ownerOf(String(cwd || ''), String(session || ''), now);
+    if (!who) return { kept: false, because: 'not-an-agent' };
     const abs = path.resolve(file);
     let st = null;
     try { st = fs.lstatSync(abs); } catch (err) { if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' }; }
     if (st && st.isSymbolicLink()) return { kept: false, because: 'link' };
     if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
     if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
-    const d = path.join(copiesDir(), keyOf(abs));
-    fs.mkdirSync(d, { recursive: true });
-    prune(d, now);
-    const id = String(now).padStart(14, '0') + '-' + crypto.randomBytes(4).toString('hex');
-    if (st) fs.copyFileSync(abs, path.join(d, id + '.bin'));
-    fs.writeFileSync(path.join(d, id + '.json'), JSON.stringify({
-      path: abs, existed: Boolean(st), at: new Date(now).toISOString(), cwd: String(cwd || ''), session: String(session || ''),
-      size: st ? st.size : 0, mode: st ? st.mode & 0o7777 : null,
-    }));
+    let dirReal = '';
+    try { dirReal = fs.realpathSync(path.dirname(abs)); } catch { dirReal = ''; }
+    mkdirPrivate(blobsDir());
+    let hash = null;
+    if (st) {
+      const buf = fs.readFileSync(abs);
+      hash = sha(buf);
+      const blob = path.join(blobsDir(), hash);
+      if (!fs.existsSync(blob)) { fs.writeFileSync(blob + '.tmp', buf, { mode: 0o600 }); fs.renameSync(blob + '.tmp', blob); }
+    }
+    const rec = { id: String(now).padStart(14, '0') + '-' + crypto.randomBytes(4).toString('hex'), path: abs, existed: Boolean(st),
+      hash, at: new Date(now).toISOString(), agent: who, cwd: String(cwd || ''), session: String(session || ''),
+      mode: st ? st.mode & 0o7777 : null, dirReal };
+    fs.appendFileSync(indexFile(), JSON.stringify(rec) + '\n', { mode: 0o600 });
+    maybeSweep(now);
     return { kept: true };
   } catch {
     return { kept: false, because: 'failed' };
   }
 }
 
-/* Copies older than KEEP_DAYS go, one file's folder at a time (the one being kept), so no sweep runs on a request. */
-function prune(d, now) {
-  const cutoff = now - KEEP_DAYS * 86400000;
-  let names = [];
-  try { names = fs.readdirSync(d); } catch { return; }
-  for (const n of names) {
-    const t = Number(n.split('-')[0]);
-    if (Number.isFinite(t) && t < cutoff) { try { fs.rmSync(path.join(d, n), { force: true }); } catch { /* next time */ } }
-  }
+/* Drop copies older than KEEP_DAYS and the blobs nothing references any more. At board start and at most daily. */
+function maybeSweep(now) { if (now - lastSweep > 86400000) sweep(now); }
+function sweep(now = Date.now()) {
+  lastSweep = now;
+  try {
+    const cutoff = now - KEEP_DAYS * 86400000;
+    const all = readIndex();
+    const live = all.filter((r) => r.atMs >= cutoff);
+    if (live.length !== all.length) {
+      const tmp = indexFile() + '.' + process.pid + '.tmp';
+      fs.writeFileSync(tmp, live.map(({ atMs, ...r }) => JSON.stringify(r)).join('\n') + (live.length ? '\n' : ''), { mode: 0o600 });
+      fs.renameSync(tmp, indexFile());
+    }
+    const used = new Set(live.map((r) => r.hash).filter(Boolean));
+    for (const n of fs.existsSync(blobsDir()) ? fs.readdirSync(blobsDir()) : []) {
+      if (!used.has(n) && !n.endsWith('.tmp')) { try { fs.rmSync(path.join(blobsDir(), n), { force: true }); } catch { /* next sweep */ } }
+    }
+  } catch { /* the next sweep */ }
 }
 
-/* Every copy kept, as { meta, bin } with its time. Small: one json per edit. */
-function allCopies() {
-  const out = [];
-  let keys = [];
-  try { keys = fs.readdirSync(copiesDir()); } catch { return out; }
-  for (const k of keys) {
-    let names = [];
-    try { names = fs.readdirSync(path.join(copiesDir(), k)); } catch { continue; }
-    for (const n of names) {
-      if (!n.endsWith('.json')) continue;
-      try {
-        const meta = JSON.parse(fs.readFileSync(path.join(copiesDir(), k, n), 'utf8'));
-        const at = Date.parse(meta.at);
-        if (!meta || typeof meta.path !== 'string' || !Number.isFinite(at)) continue;
-        out.push({ meta, at, bin: meta.existed ? path.join(copiesDir(), k, n.replace(/\.json$/, '.bin')) : null });
-      } catch { /* a torn copy is skipped */ }
+/* Every other task's holds for these agents: an edit inside one of them belongs to that task too. */
+function otherHolds(agents, projectId, number) {
+  const out = new Map(agents.map((a) => [a, []]));
+  const receipt = require('./receipt');
+  let all = [];
+  try { all = require('./projects').readAll() || []; } catch { return out; }
+  for (const proj of all) {
+    for (const t of (proj && proj.tasks) || []) {
+      if (proj.id === projectId && t.number === number) continue;
+      const closed = Date.parse(receipt.closedAtOf(t));
+      const holds = receipt.holdsFrom(taskchat.read(proj.id, t.number), Number.isFinite(closed) ? closed : Date.now());
+      for (const a of agents) if (holds[a]) out.get(a).push(...holds[a]);
     }
   }
   return out;
 }
 
+/* What the file at `p` is now, for safety: 'file', 'missing', or 'other' (a link, a folder, anything else). */
+function nowIs(p) {
+  try { const st = fs.lstatSync(p); return st.isFile() ? { kind: 'file', st } : { kind: 'other', st }; }
+  catch (err) { return { kind: err && err.code === 'ENOENT' ? 'missing' : 'other', st: null }; }
+}
+
+const CHOOSABLE = new Set(['shared', 'other-task', 'incomplete']);
+
 /**
- * What undoing task `task` of project `projectId` would do, file by file. { ready, because?, files: [{ path, agent,
- * action: 'restore'|'move-aside', ok, why?, otherAgents? }] }. Only files with a copy appear; `ok` false says why it
- * will not be touched ('changed-since', 'gone', 'shared' needs choosing). Pure reading: nothing is changed.
+ * What undoing task `task` of project `projectId` would do, file by file: { ready, because?, files: [{ path, agent,
+ * action: 'restore'|'move-aside', copyId, ok, why? }] }. `ok` false says why: not choosable ('not-a-file', 'moved',
+ * 'gone', 'changed-since', 'copy-missing'), or choosable with care (CHOOSABLE). Reading only.
  */
 function plan(projectId, task, { now = Date.now() } = {}) {
   const receipt = require('./receipt');
@@ -122,74 +215,78 @@ function plan(projectId, task, { now = Date.now() } = {}) {
   const closedAt = Date.parse(closedIso);
   if (!Number.isFinite(closedAt)) return { ready: false, because: 'open', files: [] };
   const holds = receipt.holdsFrom(taskchat.read(projectId, task.number), closedAt);
-  const create = require('./create');
-  const { canonicalOnDisk } = require('./trust');
-  const copies = allCopies();
-  const canon = new Map();
-  const folderOf = (d) => { if (!canon.has(d)) { try { canon.set(d, canonicalOnDisk(d)); } catch { canon.set(d, d); } } return canon.get(d); };
-  const holders = new Set();   // the folders of the agents that held this task
-  const byPath = new Map();
-  for (const [who, spans] of Object.entries(holds)) {
-    let folder;
-    try { folder = folderOf(create.workerDir(who)); } catch { continue; }
-    holders.add(folder);
-    for (const c of copies) {
-      if (!c.meta.cwd || folderOf(c.meta.cwd) !== folder) continue;
-      if (!spans.some((h) => c.at >= h.from && c.at <= h.to)) continue;
-      const cur = byPath.get(c.meta.path);
-      if (!cur || c.at < cur.copy.at) byPath.set(c.meta.path, { who, copy: c });   // the copy before the FIRST edit
-    }
+  const holders = Object.keys(holds);
+  if (!holders.length) return { ready: true, closedAt: closedIso, files: [] };
+  const index = readIndex();
+  const since = Date.parse(read().since);
+  const others = otherHolds(holders, projectId, task.number);
+  const inside = (spans, t) => spans.some((h) => t >= h.from && t <= h.to);
+  const first = new Map();   // path -> { who, rec }: the copy before the agent's FIRST edit in its holds
+  for (const rec of index) {
+    if (!holders.includes(rec.agent) || !inside(holds[rec.agent], rec.atMs)) continue;
+    const cur = first.get(rec.path);
+    if (!cur || rec.atMs < cur.rec.atMs) first.set(rec.path, { who: rec.agent, rec });
   }
-  /* A copy of the same file, inside this task's span, from a folder that is not one of its holders: another agent
-     edited it meanwhile, and this undo would take that back too. */
   const span = Object.values(holds).flat();
   const from = Math.min(...span.map((h) => h.from));
   const files = [];
-  for (const [p, { who, copy }] of [...byPath.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const others = copies.filter((c) => c.meta.path === p && c.at >= from && c.at <= closedAt && !holders.has(folderOf(c.meta.cwd || '')));
-    const entry = { path: p, agent: who, action: copy.meta.existed ? 'restore' : 'move-aside', at: copy.meta.at, ok: true };
-    let st = null;
-    try { st = fs.lstatSync(p); } catch { st = null; }
-    if (!st && copy.meta.existed === false) { entry.ok = false; entry.why = 'gone'; }
-    else if (st && st.mtimeMs > closedAt + CHANGED_SLACK_MS) { entry.ok = false; entry.why = 'changed-since'; }
-    else if (copy.meta.existed && !fs.existsSync(copy.bin)) { entry.ok = false; entry.why = 'copy-missing'; }
-    if (others.length) { entry.shared = true; if (entry.ok) { entry.ok = false; entry.why = 'shared'; } }
+  for (const [p, { who, rec }] of [...first.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const entry = { path: p, agent: who, action: rec.existed ? 'restore' : 'move-aside', copyId: rec.id, at: rec.at, ok: true };
+    const hold0 = Math.min(...holds[who].map((h) => h.from));
+    const cur = nowIs(p);
+    let dirReal = '';
+    try { dirReal = fs.realpathSync(path.dirname(p)); } catch { dirReal = ''; }
+    const flag = (why) => { if (entry.ok) { entry.ok = false; entry.why = why; } };
+    if (cur.kind === 'other') flag('not-a-file');
+    else if (rec.dirReal && dirReal && dirReal !== rec.dirReal) flag('moved');
+    else if (cur.kind === 'missing') flag('gone');   // created and since removed, or deleted after: never brought back
+    else if (cur.st.mtimeMs > closedAt + CHANGED_SLACK_MS) flag('changed-since');
+    else if (rec.existed && !fs.existsSync(path.join(blobsDir(), rec.hash || '-'))) flag('copy-missing');
+    else if (index.some((r) => r.path === p && r.atMs >= from && r.atMs <= closedAt && !holders.includes(r.agent))) flag('shared');
+    else if (index.some((r) => r.path === p && r.agent === who && inside(holds[who], r.atMs) && inside(others.get(who) || [], r.atMs))) flag('other-task');
+    else if (!Number.isFinite(since) || since > hold0) flag('incomplete');
     files.push(entry);
   }
   return { ready: true, closedAt: closedIso, files };
 }
+
 /**
- * Undo the chosen files of a closed task. `paths` are files from plan(); a file the plan marks not ok is done only if
- * it is 'shared' and chosen (the person's call); 'changed-since', 'gone' and 'copy-missing' are never done. Each file's
- * current version is saved first. Returns { done: [...], skipped: [{ path, why }], savedIn }.
+ * Undo the chosen files of a closed task. Redoes the plan and acts only on chosen files that are ok, or choosable with
+ * care and chosen. Each file's current version is saved first; the copy is written beside the file and renamed into
+ * place (never through a link). Returns { done, skipped: [{ path, why }], savedIn }.
  */
 function apply(projectId, task, paths, { now = Date.now() } = {}) {
   if (!read().on) return { done: [], skipped: [], because: 'off' };
   const p = plan(projectId, task, { now });
   if (!p.ready) return { done: [], skipped: [], because: p.because };
   const chosen = new Set(Array.isArray(paths) ? paths : []);
+  const byId = new Map(readIndex().map((r) => [r.id, r]));
   const stamp = new Date(now).toISOString().replace(/[:.]/g, '-') + '-' + crypto.randomBytes(3).toString('hex');   // one folder per undo
   const savedIn = path.join(dir(), 'saved', stamp);
   const done = [];
   const skipped = [];
   for (const f of p.files) {
     if (!chosen.has(f.path)) continue;
-    if (!f.ok && f.why !== 'shared') { skipped.push({ path: f.path, why: f.why }); continue; }
+    if (!f.ok && !CHOOSABLE.has(f.why)) { skipped.push({ path: f.path, why: f.why }); continue; }
+    const rec = byId.get(f.copyId);
+    const cur = nowIs(f.path);
+    if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
     try {
-      fs.mkdirSync(savedIn, { recursive: true });
-      const keep = path.join(savedIn, keyOf(f.path) + '-' + path.basename(f.path));
+      mkdirPrivate(savedIn);
+      const keepAs = path.join(savedIn, sha(Buffer.from(f.path)).slice(0, 16) + '-' + path.basename(f.path));
       if (f.action === 'move-aside') {
-        fs.renameSync(f.path, keep);                    // the created file, moved aside: never deleted
+        if (cur.kind !== 'file') { skipped.push({ path: f.path, why: 'gone' }); continue; }
+        fs.renameSync(f.path, keepAs);                     // the created file, moved aside: never deleted
       } else {
-        const copy = allCopies().filter((c) => c.meta.path === f.path && c.meta.at === f.at)[0];
-        if (fs.existsSync(f.path)) fs.copyFileSync(f.path, keep);   // the current version, saved first
-        fs.mkdirSync(path.dirname(f.path), { recursive: true });
-        fs.copyFileSync(copy.bin, f.path);
-        if (copy.meta.mode != null) { try { fs.chmodSync(f.path, copy.meta.mode); } catch { /* the content is back */ } }
+        if (cur.kind === 'file') fs.copyFileSync(f.path, keepAs);   // the current version, saved first
+        const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
+        fs.copyFileSync(path.join(blobsDir(), rec.hash), tmp, fs.constants.COPYFILE_EXCL);
+        if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
+        fs.renameSync(tmp, f.path);                        // replaces the entry itself: never writes through a link
       }
-      fs.writeFileSync(keep + '.json', JSON.stringify({ path: f.path, action: f.action, project: projectId, task: task.number }));
+      fs.writeFileSync(keepAs + '.json', JSON.stringify({ path: f.path, action: f.action, project: projectId, task: task.number }), { mode: 0o600 });
       done.push(f.path);
-    } catch (err) {
+    } catch {
       skipped.push({ path: f.path, why: 'failed' });
     }
   }
@@ -197,4 +294,4 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   return { done, skipped, savedIn: done.length ? savedIn : null };
 }
 
-module.exports = { read, setOn, keep, plan, apply, MAX_BYTES, KEEP_DAYS };
+module.exports = { read, setOn, keep, plan, apply, sweep, resetForTests, MAX_BYTES, KEEP_DAYS, CHOOSABLE };

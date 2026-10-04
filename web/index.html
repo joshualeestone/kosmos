@@ -18392,7 +18392,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Undo</h3>
       <div class="setrow" id="undo-row">
         <div><b>Keep a copy before an agent edits a file</b>
-          <p class="dhint" style="margin:2px 0 0;">So a finished task’s file changes can be undone from its receipt. Copies stay on this computer for 30 days. Claude agents only, and only files changed with their editing tools, not by commands.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">So a finished task’s file changes can be undone from its receipt. Copies of every file your agents edit, private ones such as .env included, stay on this computer for 30 days; turning this off deletes them. Your agents’ Claude sessions only (not your own), and only files changed with their editing tools, not by commands.</p></div>
         <button class="toggle" id="undo-toggle" role="switch" aria-label="Keep a copy before an agent edits a file" hidden><i></i></button>
       </div>
       <p class="dhint" id="undo-msg" role="status" style="margin:8px 0 0;"></p>
@@ -58225,14 +58225,18 @@ const TKU_WHY = {
   restore: 'goes back to how it was before this task',
   'move-aside': 'the agent created it: moved into Kosmos’s own folder, not deleted',
   shared: 'another agent also edited it meanwhile: choose it to undo theirs too',
+  'other-task': 'the agent was also working on another task then: choose it to undo that work too',
+  incomplete: 'the copy may not be from before this task (undo was turned on after the agent began): choose it if that is fine',
   'changed-since': 'changed after the task closed: left as it is',
-  gone: 'already gone',
+  gone: 'not there any more: left as it is',
+  'not-a-file': 'no longer a plain file here: left as it is',
+  moved: 'its folder has moved: left as it is',
   'copy-missing': 'its copy is missing: left as it is',
 };
 function tkUndoListHtml(plan) {
   const files = Array.isArray(plan && plan.files) ? plan.files : [];
   const rows = files.map((f, i) => {
-    const choosable = f.ok || f.why === 'shared';
+    const choosable = f.ok || f.why === 'shared' || f.why === 'other-task' || f.why === 'incomplete';
     const why = f.ok ? TKU_WHY[f.action] : TKU_WHY[f.why] || 'left as it is';
     return '<li><label><input type="checkbox" data-path="' + esc(f.path) + '"' + (f.ok ? ' checked' : '') + (choosable ? '' : ' disabled')
       + ' aria-describedby="tku-why-' + i + '"><span>' + esc(f.path) + '<span class="tku-why" id="tku-why-' + i + '">' + esc(why) + '</span></span></label></li>';

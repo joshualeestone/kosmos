@@ -20449,6 +20449,7 @@ if (require.main === module) {
      require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
      and no notice is owed to either (a new install decides it in first run). */
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
+  try { require('./engine/undo').sweep(); } catch { /* #5153 slice 4: copies past their days go; never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();
   } else {

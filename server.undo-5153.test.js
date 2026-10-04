@@ -51,6 +51,8 @@ test('undo: off until the person turns it on; a kept copy undoes a closed task\'
   const taskchat = require('./engine/taskchat');
   const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'uri');
   fs.mkdirSync(folder, { recursive: true });
+  require('./engine/store').writeProfile('uri', { displayName: 'Uri' });   // a Kosmos agent: its sessions get copies
+  require('./engine/undo').resetForTests();
   const file = path.join(fs.realpathSync(folder), 'notes.md');
   fs.writeFileSync(file, 'ORIGINAL');
   const now = Date.now();
@@ -58,7 +60,7 @@ test('undo: off until the person turns it on; a kept copy undoes a closed task\'
   projects.writeAll([...projects.readAll(), { id: 'undo-p', name: 'Undo project', agents: ['uri'], tasks: [{ number: 1, sentence: 'Edit the notes', closedAt: iso(now + 60000) }] }]);
   const chat = taskchat.taskChatFile('undo-p', 1);
   fs.mkdirSync(path.dirname(chat), { recursive: true });
-  fs.writeFileSync(chat, [{ at: iso(now - 60000), kind: 'created', who: 'uri' }, { at: iso(now + 60000), kind: 'closed' }].map((x) => JSON.stringify(x)).join('\n') + '\n');
+  fs.writeFileSync(chat, [{ at: iso(now), kind: 'created', who: 'uri' }, { at: iso(now + 60000), kind: 'closed' }].map((x) => JSON.stringify(x)).join('\n') + '\n');
 
   assert.equal((await post('/api/undo/keep', { path: file, cwd: fs.realpathSync(folder), session: 's' })).body.kept, true, 'the hook\'s call keeps a copy');
   fs.writeFileSync(file, 'THE AGENT\'S EDIT');
@@ -83,10 +85,12 @@ test('the real `kosmos keep-copy` reaches the board and a copy is kept, a name w
   await put('/api/undo-setting', { on: true });
   const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'vic');
   fs.mkdirSync(folder, { recursive: true });
+  require('./engine/store').writeProfile('vic', { displayName: 'Vic' });
+  require('./engine/undo').resetForTests();
   const file = path.join(fs.realpathSync(folder), 'odd "name" here.md');
   fs.writeFileSync(file, 'BEFORE');
-  const copies = () => { const d = path.join(require('./engine/store').ROOT, 'undo', 'copies'); let n = 0;
-    for (const k of fs.existsSync(d) ? fs.readdirSync(d) : []) n += fs.readdirSync(path.join(d, k)).filter((x) => x.endsWith('.json')).length; return n; };
+  const indexLines = () => { try { return fs.readFileSync(path.join(require('./engine/store').ROOT, 'undo', 'index.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+  const copies = () => indexLines().length;
   const before = copies();
   const { execFile } = require('node:child_process');
   const port = String(server.address().port);
@@ -94,8 +98,6 @@ test('the real `kosmos keep-copy` reaches the board and a copy is kept, a name w
     { env: { ...process.env, KOSMOS_PORT: port, KOSMOS_HOME: HOME, TMUX_PANE: '' }, timeout: 20000 }, (err) => resolve(err ? err.code : 0)));
   assert.equal(code, 0, 'keep-copy always exits 0');
   assert.equal(copies(), before + 1, 'no copy was kept through the CLI');
-  const metas = [];
-  const d = path.join(require('./engine/store').ROOT, 'undo', 'copies');
-  for (const k of fs.readdirSync(d)) for (const n of fs.readdirSync(path.join(d, k))) if (n.endsWith('.json')) metas.push(JSON.parse(fs.readFileSync(path.join(d, k, n), 'utf8')));
+  const metas = indexLines();
   assert.ok(metas.some((m) => m.path === file && m.session === 's-cli' && m.existed), 'the path arrived whole');
 });

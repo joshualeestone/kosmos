@@ -53,3 +53,16 @@ test('the switch is in Settings > Advanced and drawn only once read (never a fal
   assert.match(adv, /<button class="toggle" id="undo-toggle" role="switch" aria-label="Keep a copy before an agent edits a file" hidden>/);
   assert.match(SCRIPT, /const files = plan && plan\.on && Array\.isArray\(plan\.files\) \? plan\.files : \[\];/, 'the button shows only with the switch on');
 });
+
+test('files whose history is not certain can be chosen but start unchosen; unsafe ones cannot be chosen', () => {
+  const html = B.tkUndoListHtml({ files: [
+    { path: '/w/o.md', action: 'restore', ok: false, why: 'other-task' },
+    { path: '/w/i.md', action: 'restore', ok: false, why: 'incomplete' },
+    { path: '/w/l.md', action: 'restore', ok: false, why: 'not-a-file' },
+    { path: '/w/m.md', action: 'restore', ok: false, why: 'moved' },
+  ] });
+  const boxes = [...html.matchAll(/<input type="checkbox" data-path="([^"]*)"([^>]*)>/g)].map((m) => [/checked/.test(m[2]), /disabled/.test(m[2])]);
+  assert.deepEqual(boxes, [[false, false], [false, false], [false, true], [false, true]]);
+  assert.match(text(html), /undo was turned on after the agent began/);
+  assert.match(text(html), /no longer a plain file here: left as it is/);
+});
