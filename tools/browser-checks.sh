@@ -778,6 +778,9 @@ boot_thread_server() {
 
 wait_up() {
   local port="$1" logf="$2" i
+  # kosmos#5231: which log belongs to the board on which port, so a check that later finds that board gone
+  # (ECONNREFUSED) can print what its server said before cleanup removes the sandbox (board_log_tail).
+  [ -n "${RUN_DIR:-}" ] && printf '%s\t%s\n' "$port" "$logf" >> "$RUN_DIR/board-logs.tsv" 2>/dev/null
   # KOSMOS_BC_WAIT_TRIES only exists so the #1073 test can exercise the timeout
   # arm without waiting the real 30s (60 * 0.5s). Unset in every real run.
   for i in $(seq 1 "${KOSMOS_BC_WAIT_TRIES:-60}"); do
@@ -813,6 +816,30 @@ wait_up() {
   done
   log "server on :$port never answered; log tail:"; tail -5 "$logf" 2>/dev/null
   return 1
+}
+
+# kosmos#5231: board_log_tail <capture>: when a failed attempt's output shows a board refusing connections
+# (node's ECONNREFUSED, or Playwright's net::ERR_CONNECTION_REFUSED, at 127.0.0.1:<port>), print the tail of THAT board's server.log, found through the port->log map
+# wait_up keeps. The sandbox is removed at cleanup, so this is the only moment its server's last words exist
+# (#5231: an org board died between a check's two attempts on a loaded Mortals run, and nobody saw why). It also
+# says whether the server is still answering. Prints nothing when no refused board is named or none is known.
+board_log_tail() {
+  local cap="$1" port logf
+  [ -f "$cap" ] && [ -n "${RUN_DIR:-}" ] && [ -f "$RUN_DIR/board-logs.tsv" ] || return 0
+  for port in $(grep -oE '(ECONNREFUSED|ERR_CONNECTION_REFUSED)[^0-9]*127\.0\.0\.1:[0-9]+' "$cap" | grep -oE '[0-9]+$' | sort -u); do
+    logf="$(awk -F '\t' -v p="$port" '$1 == p { f = $2 } END { print f }' "$RUN_DIR/board-logs.tsv")"
+    if [ -n "$logf" ] && [ -f "$logf" ]; then
+      if curl -s -m 2 "http://127.0.0.1:$port/api/status" >/dev/null 2>&1; then
+        log "the board on :$port refused a connection but answers now; the last 20 lines of its server log:"
+      else
+        log "the board on :$port is GONE (refuses connections); the last 20 lines of its server log ($logf):"
+      fi
+      tail -20 "$logf" 2>/dev/null | sed 's/^/    | /'
+    else
+      log "the board on :$port refused connections, and this run has no server log for that port"
+    fi
+  done
+  return 0
 }
 
 # run_one <label> <cmd...>: run a check headless, retry ONCE on failure, and say
@@ -885,6 +912,7 @@ run_one() {
     rm -f "$cap"
     return 1
   fi
+  board_log_tail "$cap"   # kosmos#5231: a board that died says why, before the retry overwrites this attempt
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
@@ -892,6 +920,7 @@ run_one() {
     rm -f "$cap"
     return 0
   fi
+  board_log_tail "$cap"   # kosmos#5231
   log "FAIL  $label (failed twice)"
   FAILED+=("$label")
   local why; why="$(grep -E '^\s*(FAIL|✖)|Error|Timeout|REFUS|refus' "$cap" | grep -vE '^\s*at ' | head -3 | cut -c1-200 | sed 's/^/           /')"
