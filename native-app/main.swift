@@ -2889,8 +2889,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
         let commitsBefore = pageCommits
-        // On the next turn, not inside WebKit's policy callback: the waiting decision handlers are held in
-        // downloadAsks, so WebKit's delegate calls do not run nested inside this question's modal loop.
+        // On the next turn, not inside WebKit's policy callback: that callback returns first (its handler waits in
+        // downloadAsks). WebKit's calls (a commit, another policy) still arrive while the question is up, which
+        // is why an Allow is checked against the page and pageCommits afterwards.
         DispatchQueue.main.async { [self] in
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
