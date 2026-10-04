@@ -367,3 +367,12 @@ test('#4649 slice 3 review round 3: the newest invite\'s label wins for an accou
   assert.strictEqual(fedmembers.labelForMember('rejoin', 'acct-d'), 'Dana (contractor)');
   assert.strictEqual(fedmembers.labelsFor('rejoin').get('acct-d'), 'Dana (contractor)');
 });
+
+test('#4649 (Pete): an owner\'s Members says shared, so an unchecked empty list reads "could not check", not "never shared"', async () => {
+  federation.recordLink('shared-down', { role: 'owner', ref: 'ref-shared-down' });
+  const down = await fedmembers.members(stubRemote({}), 'shared-down');
+  assert.deepStrictEqual([down.body.shared, down.body.invites, down.body.checked_at], [true, [], null],
+    'a shared project whose coordinator was unreachable looked like a project never shared');
+  const never = await fedmembers.members(stubRemote({}), 'never-shared');
+  assert.deepStrictEqual([never.body.shared, never.body.invites], [false, []], 'CONTROL: a project never shared says shared:false');
+});
