@@ -18,7 +18,8 @@ The design, the provider table, Liu Kang's rulings and the weakest parts are Kan
   120 s with no answer (kosmos-relay crates/tunnel/src/proxy.rs BOARD_RESPONSE_HEAD_TIMEOUT), so a longer read
   was billed to the key and seen by nobody. The Claude read already stops at 120 s. The page now says "up to two
   minutes" instead of "a few minutes". Rejected: a longer limit only for local reads (the board would have to
-  tell a relayed request apart; the Claude path already lives with 120 s).
+  tell a relayed request apart). Round 2: the Claude read's 120 s was EQUAL to the relay's, not under it (my
+  round-1 comment said otherwise), so it stops at 110 s too. Both are pinned under 120 s by one test.
 - The model ids were checked against the providers' live docs on 2026-10-03: gpt-6-astra (text and image in,
   128,000 output tokens; PDF through the PDF guide) and grok-4.7 (text and image in, structured outputs) are
   current. Not checked: that xAI's Responses API accepts `store` and `max_output_tokens`.
@@ -32,6 +33,13 @@ The design, the provider table, Liu Kang's rulings and the weakest parts are Kan
   Settings), so a key saved with a trailing newline shows the wrong last four on the consent line. The reader id
   stays consistent. Outside this card.
 - `invalid_request_error` in KNOWN_CODES can show as jargon in a refusal. Cosmetic, carries no key.
+- The consent line says the read is billed to the key but gives no cost (round 2). Kosmos cannot promise a figure:
+  it depends on the model's price and the chart. Josh-facing copy; left as is.
+- A provider error code `not_found` gets the "this key cannot use <model>" sentence even when an endpoint moved
+  (round 2). A wrong diagnosis, never a leak; the log line carries the status for whoever looks.
+- xAI may answer a bad key with HTTP 400 and a flat body, which would read as the generic "could not read the
+  chart (400)" rather than "did not accept this key" (round 2, from the reviewer's memory, unverified, no key spent
+  to check). Joins Kano's first-real-read QA item.
 
 ## Why continue rather than restart
 The work is done to iteration 13 and its design was ruled on by Liu Kang. It has sat four days with no PR. A new

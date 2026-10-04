@@ -445,7 +445,10 @@ const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
 const NO_MODEL = 'Reading a picture or PDF needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture), connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
-const MODEL_TIMEOUT_MS = 120000;
+/* Under the Kosmos+ relay's 120 s wait for a board answer (kosmos-relay crates/tunnel/src/proxy.rs
+   BOARD_RESPONSE_HEAD_TIMEOUT), as the key read is (orgchartkeys TIMEOUT_MS): at 120 s the two raced, and a read
+   from a phone could be dropped by the relay while the board still waited on it (#4560 round 2). */
+const MODEL_TIMEOUT_MS = 110000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /* What the model must answer. Enforced by the CLI (--json-schema) AND re-checked below, because a
@@ -714,5 +717,5 @@ async function readWithModel(name, bytes, opts = {}) {
   return fromModel(got.structured);
 }
 
-module.exports = {
+module.exports = { MODEL_TIMEOUT_MS,
   readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

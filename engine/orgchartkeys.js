@@ -48,7 +48,7 @@ function urlFrom(envName, fallback) {
 /* Under the Kosmos+ relay's 120 s wait for a board answer (kosmos-relay crates/tunnel/src/proxy.rs
    BOARD_RESPONSE_HEAD_TIMEOUT): a read from a phone through the relay must end, and be stopped, before the relay
    gives up on it, or the key is billed for an answer nobody sees (round 1 of the continuation). The Claude read
-   already has 120 s (orgchartfile MODEL_TIMEOUT_MS). */
+   stops at the same 110 s (orgchartfile MODEL_TIMEOUT_MS; it was 120 s, equal to the relay's, until round 2). */
 const TIMEOUT_MS = 110 * 1000;
 let timeoutMs = TIMEOUT_MS;
 /** Tests only: a shorter timeout; null restores the real one. */

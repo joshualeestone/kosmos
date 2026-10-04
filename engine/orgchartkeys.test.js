@@ -458,4 +458,6 @@ test('#4560: a key read stops before the Kosmos+ relay gives up on the board (12
   const keys = require('./orgchartkeys');
   assert.ok(keys.TIMEOUT_MS < 120 * 1000, 'TIMEOUT_MS ' + keys.TIMEOUT_MS + ' is not under the relay\'s 120 s');
   assert.ok(keys.TIMEOUT_MS >= 60 * 1000, 'TIMEOUT_MS ' + keys.TIMEOUT_MS + ' is too short for a reasoning model');
+  const file = require('./orgchartfile');
+  assert.ok(file.MODEL_TIMEOUT_MS < 120 * 1000, 'the Claude read MODEL_TIMEOUT_MS ' + file.MODEL_TIMEOUT_MS + ' is not under the relay\'s 120 s');
 });
