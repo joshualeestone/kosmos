@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: usageagy-5158
-diff_hash: 65dbd3d5fcdade5524fa68601946f6a3130743490619ea22067829f22854283d
-validation: passed (full suite tools/run-tests.sh at b950037f5, 14724 pass 0 fail, REAL_EXIT=0, clean tree before and after, 2026-10-03 16:01 CDT)
+diff_hash: 39f97301c86e66d4ff4e49ff74a53dfb9186d9bb1ace00b9f5d41db06bd26ff7
+validation: passed (full suite tools/run-tests.sh at b950037f5, 14724 pass 0 fail, REAL_EXIT=0, clean tree before and after, 2026-10-03 16:01 CDT; rebased on main after #5163 merged (c11ea424c); focused usage tests + guards green on the new base)
 subdir_audit: passed
-timestamp: 2026-10-03T21:02:10Z
+timestamp: 2026-10-04T21:06:09Z
 iterations: 4
 converged: true
 ---
