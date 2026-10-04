@@ -135,7 +135,7 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
     'the #5224 sentence itself, untagged');
   assert.match(one({ title: 'Windows PCs' }).join(' '), /names windows but has no "platforms"/);
   assert.match(one({ line: 'Works on macOS.', platforms: ['mac', 'windows'] }).join(' '), /is for mac and windows but names mac:/);
-  assert.match(one({ line: 'On a Mac, like Windows already did.', platforms: ['mac'] }).join(' '), /is for mac but names mac and windows/,
+  assert.match(one({ line: 'On a Mac, like Windows already did.', platforms: ['mac'] }).join(' '), /is for mac but names mac and windows.*reword it to name only/,
     'a Mac-tagged line that names Windows too');
   assert.match(one({ line: 'On a MacBook or an iMac.' }).join(' '), /names mac but has no "platforms"/);
   assert.match(one({ title: 'Windows that remember their size' }).join(' '), /or reword it if it is not about one/,
@@ -154,9 +154,10 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
 test('#5224: the committed file never tells one platform about another (checked as each board reads it)', () => {
   if (!fs.existsSync(whatsnew.FILE)) return;
   const obj = JSON.parse(fs.readFileSync(whatsnew.FILE, 'utf8'));
+  assert.ok(whatsnew.read(obj.version, whatsnew.FILE, 'darwin') || whatsnew.read(obj.version, whatsnew.FILE, 'win32'),
+    'CONTROL: some platform shows the committed file, so the loop below reads something');
   for (const [node, other] of [['darwin', 'windows'], ['win32', 'mac']]) {
-    const shown = whatsnew.read(obj.version, whatsnew.FILE, node);
-    assert.ok(Array.isArray(shown), node + ' would show no window for the committed file');
+    const shown = whatsnew.read(obj.version, whatsnew.FILE, node) || [];   // none is allowed: every highlight may be for the other
     for (const h of shown) {
       const named = whatsnew.platformsNamed(h.title + ' ' + h.line);
       assert.ok(!named.length || named.includes(node === 'darwin' ? 'mac' : 'windows'), node + ' would show "' + h.line + '" (about ' + other + ')');

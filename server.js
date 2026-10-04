@@ -15399,7 +15399,8 @@ const server = http.createServer(async (req, res) => {
     } catch { seen = null; }
     /* #3955: the release's highlights for the "Kosmos has been updated" window, from web/whats-new.json,
        ONLY when that file is for the version running now (engine/whatsnew.read): last release's text
-       can never appear, and a file the window could not draw is served as none (then no window opens). */
+       can never appear, and a file the window could not draw is served as none (then no window opens).
+       #5224: only the highlights for this platform; none left is served as none too. */
     let highlights = null;
     /* #4928: and for a number in its "also" list; the same words under another number (Windows on 0.7.13, then
        0.7.16) are not opened twice: dismissing records which words (highlightsFor, the file's main version). */

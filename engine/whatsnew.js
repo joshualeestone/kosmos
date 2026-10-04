@@ -89,7 +89,8 @@ function problems(obj, version) {
       out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform:'
         + ' tag it with the platforms it is about, or reword it if it is not about one');
     } else if (named.length && (tag.length !== named.length || tag.some((p) => !named.includes(p)))) {
-      out.push(n + ' is for ' + tag.join(' and ') + ' but names ' + named.join(' and ') + ': its "platforms" must list exactly the platforms it names');
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names ' + named.join(' and ') + ': its "platforms" must list exactly the'
+        + ' platforms it names, so reword it to name only the platforms it is for');
     }
   });
   return out;

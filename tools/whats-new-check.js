@@ -49,6 +49,9 @@ function main(argv) {
   const per = whatsnew.countsByPlatform(obj);   // #5224: a Mac-only highlight is not shown on Windows
   process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + ' ('
     + Object.entries(per).map(([p, c]) => p + ' ' + c).join(', ') + ')\n');
+  for (const [p, c] of Object.entries(per)) {
+    if (!c) process.stderr.write('note: every highlight is for another platform, so ' + p + ' shows no "Kosmos has been updated" window.\n');
+  }
   return 0;
 }
 
