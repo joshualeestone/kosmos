@@ -1101,9 +1101,6 @@ function flushHeld(projectId, s) {
   s.staleHeld = 0;
   let unmeant = 0;
   let keyless = 0;
-  // A member past a behind hold with no new key sends under the key it has (#5197).
-  const st0 = roomSeal(projectId);
-  const oldKey = !!(st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && s.behindArmedAt === st0.epoch);
   let i = 0;
   try {
     for (; i < held.length; i++) {
@@ -1131,8 +1128,10 @@ function flushHeld(projectId, s) {
   }
   stale += s.staleHeld || 0;   // pruned by a re-hold during this flush
   s.staleHeld = 0;
+  const oldKey = s.oldKeySent || 0;   // counted per post where each was sealed (sendPost)
+  s.oldKeySent = 0;
   if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent' : sent + ' messages held on this computer were sent')
-    + (oldKey ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '.')
+    + (oldKey ? (oldKey === sent ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '; ' + oldKey + ' of them under the key this computer has, which the others may not show.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
   const lost = s.lostHeld || 0;
@@ -1218,6 +1217,8 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
         ? 'when the key arrives, if it arrives within the hour'
         : 'to the first computer that joins with its key from an invite already made, if one joins within the hour', heldAt);
     }
+    // A held post a member sends while still behind goes under the key it has (#5197): counted.
+    if (heldAt && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) s.oldKeySent = (s.oldKeySent || 0) + 1;
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
       return false;
