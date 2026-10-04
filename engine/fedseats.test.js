@@ -1810,3 +1810,52 @@ test('#5197: a member\'s grace runs from the owner\'s rotation time, clamped to 
     assert.deepStrictEqual(h.recorded.map((r) => r.text), shows ? [label] : [], label);
   }
 });
+
+test('#5197: a member opens only the epoch just before its current one: a second rotation inside the grace closes the first key at once', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T21:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-two', { role: 'member', edge_id: 'edge-5197-two' });
+  const k = [fedseal.randomSecret(), fedseal.randomSecret(), fedseal.randomSecret()];
+  fedseal.setRoomState('proj-5197-two', { role: 'member', s: fedseal.randomSecret(), code: 'code-two', peer: owner.pub, epoch: 0, keys: { 0: k[0] } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-two');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197-two', expires_at: 9 });
+  await settle();
+  const me = fedseal.sealingKey().pub;
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, me, k[1], 1, 'room-5197-two', Date.now()) });
+  await settle();
+  t.mock.timers.tick(30 * 1000);
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, me, k[2], 2, 'room-5197-two', Date.now()) });
+  await settle();
+  t.mock.timers.tick(1000);
+  const post = (epoch, text) => say(seat, { event: 'message', data: fedseal.seal(k[epoch], epoch, 'room-5197-two', { from: 'X', kind: 'person', text }) });
+  post(0, 'epoch 0, two rotations back');
+  post(1, 'epoch 1, inside its grace');
+  post(2, 'epoch 2, current');
+  await settle();
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['epoch 1, inside its grace', 'epoch 2, current']);
+});
+
+test('#5197: a member that skipped an epoch opens neither older one, and is told only about the one it held', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T21:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-skip', { role: 'member', edge_id: 'edge-5197-skip' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5197-skip', { role: 'member', s: fedseal.randomSecret(), code: 'code-skip', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-skip');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197-skip', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, fedseal.randomSecret(), 2, 'room-5197-skip', Date.now()) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('proj-5197-skip').epoch, 2, 'fixture: jumped to epoch 2');
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5197-skip', { from: 'X', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  assert.ok(h.notes.some((n) => /could not open/.test(n.text)) && !h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
+  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197-skip', { from: 'X', kind: 'person', text: 'epoch 0' }) });
+  await settle();
+  assert.deepStrictEqual(h.recorded, []);
+  assert.ok(h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
+});
