@@ -66,6 +66,10 @@
  *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
  *       nothing; the next stamp to "show" asks once for it and draws the section; a stamp back to off hides it.
  *       Control: B8, where the gate stays off and nothing is asked.
+ *  B13  the shared #761 dialog after an outside Remove left a 502 showing and was cancelled: a local agent's
+ *       minus opens it with no danger look, no stale message and a live button. Control: the 502 state just before.
+ *  B14  after a Withdraw refusal, focus is on that row's Withdraw (not <body>) and the sentence is in #fed-live.
+ *       Control: #fed-live is empty or absent before the action.
  *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
  *       checked answer is not asked again after the same 30 s.
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
@@ -622,12 +626,35 @@ const closeAll = (page) => page.evaluate(() => {
     f = await readFed(page, '#pj-fed-outside');
     check('B5 a 404 draws no heading, no rows and no could-not-check line (control: the 500 below has the line)',
       f.heads.length === 0 && f.rows.length === 0 && f.notes.length === 0, JSON.stringify(f));
+    /* shared (Kitty, 18:18): an unchecked answer with no rows but shared:true still says could-not-check;
+       the same answer without shared draws nothing (a never-shared project). */
+    await setMembers(page, answer([], { checked_at: null, shared: true }));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    f = await readFed(page, '#pj-fed-outside');
+    const sharedOn = { heads: f.heads.length, notes: f.notes.length, rows: f.rows.length };
+    await setMembers(page, answer([], { checked_at: null }));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B5 shared:true with no rows says could-not-check; without shared it draws nothing (the control)',
+      sharedOn.heads === 1 && sharedOn.notes === 1 && sharedOn.rows === 0 && f.heads.length === 0 && f.notes.length === 0,
+      JSON.stringify({ sharedOn, without: { heads: f.heads, notes: f.notes } }));
+    /* A refresh that FAILS after a good answer keeps that answer's rows, unchecked; only a first load that fails has
+       no rows to keep. */
+    await setMembers(page, answer([LEE]));
+    await page.evaluate(() => fedMembersLoad('k'));
     await setMembers(page, { status: 500, body: { error: 'we cannot read the connected-projects record on this computer right now' } });
     await page.evaluate(() => fedMembersLoad('k'));
     await page.waitForTimeout(150);
     f = await readFed(page, '#pj-fed-outside');
+    check('B5 a failed refresh keeps the last good rows, with the line and no Withdraw (unchecked)',
+      rowsAre(f.rows, [['LP', 'Lee Park', 'Invited · until Oct 11', '']]) && f.notes.length === 1 && f.notes[0] === NOTE, JSON.stringify(f));
+    await page.evaluate(() => { FED_MEMBERS = null; return fedMembersLoad('k'); });
+    await page.waitForTimeout(150);
+    f = await readFed(page, '#pj-fed-outside');
     const own = await page.evaluate(() => [...document.querySelectorAll('#pj-one-agents .pj-member')].map((r) => r.dataset.agent));
-    check('B5 the GET failing: no outside rows, the same line, and the project\'s own agents still listed',
+    check('B5 a first load that fails: no outside rows, the same line, and the project\'s own agents still listed',
       f.rows.length === 0 && f.notes.length === 1 && f.notes[0] === NOTE && own.join(',') === 'ada,basil', JSON.stringify({ f, own }));
     await ctx.close();
   }
@@ -736,6 +763,36 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(150);
     const gone = await page.evaluate(() => !document.getElementById('alist-fed-outside'));
     check('B9 control: an empty answer adds nothing to the rail', gone === true, 'absent=' + gone);
+    await ctx.close();
+  }
+
+  /* B13 and B14: the shared dialog for a local remove after an outside one, and focus plus the announcer. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__remove = { status: 502, body: { error: 'The connection service refused just now.' } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(200);
+    const left = await modal(page);
+    await page.click('#mem-keep');
+    await page.click('#pj-one-agents .pj-minus[data-drop="ada"]');
+    await page.waitForTimeout(100);
+    const local = await modal(page);
+    const goLive = await page.evaluate(() => !document.getElementById('mem-go').disabled);
+    check('B13 a local minus after a cancelled outside 502: no danger look, no stale message, a live button (control: the 502 state before)',
+      left.open && left.danger && left.msg !== '' && local.open && !local.danger && local.msg === '' && goLive, JSON.stringify({ left, local, goLive }));
+    await page.click('#mem-keep');
+    const liveBefore = await page.evaluate(() => { const e = document.getElementById('fed-live'); return e ? e.textContent : ''; });
+    await page.evaluate((e) => { window.__withdraw = { status: 409, body: { reason: 'unsupported', error: e } }; }, UNSUPPORTED);
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(250);
+    const after = await page.evaluate(() => ({
+      focused: document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.fedKey || document.activeElement.tagName : null,
+      live: (document.getElementById('fed-live') || {}).textContent || '' }));
+    check('B14 a Withdraw refusal: focus stays on that row\'s Withdraw and the sentence is said in #fed-live (control: empty before)',
+      liveBefore === '' && after.focused === 'i:inv-lee' && /lapses on Oct 11/.test(after.live), JSON.stringify({ liveBefore, after }));
     await ctx.close();
   }
 

@@ -67732,7 +67732,7 @@ function fedOutsideRowHtml(r, unchecked) {
     + '<span class="msg-av ext-av' + wait + '" aria-hidden="true">' + esc(r.label ? fedDiscLetters(r.label) : '') + '</span>'
     + '<span class="fedout-b"><b class="fedout-nm">' + esc(name) + '</b><span class="fedout-sub">' + esc(sub) + '</span></span>'
     + btn + '</div>'
-    + (said ? '<p class="fmsg fedout-rowmsg" aria-live="polite">' + esc(said) + '</p>' : '');
+    + (said ? '<p class="fmsg fedout-rowmsg">' + esc(said) + '</p>' : '');   // spoken once, by fedSay
 }
 function fedOutsideHtml() {
   const fm = FED_MEMBERS;
@@ -67742,18 +67742,20 @@ function fedOutsideHtml() {
   const rows = fm.ok ? fedOutsideRows(body) : [];
   // Not checked: the GET failed, or the board could not ask the coordinator and there are rows to show (with
   // none visible, e.g. a project that never invited anyone, there is nothing to be out of date about).
-  const note = !fm.ok || (typeof body.checked_at !== 'number' && rows.length > 0);
+  // shared (Ice Cream Kitty, 18:18): true when the project has ever had an owner link, so an unchecked answer
+  // with no rows still says could-not-check (create-screen joiners come only from the coordinator). Absent: false.
+  const note = !fm.ok || (typeof body.checked_at !== 'number' && (rows.length > 0 || body.shared === true));
   const keys = new Set(rows.map(fedRowKey));
   // A sentence whose row is gone (Remove's 404, Withdraw's 409 joined after the refetch) is said under the list.
   const loose = Object.keys(FED_MSGS).filter((k) => !keys.has(k) && FED_MSGS[k]).map((k) => FED_MSGS[k]);
   let h = '';
-  if (rows.length || note) {
+  if (rows.length || note) {   // with note but no rows: the heading and the line, nothing else
     h += '<h4 class="fedout-h">From outside</h4>';
     if (note) h += '<p class="fhint fedout-note">' + esc(FED_NOT_CHECKED) + '</p>';
     const unchecked = typeof body.checked_at !== 'number';
     h += rows.map((r) => fedOutsideRowHtml(r, unchecked)).join('');
   }
-  if (loose.length) h += '<p class="fmsg fedout-msg" aria-live="polite">' + esc(loose.join(' ')) + '</p>';
+  if (loose.length) h += '<p class="fmsg fedout-msg">' + esc(loose.join(' ')) + '</p>';   // spoken once, by fedSay
   return h;
 }
 // tabOnly: paintOneProject's call (the consolidated rail repaints itself on its own paint).
@@ -67783,6 +67785,13 @@ async function fedMembersLoad(project) {
   }
   if (seq !== FED_MEMBERS_SEQ) return;
   FED_MEMBERS_ASKING = null;
+  // A failed refresh keeps the last good answer for this project, marked unchecked, rather than dropping the rows
+  // (spec: keep the rows). It also keeps a known non-owner drawing nothing. Only a first load that fails has no
+  // answer to keep: it says could-not-check without knowing ownership, until a load succeeds.
+  const prev = FED_MEMBERS;
+  if (!entry.ok && prev && prev.ok && prev.project === project) {
+    entry = { project, ok: true, body: Object.assign({}, prev.body, { checked_at: null }), at: entry.at };
+  }
   FED_MEMBERS = entry;
   fedOutsidePaint(false);
 }
@@ -67797,8 +67806,9 @@ function fedGateMembers(show) {
   // So is an answer the board could not check (checked_at not a number): the coordinator may be back.
   const fmNow = FED_MEMBERS;
   // A checked answer is asked again too, every 60 s, so someone who joins while the project is open shows up.
-  const unsure = fmNow && (!fmNow.ok || (fmNow.body && typeof fmNow.body.checked_at !== 'number' && fedOutsideRows(fmNow.body).length > 0));
-  const stale = fmNow && fmNow.project === PJ_CURRENT && Date.now() - (fmNow.at || 0) > (unsure ? 30000 : 60000);
+  const unsure = fmNow && (!fmNow.ok || (fmNow.body && typeof fmNow.body.checked_at !== 'number'
+    && (fedOutsideRows(fmNow.body).length > 0 || fmNow.body.shared === true)));
+  const stale = fmNow && fmNow.project === PJ_CURRENT && !document.hidden && Date.now() - (fmNow.at || 0) > (unsure ? 30000 : 60000);
   if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT || stale) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
 }
 // The shared dialog back to its #761 self: no danger look, no error, both buttons live.
@@ -67955,7 +67965,9 @@ function fedRefocus(key) {
   const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent);
   const plus = [document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((x) => x && x.offsetParent);
   const to = b || plus;
-  if (to) to.focus();
+  // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section.
+  const at = document.activeElement;
+  if (to && (!at || at === document.body || (at.closest && at.closest('.fedout')))) to.focus();
 }
 // The rows' actions, delegated: both lists are rebuilt from markup on every paint.
 document.addEventListener('click', (e) => {
