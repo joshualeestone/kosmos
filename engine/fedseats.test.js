@@ -2164,7 +2164,7 @@ test('#5192: a post held for a missing room id goes out when the seat connects w
   await settle();
   const out2 = lines(seat).slice(mid).map((f) => fedseal.open({ 0: k0 }, 'room-5192-room', f)).filter(Boolean);
   assert.deepStrictEqual(out2.map((o) => o.m.text), ['held while behind'], 'the pass did not flush after the hold ran out');
-  void h;
+  assert.ok(h.notes.some((n) => /held on this computer was sent under the key this computer has; the others may not show it/.test(n.text)), JSON.stringify(h.notes));
 });
 
 test('#5192: an owner seat replaced while a hello was being checked does not flush its held posts through the new seat', async () => {
@@ -2369,4 +2369,38 @@ test('#5192: a post that meets an unreadable rooms record is held, not dropped, 
   await settle();
   const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: k0 }, 'room-5192-liveeio', f)).filter(Boolean);
   assert.deepStrictEqual(out.map((o) => o.m.text), ['kept']);
+});
+
+test('#5192: an owner\'s held post is not sent to someone who joined on another edge after it was written', async (t) => {
+  const a = newInvite('5192ea');
+  const b = newInvite('5192eb');
+  for (const inv of [a, b]) fedseal.stashInvite('ref-5192-edge', inv);
+  federation.recordLink('proj-5192-edge', { role: 'owner', ref: 'ref-5192-edge' });
+  const h = harness({ edges: [{ id: 'edge-inv-5192ea', project_ref: 'ref-5192-edge', status: 'active', invite_id: 'inv-5192ea' }] });
+  await fedseats.ensure('proj-5192-edge');
+  const seatA = h.spawned[0];
+  assert.strictEqual(seatA.edge, 'edge-inv-5192ea', 'fixture: seated on A');
+  say(seatA, { event: 'connected', room: 'room-5192-edge', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-edge', { from: 'Josh', kind: 'person', text: 'not for B' });   // held: no key yet
+  // A's edge ends for good; the seat waits, then sits on B's edge.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  h.edges = [{ id: 'edge-inv-5192ea', project_ref: 'ref-5192-edge', status: 'revoked', invite_id: 'inv-5192ea' }, { id: 'edge-inv-5192eb', project_ref: 'ref-5192-edge', status: 'active', invite_id: 'inv-5192eb' }];
+  seatA.emit('exit', 3);
+  await settle();
+  await fedseats.ensure('proj-5192-edge');
+  const seatB = h.spawned[h.spawned.length - 1];
+  assert.strictEqual(seatB.edge, 'edge-inv-5192eb', 'fixture: seated on B');
+  say(seatB, { event: 'connected', room: 'room-5192-edge', expires_at: 10 });
+  await settle();
+  const member = fedseal.newKeyPair();
+  say(seatB, { event: 'message', data: fedseal.helloFrame(b.s, b.code, member, 'room-5192-edge') });
+  await settle();
+  const frames = lines(seatB);
+  const share = frames.find((f) => f.t === 'key-share');
+  assert.ok(share, 'fixture: B was pinned');
+  const got = fedseal.openShare(b.s, b.code, member, share, 'room-5192-edge');
+  const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-edge', f)).filter(Boolean);
+  assert.deepStrictEqual(posts, [], 'a post held while sharing with A reached B');
+  assert.ok(h.notes.some((n) => /1 held message was not sent: the connection it was written for has ended/.test(n.text)), JSON.stringify(h.notes));
 });

@@ -1,6 +1,7 @@
 # #5192: a post held for the room key is sent when the key arrives
 
-Stacked on #5197 (membergrace-5197), itself on #5191. engine/fedseats.js only.
+Stacked on #5197 (membergrace-5197), itself on #5191. engine/fedseats.js, plus server.js passing `files`
+(and its test in server.fedmsg-3311.test.js) and one fedseal.js comment.
 
 ## Call
 post() still refuses a post it cannot seal yet (returns false, so the server's "the file stayed
@@ -44,6 +45,9 @@ web/index.html and the browser checks for a case that resolves itself within sec
 arrives.
 
 ## Owner side (asked in review, kept)
+Each held post records the edge its seat was on; one whose seat has since moved to another edge (an
+owner's member revoked, another joined) is not sent, and the room says so. So a post only ever reaches
+the connection it was written while sharing with.
 An owner's post held before its first member is pinned goes to that member when it joins (within the
 hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
 is sent to the first computer that joins with its key, if one joins within the hour.

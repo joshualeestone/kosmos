@@ -1005,7 +1005,9 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and as many messages as Kosmos sends at once are already waiting for it.');
     return false;
   }
-  s.outbox.push({ msg, at: heldAt || Date.now() });
+  // The connection it was written for: an owner's seat moves to another member's edge when
+  // one is revoked, and a post must never reach someone it was not written while sharing with.
+  s.outbox.push({ msg, at: heldAt || Date.now(), edge: s.edge });
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
 }
@@ -1024,10 +1026,15 @@ function flushHeld(projectId, s) {
   let files = 0;
   let stale = s.staleHeld || 0;
   s.staleHeld = 0;
+  let moved = 0;
+  // A member past a behind hold with no new key sends under the key it has (#5197).
+  const st0 = roomSeal(projectId);
+  const oldKey = !!(st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch);
   let i = 0;
   try {
     for (; i < held.length; i++) {
       if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
+      if (held[i].edge !== s.edge) { moved += 1; continue; }
       if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
       // Held again (it is now at the end of the outbox): everything after it waits too, in
       // order. Not held again: refused for good (its own line said why); carry on.
@@ -1044,9 +1051,11 @@ function flushHeld(projectId, s) {
   } finally {
     s.flushing = false;
   }
-  if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent.' : sent + ' messages held on this computer were sent.')
+  if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent' : sent + ' messages held on this computer were sent')
+    + (oldKey ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
+  if (moved) say(projectId, moved + (moved === 1 ? ' held message was' : ' held messages were') + ' not sent: the connection ' + (moved === 1 ? 'it was' : 'they were') + ' written for has ended.');
 }
 function sendPost(projectId, { from, kind, text, files }, heldAt) {
   const msg = { from, kind, text, files: files === true };
@@ -1076,7 +1085,6 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
   const link = sealLink(projectId);
   const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
   if (sealedRoom === undefined) {
-    // #5192: a held post meeting a record it cannot read now is held again, not dropped.
     // #5192: held, not dropped (a held one met here is held again): it goes once the record
     // can be read and says whether the room is sealed.
     return holdPost(projectId, s, msg, 'it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed', 'when it can, if that is within the hour', heldAt);
