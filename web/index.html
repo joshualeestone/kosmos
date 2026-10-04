@@ -34776,7 +34776,9 @@ async function paintAgentWindow(sessionName, opts) {
     } else {
       pre.hidden = true;
       document.getElementById('d-window-hint').textContent = '';
-      msg.textContent = r.because || r.error || 'We could not read its window just now.';
+      /* #5223: a Windows agent's answer is a lasting fact, not a refusal, and it is the sentence every Windows
+         agent page shows, so it is set as a sentence. Other refusals keep their raw clause. */
+      msg.textContent = (r.noWindow === true ? pjSentence(r.because) : r.because) || r.error || 'We could not read its window just now.';
       msg.hidden = false;
       box.hidden = false;
     }
@@ -64886,8 +64888,11 @@ function paintThread(body) {
     // did not make.
     // The clause becomes its own pjSentence rather than a raw splice
     // (round 25): a stderr line ending in a stop would double it.
-    hint.textContent = 'We cannot see its screen right now.'
-      + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
+    // #5223: a Windows agent has no screen at all, so "right now" would call a lasting fact a passing failure.
+    hint.textContent = (body.viewport && body.viewport.noWindow === true)
+      ? pjSentence(body.viewport.because)
+      : 'We cannot see its screen right now.'
+        + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
   }
 }
 

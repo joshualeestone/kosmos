@@ -98,7 +98,7 @@ const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents f
    said it has NO window (a Windows agent, `view.noWindow`). Both routes compose it after "<name> is
    waiting on an answer, and", so it is a clause; "could not read its screen" told a Windows user a
    working agent was unreachable. One sentence for the agent thread and the project page. */
-const NO_WINDOW_QUESTION_BECAUSE = 'it did not say what it is asking, and on Windows there is no screen to read the question from';
+const NO_WINDOW_QUESTION_BECAUSE = 'it did not say what it is asking; on Windows there is no screen to read the question from';
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only

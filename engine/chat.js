@@ -1111,6 +1111,10 @@ function waitingNote(state, outcome, runner, backgroundWait) {
  * dialog, where one Escape ends the session (measured, Claude Code 2.1.282, 2026-09-25);
  * and not a Windows agent, whose input is a supervisor channel with no keys to send.
  */
+/* #5223: one sentence for every keysAllowed caller (Stop now, stop helpers, the Gemini quota Stop), so it
+   claims only what is true for all three: no key was pressed. A Windows agent has no window to go to, and
+   Restart (stop and start, under AI Settings) works on Windows (#3431), so that is where it points. */
+const WIN32_NO_KEYS_SENTENCE = 'Kosmos cannot send keys to an agent on Windows yet, so nothing was pressed; to stop what it is doing, use Restart under its AI Settings';
 function keysAllowed(sessionName, roster) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
@@ -1118,7 +1122,7 @@ function keysAllowed(sessionName, roster) {
     return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
   }
   if (allowed.card.reachedByChannel === true) {
-    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; to stop what it is doing, use Restart under its AI Settings' };
+    return { ok: false, because: WIN32_NO_KEYS_SENTENCE };
   }
   /* #4589 round 2: Stop now's keys obey the same Codex rule as a message (Escape and C-x C-k are keys too, and
      C-x C-k on Codex's hook dialog is unmeasured). */
@@ -3475,7 +3479,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

@@ -762,6 +762,20 @@ test('#5223: a Windows agent has no window, so the viewport says so and never as
   });
 });
 
+test('#5223: Stop now on a Windows agent presses nothing and points at Restart, never at a window', () => {
+  withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
+    board.card('casey').reachedByChannel = true;
+    const tmux = arm([ok('')]);
+    const r = chat.interrupt('casey', board.agents);
+    assert.equal(r.ok, false);
+    assert.equal(r.because, chat.WIN32_NO_KEYS_SENTENCE);
+    assert.match(r.because, /nothing was pressed/);
+    assert.match(r.because, /Restart under its AI Settings/);
+    assert.doesNotMatch(r.because, /window/);
+    assert.equal(tmux.sends().length, 0, 'no key reaches a Windows agent');
+  });
+});
+
 test('#5223 CONTROL: a Mac agent (no channel mark) is still captured from its pane', () => {
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     assert.notEqual(board.card('casey').reachedByChannel, true);
