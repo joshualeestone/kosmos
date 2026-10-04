@@ -37,3 +37,13 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
    with the needs-you look (web/index.html stateCopyOf); a needs_you push once per loop episode (engine/crashloop.js).
    Ranks 3rd. #5146 (community English) DROPS at the cap of 5: it reaches the fewest newcomers.
    Final order: #5140, #5165, #5154 A, #5164, #5152 slice 0.
+
+## Blind review (20:35) and what changed
+- Line "Agents that keep stopping" OVERCLAIMED: a phone notice needs phone notifications turned ON in Kosmos+ (off by
+  default; the phone app is in testing), not Kosmos+ alone; and it detects stopping, not crashing. Rewritten.
+- "Work you can check off" OVERCLAIMED: only NEW agents are told; existing agents are offered the heading. Rewritten,
+  keeping "are told to" (instruction-only), with "Done when" quoted.
+- "An honest sign-in warning": made concrete (a Claude sign-in; its agents can work a few more hours).
+- Ranking changed to breadth (reviewer): #5154 (every card, every device), #5164 (any Claude user), #5152 (every new
+  agent), #5165 (Kosmos+ only), #5140 (phone, empty board, notice showing). The phone lines reach the fewest.
+- Shas: #5165 landed as dfe2b88b1 and #5152 as 4091df1e9 (the shas above are their proof commits); reviewed those.

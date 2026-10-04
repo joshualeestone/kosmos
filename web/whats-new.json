@@ -2,9 +2,19 @@
   "version": "0.7.22",
   "highlights": [
     {
-      "icon": "phone",
-      "title": "New agent stays in reach",
-      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
+      "icon": "shield",
+      "title": "Agents that keep stopping",
+      "line": "An agent that keeps stopping right after it starts now says Keeps stopping. With Kosmos+ phone notifications on, your phone is told once."
+    },
+    {
+      "icon": "chat",
+      "title": "An honest sign-in warning",
+      "line": "When a Claude sign-in ends but its agents can work a few more hours, the warning now says when they stop, not that they already have."
+    },
+    {
+      "icon": "tasks",
+      "title": "Work you can check off",
+      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing ones are offered it."
     },
     {
       "icon": "phone",
@@ -12,19 +22,9 @@
       "line": "Over Kosmos+, clicking a file now downloads it to the device you are using, instead of opening it on the computer running Kosmos."
     },
     {
-      "icon": "shield",
-      "title": "Agents that keep stopping",
-      "line": "When an agent keeps crashing, its card now says Keeps stopping, and with Kosmos+ your phone is told once."
-    },
-    {
-      "icon": "chat",
-      "title": "An honest sign-in warning",
-      "line": "When a sign-in ends but agents can still run a while, the warning now says when they will stop, not that they already have."
-    },
-    {
-      "icon": "tasks",
-      "title": "Work you can check off",
-      "line": "Agents are now told to put bigger work on a task first, with Done when checks you can answer yes or no, and to say how each went."
+      "icon": "phone",
+      "title": "New agent stays in reach",
+      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
     }
   ]
 }
