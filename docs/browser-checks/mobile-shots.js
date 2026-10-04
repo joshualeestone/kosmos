@@ -1095,7 +1095,15 @@ async function fitOf(page) {
     const taps = [];
     const seen = new Set();
     const sx = window.scrollX, sy = window.scrollY;
+    // scrollIntoView moves every scrollable ancestor, not only the window: each one's place is kept and put back, so
+    // nothing after the audit (a screen's verify, its after-step) sees a moved page.
+    const moved = new Map();
+    const remember = (el) => { for (let a = el.parentElement; a; a = a.parentElement) if (!moved.has(a) && (a.scrollTop || a.scrollLeft || a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth)) moved.set(a, [a.scrollLeft, a.scrollTop]); };
+    /* Probes sit on the four edge midpoints of the 44x44 square, half a pixel in. Corners are not probed: a rounded
+       hit area (border-radius clips hit-testing) would fail a corner a finger never needs. The far edges are
+       half-open, so a 43px reach fails rather than passes. */
     const reaches = (target) => {
+      remember(target);
       target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
       const r = target.getBoundingClientRect();
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2, h = minTap / 2 - 0.5;
@@ -1118,6 +1126,7 @@ async function fitOf(page) {
       if (!onPage(r)) continue;
       if ((r.width < minTap - 0.5 || r.height < minTap - 0.5) && !reaches(target)) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
     }
+    for (const [a, [l, t]] of moved) { a.scrollLeft = l; a.scrollTop = t; }
     window.scrollTo({ left: sx, top: sy, behavior: 'instant' });
     const fields = [];
     for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
