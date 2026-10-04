@@ -23,7 +23,8 @@
  *   unread    a look that reached the host but could not read it (a bad Windows manifest):
  *             the could-not-read sentence, no link, never "Up to date."; then a press whose
  *             check cannot reach the host: the could-not-reach sentence
- *             -- and it STAYS after a later status poll repaints the card (#5183)
+ *             -- and a status poll answered after the press keeps it (#5183: the fixture's two stubs agree,
+ *             as a real board's one cache does)
  *   current   the CONTROL: nothing newer, the press says "Up to date on the release channel." (#2969) and no link shows --
  *             without it the states above could pass on a card that never says it
  *
@@ -211,24 +212,34 @@ async function readCard(pg) {
       const card = await readCard(pg);
       chk(card.line === "Could not read the update server's answer.", 'unread: a bad manifest is named as could-not-read', JSON.stringify(card.line));
       chk(!card.downloadShown, 'unread: no Download link', JSON.stringify(card));
-      await pg.click('#upd-btn');
-      await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
-      const after = await readCard(pg);
-      chk(after.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', JSON.stringify(after.line));
-      chk(!/Up to date/.test(after.line), 'unread: never "Up to date."', JSON.stringify(after.line));
-      /* #5183: a poll that repaints the card after the press must keep could-not-reach (a real board's poll reports
-         the press's look). Count paints from here and wait for one, so the read below follows a real repaint rather
-         than the press's own paint (a fixed wait could read before a slow repaint and pass without one). It waits
-         for TWO: a status request in flight across the click can carry the pre-press look and paint first, as on a
-         real board; by the second paint a full poll has been answered since the press. */
+      /* #5183: every paint of the card is recorded as it happens, with the look it was given and the line it left, so
+         each assertion reads the paint it means, not whatever the card shows when a later read lands (a status poll
+         answered before the press and handled after its paint repaints the old look, as it can on a real board). */
       await pg.evaluate(() => {
         const orig = window.paintUpdateCard;
-        window.__updPaints = 0;
-        window.paintUpdateCard = function (...a) { window.__updPaints++; return orig.apply(this, a); };
+        window.__updPaints = [];
+        window.paintUpdateCard = function (...a) {
+          const r = orig.apply(this, a);
+          window.__updPaints.push({ reached: !!(a[2] && a[2].reached), line: document.getElementById('upd-line').textContent });
+          return r;
+        };
       });
-      await pg.waitForFunction(() => window.__updPaints >= 2, null, { timeout: 20000 });
-      const afterPoll = await readCard(pg);
-      chk(afterPoll.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', JSON.stringify(afterPoll.line));
+      await pg.click('#upd-btn');
+      /* The press's paint is the first with an unreachable look: polls do not paint while a press is in flight, and
+         every poll before it carries this state's reachable look. */
+      const pressAt = await pg.waitForFunction(() => {
+        const i = window.__updPaints.findIndex((p) => !p.reached);
+        return i >= 0 ? i + 1 : 0;
+      }, null, { timeout: 12000 }).then((h) => h.jsonValue()).then((n) => n - 1).catch(() => -1);
+      const press = pressAt >= 0 ? await pg.evaluate((i) => window.__updPaints[i], pressAt) : null;
+      chk(press && press.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', JSON.stringify(press));
+      chk(press && !/Up to date/.test(press.line), 'unread: never "Up to date."', JSON.stringify(press));
+      /* Then the second paint after the press: by then a full status poll has been answered since it, so it carries the
+         press's look on a real board (one cache, engine/update.js checkNow and lastLook). This guards the fixture's
+         agreement with that; the paint just after the press may still be a poll answered before it. */
+      const later = pressAt >= 0 ? await pg.waitForFunction((i) => window.__updPaints.length >= i + 3, pressAt, { timeout: 20000 })
+        .then(() => pg.evaluate((i) => window.__updPaints[i + 2], pressAt)).catch(() => null) : null;
+      chk(later && later.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', JSON.stringify(later));
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-unread.png') });
     } else if (state === 'rollback') {

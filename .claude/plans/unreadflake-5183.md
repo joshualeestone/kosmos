@@ -45,3 +45,12 @@ old fixture FAILS, fixed PASSES 2 of 2. Converged.
 
 ## Left
  full tools/browser-checks.sh on the exact head; PR; merge after Monday.
+
+## /challenge-loop (22:28 on; the PR #5201 was opened via REST, which skipped the gate, so this loop runs before its merge)
+Iteration 1 (opus): WARNING taken. The original after-press read could still be raced by a status response answered
+before the press and handled after its paint. Now every paint is recorded as it happens (look + line); the press
+assertion reads the first paint with an unreachable look (the press: polls do not paint during it, and earlier polls
+carry the reachable look), and the poll assertion reads the second paint after the press. Stalled waits now print a
+named FAIL instead of an unhandled rejection; the stale "wait for one" comment is gone; the header says the poll
+assertion guards the fixture's agreement. Re-proven: fixed PASSES 2 of 2; old fixture FAILS only the poll assertion
+(its recorded paint: reached:true, "Could not read"), while the press assertion passes, as it should.
