@@ -16,8 +16,10 @@ A member treats every old-key post after 90 s as the revoked member's. An honest
 missed the rotation and posts more than 90 s later has that post refused on the other members'
 boards (as on the owner's, since #5191). It catches up when the owner re-sends the key: on its
 next connect, on each pass, and at once when the owner refuses one of its old-key posts (#5191).
-The refused post itself is not resent (#5192). What would change my mind: evidence that members
-routinely miss a rotation for more than 90 s while posting.
+The refused post itself is not resent (#5192). The realistic case is a sleeping Mac: asleep at the
+revoke, awake more than 90 s later, posting before the owner's re-send reaches it (10 minutes
+covered more sleeps). What would change my mind: evidence that members routinely miss a
+rotation for more than 90 s while posting (for example sleep-and-post reports after a revoke).
 
 Second premise (challenge round 1): the grace is the owner's rotation time judged on the
 member's clock, so a member clock running ahead shortens it, to nothing at 90 s ahead. Fails

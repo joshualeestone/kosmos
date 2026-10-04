@@ -490,8 +490,10 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
    EDGE_FRESH_MS, about 75 s, and up to one 60 s pass more while Kosmos+ cannot answer
    (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it,
    which a sealed room does not rely on (the relay is not trusted).
-   #5197: a member uses the same grace, so a relay that keeps a revoked member posting
-   cannot have the other members show it for 10 minutes. A member's grace runs from the
+   #5197: a member that has received the rotation uses the same grace (one the relay keeps
+   from the rotation stays on the old key: fedseal.js NOT CLAIMED). Members hold nothing for
+   an edge check, so on a member's board a revoked member is shown for the owner's
+   detection (up to a 60 s pass) plus this grace. A member's grace runs from the
    owner's rotation time on its own clock: a member clock running ahead shortens it
    (fails closed: in-flight posts refused there). */
 const REVOKE_GRACE_MS = 90 * 1000;
