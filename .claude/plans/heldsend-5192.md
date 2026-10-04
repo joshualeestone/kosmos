@@ -18,8 +18,10 @@ accepted key-rotate, an owner pinning a member (after the share frame), a seat's
 that is held again keeps everything after it held, in order; one refused for good (too long, could
 not seal) says why and the rest carry on. The room says how many were sent, and whether any had a
 file (the server tells the seat: `files`), since files never leave this computer.
-A post held DURING a behind hold goes only under the new key: if the hold runs out first it is dropped
-with a note (round 16). A post held for another reason after the hold ran out goes as a live post would,
+A post WRITTEN during a behind hold goes only under the new key, whatever it is held for first (an
+unreadable record, round 28): if the hold runs out first it is dropped with a note (round 16). The drop
+happens at the first flush after the hold runs out (the 60 s pass, a new post, or a key), so a key that
+arrives in that gap still sends it, under the new key; the note says "when this computer next checks". A post held for another reason after the hold ran out goes as a live post would,
 under the key the member has, and the flush note says so (round 24: dropping every held post let one
 forged far-ahead envelope disable holding for good, while live posts used the same key anyway; this
 reverses Angel's round NIT, answered on the card).

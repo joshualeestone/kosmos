@@ -2251,6 +2251,31 @@ test('#5192: when a behind hold runs out with no new key, the post held during i
   void h;
 });
 
+test('#5192: a post written during a behind hold but held for an unreadable record is still dropped when the hold runs out', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-exp2', { role: 'member', edge_id: 'edge-5192-exp2' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-exp2', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192exp2', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-exp2');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-exp2', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5192-exp2', { from: 'A', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  fedseats.post('proj-5192-exp2', { from: 'B', kind: 'person', text: 'held while unreadable' });
+  broken.mock.restore();
+  assert.ok(h.notes.some((n) => /cannot read its sealed-rooms record/.test(n.text)), 'fixture: the post was held for the record, not the hold: ' + JSON.stringify(h.notes));
+  const before = lines(seat).length;
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  assert.strictEqual(fedseats.post('proj-5192-exp2', { from: 'B', kind: 'person', text: 'after the hold' }), true);
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: k0 }, 'room-5192-exp2', f));
+  assert.deepStrictEqual(out.map((o) => o && o.m.text), ['after the hold'], 'a post written during the hold went under the old key');
+  assert.ok(h.notes.some((n) => /not sent: this computer could not confirm it had the newest key in time/.test(n.text)), JSON.stringify(h.notes));
+});
+
 test('#5192: a held post refused for good does not strand the ones behind it', async () => {
   const sk = fedseal.randomSecret();
   federation.recordLink('proj-5192-long', { role: 'member', edge_id: 'edge-5192-long' });
