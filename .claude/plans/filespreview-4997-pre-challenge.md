@@ -2,13 +2,92 @@
 pre_challenge: true
 method: challenge-loop
 branch: filespreview-4997
-diff_hash: ea4b5cf8529fe044aea248b87437ac655fe3f52d4eac55f11e4b363a57b91743
-validation: passed (Mortals, full suite, 2026-10-03 01:18 CDT, hash ea4b5cf8529f, recorded)
-subdir_audit: passed
-timestamp: 2026-10-03T07:07:25Z
-iterations: 17
+diff_hash: c2d9f5e41eb14d14c24c6c36e4deb156982a7274ae01db10e7a2d7c51d1fa953
+validation: passed (focused at 84abdae5e: 2400 tests, 2313 pass, 0 fail, 87 skipped; the full suite is queued after this proof)
+subdir_audit: passed (no subdirectory CLAUDE.md changed)
+timestamp: 2026-10-04T15:07:09Z
+iterations: 9
 converged: true
 ---
+
+## [CHALLENGE-LOOP] Summary: the rebase onto #5165 (2026-10-04)
+
+The branch was squashed onto main after #5165 (0.7.22) and the merge was decided on PR #5119 (see the plan's rebase
+section). This loop reviewed the merged diff from scratch.
+
+**Iterations:** 9, alternating Opus and Sonnet. **Converged:** yes. Iteration 9 had only NITs.
+**Total findings:** 21 actionable (0 BLOCKERs, 19 WARNINGs, 2 CONVENTIONs), plus NITs.
+**Fixed:** 15 | **Deferred:** 6 (duplicates of recorded trade-offs, or accepted in the plan) | **Asked:** 0
+
+**Validation:** focused at 84abdae5e on a clean tree: 53 test files covering every file that touches these routes,
+functions and page handlers, plus the repo-wide audits (#1732, engine.reachable, reason-grep, win32 board copy). 2400
+tests, 2313 pass, 0 fail, 87 skipped. The full suite runs after this proof, and its result goes on the PR.
+
+### Per-iteration
+- **1 (opus):** 2 W.
+  - [W] the plan claimed every kplusDownload caller runs after filesPvOpen (false: cited chips) --> FIXED, corrected in the plan, CLAUDE.md and the PR.
+  - [W] openFile's danger warning was dropped in the merge --> FIXED.
+  - NITs taken: the orphan comment, a short read is refused.
+  - Self-generated: 1, the plan prose claim. It was replaced with a statement that names every caller.
+- **2 (sonnet):** 4 W.
+  - [W] listed mode now gates Windows downloads, and its resolved-equals-walked check was never run there --> FIXED: `sameListedPath`, case-folded on win32, tested.
+  - [W] the plan said chips download "as on main" --> FIXED.
+  - [W] preview by extension only --> DEFERRED, recorded.
+  - [W] HEAD runs a full preview --> DEFERRED, recorded.
+- **3 (opus):** 1 W, plus a carded follow-up.
+  - [W] the case-folded check let NODE_MODULES/x.png into node_modules --> FIXED: a skip check on the on-disk path, tested by staging win32 on a case-blind disk, red without it.
+  - The cache outliving its PDF is carded as #5254. Angel is building it as PR #5256.
+- **4 (sonnet):** 2 C new.
+  - [C] CLAUDE.md said "picture" --> FIXED: png, jpeg, gif, webp.
+  - [C] one comment line too long --> FIXED.
+  - 3 W were duplicates of recorded trade-offs.
+  - Found by a wider test run while fixing: engine.reachable flagged the unused fileInFolder alias --> removed.
+- **5 (opus):** 2 W.
+  - [W] the listed walk's lstat bypassed the fs-world seam --> FIXED: `lstatOfFolderPath`, plus a mapped-drive test.
+  - [W] no swap test at the download's own open --> FIXED: link and FIFO arms, red with O_NOFOLLOW and sameOpenedFile removed.
+- **6 (sonnet):** 2 W.
+  - [W] the at-the-computer trade-off was not in the plan --> FIXED, recorded.
+  - [W] the chips' change was not in the PR body --> FIXED, posted on the PR.
+- **7 (opus):** 2 W.
+  - [W] the preview's Show in File Explorer was refused on a mapped drive --> FIXED: win32explorer.revealFile takes namedAs, tested, red without it.
+  - [W] the preview's Download gave a silent 204 on a refusal --> FIXED: it goes through kplusDownload, tested.
+- **8 (sonnet):** 1 W new.
+  - [W] a picture over the 25 MB cap opens the card --> FIXED, recorded in the plan as an accepted cost.
+  - 2 W were duplicates.
+- **9 (opus):** NITs only. **Converged.**
+
+### Final ledger (rebase loop)
+| # | Iter | Category | File | Origin | Description | Status |
+|---|------|----------|------|--------|-------------|--------|
+| 1 | 1 | WARNING | plan, CLAUDE.md | SELF | false "every caller" claim | FIXED |
+| 2 | 1 | WARNING | engine/projects.js | BRANCH | openFile warning dropped | FIXED |
+| 3 | 2 | WARNING | engine/projects.js | SELF | win32 path equality unmeasured | FIXED |
+| 4 | 2 | WARNING | plan | SELF | chips "as on main" | FIXED |
+| 5 | 2 | WARNING | web/index.html | BRANCH | preview by extension | DEFERRED |
+| 6 | 2 | WARNING | server.js | BRANCH | HEAD does a full preview | DEFERRED |
+| 7 | 3 | WARNING | engine/projects.js | SELF | NODE_MODULES case slip | FIXED |
+| 8 | 4 | CONVENTION | CLAUDE.md | SELF | "picture" too broad | FIXED |
+| 9 | 4 | CONVENTION | server.js | SELF | long comment line | FIXED |
+| 10 | 4 | WARNING | engine/projects.js | SELF | dead fileInFolder export | FIXED |
+| 11 | 5 | WARNING | engine/projects.js | SELF | lstat bypassed the seam | FIXED |
+| 12 | 5 | WARNING | server.file-download-5165.test.js | BRANCH | no swap test at the open | FIXED |
+| 13 | 6 | WARNING | plan | BRANCH | at-the-computer trade-off unrecorded | FIXED |
+| 14 | 6 | WARNING | PR | BRANCH | chips change not in the PR | FIXED |
+| 15 | 7 | WARNING | engine/filepreview.js | BRANCH | reveal refused on a mapped drive | FIXED |
+| 16 | 7 | WARNING | web/index.html | BRANCH | silent 204 on Download | FIXED |
+| 17 | 8 | WARNING | plan | BRANCH | over-the-cap picture | FIXED |
+| 18-21 | 3-8 | WARNING | various | BRANCH | duplicates of recorded trade-offs | DEFERRED |
+
+### NITs carried (not applied)
+- crossSiteRead now guards the download route, so a sibling computer's same-site read can no longer pull a download. Deliberate, and worth one plan line (iteration 9).
+- No Windows-shaped swap test for sendFileDownload, i.e. with the O_NOFOLLOW seam taken away (iteration 9).
+- No on-screen hint that a modifier-click opens the app (iterations 1, 9).
+- The preview cache's eviction is oldest-drawn, not least recently used (iterations 5, 7).
+
+---
+
+## The original loop (before the rebase), kept as history
+
 
 ## [CHALLENGE-LOOP] Summary
 
