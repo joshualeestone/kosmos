@@ -1647,13 +1647,38 @@ test('#5191: a pass that cannot read the rooms record does not count the room as
   assert.deepStrictEqual(shown(h), [], 'an unreadable pass counted as a check');
 });
 
-test('#5191: a post that arrives while the owner\'s link cannot be read is not held with no check to free it', async (t) => {
+test('#5191: while the owner\'s link cannot be read a post is held, not shown, and the first readable pass checks it', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
-  const { h, post } = await pinnedRoom('proj-5191-nolink', 'rnl', 1);
+  const { h, revoke, post } = await pinnedRoom('proj-5191-nolink', 'rnl', 1);
   t.mock.timers.tick(20 * 1000);
+  revoke(0);
+  const asked = h.asked;
   const broken = t.mock.method(federation, 'linkFor', () => { throw new Error('EIO'); });
-  post('while the link is unreadable');
+  post('from the revoked member while the link is unreadable');
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'an unreadable link record let a post through unchecked');
+  assert.strictEqual(h.asked, asked, 'a check started without the link');
+  broken.mock.restore();
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'the revoked member\'s held post was shown');
+  assert.strictEqual(fedseal.roomState('proj-5191-nolink').epoch, 1);
+  assert.ok(h.notes.some((n) => /earlier key arrived after that key was retired/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5191: a pass that cannot read the rooms record keeps held posts for the next pass instead of refusing them', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post } = await pinnedRoom('proj-5191-passeio', 'rpe', 1);
+  t.mock.timers.tick(20 * 1000);
+  h.edges = null;
+  post('held through an unreadable pass');
+  await settle();
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  await fedseats.ensureAll();
   await settle();
   broken.mock.restore();
-  assert.deepStrictEqual(shown(h), ['while the link is unreadable'], 'the post was held with nothing to release it');
+  assert.deepStrictEqual(shown(h), []);
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), ['held through an unreadable pass']);
 });

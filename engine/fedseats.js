@@ -174,8 +174,8 @@ function handleEvent(projectId, line, heldAt) {
       // ONCE per epoch this member holds, for BEHIND_HOLD_MS: forged envelopes, however
       // many and whatever epochs they claim, cannot pause a member for longer than that.
       const ahead = sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch > sealed.epoch;
-      // A held post is judged at the later of its arrival and the room's last rotation, so the
-      // hold itself cannot run out its grace, and a rotation the check made still applies.
+      // A held post is judged at the later of its arrival and the room's last rotation, so a
+      // rotation the check made still applies.
       const keysAt = heldAt ? Math.max(heldAt, Number.isFinite(sealed && sealed.rotatedAt) ? sealed.rotatedAt : 0) : now;
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, keysAt), s.room, ev.data) : null;
       if (!opened && ahead) {
@@ -200,6 +200,10 @@ function handleEvent(projectId, line, heldAt) {
         if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && !isFresh(s.rotatesResentAt, now)) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
+        }
+        if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch) {
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired (someone was removed from the shared project), so it was not shown.');
+          return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
         return;
@@ -486,7 +490,7 @@ const EPOCH_GRACE_MS = 10 * 60 * 1000;
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
-   EDGE_FRESH_MS, about 75 s; this narrows the window, it does not close it. */
+   EDGE_FRESH_MS, about 75 s: there the relay's ticket expiry bounds it, not this. */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One
@@ -615,14 +619,14 @@ function revokeCheck(projectId, link, edges) {
   return sealStep(projectId, async () => {
     const first = roomSeal(projectId);
     // A record that cannot be read is not a check (nothing could have been rotated).
-    if (first === undefined) return { checked: false, rotated: false };
+    if (first === undefined) return { checked: false, rotated: false, unreadable: true };
     if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return { checked: true, rotated: false };
     let r;
     try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return { checked: false, rotated: false }; }
     if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return { checked: false, rotated: false };
     const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
     const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
-    if (st === undefined) return { checked: false, rotated: false };
+    if (st === undefined) return { checked: false, rotated: false, unreadable: true };
     if (!hasKey(st) || st.role !== 'owner') return { checked: true, rotated: false };
     const peers = st.peers || {};
     // Only an edge the coordinator names as no longer active counts; an edge it does not
@@ -658,7 +662,7 @@ function sharedEdges(now) {
   const ask = { askedAt: now, promise: null };
   try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_EDGES, {})); } catch (err) { ask.promise = Promise.reject(err); }
   const drop = () => { if (macEdges === ask) macEdges = null; };
-  ask.promise.then((r) => { if (!r || !r.ok) drop(); }, drop);
+  ask.promise.then((r) => { if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) drop(); }, drop);
   macEdges = ask;
   return ask;
 }
@@ -677,7 +681,9 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     const at = typeof askedAt === 'function' ? askedAt() : 0;
     s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
   }
-  if (s.held && s.held.length && ((r && r.checked) || pass)) {
+  // The pass shows them unchecked, but not while the rooms record is unreadable: then every
+  // one would be refused for that, so they wait for a pass that can read it.
+  if (s.held && s.held.length && ((r && r.checked) || (pass && !(r && r.unreadable)))) {
     const held = s.held;
     s.held = [];
     s.heldIds = new Set();
@@ -700,9 +706,11 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
   if (isFresh(s.edgesCheckedAt, now)) return false;
   const opened = s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, env) : null;
   if (!opened || now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS || (s.seen && s.seen.has(opened.id))) return false;
-  // No check can be started without the owner's link: then the post takes the usual path.
-  const link = safeLink(projectId);
-  if (!link || link.role !== 'owner') return false;
+  // An unreadable link record still holds the post (failing open would show a revoked
+  // member's post with no bound), but no check can start: the first pass that can read the
+  // record checks and releases it. A link that reads as no owner link takes the usual path.
+  const link = sealLink(projectId);
+  if (link !== undefined && (!link || link.role !== 'owner')) return false;
   s.held = s.held || [];
   s.heldIds = s.heldIds || new Set();
   if (s.heldIds.has(opened.id)) return true;   // a copy of a held post: it would be refused as seen
@@ -717,7 +725,7 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
   }
   s.heldIds.add(opened.id);
   s.held.push({ line, at: now });
-  if (!s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
+  if (link && !s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const ask = sharedEdges(now);
     // The answer's own ask time: one joined from another room may be older than this post.
     s.edgeAskedAt = ask.askedAt;

@@ -38,8 +38,12 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
 ## Behaviour changes outside the owner's grace
 - acceptedKeys treats an age below zero (the clock stepped back) as outside the grace for MEMBERS too:
   a member whose clock steps back stops opening the previous epoch early. Fails closed.
-- A post that arrives when the owner's link cannot be read is not held (no check could start); it
-  takes the usual path.
+- A post that arrives when the owner's link record cannot be read is HELD with no check started; the
+  first pass that can read the record checks and releases it (fails closed; decided in iteration 7,
+  reversing iteration 6, which failed open with no time bound).
+- With one member, a post sealed before the revoke but held when the check finds it is refused (its
+  key is retired): fails closed, its sender is now revoked. The room says the key was retired.
+- The pass does not release held posts unchecked while the rooms record is unreadable.
 
 ## Residual (N3)
 With members left (the held post itself is still shown if its old key is inside the grace; B only
