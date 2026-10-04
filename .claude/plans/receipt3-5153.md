@@ -50,3 +50,7 @@ per event, and only `limit` receipts are worked out). A board with thousands of 
 - NIT taken: the read gives up after 20 seconds, so the reading line becomes the could-not-read line instead of
   staying. Not taken: the Tasks tab check is made at paint time (a tab revealed later shows the link on the next open;
   fails safe); the source-pinned link test (the file's house pattern).
+
+## Review 3 (sonnet): CLEAN (no BLOCKER, no WARNING)
+- NITs not taken: a failed row click's message stays until the next repaint; HEAD runs the full read (as the task
+  receipt route); the concurrency test would also pass at two at a time (it pins "a few, never more than three").
