@@ -689,9 +689,10 @@ const SCREENS = [
     });
     await page.waitForTimeout(300);
   }, verify: async (page) => {
-    const t = await page.evaluate(() => document.getElementById('tk-receipt').innerText);
+    /* Compared without case: innerText follows text-transform, and the heading is the column's uppercase kicker. */
+    const t = (await page.evaluate(() => document.getElementById('tk-receipt').innerText)).toLowerCase();
     for (const want of ['Receipt', 'ran 14 commands', 'at API prices', 'not available for Codex agents yet', 'put back 1 time']) {
-      if (!t.includes(want)) throw new Error('the receipt does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+      if (!t.includes(want.toLowerCase())) throw new Error('the receipt does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
   } },
 ];
