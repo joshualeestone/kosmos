@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -22,6 +22,39 @@
  *      set). Errors: a 409 not-owner shows pjFedMessage's sentence, a 502 shows the board's sentence as
  *      given, and the label is kept. Main: no sheet.
  *  A6  393 wide (a phone): the menu and both states of the sheet fit, with no sideways scroll.
+ *
+ * kosmos#4649 slice B: the owner's "From outside" section in Members (Mona's shots 07, 09, 10), Remove and
+ * Withdraw, against Kitty's GET /api/federation/members, POST /api/federation/remove { project, edge_id } and
+ * POST /api/federation/withdraw { project, invite_id }, all faked below (initStub). Each arm fails on
+ * origin/main because main has no #pj-fed-outside, never asks /api/federation/members and has no remove or
+ * withdraw route caller; the arm-specific control is named on each line.
+ *  B1  one joined, one pending, one expired, one withdrawn, one removed, one null-label joined, one null-label
+ *      pending, and one joined whose label is a local agent's name: the rows and sub-lines exactly as spec
+ *      section 2 and Mona's Q-M2/Q-M3 answers say, in the board's order; withdrawn and removed absent; one
+ *      "From outside" heading; no could-not-check line (checked_at is a number). Asked with ?project=k.
+ *      Control: the same page with `invites: []` has no heading at all (B1b), so the heading is data-driven.
+ *  B2  Remove opens #mem-modal with shot 09's title, Mona's no-agent body (spec G2), "Cancel" and
+ *      "Remove Dana Ruiz" (.danger-btn); confirming POSTs exactly { project, edge_id }; after the 200 the dialog
+ *      closes, the list is asked again and Dana's row is gone. Control: B3's 502 keeps it.
+ *  B3  Remove 502: the dialog stays open with the board's sentence in #mem-msg and the row stays. Control: B2's
+ *      200 removes it. Remove 404: the dialog closes, the board's sentence is shown under the list, and the list
+ *      is asked again.
+ *  B4  Withdraw 409 unsupported: POSTs { project, invite_id }, keeps the pending row, says the board's sentence
+ *      with " on Oct 11" (Kitty's Q-K2) under that row, and does NOT ask the list again. 409 joined: says
+ *      "Someone already joined with this code. Remove them instead." and asks again (the row is now joined).
+ *      Control: each is the other's (one refetches, the other does not). 200: asked again, the row gone.
+ *  B5  checked_at null: the one plain line "Kosmos could not check who has joined just now. This list may be out
+ *      of date.", rows kept, Remove enabled. Control: B1 (a number) has no such line. The GET failing (500):
+ *      no outside rows, the same line, and the project's own agents still listed.
+ *  B6  the outside disc is dashed and untinted (computed border-top-style dashed, transparent background), in
+ *      light AND dark, including the row labelled "Ada", the name of a local agent (#3851). Control: the local
+ *      Ada's own disc in the same Members card IS tinted, so the page does tint that name where it should.
+ *  B7  an expired row's "Make a new code" opens the invite sheet with its label and kind filled in and focus on
+ *      "Make an invite code"; making it asks the list again, and the expired row goes once a pending one has
+ *      the same label. Control: before the new code, the expired row is listed (B1).
+ *  B8  gate not "show": the members route is never asked and the section draws nothing. Control: B1.
+ *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
+ *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
  * HERMETIC: web/index.html over file://, every route answered by the stub below (render-pj-clear-2575's
  * pattern: the stub's own /api/projects carries the seeded project, so a late startup poll cannot wipe
@@ -65,7 +98,14 @@ function initStub(cfg) {
   window.__copied = [];
   window.__invite = { status: 200, body: { code: cfg.code, expires_at: cfg.expires, invite_id: 'inv-1' } };
   window.__project = { id: 'k', name: 'Spring launch', parent: null, archived: false, description: '',
-    agents: [{ sessionName: 'ada' }, { sessionName: 'basil' }], summary: {}, unread: 0 };
+    agents: [{ sessionName: 'ada', name: 'Ada' }, { sessionName: 'basil', name: 'Basil' }], summary: {}, unread: 0 };
+  /* Slice B's routes. The default members answer lists nobody, so the slice A arms see no section. */
+  window.__members = { status: 200, body: { owner: true, sealed: false, invites: [], checked_at: 1791115200 } };
+  window.__memberUrls = [];
+  window.__remove = { status: 200, body: { removed: true } };
+  window.__removes = [];
+  window.__withdraw = { status: 200, body: { withdrawn: true } };
+  window.__withdraws = [];
   const a = (s, name) => ({ sessionName: s, name, role: '', running: false, state: 'stopped', context: null });
   window.__agents = [a('ada', 'Ada'), a('basil', 'Basil'), a('cleo', 'Cleo')];
   const enc = (status, o) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
@@ -77,6 +117,17 @@ function initStub(cfg) {
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window.__posts.push({ url: u, method, body });
       return enc(window.__invite.status, window.__invite.body);
+    }
+    if (u.includes('/api/federation/members')) {
+      window.__memberUrls.push(u);
+      return enc(window.__members.status, window.__members.body);
+    }
+    for (const [route, log, key] of [['/api/federation/remove', '__removes', '__remove'], ['/api/federation/withdraw', '__withdraws', '__withdraw']]) {
+      if (!u.includes(route)) continue;
+      let body = null;
+      try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
+      window[log].push({ method, body });
+      return enc(window[key].status, window[key].body);
     }
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
     return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed));
@@ -322,6 +373,294 @@ const closeAll = (page) => page.evaluate(() => {
     const code = await page.$eval('#fedinv-code', (i) => { const r = i.getBoundingClientRect(); return { r: Math.round(r.right), value: i.value }; });
     check('A6 393 wide: the code step fits (the long code is cut, not the page)', !!s.invBox && s.invBox.r <= s.vw && s.overflowX <= 0
       && code.value === CODE && code.r <= s.invBox.r, JSON.stringify({ inv: s.invBox, code, vw: s.vw, overflowX: s.overflowX }));
+    await ctx.close();
+  }
+
+  /* ---------------- slice B: the owner's "From outside" section (shots 07, 09, 10) ---------------- */
+  // Unix seconds at noon UTC (the page runs in UTC), so every short date is fixed.
+  const D = (month, day) => Date.UTC(2026, month, day, 12, 0, 0) / 1000;
+  const SEP = 8, OCT = 9;
+  const row = (o) => Object.assign({ invite_id: null, label: null, kind: 'person', made_at: null, expires_at: null,
+    state: 'pending', edge_id: null, joined_at: null }, o);
+  const DANA = row({ invite_id: 'inv-dana', label: 'Dana Ruiz', made_at: D(OCT, 1), expires_at: D(OCT, 8), state: 'joined', edge_id: 'edge-dana', joined_at: D(OCT, 4) });
+  const LEE = row({ invite_id: 'inv-lee', label: 'Lee Park', made_at: D(OCT, 4), expires_at: D(OCT, 11) });
+  const OLD = row({ invite_id: 'inv-old', label: 'Old Friend', kind: 'agent', made_at: D(SEP, 24), expires_at: D(OCT, 1), state: 'expired' });
+  const GONE_W = row({ invite_id: 'inv-wd', label: 'Withdrawn One', made_at: D(OCT, 2), expires_at: D(OCT, 9), state: 'withdrawn' });
+  const GONE_R = row({ invite_id: 'inv-rm', label: 'Removed One', made_at: D(SEP, 30), expires_at: D(OCT, 7), state: 'removed', edge_id: 'edge-rm', joined_at: D(OCT, 1) });
+  const NOLABEL_J = row({ invite_id: 'inv-cs', state: 'joined', edge_id: 'edge-cs', joined_at: D(OCT, 3) });
+  const ADA = row({ invite_id: 'inv-ada', label: 'Ada', kind: 'agent', made_at: D(OCT, 1), expires_at: D(OCT, 8), state: 'joined', edge_id: 'edge-ada', joined_at: D(OCT, 2) });
+  const NOLABEL_P = row({ invite_id: 'inv-nl', made_at: D(OCT, 4), expires_at: D(OCT, 11) });
+  const ALL = [DANA, LEE, OLD, GONE_W, GONE_R, NOLABEL_J, ADA, NOLABEL_P];
+  const answer = (invites, extra) => ({ status: 200, body: Object.assign({ owner: true, sealed: true, invites, checked_at: D(OCT, 4) }, extra || {}) });
+  // Each expected row: [disc letters, name, sub-line, action]. Spec section 2 plus Mona's Q-M2 (expired) and Q-M3
+  // (no label: "Someone you invited" on an empty disc) and Kitty's contract ("Invited <date>" for a pending one).
+  const EXPECT = [
+    ['DR', 'Dana Ruiz', 'Person · joined Oct 4', 'Remove'],
+    ['LP', 'Lee Park', 'Invited · until Oct 11', 'Withdraw'],
+    ['OF', 'Old Friend', 'Expired Oct 1', 'Make a new code'],
+    ['', 'Someone you invited', 'Person · joined Oct 3', 'Remove'],
+    ['A', 'Ada', 'Agent · joined Oct 2', 'Remove'],
+    ['', 'Invited Oct 4', 'Invited · until Oct 11', 'Withdraw'],
+  ];
+  const NOTE = 'Kosmos could not check who has joined just now. This list may be out of date.';
+  const UNSUPPORTED = 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.';
+  const JOINED = 'Someone already joined with this code. Remove them instead.';
+  const readFed = (page, sel) => page.evaluate((sel) => {
+    const box = document.querySelector(sel);
+    if (!box) return { exists: false, display: 'MISSING', heads: [], notes: [], rows: [], msgs: [], text: '' };
+    return {
+      exists: true,
+      display: getComputedStyle(box).display,
+      heads: [...box.querySelectorAll('.fedout-h')].map((h) => h.textContent),
+      notes: [...box.querySelectorAll('.fedout-note')].map((n) => n.textContent),
+      rows: [...box.querySelectorAll('.fedout-row')].map((r) => {
+        const act = r.querySelector('.fedout-act');
+        return { key: r.dataset.fedKey, disc: r.querySelector('.msg-av').textContent, name: r.querySelector('.fedout-nm').textContent,
+          sub: r.querySelector('.fedout-sub').textContent, act: act ? act.textContent : '', actOn: !!act && !act.disabled };
+      }),
+      msgs: [...box.querySelectorAll('.fmsg')].map((m) => m.textContent).filter(Boolean),
+      text: box.textContent,
+    };
+  }, sel);
+  const rowsAre = (rows, expect) => rows.length === expect.length
+    && expect.every((e, i) => rows[i].disc === e[0] && rows[i].name === e[1] && rows[i].sub === e[2] && rows[i].act === e[3]);
+  const setMembers = (page, ans) => page.evaluate((a) => { window.__members = a; }, ans);
+  const gets = (page) => page.evaluate(() => window.__memberUrls.length);
+  const modal = (page) => page.evaluate(() => ({
+    open: !document.getElementById('mem-modal').hidden,
+    title: document.getElementById('mem-title').textContent,
+    body: document.getElementById('mem-small').textContent,
+    keep: document.getElementById('mem-keep').textContent,
+    go: document.getElementById('mem-go').textContent,
+    danger: document.getElementById('mem-go').classList.contains('danger-btn'),
+    msg: document.getElementById('mem-msg') ? document.getElementById('mem-msg').textContent : 'MISSING',
+  }));
+  const act = (page, key) => page.click('#pj-fed-outside .fedout-row[data-fed-key="' + key + '"] .fedout-act');
+  const DANA_BODY = "Confirm that you want to remove Dana Ruiz from Spring launch. Dana's computer stops getting new messages from this room. What Dana already received stays on Dana's computer.";
+
+  /* B1, B1b, B6, B8 controls: the list itself. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    let f = await readFed(page, '#pj-fed-outside');
+    const urls = await page.evaluate(() => window.__memberUrls.slice());
+    check('B1 the members route is asked for the open project', urls.length >= 1 && urls.every((u) => /\/api\/federation\/members\?project=k$/.test(u)), JSON.stringify(urls));
+    check('B1 one "From outside" heading', f.heads.length === 1 && f.heads[0] === 'From outside', JSON.stringify(f.heads));
+    check('B1 the rows and sub-lines, exactly, in the board\'s order', rowsAre(f.rows, EXPECT), JSON.stringify(f.rows));
+    check('B1 withdrawn and removed invites are not shown', !/Withdrawn One|Removed One/.test(f.text), f.text);
+    check('B1 no could-not-check line when checked_at is a number', f.notes.length === 0 && !f.text.includes(NOTE), JSON.stringify(f.notes));
+
+    /* B6: dashed and untinted, the "Ada" row included; the local Ada disc is the tinted control. */
+    const discs = async () => page.evaluate(() => {
+      const st = (el) => { if (!el) return null; const c = getComputedStyle(el); return { border: c.borderTopStyle, bg: c.backgroundColor }; };
+      return {
+        dana: st(document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .msg-av')),
+        ada: st(document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="e:edge-ada"] .msg-av')),
+        lee: st(document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .msg-av')),
+        localAda: st(document.querySelector('#pj-one-agents .pj-member[data-agent="ada"] .pj-face')),
+      };
+    });
+    const clear = (s) => !!s && s.border === 'dashed' && (s.bg === 'rgba(0, 0, 0, 0)' || s.bg === 'transparent');
+    let d = await discs();
+    check('B6 light: the outside discs are dashed and untinted, the "Ada" row too', clear(d.dana) && clear(d.ada) && clear(d.lee), JSON.stringify(d));
+    check('B6 control: the local Ada\'s own disc is tinted', !!d.localAda && !clear(d.localAda) && d.localAda.bg !== 'rgba(0, 0, 0, 0)', JSON.stringify(d.localAda));
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    d = await discs();
+    check('B6 dark: still dashed and untinted (the dark .msg-av ground does not reach them)', clear(d.dana) && clear(d.ada) && clear(d.lee), JSON.stringify(d));
+    await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+
+    /* B1b: an empty answer draws nothing, no heading. */
+    await setMembers(page, answer([]));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B1b `invites: []`: no "From outside" heading and no rows (the section is display:none)',
+      f.heads.length === 0 && f.rows.length === 0 && f.display === 'none', JSON.stringify(f));
+    await ctx.close();
+  }
+
+  /* B2, B3: Remove. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    await act(page, 'e:edge-dana');
+    let m = await modal(page);
+    check('B2 Remove opens #mem-modal with shot 09\'s title, the no-agent body, Cancel and "Remove Dana Ruiz"',
+      m.open && m.title === 'Remove Dana Ruiz from this project?' && m.body === DANA_BODY && m.keep === 'Cancel'
+      && m.go === 'Remove Dana Ruiz' && m.danger && m.msg === '', JSON.stringify(m));
+    const focus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check('B2 focus lands on Cancel (the harmless answer)', focus === 'mem-keep', 'focus=' + focus);
+
+    // B3 first: 502 keeps the dialog, says why, keeps the row.
+    await page.evaluate(() => { window.__remove = { status: 502, body: { error: 'The connection service refused just now.' } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(200);
+    m = await modal(page);
+    let f = await readFed(page, '#pj-fed-outside');
+    check('B3 remove 502: the dialog stays open with the board\'s sentence', m.open && m.msg === 'The connection service refused just now.', JSON.stringify(m));
+    check('B3 remove 502: Dana\'s row stays', f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify(f.rows.map((r) => r.key)));
+
+    // B2: the 200. The next members answer has Dana removed.
+    const before = await gets(page);
+    await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
+    await setMembers(page, answer(ALL.map((r) => (r === DANA ? Object.assign({}, r, { state: 'removed' }) : r))));
+    await page.click('#mem-go');
+    await page.waitForTimeout(250);
+    const sent = await page.evaluate(() => window.__removes.slice());
+    m = await modal(page);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B2 confirm POSTs exactly { project, edge_id }', sent.length === 1 && sent[0].method === 'POST'
+      && JSON.stringify(sent[0].body) === JSON.stringify({ project: 'k', edge_id: 'edge-dana' }), JSON.stringify(sent));
+    check('B2 after the 200 the dialog closes, the list is asked again, and the row is gone',
+      !m.open && (await gets(page)) > before && !f.rows.some((r) => r.key === 'e:edge-dana') && f.rows.length === EXPECT.length - 1,
+      JSON.stringify({ open: m.open, rows: f.rows.map((r) => r.key) }));
+    check('B2 the dialog is back to its own look for the next caller (no danger class, no error)', !m.danger && m.msg === '', JSON.stringify(m));
+
+    // B3: 404. The dialog closes, the sentence is said under the list, and the list is asked again.
+    await act(page, 'e:edge-ada');
+    const before404 = await gets(page);
+    await page.evaluate(() => { window.__remove = { status: 404, body: { error: 'That member is not in this project.' } }; });
+    await setMembers(page, answer([LEE]));
+    await page.click('#mem-go');
+    await page.waitForTimeout(250);
+    m = await modal(page);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B3 remove 404: the dialog closes, the board\'s sentence is shown, and the list is asked again',
+      !m.open && f.msgs.includes('That member is not in this project.') && (await gets(page)) > before404, JSON.stringify({ open: m.open, msgs: f.msgs }));
+    await ctx.close();
+  }
+
+  /* B4: Withdraw. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    let before = await gets(page);
+    await page.evaluate((e) => { window.__withdraw = { status: 409, body: { reason: 'unsupported', error: e } }; }, UNSUPPORTED);
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(200);
+    let sent = await page.evaluate(() => window.__withdraws.slice());
+    let f = await readFed(page, '#pj-fed-outside');
+    const leeAt = f.rows.findIndex((r) => r.key === 'i:inv-lee');
+    const under = await page.evaluate(() => {
+      const r = document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-lee"]');
+      const n = r && r.nextElementSibling;
+      return n && n.classList.contains('fmsg') ? n.textContent : null;
+    });
+    check('B4 Withdraw POSTs exactly { project, invite_id }', sent.length === 1 && sent[0].method === 'POST'
+      && JSON.stringify(sent[0].body) === JSON.stringify({ project: 'k', invite_id: 'inv-lee' }), JSON.stringify(sent));
+    check('B4 409 unsupported: the pending row stays, with the board\'s sentence and the lapse date under it',
+      leeAt >= 0 && f.rows[leeAt].sub === 'Invited · until Oct 11' && f.rows[leeAt].actOn
+      && under === 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses on Oct 11.', JSON.stringify({ under, rows: f.rows }));
+    check('B4 409 unsupported: the list is not asked again (control for 409 joined below)', (await gets(page)) === before, 'gets ' + before + ' -> ' + (await gets(page)));
+
+    // 409 joined: someone used the code; the next answer has Lee joined.
+    before = await gets(page);
+    await page.evaluate((e) => { window.__withdraw = { status: 409, body: { reason: 'joined', error: e } }; }, JOINED);
+    await setMembers(page, answer(ALL.map((r) => (r === LEE ? Object.assign({}, r, { state: 'joined', edge_id: 'edge-lee', joined_at: D(OCT, 5) }) : r))));
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(250);
+    f = await readFed(page, '#pj-fed-outside');
+    const lee = f.rows.find((r) => r.name === 'Lee Park');
+    check('B4 409 joined: its sentence is shown and the list is asked again (Lee is now a joined row with Remove)',
+      f.msgs.includes(JOINED) && (await gets(page)) > before && !!lee && lee.sub === 'Person · joined Oct 5' && lee.act === 'Remove',
+      JSON.stringify({ msgs: f.msgs, lee }));
+
+    // 200: asked again, the row gone (the next answer has it withdrawn).
+    before = await gets(page);
+    await page.evaluate(() => { window.__withdraw = { status: 200, body: { withdrawn: true } }; });
+    await setMembers(page, answer(ALL.map((r) => (r === NOLABEL_P ? Object.assign({}, r, { state: 'withdrawn' }) : r))));
+    await act(page, 'i:inv-nl');
+    await page.waitForTimeout(250);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B4 Withdraw 200: the list is asked again and the withdrawn row is gone',
+      (await gets(page)) > before && !f.rows.some((r) => r.key === 'i:inv-nl'), JSON.stringify(f.rows.map((r) => r.key)));
+    await ctx.close();
+  }
+
+  /* B5: checked_at null, and the GET failing. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL, { checked_at: null }));
+    await openProjectIn(page, 'tabs');
+    let f = await readFed(page, '#pj-fed-outside');
+    check('B5 checked_at null: the one could-not-check line, as a plain hint', f.notes.length === 1 && f.notes[0] === NOTE, JSON.stringify(f.notes));
+    const hint = await page.evaluate(() => { const n = document.querySelector('#pj-fed-outside .fedout-note'); return n ? n.className : null; });
+    check('B5 the line is a .fhint (Mona\'s Q-M6), not an error', !!hint && /\bfhint\b/.test(hint) && !/\bfmsg\b/.test(hint), String(hint));
+    check('B5 checked_at null: the rows stay and Remove stays enabled', rowsAre(f.rows, EXPECT)
+      && f.rows.filter((r) => r.act === 'Remove').every((r) => r.actOn), JSON.stringify(f.rows));
+    await setMembers(page, { status: 500, body: { error: 'we cannot read the connected-projects record on this computer right now' } });
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    f = await readFed(page, '#pj-fed-outside');
+    const own = await page.evaluate(() => [...document.querySelectorAll('#pj-one-agents .pj-member')].map((r) => r.dataset.agent));
+    check('B5 the GET failing: no outside rows, the same line, and the project\'s own agents still listed',
+      f.rows.length === 0 && f.notes.length === 1 && f.notes[0] === NOTE && own.join(',') === 'ada,basil', JSON.stringify({ f, own }));
+    await ctx.close();
+  }
+
+  /* B7: Make a new code. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    await act(page, 'i:inv-old');
+    const sheet = await page.evaluate(() => ({
+      open: !document.getElementById('fedinv-modal').hidden,
+      label: document.getElementById('fedinv-label').value,
+      agent: document.getElementById('fedinv-kind-agent').checked,
+      asking: !document.getElementById('fedinv-ask').hidden,
+      focus: document.activeElement && document.activeElement.id,
+    }));
+    check('B7 "Make a new code" opens the invite sheet with the label and kind filled in, focus on Make',
+      sheet.open && sheet.asking && sheet.label === 'Old Friend' && sheet.agent && sheet.focus === 'fedinv-make', JSON.stringify(sheet));
+    const before = await gets(page);
+    await page.evaluate(() => { window.__posts.length = 0; });
+    await setMembers(page, answer([row({ invite_id: 'inv-new', label: 'Old Friend', kind: 'agent', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    await page.click('#fedinv-make');
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+    const posts = await page.evaluate(() => window.__posts.slice());
+    const f = await readFed(page, '#pj-fed-outside');
+    check('B7 the new code is made for the same label and kind', posts.length === 1 && posts[0].body.label === 'Old Friend'
+      && posts[0].body.invited_kind === 'agent' && posts[0].body.project === 'k', JSON.stringify(posts));
+    check('B7 the list is asked again, and the expired row goes once a pending one has its label',
+      (await gets(page)) > before && f.rows.some((r) => r.key === 'i:inv-new' && r.sub === 'Invited · until Oct 11') && !f.rows.some((r) => r.key === 'i:inv-old'),
+      JSON.stringify(f.rows.map((r) => r.key + ' ' + r.sub)));
+    await ctx.close();
+  }
+
+  /* B8: gate not "show". */
+  {
+    const { ctx, page } = await newPage(1280, OFF);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const f = await readFed(page, '#pj-fed-outside');
+    const asked = await gets(page);
+    check('B8 gate not "show": the members route is never asked and nothing is drawn',
+      asked === 0 && f.rows.length === 0 && f.heads.length === 0 && f.display === 'none', JSON.stringify({ asked, f }));
+    await ctx.close();
+  }
+
+  /* B9: consolidated. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'consolidated');
+    const f = await readFed(page, '#alist-fed-outside');
+    const order = await page.evaluate(() => {
+      const kids = [...document.getElementById('alist').children];
+      return { fed: kids.findIndex((k) => k.id === 'alist-fed-outside'), hdr: kids.findIndex((k) => k.classList && k.classList.contains('alist-grouphdr')) };
+    });
+    check('B9 consolidated: the same rows in the rail, under the project\'s members and above "Other Agents"',
+      rowsAre(f.rows, EXPECT) && f.heads.length === 1 && order.fed >= 0 && order.fed === order.hdr - 1, JSON.stringify({ order, rows: f.rows }));
+    await setMembers(page, answer([]));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const gone = await page.evaluate(() => !document.getElementById('alist-fed-outside'));
+    check('B9 control: an empty answer adds nothing to the rail', gone === true, 'absent=' + gone);
     await ctx.close();
   }
 
