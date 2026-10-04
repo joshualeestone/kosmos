@@ -1051,6 +1051,8 @@ function flushHeld(projectId, s) {
   } finally {
     s.flushing = false;
   }
+  stale += s.staleHeld || 0;   // pruned by a re-hold during this flush
+  s.staleHeld = 0;
   if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent' : sent + ' messages held on this computer were sent')
     + (oldKey ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
@@ -1115,7 +1117,16 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
     say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
     return false;
   }
-  // #5197: past the hold, still on the epoch it held when the hold armed (the armed epoch is
+  // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
+  if (!heldAt && s.outbox && s.outbox.length) {
+    flushHeld(projectId, s);
+    if (s.outbox.length) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
+  }
+  try { s.child.stdin.write(line + '\n'); } catch {
+    if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
+    return false;
+  }
+  // #5197 (said once the post has gone): past the hold, still on the epoch it held when the hold armed (the armed epoch is
   // unauthenticated, so a member that has rotated since is not warned): the post goes out
   // under the old key, which the other boards refuse once the rotation is 90 s old. Said
   // once per epoch that armed a hold: a forged envelope claiming another epoch does not use
@@ -1123,15 +1134,7 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
   if (sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) {
     noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
-  // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
-  if (!heldAt && s.outbox && s.outbox.length) {
-    flushHeld(projectId, s);
-    if (s.outbox.length) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
-  }
-  try { s.child.stdin.write(line + '\n'); return true; } catch {
-    if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
-    return false;
-  }
+  return true;
 }
 
 /** Stop every seat. Only tests call it: on a board shutdown each connector

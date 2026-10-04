@@ -2404,3 +2404,28 @@ test('#5192: an owner\'s held post is not sent to someone who joined on another 
   assert.deepStrictEqual(posts, [], 'a post held while sharing with A reached B');
   assert.ok(h.notes.some((n) => /1 held message was not sent: the connection it was written for has ended/.test(n.text)), JSON.stringify(h.notes));
 });
+
+test('#5192: a new post that waits behind held ones does not use up the may-be-behind note', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T02:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-bnote', { role: 'member', edge_id: 'edge-5192-bnote' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-bnote', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192bn', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-bnote');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-bnote', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5192-bnote', { from: 'A', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  fedseats.post('proj-5192-bnote', { from: 'B', kind: 'person', text: 'held' });
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  const realWrite = seat.stdin.write.bind(seat.stdin);
+  let fail = true;
+  seat.stdin.write = (chunk, ...rest) => { if (fail && /"ct"/.test(String(chunk))) throw new Error('EPIPE'); return realWrite(chunk, ...rest); };
+  fedseats.post('proj-5192-bnote', { from: 'B', kind: 'person', text: 'waits behind' });
+  assert.ok(!h.notes.some((n) => /may be behind on this shared room/.test(n.text)), 'the note was spent on a post that did not go');
+  fail = false;
+  fedseats.post('proj-5192-bnote', { from: 'B', kind: 'person', text: 'goes' });
+  assert.ok(h.notes.some((n) => /may be behind on this shared room/.test(n.text)), 'the note was not said when a post went under the old key');
+});
