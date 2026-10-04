@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tablet-5225
-diff_hash: cc87e4766111d7e94c429a7a2183bffc6b248ada141baea8a04a80f7141dc4b8
+diff_hash: 92f1e169a0871301acc59f498c51a91266ff0b6b8f92f70d6bebf8c73e462a74
 validation: passed (render-phone-taps-5218 incl. the new tablet 1366 one-screen arm, all PASS; the arm FAILS twice with the #5225 rule removed; probe at 1366 with touch: 3/3 names reach 44, was 0/3; ellipsis kept; row heights and name positions identical with and without the rule; covers 0). Stacked on phone-taps (#5227); the diff_hash is over origin/main...HEAD because the gate hashes against main; re-hash after #5227 merges and this rebases. Full suite on the PR's CI; held until after Monday.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-04T06:35:01Z
@@ -30,3 +30,15 @@ converged: true
   and right for every row, and up for every row but the first.
 - Layout: .lrow heights (47) and .namego left/top are identical with the rule on and stripped (addStyleTag override).
 - Control: with phone-taps' web/index.html (no #5225 rule) the tablet arm FAILS twice.
+
+## Round after Renet's second review (#5229, 10-04 03:1x)
+- W1 (the fixture has no pending-ask row, so the Answer link beside the enlarged name is never checked): FIXED.
+  Cleo now has a needs-you ask and a role long enough to wrap. Phone board and tablet arm each assert an Answer
+  link is on screen before their covers line.
+- That fixture found a real interaction on the tablet one-screen layout: 21.5 px below Cleo's name lands on her
+  Answer link. Covers stays 0, so the name never takes Answer's taps. DECIDED: Answer keeps that strip (it is the
+  row's action; landing on it is harmless). The arm allows it like the rail heading, and asserts the ask row really
+  was measured against Answer. Weakest premise: a tap aimed at the bottom of Cleo's name opens Answer, not her page.
+- The arm's blocked-probe message now names the element it hit.
+- Re-ran render-phone-taps-5218 headless on the new head: 48 PASS, all checks passed.
+
