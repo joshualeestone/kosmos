@@ -24,7 +24,8 @@ dropped with a note, never sent under the old key a removed member may still hol
 ## Bounds
 A post that meets an unreadable rooms record is held too (it goes once the record reads and says
 whether the room is sealed). A new post that finds held posts a flush could not finish waits behind
-them. Every re-hold goes through holdPost, so the age, count and byte bounds hold for it too. A flush
+them. Every held post enters through holdPost, so the bounds held when it entered; a re-hold that no longer fits
+(sealed now, or over the caps) is reported in the flush note, never lost silently. A flush
 that throws keeps everything it had not handled (untested: nothing reachable throws).
 A post that could never go (too long once sealed, measured by sealing it with a throwaway key) is
 refused at once with the too-long note, not held.
@@ -45,11 +46,11 @@ web/index.html and the browser checks for a case that resolves itself within sec
 arrives.
 
 ## Owner side (asked in review, kept)
-Each held post records the edge its seat was on; one whose seat has since moved to another edge (an
-owner's member revoked, another joined on a new edge) is not sent, and the room says so. The edge is
-not a reader list; the invite limit below is, for an owner. A MEMBER's held post has no limit: like
-any live post it goes to whoever is in the room when it is sent (within the hour), since a member
-cannot see who the room includes (asymmetry stated in round 17).
+The edge check (rounds 7-18) is gone (round 19): every edge of an owner's project opens the same room,
+so it said nothing about who reads, and it dropped posts with a false reason when the seat restarted on
+another live edge. The invite limit is what bounds an owner's held post. A MEMBER's held post has no
+limit: like any live post it goes to whoever is in the room when it is sent (within the hour), since a
+member cannot see who the room includes.
 An owner's post held before its first member is pinned goes to that member when it joins (within the
 hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
 is sent to the first computer that joins with its key, if one joins within the hour.
@@ -74,6 +75,8 @@ would change my mind: evidence that keys routinely take more than an hour to arr
 restart while posts wait.
 
 ## Not covered
+The pass flushes after its revoke check (round 19); no test pins that order (an owner's held post always
+flushes on the event that clears its hold, before any pass).
 A NEW post whose write throws is lost as before (only held posts are re-held on a throw).
 A seat stopped (unshared, project removed, or an id reused) drops its held posts without a note: a note
 keyed by that id could land in another project.

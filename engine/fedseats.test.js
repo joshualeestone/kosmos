@@ -2373,10 +2373,10 @@ test('#5192: a post that meets an unreadable rooms record is held, not dropped, 
   assert.deepStrictEqual(out.map((o) => o.m.text), ['kept']);
 });
 
-test('#5192: an owner\'s held post is not sent once the edge it was held on has ended and the seat sits on another', async (t) => {
+test('#5192: an owner\'s held post is not sent to someone invited after it, when the first edge ends and the seat moves on', async (t) => {
   const a = newInvite('5192ea');
   const b = newInvite('5192eb');
-  for (const inv of [a, b]) fedseal.stashInvite('ref-5192-edge', inv);
+  fedseal.stashInvite('ref-5192-edge', a);
   federation.recordLink('proj-5192-edge', { role: 'owner', ref: 'ref-5192-edge' });
   const h = harness({ edges: [{ id: 'edge-inv-5192ea', project_ref: 'ref-5192-edge', status: 'active', invite_id: 'inv-5192ea' }] });
   await fedseats.ensure('proj-5192-edge');
@@ -2385,6 +2385,7 @@ test('#5192: an owner\'s held post is not sent once the edge it was held on has 
   say(seatA, { event: 'connected', room: 'room-5192-edge', expires_at: 9 });
   await settle();
   fedseats.post('proj-5192-edge', { from: 'Josh', kind: 'person', text: 'not for B' });   // held: no key yet
+  fedseal.stashInvite('ref-5192-edge', b);   // B is invited after the post
   // A's edge ends for good; the seat waits, then sits on B's edge.
   t.mock.timers.enable({ apis: ['setTimeout'] });
   h.edges = [{ id: 'edge-inv-5192ea', project_ref: 'ref-5192-edge', status: 'revoked', invite_id: 'inv-5192ea' }, { id: 'edge-inv-5192eb', project_ref: 'ref-5192-edge', status: 'active', invite_id: 'inv-5192eb' }];
@@ -2404,7 +2405,7 @@ test('#5192: an owner\'s held post is not sent once the edge it was held on has 
   const got = fedseal.openShare(b.s, b.code, member, share, 'room-5192-edge');
   const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-edge', f)).filter(Boolean);
   assert.deepStrictEqual(posts, [], 'a post held while sharing with A reached B');
-  assert.ok(h.notes.some((n) => /1 held message was not sent: the connection it was written for has ended/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /came from an invite made after it was written/.test(n.text)), JSON.stringify(h.notes));
 });
 
 test('#5192: a new post that waits behind held ones does not use up the may-be-behind note', async (t) => {
@@ -2781,4 +2782,31 @@ test('#5192: a post held on no edge keeps that through a re-hold, so a second mo
   const got = fedseal.openShare(hInv.s, hInv.code, member, share, 'room-5192-mv');
   const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-mv', f)).filter(Boolean);
   assert.deepStrictEqual(posts.map((p) => p.m.text), ['from the own room'], JSON.stringify(h.notes));
+});
+
+test('#5192: a held post that no longer fits once the room reads as sealed is reported, not lost silently', async (t) => {
+  const sk = fedseal.randomSecret();
+  federation.recordLink('proj-5192-refit', { role: 'member', edge_id: 'edge-5192-refit' });
+  fedseal.setRoomState('proj-5192-refit', { role: 'member', s: sk, code: 'code-5192rf', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-refit');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-refit', expires_at: 9 });
+  await settle();
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  fedseats.post('proj-5192-refit', { from: 'Ana', kind: 'person', text: 'y'.repeat(13 * 1024) });   // held, measured in the clear
+  broken.mock.restore();
+  await fedseats.ensureAll();   // reads sealed, no key yet: re-held sealed, and too long sealed
+  await settle();
+  assert.ok(h.notes.some((n) => /1 held message was not sent: it no longer fit what this room can send/.test(n.text)), JSON.stringify(h.notes.map((n) => n.text.slice(0, 90))));
+});
+
+test('#5192: an owner\'s post when the invites cannot be read is refused at once, not held', async (t) => {
+  const inv = newInvite('5192pi');
+  const { h } = await ownerRoom('proj-5192-pi', 'ref-5192-pi', 'room-5192-pi', [inv]);
+  const broken = t.mock.method(fedseal, 'pendingInvites', () => { throw new Error('EIO'); });
+  assert.strictEqual(fedseats.post('proj-5192-pi', { from: 'Josh', kind: 'person', text: 'x' }), false);
+  broken.mock.restore();
+  assert.ok(h.notes.some((n) => /stayed on this computer: it cannot read its shared-project records/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(!h.notes.some((n) => /is held on this computer/.test(n.text)), JSON.stringify(h.notes));
 });

@@ -954,13 +954,18 @@ async function ensureAll() {
   // coming back (it already holds a key, so it does not say hello again).
   for (const id of Object.keys(links)) {
     const seat = seats.get(id);
-    if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); flushHeld(id, seat); } catch { /* next pass */ } }
+    if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); } catch { /* next pass */ } }
     else if (seat) { try { ageHeld(id, seat); } catch { /* next pass */ } }
   }
   for (const id of Object.keys(links)) {
     const link = links[id];
     if (!link || link.role !== 'owner') continue;
     try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
+  }
+  // #5192: held posts go after this pass's revoke check, so never just before a rotation it makes.
+  for (const id of Object.keys(links)) {
+    const seat = seats.get(id);
+    if (seat && seat.status === 'connected') { try { flushHeld(id, seat); } catch { /* next pass */ } }
   }
 }
 
@@ -1003,6 +1008,7 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   const plain = { from: clean(msg.from, 80) || 'someone', kind: msg.kind === 'agent' ? 'agent' : 'person', text: String(msg.text || '') };
   if (msg.sealedHeld ? !fitsSealed(plain) : Buffer.byteLength(JSON.stringify(plain)) > MAX_POST_LINE) {
     if (!heldAt) say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
+    else s.lostHeld = (s.lostHeld || 0) + 1;   // a re-hold refused: the flush says so
     return false;
   }
   // Posts held past the hour no longer count against the cap; the next flush says so.
@@ -1014,21 +1020,19 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   s.outbox = fresh;
   if (s.outbox.length >= HELD_POSTS_MAX || s.outbox.reduce((n, h) => n + heldSize(h.msg), heldSize(msg)) > HELD_POSTS_BYTES) {
     if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and as many messages as Kosmos sends at once are already waiting for it.');
+    else s.lostHeld = (s.lostHeld || 0) + 1;   // a re-hold refused: the flush says so
     return false;
   }
-  // The edge its seat was on: an owner's seat moves to another member's edge when that one
-  // ends, and a post held on an edge that has ended is not sent through another. The edge is
-  // not who may read it; the invite limit below is, for an owner. A member's held post, like
-  // any live post, goes to whoever is in the room when it is sent (within the hour).
-  // An owner's post held while NO member is pinned records the invites live when it was
-  // written, and goes only to a member pinned from one of them, never to someone invited
-  // afterwards. Held with members already in the room, it is for them (null: no limit). When
-  // the records cannot be read it cannot tell, and fails closed (`invitesUnknown`).
+  // Who may read it: for an owner, the invite limit below (every edge of an owner's project
+  // opens the same room, so the edge says nothing). A member's held post, like any live post,
+  // goes to whoever is in the room when it is sent (within the hour).
+  // An owner's held post records the invites of the members already in plus those still
+  // waiting, and goes only while every pinned member came from one of them: never to someone
+  // invited afterwards. When the records cannot be read it is refused now (it cannot tell).
   if (msg.invites === undefined) {
     const l = sealLink(projectId);
     const st = roomSeal(projectId);
     let inv = null;
-    let unknown = false;
     // Cannot tell whose room it is, or who an owner's room includes: nothing it could be held
     // for is knowable, so it is refused now rather than promised and dropped later.
     if (l === undefined || (st === undefined && l && l.role === 'owner')) {
@@ -1040,13 +1044,15 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
       // The members already in, and the invites still waiting: every computer pinned when it
       // goes must have come from one of these.
       const inRoom = st && st.peers ? Object.values(st.peers).map((p) => p && p.invite).filter(Boolean) : [];
-      try { inv = inRoom.concat(fedseal.pendingInvites(l.ref).map((p) => p.invite)); } catch { inv = []; unknown = true; }
+      try { inv = inRoom.concat(fedseal.pendingInvites(l.ref).map((p) => p.invite)); } catch {
+        if (!heldAt) say(projectId, 'That message stayed on this computer: it cannot read its shared-project records right now, so it cannot tell who this room includes.');
+        else s.lostHeld = (s.lostHeld || 0) + 1;
+        return false;
+      }
     }
-    msg = Object.assign({}, msg, { invites: inv, invitesUnknown: unknown });
+    msg = Object.assign({}, msg, { invites: inv });
   }
-  // The edge it was first held on travels with it, like its age: a re-hold does not restamp it.
-  if (msg.heldEdge === undefined) msg = Object.assign({}, msg, { heldEdge: s.edge });
-  s.outbox.push({ msg, at: heldAt || Date.now(), edge: msg.heldEdge });
+  s.outbox.push({ msg, at: heldAt || Date.now() });
   s.reheld = true;   // flushHeld's signal that this post is waiting again (not refused for good)
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
@@ -1086,10 +1092,8 @@ function flushHeld(projectId, s) {
   let files = 0;
   let stale = s.staleHeld || 0;
   s.staleHeld = 0;
-  let moved = 0;
   let unmeant = 0;
   let keyless = 0;
-  let unknownWho = 0;
   // A member past a behind hold with no new key sends under the key it has (#5197).
   const st0 = roomSeal(projectId);
   const oldKey = !!(st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && s.behindArmedAt === st0.epoch);
@@ -1099,12 +1103,11 @@ function flushHeld(projectId, s) {
       if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
       // Held on no edge (an owner's own room, before any guest): any edge it moves to is still
       // that room. Held on an edge that has since ended: not sent through another.
-      if (held[i].edge && held[i].edge !== s.edge) { moved += 1; continue; }
       // Held while behind: still behind once the hold ran out, it is not sent under the old key.
       if (held[i].msg.behindHeld && st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && Date.now() >= s.behind.until) { keyless += 1; continue; }
       if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
         // Pinned members exist and not all came from an invite live when it was written.
-        if (pinnedAny(projectId)) { if (held[i].msg.invitesUnknown) unknownWho += 1; else unmeant += 1; continue; }
+        if (pinnedAny(projectId)) { unmeant += 1; continue; }
       }
       s.reheld = false;
       if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
@@ -1129,10 +1132,11 @@ function flushHeld(projectId, s) {
     + (oldKey ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
+  const lost = s.lostHeld || 0;
+  s.lostHeld = 0;
+  if (lost) say(projectId, lost + (lost === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + (lost === 1 ? 'it' : 'they') + ' no longer fit what this room can send, or who it includes could not be read.');
   if (keyless) say(projectId, keyless + (keyless === 1 ? ' held message was' : ' held messages were') + ' not sent: the new key did not arrive in time, and ' + (keyless === 1 ? 'it was' : 'they were') + ' not sent under the old one.');
   if (unmeant) say(projectId, unmeant + (unmeant === 1 ? ' held message was' : ' held messages were') + ' not sent: the computer that joined came from an invite made after ' + (unmeant === 1 ? 'it was' : 'they were') + ' written.');
-  if (unknownWho) say(projectId, unknownWho + (unknownWho === 1 ? ' held message was' : ' held messages were') + ' not sent: this computer could not read who the shared project included when ' + (unknownWho === 1 ? 'it was' : 'they were') + ' written.');
-  if (moved) say(projectId, moved + (moved === 1 ? ' held message was' : ' held messages were') + ' not sent: the connection ' + (moved === 1 ? 'it was' : 'they were') + ' written for has ended.');
 }
 /** Owner: whether any pinned member was pinned from one of these invites. */
 function pinnedFrom(projectId, invites) {
@@ -1145,9 +1149,9 @@ function pinnedAny(projectId) {
   const st = roomSeal(projectId);
   return !!(st && st.peers && Object.keys(st.peers).length);
 }
-function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown, sealedHeld, behindHeld, heldEdge }, heldAt) {
+function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, behindHeld }, heldAt) {
   // sealedHeld: held while the room was known to be sealed (then it never goes in the clear).
-  const msg = { from, kind, text, files: files === true, invites, invitesUnknown: invitesUnknown === true, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true, heldEdge };
+  const msg = { from, kind, text, files: files === true, invites, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has
