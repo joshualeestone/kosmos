@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: receipt3-5153
-diff_hash: 4a53d29dca46594bb627a7742aca3ceb38bbd7f7c2287de241b0c26f5ec7f8f1
-validation: passed (Mortals full suite at f262650e1 with slices 1 and 2 below it, 14979 tests 0 fail, both browser-check gates passed, hash 3c629e025f41, 2026-10-03 19:59 CDT; an earlier run at 16b8090ce failed only the #2518 surface gate, answered by per-check trailers in f262650e1 and 72612bc0c; then only docs/browser-checks/mobile-shots.js screens changed (verify without case, the Tasks tab shown), which the suite does not run; shots taken 8/8 on Mortals)
+diff_hash: 4c17353fee7ee793c741033c07ae96a707ababb2105231c23bcf611c1fd48b2a
+validation: passed (Mortals full suite at f262650e1 with slices 1 and 2 below it, 14979 tests 0 fail, both browser-check gates passed, hash 3c629e025f41, 2026-10-03 19:59 CDT; an earlier run at 16b8090ce failed only the #2518 surface gate, answered by per-check trailers in f262650e1 and 72612bc0c; then only docs/browser-checks/mobile-shots.js screens changed (verify without case, the Tasks tab shown), which the suite does not run; shots taken 8/8 on Mortals; then Recent work moved below Instructions (page only): all web.* and related tests 2487/2487, both browser-check gates rc 0)
 subdir_audit: passed
-timestamp: 2026-10-04T01:04:26Z
+timestamp: 2026-10-04T01:06:13Z
 iterations: 3
 converged: true
 ---
