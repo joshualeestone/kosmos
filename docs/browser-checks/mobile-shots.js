@@ -1167,11 +1167,20 @@ async function fitOf(page) {
       // it and its containing block (the nearest positioned ancestor). Round 5: clipping by every ancestor skipped an
       // escaped control entirely, a false green.
       let clip = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+      // transform, filter, perspective, will-change of those, and contain paint/layout/strict/content also make an
+      // ancestor the containing block, for fixed descendants too (round 6). body's overflow belongs to the viewport and
+      // clips nothing, so it is skipped (round 6).
+      const containsAll = (cs) => cs.transform !== 'none' || cs.filter !== 'none' || cs.perspective !== 'none'
+        || /transform|filter|perspective/.test(cs.willChange || '') || /paint|layout|strict|content/.test(cs.contain || '');
       let pos = getComputedStyle(el).position;
-      for (let a = el.parentElement; a && a !== document.documentElement && pos !== 'fixed'; a = a.parentElement) {
+      for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
         const cs = getComputedStyle(a);
-        if (pos === 'absolute' && cs.position === 'static') continue;   // neither its containing block nor a clip for it
-        if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { const b = a.getBoundingClientRect(); clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) }; }
+        const cb = containsAll(cs);
+        if (pos === 'fixed' && !cb) continue;                             // a fixed control escapes this ancestor
+        if (pos === 'absolute' && cs.position === 'static' && !cb) continue;   // neither its containing block nor a clip for it
+        if (a === document.body) { pos = cb ? 'static' : pos; continue; }
+        // contain paint/strict/content clips to the box like overflow does (round 6, T6).
+        if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible' || /paint|strict|content/.test(cs.contain || '')) { const b = a.getBoundingClientRect(); clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) }; }
         pos = (cs.position === 'fixed' || cs.position === 'absolute') ? cs.position : 'static';
       }
       for (const [x, y] of pts) {
