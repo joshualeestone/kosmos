@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: home-5212
-diff_hash: 1b6ac15f45144d68b5a96c8fbef154a4fd606ce0142553214660603491b3b960
-validation: passed (Mortals full suite at 25c616eb7, hash 3fcd4963cc4b, 02:21 CDT; rebased onto main c2f34b40d: the rebased tree equals the clean merge of 25c616eb7 with main (7d4405140, path C); since then only .claude/plans changed (D1). Focused with every guard on the rebased head: 451/451; then April's six review warnings and Mona's verbs below it (code: engine/communityhome.js, server.js, install/kosmos and their tests; D3 focused with every guard at this head: 453/453; a fresh full run comes with the browser checks after 07:00, Mortals being Baron's until ~04:00))
+diff_hash: df116f0d0d805e083cea1c461e5f0f1161143c3c86f91ca85f4f2d3b15da7cba
+validation: passed (Mortals full suite at 25c616eb7, hash 3fcd4963cc4b, 02:21 CDT; rebased onto main c2f34b40d: the rebased tree equals the clean merge of 25c616eb7 with main (7d4405140, path C); since then only .claude/plans changed (D1). Focused with every guard on the rebased head: 451/451; then April's six review warnings and Mona's verbs below it (code: engine/communityhome.js, server.js, install/kosmos and their tests; D3 focused with every guard at this head: 453/453; a fresh full run comes with the browser checks after 07:00, Mortals being Baron's until ~04:00); then Mona Lisa's copy review (wording; D3 focused 453/453))
 subdir_audit: passed
-timestamp: 2026-10-04T07:27:08Z
+timestamp: 2026-10-04T07:43:52Z
 iterations: 3
 converged: true
 ---
