@@ -2,69 +2,46 @@
 pre_challenge: true
 method: challenge-loop
 branch: wkdownload-5167
-diff_hash: 81d8746b28d1974122151b4587815681b6dad72f9ce452a28076fa9c50940047
-validation: passed (full suite 2026-10-03 22:32 CDT at 60f914fae: 14965 tests, 14742 pass, 0 fail, 0 cancelled, rc 0, hash 81d8746b28d1)
-subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-04T00:23:27Z
-iterations: 40
-converged: false
+diff_hash: 0ca6d7b7144741c4ca9df3f78c16fdfbe4a1db09d9216bc83a5001d884adcaa9
+validation: passed (focused at 9f08da3af after the rebase onto origin/main: live download selftest 26/26, mode selftest 86/86, 147 related and audit node test files 4168 tests 4073 pass 0 fail; the full suite runs after this proof)
+subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
+timestamp: 2026-10-04T18:47:15Z
+iterations: 7
+converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 40
-**Converged:** No. Stopped at the iteration-40 safety valve (STOP-ITERATION-VALVE, iteration count = 40).
-**Who stopped it:** April, not the user. The valve pause went unanswered for 1.5 h; Josh's standing ruling
-(night-shift step 3, 2026-08-31 22:28: "make a recommendation, implement that, and continue forward") is
-to decide a reversible call rather than wait. Stopping is reversible: nothing merges, more rounds can run.
-**Total findings:** about 200 across 40 rounds (exact per-finding counts were not kept in one ledger).
-Every round from 1 to 40 found at least one new actionable item. Four were real security defects (rounds
-3, 17, 23, 37). Nearly all were fixed; about a dozen were deliberately not changed, with reasons in
-`.claude/plans/wkdownload-5167.md` ("Not changed" lines per round). None is ASKED.
+**Iterations:** 7 (a FRESH loop on the cut-to-the-core diff; it replaces the earlier 40-round proof, which stopped at the valve without converging).
+**Converged:** Yes. Rounds 6 (sonnet) and 7 (opus) each found no new BLOCKER or WARNING.
+**Reviewer model:** alternated, opus on odd rounds, sonnet on even rounds; each round a fresh blind agent.
+**Rebase:** onto origin/main after round 7 (50 commits, no conflicts); every focused check above was rerun on the rebased head.
 
 ### Per-Iteration Breakdown
 
-Reviewer model alternated each round: odd rounds opus (the default), even rounds sonnet.
-**Self-generated:** not computed. The 6c-bis blame lookup was not run per finding; most late findings
-were in code earlier rounds added (the alert and rate-limiting machinery), by reading, not by the lookup.
+- [WARNING] round 1: a stray Space under Full Keyboard Access could answer Allow --> FIXED 5ad96ca9a (Don't Allow is the initial first responder)
+- [NIT] round 1: stale comments, test titles and plan sections from before the cut --> FIXED 5ad96ca9a
+- [WARNING] round 2: an Allow given for a page that committed again while asked was recorded --> FIXED 14a1833af (pageCommits voids it)
+- [WARNING] round 3: a voided Don't Allow let a reloading page ask again; the question ran inside WebKit's policy callback --> FIXED af10997b3
+- [WARNING] round 4: a voided Allow was not recorded, so a reloading page could keep asking --> FIXED 06b83a0d3 (recorded as Don't Allow for the run)
+- [WARNING] round 5: a voided Allow saved nothing and said nothing --> FIXED e1a6957f0 (said once)
+- [WARNING] round 5: the real question's own branch was only regex-tested --> FIXED 71dfd40f0 (runModal stand-in, three live rows; control: four rows red with the commit check removed)
+- [NIT] round 5: stale "summary", "refused, said" and 146s comments --> FIXED 71dfd40f0
+- [NIT] round 6: tellDownloadFailed's comment said a page change is log-only --> FIXED 3eb4c7834
+- [NIT] round 6: the void arm bumps pageCommits directly --> DEFERRED (didCommit's increment is pinned by the source test; a real load inside the stand-in is a different scenario)
+- [NIT] round 7: the deferred question's comment said WebKit's calls do not run during the modal --> FIXED 9f08da3af
 
-- [BLOCKER] round 1: long extension crashed downloadDestination --> FIXED 5f742b6b
-- [WARNING] round 3: a foreign site in the window could save its own files --> FIXED bfdb003e (isBoardPage)
-- [BLOCKER] round 17: a hostile Kosmos+ name holder could save without asking --> FIXED 58d71617 (per-computer Allow)
-- [WARNING] round 23: Return answered Allow on a page-timed question --> FIXED b294c0a4
-- [BLOCKER] round 31: the board's 204 refusal was saved as an empty file --> FIXED 1b2d155d
-- [WARNING] round 37: a covering alert let a click land on an awake Allow --> FIXED a20682c7
-- [WARNING] round 40: a refusal in new words could be folded into a generic summary --> FIXED f4f990e8
-- Every other round's findings and decisions: `.claude/plans/wkdownload-5167.md`, "Review round N changes".
+### Final Ledger
+| # | Iter | Cat | File | Origin | Description | Status |
+|---|---|---|---|---|---|---|
+| 1 | 1 | W | native-app/main.swift | BRANCH | Space answers Allow | FIXED |
+| 2 | 2 | W | native-app/main.swift | BRANCH | Allow outlives its page | FIXED |
+| 3 | 3 | W | native-app/main.swift | SELF | void kept Don't Allow; modal in callback | FIXED |
+| 4 | 4 | W | native-app/main.swift | SELF | voided Allow not recorded | FIXED |
+| 5 | 5 | W | native-app/main.swift | SELF | voided Allow silent | FIXED |
+| 6 | 5 | W | native-app/main.swift | BRANCH | production branch only regex-tested | FIXED |
+| 7 | 6 | N | native-app/main.swift | SELF | void arm bumps counter directly | DEFERRED |
 
-### Final Ledger (decisions kept, not changed)
-
-| Round | Finding | Status | Reason |
-|---|---|---|---|
-| 2 | no user-gesture rule on a same-origin download | DEFERRED | #5165's own download is a script click |
-| 4, 7 | no-console build box skips the live gate | DEFERRED | same bargain as the #1032 file-picker gate |
-| 5 | a run computer's window loads any foreign link | DEFERRED | pre-existing, filed as #5169 |
-| 12, 34 | one quiet window and one summary per page | DEFERRED | decided rule, recorded in the plan |
-| 16 | reserved-name copy can drift from the relay | DEFERRED | no cross-repo check runs here; count pinned |
-| 19, 22 | Don't Allow lasts the run (View > Reload asks again) | DEFERRED | a page cannot keep re-asking |
-| 36 | the cap counts files, not bytes | DEFERRED | the person allowed that computer |
-
-### Outstanding questions (ASKED)
-None.
-
-### Validation at this head (f4f990e8f)
-- `node --test` over 39 files (the download test, every native-app test, every test that reads main.swift
-  or the bundle build, repo-wide audits): 787 tests, 782 pass, 0 fail, 5 skipped.
-- `--kosmos-app-mode-selftest`: 86 rows, all good. `--kosmos-app-download-selftest` (real WKWebView): 25 rows,
-  all good, about 55 s.
-- Full suite: PASSED at 22:32 CDT (attempt 2; attempt 1 gave up waiting in the queue and ran no test).
-  14965 tests, 14742 pass, 0 fail, 0 cancelled; validation rc 0; diff hash 81d8746b28d1 matches above.
-
-### Weakest premise
-Never measured over a live Kosmos+ tunnel in connect mode; the live selftest runs as a computer that runs
-agents, against a loopback server.
-
-### Strengths (across rounds)
-- Pinned @objc selectors and a live selftest that proves WebKit calls them, with sabotage arms that turn red.
-- File names cleaned against separators, hidden dots, direction and invisible characters, byte caps, and
-  never overwriting (dangling symlinks and in-flight names included).
+### NITs (non-blocking)
+- [NIT] Optional, not done: also check navigationAction.sourceFrame's origin, not only the committed page (round 5).
+- [NIT] The void selftest arm does not prove didCommit's increment on a real navigation; the source test pins it (round 6).
