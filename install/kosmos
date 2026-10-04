@@ -433,7 +433,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # ours. When there is no lsof at all, it stays busy: the cost of that mistake is a wait, the cost of
 # the other is a restart. When lsof RAN and names no listener, it is another account's (see below).
 _health_no_answer() {
-  local _own _lpid _luid _lkos
+  local _own _lpid _luid _lkos _lours
   HEALTH_STATE=busy
   # Asked once per healthy() call (lsof walks every process): the owner does not change between retries,
   # and a board this busy is on a machine that cannot spare the sweeps.
@@ -448,12 +448,13 @@ _health_no_answer() {
   if [ "$_HEALTH_OWNER" = unknown ] && _lsof_present; then HEALTH_STATE=stranger; return 0; fi
   [ "$_HEALTH_OWNER" != unknown ] || return 0
   _own="$_HEALTH_OWNER"
-  read -r _lpid _luid _lkos <<EOF
+  read -r _lpid _luid _lkos _lours <<EOF
 $_own
 EOF
   # (is_kosmos is #3079's test: "kosmos" in a server.js command line, so a board run from a source
   # checkout such as ~/work/agent-workforce/server.js reads as a stranger here. Development only.)
-  if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$_kosmos_uid" ]; then HEALTH_STATE=stranger; fi
+  # #4679: busy only when ours=1. A same-uid Kosmos board from another install is a stranger.
+  if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$_kosmos_uid" ] || [ "${_lours:-0}" != 1 ]; then HEALTH_STATE=stranger; fi
 }
 # How long a verb waits on a busy board before it gives up (still saying busy, never "not running").
 # 20 s: long enough to ride out the multi-second answers a 25-agent board gave the tester, short enough
@@ -599,7 +600,9 @@ port_has_listener() {
 # documents; awk extracts the FIRST colliding listener's pid (space-bounded NAME).
 port_listener_owner() {
   _lsof_present || return 1
-  local _lsof _pid _uid _cmd _iskos _lsof_bin
+  # Keep BOTH lanes: origin/main's `_lsof_bin` resolution (Linux-C / #5216) AND
+  # this branch's `_ours` flag (reclaim-4679). The body below uses both.
+  local _lsof _pid _uid _cmd _iskos _lsof_bin _ours
   _lsof_bin="$(_lsof_cmd)" || return 1
   # -Fpn: field output, a `p<pid>` record then `n<name>` records per file. Parse the pid
   # whose name is a colliding address (exact 127.0.0.1:PORT or *:PORT). Immune to a
@@ -614,24 +617,27 @@ EOF
   [ -n "$_pid" ] || return 1
   _uid="$(/bin/ps -o uid= -p "$_pid" 2>/dev/null | tr -d ' ')"
   [ -n "$_uid" ] || return 1
-  _cmd="$(/bin/ps -o command= -p "$_pid" 2>/dev/null)"
+  _cmd="$(/bin/ps -ww -o command= -p "$_pid" 2>/dev/null)"
   _iskos=0
+  _ours=0
   case "$_cmd" in
-    *server.js*) case "$_cmd" in *[Kk][Oo][Ss][Mm][Oo][Ss]*) _iskos=1 ;; esac ;;
+    *server.js*)
+      case "$_cmd" in *[Kk][Oo][Ss][Mm][Oo][Ss]*) _iskos=1 ;; esac
+      case "$_cmd" in *"${KOSMOS_HOME:-$HOME/.local/share/kosmos}/app/server.js"*) _ours=1 ;; esac
+      ;;
   esac
-  printf '%s %s %s\n' "$_pid" "$_uid" "$_iskos"
+  printf '%s %s %s %s\n' "$_pid" "$_uid" "$_iskos" "$_ours"
 }
 
-# #3079: PURE reclaim decision (kosmos#3079). Given the listener's uid, our uid, and
-# whether the listener is a Kosmos board (1/0), should we RECLAIM the port -- kill it
-# and start ours over it? YES only for our OWN uid AND a Kosmos process: that is a
-# stale/old build of ours, the common single-user update case Josh asked to auto-heal.
-# A FOREIGN uid (another account on a shared Mac -- ports can collide across accounts
-# because the per-uid port formula wraps at 3999) or a same-uid NON-Kosmos process is
-# NEVER killed. Echoes "reclaim" or "keep". No side effects, so it is unit-testable.
+# #3079, #4679: PURE reclaim decision. Given the listener's uid, our uid, whether the
+# listener is a Kosmos board (1/0), and whether it is THIS install's board (1/0), should
+# we RECLAIM the port: kill it and start ours over it? YES only for our OWN uid AND a
+# Kosmos process AND ours=1. A foreign uid (another account), an unrelated process, or
+# another install by the same user is NEVER killed. A missing 4th argument defaults to 0
+# so old callers fail safe. Echoes "reclaim" or "keep". No side effects, unit-testable.
 _kosmos_reclaim_decision() {
-  local _luid="$1" _myuid="$2" _iskos="$3"
-  if [ -n "$_luid" ] && [ -n "$_myuid" ] && [ "$_luid" = "$_myuid" ] && [ "$_iskos" = 1 ]; then
+  local _luid="$1" _myuid="$2" _iskos="$3" _ours="${4:-0}"
+  if [ -n "$_luid" ] && [ -n "$_myuid" ] && [ "$_luid" = "$_myuid" ] && [ "$_iskos" = 1 ] && [ "$_ours" = 1 ]; then
     printf 'reclaim\n'
   else
     printf 'keep\n'
@@ -1165,12 +1171,13 @@ cmd_start() {
   # resolved (empty uid), the block declines to kill and dies with the generic guard here
   # rather than falling through -- safe either way, never a kill on an unidentified owner.
   if port_has_listener; then
-    local _own _lpid _luid _lkos _w
+    local _own _lpid _luid _lkos _lours _w
     _own="$(port_listener_owner)" || _own=""
     _lpid="$(printf '%s' "$_own" | awk '{print $1}')"
     _luid="$(printf '%s' "$_own" | awk '{print $2}')"
     _lkos="$(printf '%s' "$_own" | awk '{print $3}')"
-    if [ "$(_kosmos_reclaim_decision "$_luid" "$_kosmos_uid" "$_lkos")" = reclaim ]; then
+    _lours="$(printf '%s' "$_own" | awk '{print $4}')"
+    if [ "$(_kosmos_reclaim_decision "$_luid" "$_kosmos_uid" "$_lkos" "$_lours")" = reclaim ]; then
       say "The address is held by your own stale Kosmos (process $_lpid). Reclaiming it."
       # A launchd-supervised holder would be relaunched the instant we kill it. The stop
       # marker makes board-run decline to relaunch (cmd_board_run honors it BEFORE binding,
@@ -1202,6 +1209,8 @@ cmd_start() {
       # Fall through to the normal start below (supervised kickstart -k, else nohup).
     elif [ -n "$_luid" ] && [ "$_luid" != "$_kosmos_uid" ]; then
       die "Port $PORT is held by ANOTHER account's process on this shared Mac, so Kosmos will not touch it (killing it would take down that person's session). Your own copy of Kosmos is in Applications -- open that."
+    elif [ "$_lkos" = 1 ]; then
+      die "Another Kosmos install of yours on this computer is already using port $PORT. Quit that board, or set KOSMOS_PORT to a different number."
     else
       die "Another app on this computer is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
     fi
