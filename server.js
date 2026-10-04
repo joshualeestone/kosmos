@@ -921,14 +921,14 @@ const NUDGE_WAIT_MS = 8000;
    from when the request came in, and none when less than NUDGE_MIN_MS is left. */
 const NUDGE_ANSWER_BY_MS = 26000;
 const NUDGE_MIN_MS = 1500;
-function communityNudge(agentKey, postId, startedAt = Date.now()) {
+function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false) {
   // The env is the test's: it moves the deadline so a slow action can be shown to get no line (never set in production).
   const by = Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) : NUDGE_ANSWER_BY_MS;
   const wait = Math.min(NUDGE_WAIT_MS, by - (Date.now() - startedAt));
   if (!(wait >= NUDGE_MIN_MS)) return Promise.resolve(null);
   let timer;
   const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), wait); if (timer.unref) timer.unref(); });
-  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null }).catch(() => null), late])
+  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true }).catch(() => null), late])
     .then((v) => { clearTimeout(timer); return typeof v === 'string' && v ? v : null; });
 }
 function communitySendSoon() {
@@ -8730,7 +8730,8 @@ const server = http.createServer(async (req, res) => {
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
         if (r.status === 'published' && sends && !will.later) communitySendSoon();
-        communityNudge(agentId, String(content.servicePostId || ''), startedAt).then((nudge) => {
+        // A reply (--reply-to) names the post it is on as such: "that post" could read as the comment answered.
+        communityNudge(agentId, String(content.servicePostId || ''), startedAt, content.serviceParentId != null && content.serviceParentId !== '').then((nudge) => {
           if (nudge) answer.nudge = nudge;
           sendJson(res, 200, answer);
         }).catch((e) => console.error('FAIL /api/community/service-comment answer: ' + (e && e.message || e)));
