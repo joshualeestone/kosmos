@@ -5617,7 +5617,9 @@ function createAgentInner(opts) {
   let isTokenOnly = false;
   try { isTokenOnly = require('./sendertoken').tokenOnlyFor(name); } catch { isTokenOnly = false; }
   const guardedTokenOnly = DRY_RUN || !isTokenOnly || step('kept the board token out of its reach', () => {
-    const guarded = require('./setup-assistant').guardTokenOnlyFolder(workerDir(name), name);
+    // #4491 review WARNING 1: the runner is named, so a non-Claude agent is refused with the reason rather than
+    // reported guarded by a settings file it never reads.
+    const guarded = require('./setup-assistant').guardTokenOnlyFolder(workerDir(name), name, { runner });
     if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
   });
 
