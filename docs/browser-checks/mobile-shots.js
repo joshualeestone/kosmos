@@ -1128,7 +1128,7 @@ async function fitOf(page) {
     }
     /* A hit area that reaches past its control (a ::after, padding taken back) paints above its neighbours, so it
        can take taps meant for them. That is the risk the reach probe above rewards, so it is measured too: inside
-       every control's own box (a 5x3 grid of points), a tap must land on that control. A point
+       every control's own box (every 3px, its edges included), a tap must land on that control. A point
        answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
     const covers = [];
     const SEL = 'button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
@@ -1139,10 +1139,14 @@ async function fitOf(page) {
       el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
       const r = el.getBoundingClientRect();
       if (r.width < 4 || r.height < 4) continue;
-      // A 5x3 grid inside the box (15 points). Still a sample: a cover smaller than the grid's step can pass, which
-      // render-room-msgbox-2806's whole-pixel scan of the room's header caught where 5 points did not.
+      // Every 3px across the box (capped at 4000 points), half a pixel in from each edge: a neighbour's hit area
+      // usually takes a thin strip along one edge, which a handful of sample points misses (a 15-point grid passed
+      // the room's header at 44px where render-room-msgbox-2806's pixel scan found 64px taken; measured).
       const pts = [];
-      for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const fy of [0.2, 0.5, 0.8]) pts.push([r.left + r.width * fx, r.top + r.height * fy]);
+      const step = Math.max(3, Math.sqrt((r.width * r.height) / 4000));
+      for (let x = r.left + 0.5; x < r.right - 0.5; x += step) for (let y = r.top + 0.5; y < r.bottom - 0.5; y += step) pts.push([x, y]);
+      for (const x of [r.left + 0.5, r.right - 0.5]) for (let y = r.top + 0.5; y < r.bottom; y += step) pts.push([x, y]);
+      for (const y of [r.top + 0.5, r.bottom - 0.5]) for (let x = r.left + 0.5; x < r.right; x += step) pts.push([x, y]);
       for (const [x, y] of pts) {
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
         const hit = document.elementFromPoint(x, y);
@@ -1152,7 +1156,10 @@ async function fitOf(page) {
         // back, reaching past it). A point inside its box is a control drawn on top (an open menu over the page),
         // which is stacking, not a tap area too big.
         const o = other.getBoundingClientRect();
-        if (x >= o.left && x < o.right && y >= o.top && y < o.bottom) continue;
+        // 1px of slack: two controls set edge to edge are hit-tested on snapped pixels, so their shared edge can
+        // answer either way (the agents board's view toggles, 44px boxes with no hit area, did); a hit area that
+        // matters reaches well past that.
+        if (x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1) continue;
         covers.push(name(el) + ' covered by ' + name(other)); break;
       }
     }

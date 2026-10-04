@@ -11,8 +11,8 @@
  *  - a project's room: nothing covers anything (its header keeps #4663's 36px areas; render-room-msgbox-2806 owns them),
  *  - an agent's AI settings: the terminal box is 16px text (under 16 iPhone Safari zooms the page on a tap) and 44
  *    tall, and its visible buttons are 44 tall,
- *  - NO COVER: a tap at the centre of every control on those screens lands on that control (a hit area that reaches
- *    past its box paints above its neighbours, so this is the cost of the reach above),
+ *  - NO COVER: across every control's own box on those screens (every 3px, edges included) a tap lands on that
+ *    control, not on a neighbour's hit area (one reaching past its box paints above its neighbours: the cost of reach),
  *  - CONTROL: a desktop with a mouse keeps a name's 16px line and no hit area, and the terminal box's own size,
  *  - light and dark, no sideways scroll, no page errors.
  *
@@ -61,7 +61,9 @@ const REACH = (sel) => {
     return { sel, w: Math.round(r.width), h: Math.round(r.height), ok };
   });
 };
-// In the page: every control's own centre must land on that control, not on a neighbour's hit area.
+// In the page: across every control's own box (every 3px, its edges included), a tap must land on that control and
+// not on a neighbour's hit area reaching over it (the same scan as mobile-shots' covers audit). A point inside the
+// other control's drawn box, with 1px of slack for a snapped shared edge, is stacking, not a hit area.
 const COVERS = () => {
   const SEL = 'button, a[href], select, summary, [role="button"], [role="tab"], input:not([type="hidden"]), textarea';
   const out = [];
@@ -71,12 +73,20 @@ const COVERS = () => {
     if (r0.width < 4 || r0.height < 4) continue;
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const r = el.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    const other = hit && hit.closest ? hit.closest(SEL) : null;
-    if (!other || other === el || el.contains(other) || other.contains(el)) continue;
-    const o = other.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-    if (x >= o.left && x < o.right && y >= o.top && y < o.bottom) continue;   // drawn on top (a menu over the page), not a hit area
-    out.push((el.id || el.className) + ' <- ' + (other.id || other.className));
+    const step = Math.max(3, Math.sqrt((r.width * r.height) / 4000));
+    const pts = [];
+    for (let x = r.left + 0.5; x < r.right - 0.5; x += step) for (let y = r.top + 0.5; y < r.bottom - 0.5; y += step) pts.push([x, y]);
+    for (const x of [r.left + 0.5, r.right - 0.5]) for (let y = r.top + 0.5; y < r.bottom; y += step) pts.push([x, y]);
+    for (const y of [r.top + 0.5, r.bottom - 0.5]) for (let x = r.left + 0.5; x < r.right; x += step) pts.push([x, y]);
+    for (const [x, y] of pts) {
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+      const hit = document.elementFromPoint(x, y);
+      const other = hit && hit.closest ? hit.closest(SEL) : null;
+      if (!other || other === el || el.contains(other) || other.contains(el)) continue;
+      const o = other.getBoundingClientRect();
+      if (x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1) continue;
+      out.push((el.id || el.className) + ' <- ' + (other.id || other.className)); break;
+    }
   }
   return out;
 };
@@ -113,7 +123,7 @@ const COVERS = () => {
       const sortH = await page.evaluate(() => { const e = document.querySelector('#agent-sort'); return e && e.checkVisibility() ? Math.round(e.getBoundingClientRect().height) : null; });
       chk(sortH === null || sortH >= 44, `${tag} board: Sort agents is 44 tall (or not shown)`, String(sortH));
       const boardCovers = await page.evaluate(COVERS);
-      chk(boardCovers.length === 0, `${tag} board: no control's centre is taken by a neighbour`, JSON.stringify(boardCovers));
+      chk(boardCovers.length === 0, `${tag} board: no control is taken by a neighbour's hit area`, JSON.stringify(boardCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} board: no sideways scroll`);
 
       // A project's room.
@@ -121,7 +131,7 @@ const COVERS = () => {
       await page.click(`#pj-list .pj-row[data-project="${launch.id}"]`);
       await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(400);
       const roomCovers = await page.evaluate(COVERS);
-      chk(roomCovers.length === 0, `${tag} room: no control's centre is taken by a neighbour`, JSON.stringify(roomCovers));
+      chk(roomCovers.length === 0, `${tag} room: no control is taken by a neighbour's hit area`, JSON.stringify(roomCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} room: no sideways scroll`);
 
       // An agent's AI settings.
@@ -133,7 +143,7 @@ const COVERS = () => {
       const btns = await page.evaluate(() => ['#d-open-terminal', '#d-remove-start', '#d-term-send', '#d-trust-restart'].map((s) => { const e = document.querySelector(s); return e && e.checkVisibility() ? [s, Math.round(e.getBoundingClientRect().height)] : null; }).filter(Boolean));
       chk(btns.length >= 2 && btns.every(([, h]) => h >= 44), `${tag} AI settings: its visible buttons are 44 tall`, JSON.stringify(btns));
       const aiCovers = await page.evaluate(COVERS);
-      chk(aiCovers.length === 0, `${tag} AI settings: no control's centre is taken by a neighbour`, JSON.stringify(aiCovers));
+      chk(aiCovers.length === 0, `${tag} AI settings: no control is taken by a neighbour's hit area`, JSON.stringify(aiCovers));
       chk(errs.length === 0, `${tag} no page errors`, errs.slice(0, 2).join(' | '));
       await ctx.close();
     }
