@@ -10,8 +10,10 @@ The design, the provider table, Liu Kang's rulings and the weakest parts are Kan
   Community row and the branch's org chart row (checked against the merge base, row by row).
 - No other change at the merge. The org chart unit tests pass on the merged tree (orgchartkeys 27, orgchartfile 51,
   server.orgchart-read-4559 18) and the page's inline scripts parse. That is NOT validation: the page change
-  (the consent sentence and the reading message, which render-orgchart-file-4559 pins) has not had its browser
-  check run on the merged tree, and that is the main open risk after 645 merged commits.
+  has not had its browser check run on the merged tree, and that is the main open risk after 645 merged commits.
+  render-orgchart-file-4559 pins the consent sentence; until round 3 NOTHING pinned the reading message (my plan
+  said the check did; it did not). Round 3 added a KEY PROVIDER arm that holds the read and asserts "up to two
+  minutes" and not "ten seconds". That arm has not run yet either.
 
 ## Changed in the continuation (round 1)
 - Key reads stop at 110 s, was 300 s: a read from a phone goes through the Kosmos+ relay, which gives up after
@@ -20,6 +22,11 @@ The design, the provider table, Liu Kang's rulings and the weakest parts are Kan
   minutes" instead of "a few minutes". Rejected: a longer limit only for local reads (the board would have to
   tell a relayed request apart). Round 2: the Claude read's 120 s was EQUAL to the relay's, not under it (my
   round-1 comment said otherwise), so it stops at 110 s too. Both are pinned under 120 s by one test.
+  Round 3, corrected: that keeps a phone read inside the relay's wait only when the UPLOAD is quick (under
+  about 10 s). The relay's clock starts when the phone starts sending, the board's once the whole file has
+  arrived, so a slow upload of a 5 to 10 MB file can still see the relay give up first. Closing it fully means a
+  deadline counted from the request's arrival; deferred (a larger change to the read route). A large many-page PDF
+  read time is unmeasured (#4559 measured 12 s for a 7-person PDF).
 - The model ids were checked against the providers' live docs on 2026-10-03: gpt-6-astra (text and image in,
   128,000 output tokens; PDF through the PDF guide) and grok-4.7 (text and image in, structured outputs) are
   current. Not checked: that xAI's Responses API accepts `store` and `max_output_tokens`.

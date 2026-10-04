@@ -486,7 +486,12 @@ async function run() {
     const grokKeeps = okeys.keeps({ provider: 'xai' });
     let sentReader = null;
     let changed = false;
-    await pk.route('**/api/orgchart/read*', (r) => {
+    // The first consented read is held until the page's reading message has been read (#4560 continuation round 3:
+    // nothing pinned that a key read says "up to two minutes", not Claude's "about ten seconds").
+    let releaseFirst = () => {};
+    const firstHeld = new Promise((res) => { releaseFirst = res; });
+    let heldOnce = false;
+    await pk.route('**/api/orgchart/read*', async (r) => {
       const u = new URL(r.request().url());
       const n = decodeURIComponent(r.request().headers()['x-orgchart-name'] || '');
       if (/\.pdf$/.test(n)) return r.fulfill({ status: 200, json: { unavailable: true, problems: [grokPdf] } });
@@ -494,6 +499,7 @@ async function run() {
         sentReader = u.searchParams.get('reader');
         // The board's answer when the reader changed while the box was open: its sentence must reach the person.
         if (changed) return r.fulfill({ status: 409, json: { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' } });
+        if (!heldOnce) { heldOnce = true; await firstHeld; }
         return r.fulfill({ status: 200, json: { source: 'model', provider: 'xAI Grok (work)', rows: PICTURE_ROWS, problems: [] } });
       }
       return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to your xAI Grok key', keeps: grokKeeps } });
@@ -504,6 +510,9 @@ async function run() {
       await pk.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 }).catch(() => {});
       const k1 = await readPreview(pk);
       await pk.click('#orgchart-consent-go').catch(() => {});
+      await pk.waitForFunction(() => /Reading your chart/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+      const reading = await pk.$eval('#orgchart-msg', (e) => e.textContent).catch(() => '');
+      releaseFirst();
       await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 }).catch(() => {});
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await pk.waitForTimeout(500);
@@ -511,6 +520,7 @@ async function run() {
       check('KEY PROVIDER: the consent names the key provider and account, says which key it is billed to, and says what the provider keeps',
         /xAI Grok \(work\), billed to your xAI Grok key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
       check('KEY PROVIDER: Read it sends back the reader the consent named (the board refuses any other)', sentReader === 'xai:0123456789ab', JSON.stringify(sentReader));
+      check('KEY PROVIDER: while a key provider reads, the page says it can take up to two minutes, not Claude\'s ten seconds', /up to two minutes/.test(reading) && !/ten seconds/.test(reading), JSON.stringify(reading));
       check('KEY PROVIDER: a kind it cannot read (Grok and a PDF) is said with no consent box', k2.msg.includes(grokPdf) && !k2.consent, JSON.stringify([k2.msg, k2.consent]));
       changed = true;
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));

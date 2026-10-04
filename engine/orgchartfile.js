@@ -445,9 +445,9 @@ const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
 const NO_MODEL = 'Reading a picture or PDF needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture), connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
-/* Under the Kosmos+ relay's 120 s wait for a board answer (kosmos-relay crates/tunnel/src/proxy.rs
-   BOARD_RESPONSE_HEAD_TIMEOUT), as the key read is (orgchartkeys TIMEOUT_MS): at 120 s the two raced, and a read
-   from a phone could be dropped by the relay while the board still waited on it (#4560 round 2). */
+/* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
+   which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
+   #4559 measured a 7-person PDF at 12 s and a PNG at 9 s; a large many-page PDF is not measured. */
 const MODEL_TIMEOUT_MS = 110000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 

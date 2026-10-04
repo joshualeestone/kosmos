@@ -43,12 +43,12 @@ function urlFrom(envName, fallback) {
   } catch { /* not a URL */ }
   return fallback;
 }
-/* Longer than the Claude read's 120 s: a reasoning model through a key can take minutes on a dense chart, and a read
-   cut off at the timeout may still be billed while Kosmos throws its answer away. */
-/* Under the Kosmos+ relay's 120 s wait for a board answer (kosmos-relay crates/tunnel/src/proxy.rs
-   BOARD_RESPONSE_HEAD_TIMEOUT): a read from a phone through the relay must end, and be stopped, before the relay
-   gives up on it, or the key is billed for an answer nobody sees (round 1 of the continuation). The Claude read
-   stops at the same 110 s (orgchartfile MODEL_TIMEOUT_MS; it was 120 s, equal to the relay's, until round 2). */
+/* 110 s, the same as the Claude read (orgchartfile MODEL_TIMEOUT_MS). The Kosmos+ relay waits 120 s for a board's
+   answer (kosmos-relay crates/tunnel/src/proxy.rs BOARD_RESPONSE_HEAD_TIMEOUT), and its clock starts when the phone
+   starts sending, while this one starts once the whole file has arrived. So a phone read stays inside the relay's
+   wait only when the upload takes under about 10 s; a slow upload of a large file can still see the relay give up
+   first, and a key read cut off that way may still be billed (round 3). Was 300 s, which outlived the relay for
+   every phone read (round 1). */
 const TIMEOUT_MS = 110 * 1000;
 let timeoutMs = TIMEOUT_MS;
 /** Tests only: a shorter timeout; null restores the real one. */
