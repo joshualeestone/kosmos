@@ -727,8 +727,8 @@ const SCREENS = [
   } },  /* #5153 slice 4: the undo list under a closed task's receipt, opened, with each kind of row. Only this page's reads
      are faked (the receipt screen's, plus the undo plan); the board is not changed. Paths are invented. */
   { name: 'task-undo', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
-    const f = (name, extra) => ({ path: '/Users/ada/Kosmos/spring-catalogue/' + name, agent: data.chatAgent, action: 'restore', copyId: 'x', ok: true, ...extra });
-    const plan = { on: true, ready: true, files: [
+    const f = (name, extra) => ({ path: '/Users/ada/Kosmos/spring-catalogue/' + name, shown: name, agent: data.chatAgent, action: 'restore', copyId: 'x', ok: true, ...extra });
+    const plan = { on: true, ready: true, savedRoot: '/Users/ada/Library/Application Support/Kosmos/undo-saved', files: [
       f('copy/home.md'), f('copy/linen-range.md'), f('copy/new-page.md', { action: 'move-aside' }),
       f('prices/spring.csv', { ok: false, why: 'shared' }), f('copy/checkout.md', { ok: false, why: 'changed-since' }) ] };
     await page.route('**/api/project/*/task/*/undo', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(plan) }));
@@ -740,7 +740,7 @@ const SCREENS = [
     await page.waitForTimeout(300);
   }, verify: async (page) => {
     const t = (await page.evaluate(() => document.getElementById('tk-undo').innerText)).toLowerCase();
-    for (const want of ['goes back to how it was before this task', 'moved into kosmos', 'another agent also edited it', 'changed after the task closed', 'undo the chosen files']) {
+    for (const want of ['undo', 'goes back to how it was before this task', 'moved into kosmos’s undo folder', 'another agent also edited it', 'changed after the task closed', 'undo the chosen files']) {
       if (!t.includes(want)) throw new Error('the undo list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
   } },
@@ -754,7 +754,7 @@ const SCREENS = [
     await page.waitForTimeout(300);
   }, verify: async (page) => {
     const t = (await page.evaluate(() => document.getElementById('undo-row').innerText)).toLowerCase();
-    for (const want of ['keep a copy before an agent edits a file', 'turning this off deletes them', 'kept until you delete them']) {
+    for (const want of ['keep a copy before an agent edits a file', 'turning this off deletes them', 'private files such as .env included']) {
       if (!t.includes(want)) throw new Error('the undo switch row does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
   } },

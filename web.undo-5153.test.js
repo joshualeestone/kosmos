@@ -32,7 +32,7 @@ test('each file says what undo will do, or why not; only safe ones start chosen,
   ], 'chosen: safe ones; choosable: another agent\'s overlap; never: a file changed after the close');
   const t = text(html);
   assert.match(t, /goes back to how it was before this task/);
-  assert.match(t, /moved into Kosmos’s own folder, not deleted/);
+  assert.match(t, /moved into Kosmos’s undo folder, not deleted/);
   assert.match(t, /another agent also edited it meanwhile/);
   assert.match(t, /changed after the task closed: left as it is/);
   assert.match(t, /saves each one’s current version first/);
@@ -65,4 +65,19 @@ test('files whose history is not certain can be chosen but start unchosen; unsaf
   assert.deepEqual(boxes, [[false, false], [false, false], [false, true], [false, true]]);
   assert.match(text(html), /undo was turned on after the agent began/);
   assert.match(text(html), /no longer a plain file here: left as it is/);
+});
+
+test('the list follows the design review: a kicker, short paths, the undo folder named, the action first and Cancel as text', () => {
+  const html = B.tkUndoListHtml({ savedRoot: '/k/undo-saved', files: [
+    { path: '/w/agent/copy/home.md', shown: 'copy/home.md', action: 'restore', ok: true },
+    { path: '/w/agent/new.md', shown: 'new.md', action: 'move-aside', ok: true },
+    { path: '/elsewhere/x.md', shown: '/elsewhere/x.md', action: 'restore', ok: true } ] });
+  assert.ok(html.startsWith('<h3 class="dlab">Undo</h3>'));
+  assert.match(text(html), /copy\/home\.md goes back/);
+  assert.match(text(html), /moved into Kosmos’s undo folder, not deleted \(\/k\/undo-saved\)/);
+  assert.match(text(html), /\/elsewhere\/x\.md goes back/, 'a file outside the agent folder keeps its full path');
+  assert.ok(html.indexOf('data-undo="go"') < html.indexOf('data-undo="cancel"'));
+  assert.match(html, /<button class="btn-quiet" type="button" id="tku-go" data-undo="go">/);
+  assert.match(html, /<button class="linkish" type="button" data-undo="cancel">Cancel<\/button>/);
+  assert.match(RAW, /@media \(hover: none\), \(pointer: coarse\) \{\n  #pj-task-view #tku-go \{ min-height: 44px; \}/);
 });

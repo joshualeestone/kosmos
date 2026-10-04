@@ -6332,6 +6332,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tku-list li { padding: 4px 0; overflow-wrap: anywhere; }
 .tku-list label { display: flex; gap: 8px; align-items: flex-start; }
 .tku-why { display: block; color: var(--k-ink-3, var(--label-2)); }
+/* On a touch screen the action and each file's whole line are 44px targets (the #5200 gate, Mona Lisa). */
+@media (hover: none), (pointer: coarse) {
+  #pj-task-view #tku-go { min-height: 44px; }
+  #pj-task-view .tku-list label { min-height: 44px; padding: 6px 0; box-sizing: border-box; }
+}
 /* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
    like the column's others, every line one size, facts about the tool muted, the page's own toggle for the files. */
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
@@ -18392,7 +18397,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Undo</h3>
       <div class="setrow" id="undo-row">
         <div><b>Keep a copy before an agent edits a file</b>
-          <p class="dhint" style="margin:2px 0 0;">So a finished task’s file changes can be undone from its receipt. Copies of every file your agents edit, private ones such as .env included, stay on this computer for 30 days; turning this off deletes them. When you undo, the versions it replaces are saved too and kept until you delete them; the receipt says where. Your agents’ Claude sessions only (not your own), and only files changed with their editing tools, not by commands.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos keeps a copy of each file before an agent edits it, so a finished task’s changes can be undone from its receipt. Copies stay on this computer for 30 days, private files such as .env included; turning this off deletes them. It covers your agents’ Claude sessions, and only files they change with their editing tools, not by commands.</p></div>
         <button class="toggle" id="undo-toggle" role="switch" aria-label="Keep a copy before an agent edits a file" hidden><i></i></button>
       </div>
       <p class="dhint" id="undo-msg" role="status" style="margin:8px 0 0;"></p>
@@ -58223,7 +58228,7 @@ function tkReceiptHtml(r, p) {
    unchecked and can be chosen. */
 const TKU_WHY = {
   restore: 'goes back to how it was before this task',
-  'move-aside': 'the agent created it: moved into Kosmos’s own folder, not deleted',
+  'move-aside': 'the agent created it: moved into Kosmos’s undo folder, not deleted',
   shared: 'another agent also edited it meanwhile: choose it to undo theirs too',
   'other-task': 'the agent was also working on another task then: choose it to undo that work too',
   incomplete: 'the copy may not be from before this task (undo was turned on after the agent began): choose it if that is fine',
@@ -58237,14 +58242,18 @@ function tkUndoListHtml(plan) {
   const files = Array.isArray(plan && plan.files) ? plan.files : [];
   const rows = files.map((f, i) => {
     const choosable = f.ok || f.why === 'shared' || f.why === 'other-task' || f.why === 'incomplete';
-    const why = f.ok ? TKU_WHY[f.action] : TKU_WHY[f.why] || 'left as it is';
+    /* Where a created file goes, named (Mona Lisa: "Kosmos's own folder" leaves the person asking where). */
+    let why = f.ok ? TKU_WHY[f.action] : TKU_WHY[f.why] || 'left as it is';
+    if (f.ok && f.action === 'move-aside' && plan.savedRoot) why += ' (' + plan.savedRoot + ')';
     return '<li><label><input type="checkbox" data-path="' + esc(f.path) + '"' + (f.ok ? ' checked' : '') + (choosable ? '' : ' disabled')
-      + ' aria-describedby="tku-why-' + i + '"><span>' + esc(f.path) + '<span class="tku-why" id="tku-why-' + i + '">' + esc(why) + '</span></span></label></li>';
+      + ' aria-describedby="tku-why-' + i + '"><span>' + esc(f.shown || f.path) + '<span class="tku-why" id="tku-why-' + i + '">' + esc(why) + '</span></span></label></li>';
   }).join('');
-  return '<p class="tkr-intro">These files go back to how they were before this task. Kosmos saves each one’s current version first.</p>'
+  /* A kicker like the receipt's; the action in the page's Send style, Cancel as text after it (Mona Lisa). */
+  return '<h3 class="dlab">Undo</h3>'
+    + '<p class="tkr-intro">These files go back to how they were before this task. Kosmos saves each one’s current version first.</p>'
     + '<ul class="tku-list">' + rows + '</ul>'
-    + '<div class="frow"><button class="btn" type="button" data-undo="go">Undo the chosen files</button> '
-    + '<button class="btn-quiet" type="button" data-undo="cancel">Cancel</button></div>';
+    + '<div class="frow"><button class="btn-quiet" type="button" id="tku-go" data-undo="go">Undo the chosen files</button> '
+    + '<button class="linkish" type="button" data-undo="cancel">Cancel</button></div>';
 }
 /* After an undo: what was done, what was not, and where the saved versions are. Pure. */
 function tkUndoDoneLine(out) {

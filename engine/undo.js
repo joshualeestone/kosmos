@@ -245,7 +245,16 @@ function plan(projectId, task, { now = Date.now() } = {}) {
   const from = Math.min(...span.map((h) => h.from));
   const files = [];
   for (const [p, { who, rec }] of [...first.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const entry = { path: p, agent: who, action: rec.existed ? 'restore' : 'move-aside', copyId: rec.id, at: rec.at, ok: true };
+    /* `shown`: the path inside the agent's folder, as the receipt shows it; a file outside it keeps its full path, so a
+       short path never hides where a file is (Mona Lisa's design review). */
+    let shown = p;
+    try {
+      const { canonicalOnDisk } = require('./trust');
+      const folder = canonicalOnDisk(require('./create').workerDir(who));
+      const rel = path.relative(folder, p);
+      if (rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) shown = rel;
+    } catch { shown = p; }
+    const entry = { path: p, shown, agent: who, action: rec.existed ? 'restore' : 'move-aside', copyId: rec.id, at: rec.at, ok: true };
     const hold0 = Math.min(...holds[who].map((h) => h.from));
     const cur = nowIs(p);
     let dirReal = '';
@@ -267,7 +276,7 @@ function plan(projectId, task, { now = Date.now() } = {}) {
       || hold0 < now - KEEP_DAYS * 86400000) flag('incomplete');
     files.push(entry);
   }
-  return { ready: true, closedAt: closedIso, files };
+  return { ready: true, closedAt: closedIso, savedRoot: savedRoot(), files };   // savedRoot: where a moved file goes, said on the page
 }
 
 /* Move a file aside, across volumes too (review 2: rename fails between disks): copy, check it arrived whole, then
