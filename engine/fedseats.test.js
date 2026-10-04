@@ -2711,3 +2711,74 @@ test('#5192: a post held while behind is not sent under an epoch short of the on
   assert.deepStrictEqual(out, [], 'a post held while behind epoch 2 went out under epoch 1');
   void h;
 });
+
+test('#5192: an owner\'s post held with a member in the room is not sent once someone from a newer invite is pinned too', async () => {
+  const first = newInvite('5192r1');
+  const { h, seat } = await ownerRoom('proj-5192-r18', 'ref-5192-r18', 'room-5192-r18', [first]);
+  const k1 = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(first.s, first.code, k1, 'room-5192-r18') });
+  await settle();
+  say(seat, { event: 'connected', expires_at: 10 });   // no room id: the next post is held
+  await settle();
+  fedseats.post('proj-5192-r18', { from: 'Josh', kind: 'person', text: 'for the first member' });
+  const late = newInvite('5192r1late');
+  fedseal.stashInvite('ref-5192-r18', late);
+  h.edges = h.edges.concat([{ id: 'edge-inv-5192r1late', project_ref: 'ref-5192-r18', status: 'active', invite_id: 'inv-5192r1late' }]);
+  // The flush on the room id fails its write once, so the post is still held when the late member is pinned.
+  const realWrite = seat.stdin.write.bind(seat.stdin);
+  let fail = true;
+  seat.stdin.write = (chunk, ...rest) => { if (fail && /"ct"/.test(String(chunk)) && !/"t":/.test(String(chunk))) { fail = false; throw new Error('EPIPE'); } return realWrite(chunk, ...rest); };
+  say(seat, { event: 'connected', room: 'room-5192-r18', expires_at: 11 });
+  await settle();
+  const kl = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(late.s, late.code, kl, 'room-5192-r18') });
+  await settle();
+  const frames = lines(seat);
+  const share = frames.filter((f) => f.t === 'key-share').pop();
+  const got = fedseal.openShare(late.s, late.code, kl, share, 'room-5192-r18');
+  const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-r18', f)).filter(Boolean);
+  assert.deepStrictEqual(posts, [], 'the late invitee read a post written before its invite');
+  assert.ok(h.notes.some((n) => /came from an invite made after it was written/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: a post held on no edge keeps that through a re-hold, so a second move of the seat does not drop it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const g = newInvite('5192g');
+  const hInv = newInvite('5192h');
+  for (const inv of [g, hInv]) fedseal.stashInvite('ref-5192-mv', inv);
+  federation.recordLink('proj-5192-mv', { role: 'owner', ref: 'ref-5192-mv', selfShared: true });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-5192-mv');
+  const own = h.spawned[0];
+  say(own, { event: 'connected', room: 'room-5192-mv', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-mv', { from: 'Josh', kind: 'person', text: 'from the own room' });
+  // Onto guest edge G: connected, no key yet, so a pass re-holds the post there.
+  h.edges = [{ id: 'edge-inv-5192g', project_ref: 'ref-5192-mv', status: 'active', invite_id: 'inv-5192g' }];
+  own.emit('exit', 1);
+  t.mock.timers.tick(2000);
+  await settle(); await settle();
+  const onG = h.spawned[h.spawned.length - 1];
+  assert.strictEqual(onG.edge, 'edge-inv-5192g', 'fixture: on G');
+  say(onG, { event: 'connected', room: 'room-5192-mv', expires_at: 10 });
+  await settle();
+  await fedseats.ensureAll();
+  await settle();
+  // G ends for good; the seat moves to H, whose member says hello.
+  h.edges = [{ id: 'edge-inv-5192g', project_ref: 'ref-5192-mv', status: 'revoked', invite_id: 'inv-5192g' }, { id: 'edge-inv-5192h', project_ref: 'ref-5192-mv', status: 'active', invite_id: 'inv-5192h' }];
+  onG.emit('exit', 3);
+  await settle();
+  await fedseats.ensure('proj-5192-mv');
+  const onH = h.spawned[h.spawned.length - 1];
+  assert.strictEqual(onH.edge, 'edge-inv-5192h', 'fixture: on H');
+  say(onH, { event: 'connected', room: 'room-5192-mv', expires_at: 11 });
+  await settle();
+  const member = fedseal.newKeyPair();
+  say(onH, { event: 'message', data: fedseal.helloFrame(hInv.s, hInv.code, member, 'room-5192-mv') });
+  await settle();
+  const frames = lines(onH);
+  const share = frames.find((f) => f.t === 'key-share');
+  const got = fedseal.openShare(hInv.s, hInv.code, member, share, 'room-5192-mv');
+  const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-mv', f)).filter(Boolean);
+  assert.deepStrictEqual(posts.map((p) => p.m.text), ['from the own room'], JSON.stringify(h.notes));
+});

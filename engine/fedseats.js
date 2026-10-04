@@ -1036,12 +1036,17 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
       return false;
     }
     if (st === undefined) inv = null;   // a member's room: nobody to limit it to
-    else if (l && l.role === 'owner' && !(st && st.peers && Object.keys(st.peers).length)) {
-      try { inv = fedseal.pendingInvites(l.ref).map((p) => p.invite); } catch { inv = []; unknown = true; }
+    else if (l && l.role === 'owner') {
+      // The members already in, and the invites still waiting: every computer pinned when it
+      // goes must have come from one of these.
+      const inRoom = st && st.peers ? Object.values(st.peers).map((p) => p && p.invite).filter(Boolean) : [];
+      try { inv = inRoom.concat(fedseal.pendingInvites(l.ref).map((p) => p.invite)); } catch { inv = []; unknown = true; }
     }
     msg = Object.assign({}, msg, { invites: inv, invitesUnknown: unknown });
   }
-  s.outbox.push({ msg, at: heldAt || Date.now(), edge: s.edge });
+  // The edge it was first held on travels with it, like its age: a re-hold does not restamp it.
+  if (msg.heldEdge === undefined) msg = Object.assign({}, msg, { heldEdge: s.edge });
+  s.outbox.push({ msg, at: heldAt || Date.now(), edge: msg.heldEdge });
   s.reheld = true;   // flushHeld's signal that this post is waiting again (not refused for good)
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
@@ -1140,9 +1145,9 @@ function pinnedAny(projectId) {
   const st = roomSeal(projectId);
   return !!(st && st.peers && Object.keys(st.peers).length);
 }
-function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown, sealedHeld, behindHeld }, heldAt) {
+function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown, sealedHeld, behindHeld, heldEdge }, heldAt) {
   // sealedHeld: held while the room was known to be sealed (then it never goes in the clear).
-  const msg = { from, kind, text, files: files === true, invites, invitesUnknown: invitesUnknown === true, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true };
+  const msg = { from, kind, text, files: files === true, invites, invitesUnknown: invitesUnknown === true, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true, heldEdge };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has

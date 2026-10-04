@@ -57,7 +57,8 @@ is sent to the first computer that joins with its key, if one joins within the h
 A seat that ends (member removed) with posts held says how many were not sent. A post held on no edge (an owner's own room, before any guest) still goes when the seat
 moves onto a guest's edge: that is the same room.
 
-An owner's post held while NO member is pinned records the invites live when it was written, and
+An owner's held post records the invites of the members already in plus those still waiting
+(round 18: whatever the reason it was held), and
 goes only while EVERY pinned member came from one of them (rounds 12-15; a post goes to the whole
 room under one key): never to someone invited afterwards.
 Held with members already in, it is for them. When an owner's records cannot be read at the moment of
@@ -73,6 +74,7 @@ would change my mind: evidence that keys routinely take more than an hour to arr
 restart while posts wait.
 
 ## Not covered
+A NEW post whose write throws is lost as before (only held posts are re-held on a throw).
 A seat stopped (unshared, project removed, or an id reused) drops its held posts without a note: a note
 keyed by that id could land in another project.
 A post refused because the seat is not connected at all ("the connection ... is not up") is not
