@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: revokenotice-5193
-diff_hash: a09972ce2689d1819d21ca629ea2d85c0eb3be1aeec38b15d3d775d1901612c1
-validation: engine/fedseats.test.js 165/165, engine/fedseal.test.js 12/12, engine/federation.test.js 15/15, server.fedmsg-3311.test.js 22/22; 13 targeted mutations across the rounds, each red on its own test; the hostile-input bound measured both arms n=3 (bounded about 0.1 ms, unbounded 262-271 ms); full suite to run on Mortals before the PR
+diff_hash: e0c21e15905f8874105886589cac22e3a0075dd47efc268f489121f6456db2d7
+validation: RESTACKED 2026-10-04 12:20 CDT onto main after #5228 (#5191) squash-merged as cf62a6b7e: the 17 commits above #5191 replayed (#5197, #5192, #5193), diff byte-identical to the reviewed and validated stack except one server.js hunk offset (main moved it 69 lines). Prior: engine/fedseats.test.js 165/165, engine/fedseal.test.js 12/12, engine/federation.test.js 15/15, server.fedmsg-3311.test.js 22/22; 13 targeted mutations across the rounds, each red on its own test; the hostile-input bound measured both arms n=3 (bounded about 0.1 ms, unbounded 262-271 ms); full suite to run on Mortals before the PR Full suite on the NEW head: pending (Mortals), plus full browser checks (server.js).
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-04T04:41:24Z
 iterations: 4
