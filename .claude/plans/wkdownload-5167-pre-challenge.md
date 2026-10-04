@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: wkdownload-5167
 diff_hash: 81d8746b28d1974122151b4587815681b6dad72f9ce452a28076fa9c50940047
-validation: pending (full suite queued after this proof; focused runs green, see below)
+validation: passed (full suite 2026-10-03 22:32 CDT at 60f914fae: 14965 tests, 14742 pass, 0 fail, 0 cancelled, rc 0, hash 81d8746b28d1)
 subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-04T00:23:27Z
 iterations: 40
@@ -57,7 +57,8 @@ None.
   or the bundle build, repo-wide audits): 787 tests, 782 pass, 0 fail, 5 skipped.
 - `--kosmos-app-mode-selftest`: 86 rows, all good. `--kosmos-app-download-selftest` (real WKWebView): 25 rows,
   all good, about 55 s.
-- Full suite: queued after this proof (validation-carry said NEEDS-FULL).
+- Full suite: PASSED at 22:32 CDT (attempt 2; attempt 1 gave up waiting in the queue and ran no test).
+  14965 tests, 14742 pass, 0 fail, 0 cancelled; validation rc 0; diff hash 81d8746b28d1 matches above.
 
 ### Weakest premise
 Never measured over a live Kosmos+ tunnel in connect mode; the live selftest runs as a computer that runs
