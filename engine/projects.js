@@ -1252,12 +1252,19 @@ function list(roster) {
    (daily feedback, 2026-10-04). Each FILE counts once, however often it was rewritten (a newest-first list holds a
    path once), so the valve's bound (at most one more cap in all, shared with task steps) is unchanged: a loop that
    also writes files still runs to at most twice the cap. Dot-files, scratch names and dependency or build folders are
-   not counted (listFiles' rules), and no file is opened. Only the newest `limit` files are read: the valve stops
-   adding after ROOM_PROGRESS_STEPS steps, so more could never change its answer. [] when the project, its folder
-   or the list cannot be read (never throws), which is the strict side: no allowance. */
+   not counted (listFiles' rules), and no file is opened. Only the newest `limit` files are kept (the valve stops
+   adding after ROOM_PROGRESS_STEPS steps; the margin over that is for files dated in the future, which are dropped
+   below and must not take every slot). listFiles' own bounds apply: a change deeper than its depth, or past its scan
+   budget, is not seen (the strict side). [] when the project, its folder or the list cannot be read (never throws),
+   which is the strict side too: no allowance.
+   ⚠️ Every file counts, whoever wrote it: in a folder that is a repo or is synced, a pull or a sync earns steps too.
+   Accepted: it is bounded like any step (at most one more cap), and in a repo the agents' real work IS file edits.
+   Cost: one listFiles walk, the same one the Files panel makes on every poll, and only for a post that is already
+   over the room's cap. It is NOT cached: an agent saves and posts within seconds, and a reused listing would miss
+   exactly that save (rejected in review: a 5 s reuse). */
 const FILE_CLOCK_SLACK_MS = 2000;
 const FILE_CREATED_SLACK_MS = 10000;
-function changedFileTimes(projectId, since, now = Date.now(), limit = 8) {
+function changedFileTimes(projectId, since, now = Date.now(), limit = 32) {
   try {
     const found = readAll().find((p) => p && p.id === projectId);
     if (!found || typeof found.folder !== 'string' || !found.folder) return [];

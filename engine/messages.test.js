@@ -3285,6 +3285,9 @@ test('#5260: changedFileTimes: nothing for an unknown project, the files a new p
   const justAhead = new Date(now + 1000);
   fs.utimesSync(moment, justAhead, justAhead);
   assert.deepEqual(projects.changedFileTimes(pid, now - 60000, now), [now], 'a file a second ahead of now was dropped (the save-then-post race)');
+  // Files dated well ahead (a sync tool with a skewed clock) are newest in the list; ten of them must not hide a real change.
+  for (let k = 0; k < 10; k += 1) { const f = path.join(folder, 'skewed-' + k + '.md'); fs.writeFileSync(f, 'x'); fs.utimesSync(f, future, future); }
+  assert.deepEqual(projects.changedFileTimes(pid, now - 60000, now), [now], 'files dated in the future took every slot and hid the real change');
 });
 
 test('#4786: with the limit Off, work moving changes nothing: the room still gets its told-only notice at the cap', () => {
