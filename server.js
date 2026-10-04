@@ -9069,7 +9069,8 @@ const server = http.createServer(async (req, res) => {
         /* #4794 (review, Kitty): the code is there for a PERSON to compare, so only a person at the screen can
            confirm it. Without this a local caller holding the board token, an agent included, could read the code
            from GET /api/remote/join and finish the pairing with nobody comparing. ADVISORY like every isViaScreen
-           (#3595): it stops the default path an agent would take, not a process faking the browser header. */
+           (#3595): it stops the default path an agent would take, not a process faking the browser header. The GET
+           still returns the code to any local caller (the page polls it), so this is not a wall. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can confirm the code.' }); return; }
         const got = await remote.joinConfirm(typeof body.code === 'string' ? body.code : '');
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }

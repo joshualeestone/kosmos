@@ -11529,15 +11529,18 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
      Origin), or one presenting an agent token even with the page header, is refused before the code is looked at. */
   const notPage = { 'content-type': 'application/json' };
   const agentPage = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'f'.repeat(64) };
-  for (const headers of [notPage, agentPage]) {
-    const c = await req('/api/remote/join/confirm', { method: 'POST', headers, body: JSON.stringify({ code: '482 915' }) });
+  const pageHeader = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+  /* Third shape: the page header with the agent token in the BODY, which isViaScreen also reads as an agent. */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const c = await req('/api/remote/join/confirm', { method: 'POST', headers, body: JSON.stringify({ code: '482 915', ...extra }) });
     assert.equal(c.status, 403, 'join/confirm let a process through: ' + c.body);
     assert.match(JSON.parse(c.body).error, /Only a person at the Kosmos screen can confirm the code/);
-    const a = await req('/api/remote/devices/allow', { method: 'POST', headers, body: JSON.stringify({ device_id: 'dev1', code: '482 915' }) });
+    const a = await req('/api/remote/devices/allow', { method: 'POST', headers, body: JSON.stringify({ device_id: 'dev1', code: '482 915', ...extra }) });
     assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
     assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
   }
-  /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route. */
+  /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route.
+     The 400 is the bad-id refusal (the id is deliberately invalid), not a success. */
   for (const verb of ['deny', 'remove']) {
     const r = await req('/api/remote/devices/' + verb, { method: 'POST', headers: notPage, body: JSON.stringify({ device_id: '../evil' }) });
     assert.equal(r.status, 400, verb + ' was refused as not-a-person: ' + r.body);
