@@ -330,6 +330,8 @@ test('#4649 slice 1b: a project shared only with this account\'s other computers
   const m = await fedmembers.members(stubRemote({}), 'ownonly');
   assert.strictEqual(m.status, 200, JSON.stringify(m));
   assert.deepStrictEqual([m.body.owner, m.body.self_shared, m.body.invites], [true, true, []]);
+  // `shared` means shared with people OUTSIDE; a project shared only with this account's computers is not.
+  assert.strictEqual(m.body.shared, false);
 });
 
 test('#4649 slice 1b: joinedLine uses the owner\'s label for that invite, else a plain sentence', () => {
