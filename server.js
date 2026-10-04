@@ -6371,7 +6371,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal or download' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download or reveal-file' });
     return;
   }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
