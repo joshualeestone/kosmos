@@ -502,18 +502,41 @@ const SITE_COUNTS = {
   'render-worldswitch-2238.js': [1, 1],
 };
 
-function assertSiteCounts(measured, slot, what) {
+/* One slot's measured count for one check, read from its source. A check with no
+   SITE_COUNTS line is told its whole pair, both slots MEASURED: filling the other slot
+   with 0 told a [1, 1] check to add [1, 0], a wrong line and a wasted round (Baron's
+   #5106 review). A name not in docs/browser-checks has no source to measure, so it
+   prints '?' rather than a number that could be wrong; every real caller's names come
+   from that directory, so this is a guard, not a path anyone takes. */
+function measuredSites(f, slot) {
+  const p = path.join(DIR, f);
+  if (!fs.existsSync(p)) return '?';
+  const src = fs.readFileSync(p, 'utf8');
+  return slot === 0 ? findingEmitSites(src).length : catchLaunchSites(src).length;
+}
+
+function siteCountMismatches(measured, slot, what, table = SITE_COUNTS) {
   const wrong = [];
-  const files = new Set([...Object.keys(SITE_COUNTS), ...Object.keys(measured)]);
+  const files = new Set([...Object.keys(table), ...Object.keys(measured)]);
   for (const f of [...files].sort()) {
-    const want = SITE_COUNTS[f] ? SITE_COUNTS[f][slot] : 0;
+    const want = table[f] ? table[f][slot] : 0;
     const got = measured[f] || 0;
     if (want === got) continue;
-    wrong.push(SITE_COUNTS[f]
-      ? `${f}: ${got} ${what} sites matched, its SITE_COUNTS line says ${want}`
-      : `${f}: ${got} ${what} sites matched and it has no SITE_COUNTS line `
-        + `(add '${f}': [${slot === 0 ? got : 0}, ${slot === 1 ? got : 0}], in sorted order)`);
+    if (table[f]) {
+      wrong.push(`${f}: ${got} ${what} sites matched, its SITE_COUNTS line says ${want}`);
+      continue;
+    }
+    const pair = [];
+    pair[slot] = got;
+    pair[1 - slot] = measuredSites(f, 1 - slot);
+    wrong.push(`${f}: ${got} ${what} sites matched and it has no SITE_COUNTS line `
+      + `(add '${f}': [${pair[0]}, ${pair[1]}], in sorted order)`);
   }
+  return wrong;
+}
+
+function assertSiteCounts(measured, slot, what) {
+  const wrong = siteCountMismatches(measured, slot, what);
   assert.deepEqual(wrong, [],
     `${what} sites do not match SITE_COUNTS. The LIKELY cause is an emit site added or `
     + 'removed without updating its line: check the diff first, and if that is it, fix the '
@@ -554,6 +577,47 @@ test('SITE_COUNTS is sorted, one well-formed line per check, and names only chec
   }
 });
 
+/* The finding-emit sites of one check: every emitPrefixes() prefix the scan below
+   examines, with whether it is decoration only. Its length is that check's first
+   SITE_COUNTS number; measuredSites() reads it too. */
+function findingEmitSites(src) {
+  const out = [];
+  for (const prefix of emitPrefixes(src)) {
+    /* 🛑 NOT AN ENUMERATION OF GLYPHS. A per-finding decoration is defined
+       structurally, as "no word characters except the literal FAIL", so it
+       admits any marker anyone invents. An enumeration guarding against an
+       enumeration reproduces the failure it names.
+       ⚠️ AND THAT EXEMPTION IS ITSELF A FILTER THAT HIDES THINGS, MEASURED
+       RATHER THAN SUSPECTED. A prefix carrying WORDS is dropped here, so
+       a worded prefix with no marker in it is NOT guarded, which is what
+       drops ordinary logging. Prefixes carrying a marker ARE now tested, and
+       that arm immediately found render-fields' instrument self-check
+       printing an unquotable line. Do not restate that these sites "have
+       been fixed": that claim was in this file and was false for
+       render-fields, whose line began with a sentence and never matched.
+       Perturbation, count-neutral, both arms: a WORD-FREE escaped prefix
+       (`'\n  - '`) IS caught; the same shape carrying words is NOT.
+       ⇒ The escape decoding above is doing real work, and this exemption
+       bounds it. Do not read a green run as covering a worded failure line. */
+    const decorationOnly = /^[^\w]*(FAIL)?[^\w]*$/u.test(prefix);
+    /* A worded prefix is ordinary logging AND IS SKIPPED, unless it carries a
+       failure marker, in which case it is a finding line already and can be
+       tested directly. That second arm is what closes the blind spot a
+       perturbation found: the branch's three THREW reporters print via a
+       template whose prefix carries words, so the worded-prefix skip alone
+       discarded them and their `FAIL` was unguarded. */
+    if (!decorationOnly && !FAILURE_MARKER.test(prefix)) continue;
+    /* ⚠️ AN EMPTY OR WHITESPACE-ONLY PREFIX IS NOT A FINDING MARKER. Without
+       this, an ordinary `console.log('  ' + JSON.stringify(row))` sitting on
+       a line that happens to mention `problems` REDS this test: the
+       manufacture-work direction, which the structural rule above would
+       otherwise reopen. */
+    if (!/[^\s]/.test(prefix)) continue;
+    out.push({ prefix, decorationOnly });
+  }
+  return out;
+}
+
 test('every emit site in every check prints a line the gate can quote', () => {
   const re = runnerReasonPattern();
   const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.js'));
@@ -566,37 +630,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
   const perFile = Object.create(null);
   for (const f of files) {
     const src = fs.readFileSync(path.join(DIR, f), 'utf8');
-    for (const prefix of emitPrefixes(src)) {
-      /* 🛑 NOT AN ENUMERATION OF GLYPHS. A per-finding decoration is defined
-         structurally, as "no word characters except the literal FAIL", so it
-         admits any marker anyone invents. An enumeration guarding against an
-         enumeration reproduces the failure it names.
-         ⚠️ AND THAT EXEMPTION IS ITSELF A FILTER THAT HIDES THINGS, MEASURED
-         RATHER THAN SUSPECTED. A prefix carrying WORDS is dropped here, so
-         a worded prefix with no marker in it is NOT guarded, which is what
-         drops ordinary logging. Prefixes carrying a marker ARE now tested, and
-         that arm immediately found render-fields' instrument self-check
-         printing an unquotable line. Do not restate that these sites "have
-         been fixed": that claim was in this file and was false for
-         render-fields, whose line began with a sentence and never matched.
-         Perturbation, count-neutral, both arms: a WORD-FREE escaped prefix
-         (`'\n  - '`) IS caught; the same shape carrying words is NOT.
-         ⇒ The escape decoding above is doing real work, and this exemption
-         bounds it. Do not read a green run as covering a worded failure line. */
-      const decorationOnly = /^[^\w]*(FAIL)?[^\w]*$/u.test(prefix);
-      /* A worded prefix is ordinary logging AND IS SKIPPED, unless it carries a
-         failure marker, in which case it is a finding line already and can be
-         tested directly. That second arm is what closes the blind spot a
-         perturbation found: the branch's three THREW reporters print via a
-         template whose prefix carries words, so the worded-prefix skip alone
-         discarded them and their `FAIL` was unguarded. */
-      if (!decorationOnly && !FAILURE_MARKER.test(prefix)) continue;
-      /* ⚠️ AN EMPTY OR WHITESPACE-ONLY PREFIX IS NOT A FINDING MARKER. Without
-         this, an ordinary `console.log('  ' + JSON.stringify(row))` sitting on
-         a line that happens to mention `problems` REDS this test: the
-         manufacture-work direction, which the structural rule above would
-         otherwise reopen. */
-      if (!/[^\s]/.test(prefix)) continue;
+    for (const { prefix, decorationOnly } of findingEmitSites(src)) {
       perFile[f] = (perFile[f] || 0) + 1;
       /* A decoration needs a finding appended to become a line; a
          marker-carrying prefix already IS the start of one. */
@@ -643,6 +677,14 @@ function catchLaunchPrefixes(src) {
   return out;
 }
 
+/* The catch/launch sites of one check; its length is the second SITE_COUNTS number.
+   These prefixes are already the START of a failure line (a crash/launch emit, not a
+   decoration awaiting a finding), so they are tested as they stand. An
+   empty/whitespace-only prefix is not a marker and is not a site. */
+function catchLaunchSites(src) {
+  return catchLaunchPrefixes(src).filter((prefix) => /[^\s]/.test(prefix));
+}
+
 test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   const re = runnerReasonPattern();
   const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.js'));
@@ -650,11 +692,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   const perFile = Object.create(null);
   for (const f of files) {
     const src = fs.readFileSync(path.join(DIR, f), 'utf8');
-    for (const prefix of catchLaunchPrefixes(src)) {
-      /* These prefixes are already the START of a failure line (a crash/launch
-         emit, not a decoration awaiting a finding), so test them as they stand.
-         An empty/whitespace-only prefix is not a marker and is skipped. */
-      if (!/[^\s]/.test(prefix)) continue;
+    for (const prefix of catchLaunchSites(src)) {
       perFile[f] = (perFile[f] || 0) + 1;
       if (!re.test(prefix)) bad.push(`${f}: catch/launch prints "${prefix}"`);
     }
@@ -663,4 +701,28 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   assert.deepEqual(bad, [],
     'these checks print catch/launch failures the gate cannot quote, so a red reports '
     + '"(no FAIL or error line in its output)":\n  ' + bad.join('\n  '));
+});
+
+test('a check with no SITE_COUNTS line is told its real pair, both slots measured (#5106 review)', () => {
+  /* A check whose two counts differ and are both nonzero, so a guessed 0 in either slot
+     AND a swapped pair are both wrong answers this can see. */
+  const f = Object.keys(SITE_COUNTS).find((k) => SITE_COUNTS[k][0] > 0 && SITE_COUNTS[k][1] > 0
+    && SITE_COUNTS[k][0] !== SITE_COUNTS[k][1]);
+  assert.ok(f, 'no check has two different nonzero counts to test the suggestion with');
+  const real = SITE_COUNTS[f];
+  /* Control: the source measures the table's pair, so "its real pair" is a fact here,
+     not the table repeated back. */
+  assert.deepEqual([measuredSites(f, 0), measuredSites(f, 1)], real);
+  const copy = { ...SITE_COUNTS };
+  delete copy[f];
+  for (const slot of [0, 1]) {
+    const mine = siteCountMismatches({ [f]: real[slot] }, slot, 'test', copy)
+      .filter((l) => l.startsWith(f + ':'));
+    assert.deepEqual(mine, [`${f}: ${real[slot]} test sites matched and it has no SITE_COUNTS line `
+      + `(add '${f}': [${real[0]}, ${real[1]}], in sorted order)`], `slot ${slot}`);
+  }
+  /* A name with no source prints '?', never a guessed number. */
+  const ghost = siteCountMismatches({ 'no-such-check.js': 1 }, 0, 'test', {});
+  assert.deepEqual(ghost, ["no-such-check.js: 1 test sites matched and it has no SITE_COUNTS line "
+    + "(add 'no-such-check.js': [1, ?], in sorted order)"]);
 });
