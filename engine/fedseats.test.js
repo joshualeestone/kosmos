@@ -898,6 +898,30 @@ test('#3728: the owner shares the room key with a member who knows the invite, a
   assert.strictEqual(lines(seat).length, n, 'a second key was pinned from one invite');
 });
 
+test('#4649 slice 1b: the owner\'s room says who joined, by the owner\'s label, once, when the member\'s computer is pinned', async () => {
+  const inv = newInvite('jl');
+  const anon = newInvite('jl2');
+  const file = require('path').join(require('./store').ROOT, require('./fedmembers').FILE);
+  const all = require('fs').existsSync(file) ? JSON.parse(require('fs').readFileSync(file, 'utf8')) : {};
+  all['proj-joinline'] = [{ invite_id: inv.invite, label: 'Dana Ruiz', kind: 'person', made_at: 1, expires_at: 9e9 }];
+  require('fs').writeFileSync(file, JSON.stringify(all));
+  const { h, seat } = await ownerRoom('proj-joinline', 'ref-joinline', 'room-jl', [inv, anon]);
+  const joined = () => h.notes.filter((n) => /joined/.test(n.text)).map((n) => n.text);
+  assert.deepStrictEqual(joined(), [], 'a join line before anyone joined');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-jl') });
+  await settle();
+  assert.deepStrictEqual(joined(), ['Dana Ruiz joined.']);
+  // The same member saying hello again (its share was lost) is not a new join.
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-jl') });
+  await settle();
+  assert.deepStrictEqual(joined(), ['Dana Ruiz joined.'], 'a repeated hello said someone joined again');
+  // A code made where no label was kept (the create screen): a plain sentence.
+  say(seat, { event: 'message', data: fedseal.helloFrame(anon.s, anon.code, fedseal.newKeyPair(), 'room-jl') });
+  await settle();
+  assert.deepStrictEqual(joined(), ['Dana Ruiz joined.', 'Someone joined from outside.']);
+});
+
 test('#3728: an owner never speaks or listens in the clear once it has made a sealing invite, key or no key yet', async () => {
   const inv = newInvite('oc');
   const { h, seat } = await ownerRoom('proj-seal-oc', 'ref-seal-oc', 'room-oc', [inv]);

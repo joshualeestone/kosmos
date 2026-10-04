@@ -112,7 +112,7 @@ test('#4649: Members joins this board\'s record with the coordinator\'s connecti
   assert.strictEqual(down.body.invites.length, 5);
   // A project this board joined lists nothing and is not the owner's.
   const asMember = await fedmembers.members(stubRemote({}), 'joined', now);
-  assert.deepStrictEqual(asMember.body, { owner: false, invites: [], checked_at: null });
+  assert.deepStrictEqual([asMember.body.owner, asMember.body.invites, asMember.body.checked_at], [false, [], null]);
 });
 
 test('#4649: Remove revokes only a connection of THIS project, and passes the coordinator\'s refusal through', async () => {
@@ -292,4 +292,31 @@ test('#4649 review round 6: a links record that cannot be read after the coordin
   } finally {
     if (before) fs.writeFileSync(linksFile, before); else fs.rmSync(linksFile, { force: true });
   }
+});
+
+test('#4649 slice 1b: a project this board JOINED answers who owns it, whether it is sealed, and whether this computer was removed', async () => {
+  federation.recordLink('theirs', { role: 'member', edge_id: 'e-9', owner_handle: 'maya' });
+  let m = await fedmembers.members(stubRemote({}), 'theirs');
+  assert.strictEqual(m.status, 200);
+  assert.deepStrictEqual([m.body.owner, m.body.owner_name, m.body.sealed, m.body.ended, m.body.removed], [false, 'maya', false, false, false]);
+  fedseal.setRoomState('theirs', { role: 'member', s: fedseal.randomSecret(), code: 'c', peer: null, epoch: null, keys: {} });
+  m = await fedmembers.members(stubRemote({}), 'theirs');
+  assert.strictEqual(m.body.sealed, true, 'a room joined with a sealing code read as not sealed while its key had not arrived');
+  federation.recordLink('theirs', { role: 'member', edge_id: 'e-9', owner_handle: 'maya', ended: 'that connection has been revoked. Ask to be re-invited.' });
+  m = await fedmembers.members(stubRemote({}), 'theirs');
+  assert.deepStrictEqual([m.body.ended, m.body.removed], [true, true]);
+  federation.recordLink('theirs', { role: 'member', edge_id: 'e-9', owner_handle: 'maya', ended: 'the connection ended' });
+  m = await fedmembers.members(stubRemote({}), 'theirs');
+  assert.deepStrictEqual([m.body.ended, m.body.removed], [true, false], 'an ending that was not a removal read as one');
+});
+
+test('#4649 slice 1b: a project shared only with this account\'s other computers answers self_shared, not a refusal', async () => {
+  federation.recordLink('ownonly', { role: 'self', ref: 'ref-own', project_name: 'Own' });
+  const m = await fedmembers.members(stubRemote({}), 'ownonly');
+  assert.strictEqual(m.status, 200, JSON.stringify(m));
+  assert.deepStrictEqual([m.body.owner, m.body.self_shared, m.body.invites], [true, true, []]);
+});
+
+test('#4649 slice 1b: joinedLine uses the owner\'s label for that invite, else a plain sentence', () => {
+  assert.strictEqual(fedmembers.joinedLine('nowhere', 'inv-x'), 'Someone joined from outside.');
 });

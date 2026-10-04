@@ -221,7 +221,11 @@ async function inviteNow(remote, body, { projectExists, projectName, projectDesc
 async function members(remote, projectId, now = Date.now(), { projectExists } = {}) {
   if (projectExists && !projectExists(projectId)) return { status: 404, body: { error: 'That project is not on this computer.' } };
   const o = ownerLinkOf(projectId);
-  if (o.status) return o.body.reason === 'not-owner' ? { status: 200, body: { owner: false, invites: [], checked_at: null } } : o;
+  if (o.status && o.body.reason === 'not-owner') return { status: 200, body: memberView(projectId) };
+  /* Slice 1b (Pete's Q-K6): a project shared only with this account's other computers is answered, not refused, so the
+     screen can leave out "Invite someone outside" (#4658) rather than fail when it makes a code. */
+  if (o.status && o.body.reason === 'self-shared') return { status: 200, body: { owner: true, self_shared: true, sealed: false, invites: [], checked_at: null } };
+  if (o.status) return o;
   let rows;
   try { rows = rowsFor(projectId); } catch (err) { return { status: 500, body: { error: err.message } }; }
   let edges = null;
@@ -263,6 +267,31 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
   let sealed = false;
   try { sealed = !!(o.link && require('./fedseal').isSealedRef(o.link.ref)); } catch { sealed = false; }
   return { status: 200, body: { owner: true, sealed, invites: out, checked_at: checkedAt } };
+}
+
+/** Slice 1b (Pete's Q-K4): what a project this board JOINED shows about itself. `owner_name` is the handle the
+    coordinator gave at verify (already cut and cleaned there). `sealed` is a room joined with a sealing code (whether
+    or not the owner's key has arrived yet). `ended` is the mark fedseats keeps once the connection ended, and
+    `removed` is the case where the owner revoked this computer (#5193's reason). */
+function memberView(projectId) {
+  let link = null;
+  try { link = federation.linkFor(projectId); } catch { link = null; }
+  let sealed = false;
+  try { const st = require('./fedseal').roomState(projectId); sealed = !!(st && st.role === 'member'); } catch { sealed = false; }
+  const ended = !!(link && link.ended);
+  const reason = ended && typeof link.ended === 'string' ? link.ended : null;
+  return {
+    owner: false, owner_name: (link && typeof link.owner_handle === 'string' && link.owner_handle) || null, sealed,
+    ended, ended_reason: reason, removed: !!(reason && /revoked|removed this computer/i.test(reason)), invites: [], checked_at: null,
+  };
+}
+
+/** The owner's room line when a member's computer first arrives (slice 1b, Q-K1): the owner's label for that invite,
+    or a plain sentence. Called by fedseats when it pins the member, which is when someone has really joined. */
+function joinedLine(projectId, inviteId) {
+  let row = null;
+  try { row = rowsFor(projectId).find((x) => x && x.invite_id === inviteId) || null; } catch { row = null; }
+  return row && row.label ? row.label + ' joined.' : 'Someone joined from outside.';
 }
 
 /** Remove a joined member: revoke its connection. The owner's next room check rotates the key (#3728, #5191). */
@@ -312,4 +341,4 @@ async function withdraw(remote, projectId, inviteId, now = Date.now()) {
   return { status: 200, body: { withdrawn: true } };
 }
 
-module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget };
+module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine };

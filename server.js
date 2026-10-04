@@ -17636,6 +17636,13 @@ const server = http.createServer(async (req, res) => {
             throw err;
           }
         }
+        if (!snap.own) {
+          /* #4649 slice 1b (Q-K1): the member's room says whose project it joined. The handle is the coordinator's,
+             cut and cleaned at verify (federation.externalName). */
+          try {
+            messages.roomNote(made.id, snap.owner_handle ? 'You joined ' + snap.owner_handle + '\'s project.' : 'You joined this project from outside.');
+          } catch { /* the note is furniture; the room exists regardless */ }
+        }
         if (snap.own) {
           try {
             messages.roomNote(made.id, 'This project is shared with your other computers. Messages in this room are not sealed end to end.');

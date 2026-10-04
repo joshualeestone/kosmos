@@ -42,6 +42,7 @@ remote.macRequest = async (method, route, body) => {
   if (route === '/v1/mac/federation/edges') return { ok: true, data: { as_owner: edgeList, as_member: [] } };
   if (route === '/v1/mac/federation/revoke') return { ok: true, data: { ok: true } };
   if (route === '/v1/mac/federation/invite/withdraw') return { ok: true, data: { ok: true } };
+  if (route === '/v1/mac/federation/verify') return { ok: true, data: { edge_id: 'edge-join-1b', project_name: 'Maya Spring', project_desc: '', owner_handle: 'maya' } };
   return { ok: false, because: 'unexpected route ' + route };
 };
 
@@ -135,4 +136,16 @@ test('#4649 review round 1: removing a project forgets its outside invites, so a
   assert.equal(pid2, pid, 'precondition: the freed id is reused, which is the case this guards');
   m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid2), undefined, SCREEN);
   assert.deepEqual(m.json.invites, [], 'a new project listed the removed project\'s invites and labels');
+});
+
+test('#4649 slice 1b: joining an outside project writes "You joined <owner>\'s project." in the new room, and Members says whose it is', async () => {
+  const v = await call('POST', '/api/federation/verify', { code: 'ANY-CODE' }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  const j = await call('POST', '/api/federation/join', { edge_id: 'edge-join-1b', agents: [] }, SCREEN);
+  assert.equal(j.status, 200, JSON.stringify(j.json));
+  const notes = require('./engine/messages').record().rows.filter((m) => m.project === j.json.id && m.kind === 'note').map((m) => m.text);
+  assert.ok(notes.includes("You joined maya's project."), JSON.stringify(notes));
+  const m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(j.json.id), undefined, SCREEN);
+  assert.equal(m.status, 200, JSON.stringify(m.json));
+  assert.deepEqual([m.json.owner, m.json.owner_name, m.json.removed], [false, 'maya', false]);
 });
