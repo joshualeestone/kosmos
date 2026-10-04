@@ -120,7 +120,11 @@ const RULES = () => {
 
 (async () => {
   fleet.install([fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' }),
-    fleet.agent('basil', { state: 'idle', displayName: 'Basil', role: 'a researcher' })]);
+    fleet.agent('basil', { state: 'idle', displayName: 'Basil', role: 'a researcher' }),
+    // #5229 review (Renet): a row with a pending ask shows "Answer" right under the enlarged name, the neighbour the
+    // covers lines most need to see. The role is long so it wraps, the tightest case.
+    fleet.agent('cleo', { state: 'idle', displayName: 'Cleo', role: 'a researcher who reads every source twice before writing anything down' })]);
+  require('../../engine/selfreport').record('cleo', { state: 'needs_you', because: 'Which of the two drafts should go out?' });
   const launch = projects.create({ name: 'Spring launch' });
   projects.addAgent(launch.id, 'ada', null);
   require('../../engine/tasks').create(launch.id, { sentence: 'Write the blurb', who: 'ada' });   // so the project has a Tasks view
@@ -151,6 +155,8 @@ const RULES = () => {
       chk(names.length >= 2 && names.every((x) => x.ok), `${tag} board: every agent's name reaches 44`, JSON.stringify(names));
       const sortH = await page.evaluate(() => { const e = document.querySelector('#agent-sort'); return e && e.checkVisibility() ? Math.round(e.getBoundingClientRect().height) : null; });
       chk(sortH === null || sortH >= 44, `${tag} board: Sort agents is 44 tall (or not shown)`, String(sortH));
+      const answers = await page.evaluate(() => [...document.querySelectorAll('.ansgo')].filter((e) => e.checkVisibility()).length);
+      chk(answers >= 1, `${tag} board: an agent's Answer link is on screen, so the cover line below measures it`, String(answers));
       const boardCovers = await covers(page);
       chk(boardCovers.length === 0, `${tag} board: no control is taken by a neighbour's hit area`, JSON.stringify(boardCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} board: no sideways scroll`);
@@ -223,6 +229,8 @@ const RULES = () => {
       chk(areas.slice(1).every((a) => a.up === 'self'), '[tablet 1366 one-screen] every name below the first reaches 44 upward too', JSON.stringify(areas));
       const ell = await page.evaluate(() => getComputedStyle(document.querySelector('.lrow > .lname b')).textOverflow);
       chk(ell === 'ellipsis', '[tablet 1366 one-screen] a long name still ends in an ellipsis', ell);
+      const ans = await page.evaluate(() => [...document.querySelectorAll('.lrow .ansgo')].filter((e) => e.checkVisibility()).length);
+      chk(ans >= 1, '[tablet 1366 one-screen] a row\'s Answer link is on screen, so the cover line below measures it', String(ans));
       const cov = await covers(page);
       chk(cov.length === 0, '[tablet 1366 one-screen] no control is taken by a neighbour\'s hit area', JSON.stringify(cov));
       await ctx.close();
