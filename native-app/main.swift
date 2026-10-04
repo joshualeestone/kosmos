@@ -2929,7 +2929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: a download the person started that did not save is said, one plain alert each. A refusal by policy
     /// (`quiet: true`: not a board, not this board's origin, WebKit stopping it; a computer the person did not allow
-    /// and a page that changed are logged in mayDownload itself) is logged only: the person either chose it or is not on a Kosmos page, and a page that
+    /// is logged in mayDownload itself, where a voided Allow is said once) is logged only: the person either chose it or is not on a Kosmos page, and a page that
     /// repeats one cannot pile alerts up. The selftest sets downloadAlertPresenter to read what is said.
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false, always: Bool = false) {
         if quiet { logLine("#5167: not saved (a refusal, logged only): \(detail)"); return }
