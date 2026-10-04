@@ -17846,6 +17846,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5153 slice 1: a closed task's change receipt (engine/receipt.js): per agent that held a part, the files it changed,
+     how many commands it ran (a count only), its tokens per model, and how often the task was put back or handed on.
+     Worked out here when the page asks, never in the close path; kept once the close has settled. Read-only, beside
+     the activity route and gated the same way. An open task answers { ready: false, because: 'open' }. */
+  const taskReceipt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/receipt$/);
+  if (taskReceipt && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* For the person's page: it names every holding agent's files and folder, more than the activity route shows, so a
+       caller presenting an agent's token is refused (review 1). */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'a task\'s receipt is for the person, not for agents' }); return; }
+    const id = decodeSegment(taskReceipt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let task = null;
+    try {
+      const proj = (require('./engine/projects').readAll() || []).find((x) => x && x.id === id);
+      task = proj ? require('./engine/tasks').byNumber(proj, Number(taskReceipt[2])) || null : null;
+    } catch { task = null; }
+    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
+    require('./engine/receipt').forTask(id, task)
+      .then((out) => sendJson(res, 200, out))
+      .catch((err) => {
+        console.error('receipt: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { error: 'we could not work out the receipt just now' });
+      });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);

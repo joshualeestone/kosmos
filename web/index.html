@@ -6264,6 +6264,21 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
+   like the column's others, every line one size, facts about the tool muted, the page's own toggle for the files. */
+.tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
+.tkreceipt .dlab { margin: 10px 0 4px; }
+.tkr-line, .tkr-intro, .tkr-again { margin: 2px 0 0; font-size: inherit; }
+.tkr-intro, .tkr-again, .tkr-muted { color: var(--k-ink-3, var(--label-2)); }
+.tkr-agent { padding: 8px 0; }
+.tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }
+.tkr-name { font-weight: 600; }
+.tkr-files-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; }
+.tkr-chev { transition: transform .15s; }
+.tkr-files-btn[aria-expanded="true"] .tkr-chev { transform: rotate(90deg); }
+.tkr-files { list-style: none; margin: 4px 0 0; padding: 0; }
+.tkr-files li, .tkr-where { color: var(--k-ink-3, var(--label-2)); overflow-wrap: anywhere; }
+@media (max-width: 40rem) { .tkr-files-btn { display: flex; width: 100%; min-height: 44px; } }   /* the whole line taps */
 /* ⚠️ THE ADD ROW HAD TO BE SIZED DOWN, and rendering is the only thing that
    showed it: `.frow` gives the input `flex: 1` and `.btn-quiet` is a
    full-weight control, so at this column's width the pair WRAPPED and Add
@@ -16192,6 +16207,8 @@ window.kosmosMeasureScrollbarWidth();
       <section class="pjcol tkconvcol">
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
+        <!-- #5153: a closed task's change receipt, drawn by paintTaskReceipt; hidden while the task is open. -->
+        <div id="tk-receipt" class="tkreceipt" hidden></div>
         <!-- #768: the composer. A message typed here is recorded on the task, shows
              in the activity above (engine tasks.say -> taskchat), AND is delivered to
              the agents assigned to the task (the server route notifies them via
@@ -56351,6 +56368,8 @@ async function loadProjects() {
      done" button for a task somebody closed elsewhere. Guarded on the view
      being up, so a stale TK_OPEN cannot repaint a page nobody is looking at. */
   if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) paintTaskPage();
+  // #5153: a task closed or put back elsewhere shows or hides its receipt on this read.
+  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) tkReceiptSync();
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -57677,6 +57696,114 @@ function tkActPhrase(ev, p) {
     default: return String(ev.kind);
   }
 }
+/* #5153: the receipt's words for one agent's row. Pure (node-testable): `a` is one entry of the receipt's `agents`,
+   `name` its display name. Commands are a COUNT (their text is Josh's call); dollars come from usageApiCost, the one
+   price table, and say "at API prices" because a subscription is not billed this. */
+const TKR_PROVIDER = { codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok', antigravity: 'Antigravity', muse: 'Muse' };
+function tkReceiptAgentHtml(a, name) {
+  const head = '<div class="tkr-name">' + esc(name) + '</div>';
+  if (!a.available) {
+    const why = a.because === 'provider'
+      ? 'A receipt is not available for ' + (TKR_PROVIDER[a.provider] || a.provider || 'this provider') + ' agents yet.'
+      : 'Not an agent with a folder on this computer, so there is nothing to read.';
+    return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc(why) + '</p></div>';
+  }
+  if (!a.transcriptsWithWork) {
+    const tool = a.provider === 'claude' || !a.provider ? 'Claude Code' : (TKR_PROVIDER[a.provider] || a.provider);
+    return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc('No ' + tool + ' activity found while it held this task.') + '</p></div>';
+  }
+  const models = a.models || {};
+  let tokens = 0;
+  for (const b of Object.values(models)) tokens += usageRowTokenTotal(b);
+  const { cost, unpriced } = usageApiCost({ receipt: models });
+  const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
+  const bits = [
+    nFiles === 1 ? 'Edited 1 file' : 'Edited ' + usageNum(nFiles) + ' files',
+    a.commands === 1 ? 'ran 1 command' : 'ran ' + usageNum(Number(a.commands) || 0) + ' commands',
+    usageAbbr(tokens) + ' tokens',
+  ];
+  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : ''));
+  else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
+  /* The page's own toggle, not the browser's <details> (Mona Lisa): "4 files" with the chevron, a plain list, the folder
+     as its muted foot. Opened by the delegated click on #tk-receipt. */
+  const list = (a.files || []).map((f) => '<li>' + esc(f) + '</li>').join('')
+    + (a.filesMore ? '<li>and ' + usageNum(a.filesMore) + ' more</li>' : '')
+    + (a.folder ? '<li class="tkr-where">In ' + esc(a.folder) + '</li>' : '');
+  const toggle = nFiles
+    ? '<button type="button" class="linkish tkr-files-btn" aria-expanded="false">' + esc(nFiles === 1 ? '1 file' : usageNum(nFiles) + ' files')
+      + '<svg class="tkr-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+      + '<ul class="tkr-files" hidden>' + list + '</ul>'
+    : (a.folder ? '<p class="tkr-line tkr-where">In ' + esc(a.folder) + '</p>' : '');
+  return '<div class="tkr-agent">' + head
+    + '<p class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</p>'
+    + toggle
+    + '</div>';
+}
+/* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
+   (Mona Lisa: the receipt between the activity and its summary split the history in two). */
+function tkReceiptHtml(r, p) {
+  const agents = Array.isArray(r && r.agents) ? r.agents : [];
+  const rt = (r && r.retries) || {};
+  const times = (k) => (k === 1 ? '1 time' : usageNum(k) + ' times');
+  const again = [rt.reopened ? 'put back ' + times(rt.reopened) : '', rt.handoffs ? 'handed on ' + times(rt.handoffs) : ''].filter(Boolean);
+  const body = agents.length
+    ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
+    : '<p class="tkr-line tkr-muted">Nobody held this task, so there is no work to show.</p>';
+  return '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>'
+    + '<h3 class="dlab">Receipt</h3>'
+    + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
+    + body;
+}
+/* #5153: fetch and draw the receipt for task `n` when it is closed; hidden otherwise. Same stale-page guards as the
+   activity below. A failed read hides it rather than showing a receipt of nothing. */
+let TKR_SEQ = 0;
+function tkTaskClosed(n) {
+  const p = pjById(PJ_CURRENT);
+  const t = p && n != null && (p.tasks || []).find((x) => x.number === n);
+  // A task closed by closing its last part has no closedAt of its own: progress says closed (review 1).
+  return Boolean(t && (t.progress ? t.progress.closed : t.closedAt));
+}
+/* #5153: paint the receipt only when the open task, or whether it is closed, changed since it was last painted: the poll
+   calls this, so a task closed or put back by an agent or another window shows or hides its receipt without a fetch on
+   every tick (review 2). openTaskPage forgets the last key, so a task opened again is painted again. */
+let TKR_SHOWN = null;
+let TKR_FAILED = null;   // { key, at } of the last read that failed
+const TKR_RETRY_MS = 30000;
+function tkReceiptSync() {
+  const p = pjById(PJ_CURRENT);
+  const t = p && TK_OPEN != null && (p.tasks || []).find((x) => x.number === TK_OPEN);
+  /* The close time is in the key (the task's own, or its newest part's), so closed, put back and closed again between
+     two polls paints the new close (review 3). */
+  const partClose = t ? (Array.isArray(t.parts) ? t.parts : []).map((x) => (x && x.closedAt) || '').sort().pop() || '' : '';
+  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN) + ':' + ((t && t.closedAt) || partClose);
+  if (key === TKR_SHOWN) return;
+  /* After a failed read, the same receipt is asked for again only after TKR_RETRY_MS (review 4: a read that keeps
+     failing would otherwise re-read the transcripts on every poll). */
+  if (TKR_FAILED && TKR_FAILED.key === key && Date.now() - TKR_FAILED.at < TKR_RETRY_MS) return;
+  TKR_SHOWN = key;
+  paintTaskReceipt(TK_OPEN);
+}
+async function paintTaskReceipt(n) {
+  const holder = document.getElementById('tk-receipt');
+  if (!holder) return;
+  const seq = ++TKR_SEQ;   // only the newest call paints: a slow read must not paint over a reopen (review 1)
+  const p = pjById(PJ_CURRENT);
+  if (!p || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
+  let r = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/receipt', { cache: 'no-store' });
+    if (seq !== TKR_SEQ || n !== TK_OPEN) return;
+    if (!res.ok) throw new Error('not ok');
+    r = await res.json();
+  } catch { r = null; }
+  if (seq !== TKR_SEQ || n !== TK_OPEN) return;
+  /* A failed read is tried again (after TKR_RETRY_MS), not left hidden while the page stays open (review 3). */
+  if (!r) { TKR_FAILED = TKR_SHOWN ? { key: TKR_SHOWN, at: Date.now() } : null; TKR_SHOWN = null; }
+  else TKR_FAILED = null;
+  if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
+  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
+  holder.hidden = false;
+}
 /* Draw the task's activity, oldest first (the way the record is written and the
    way a conversation reads top-to-bottom). Fetched on open and re-fetched after
    an in-app change (tkPartPost / the done button), NOT on the five-second poll:
@@ -57741,7 +57868,11 @@ function openTaskPage(n) {
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
   if (acts) acts.innerHTML = '';
+  const receipt = document.getElementById('tk-receipt');
+  if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   paintTaskActivity(n);
+  TKR_SHOWN = null;   // #5153: a task opened again is painted again
+  tkReceiptSync();
   pjView('task');
   document.getElementById('tk-back').focus();   // the top of the new page
 }
@@ -57780,12 +57911,22 @@ async function tkPartPost(url, body) {
     msg.textContent = heardSentence(spokenHeard(pjById(PJ_CURRENT), out && out.heard));
     // #768: the change just recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
+    tkReceiptSync();   // #5153: closing the last part closes the task
     return true;
   } catch {
     msg.textContent = 'we could not change that';
     return false;
   }
 }
+/* #5153: a receipt's "N files" toggle opens its list (the receipt is redrawn whole, so the click is delegated). */
+document.getElementById('tk-receipt').addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.tkr-files-btn');
+  if (!b) return;
+  const list = b.nextElementSibling;
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  b.setAttribute('aria-expanded', String(open));
+  if (list) list.hidden = !open;
+});
 /* Choosing who is on a part. The row's name becomes a menu in place, so the
    fact and the control never sit in two places disagreeing about it. */
 document.getElementById('tk-who').addEventListener('click', (e) => {
@@ -57900,6 +58041,7 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     await pjReload();
     // #768: close/reopen recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
+    tkReceiptSync();   // #5153: a closed task shows its receipt, a reopened one hides it
     /* ⚠️ AND IT STAYS ON THE PAGE. The dialog closed itself here, which was
        right for a dialog: the act was the reason it was open. A page is not
        dismissed by succeeding, and being thrown back to the project on a
