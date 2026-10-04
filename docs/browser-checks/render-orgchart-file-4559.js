@@ -522,7 +522,9 @@ async function run() {
         /xAI Grok \(work\), billed to your xAI Grok key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
       check('KEY PROVIDER: Read it sends back the reader the consent named (the board refuses any other)', sentReader === 'xai:0123456789ab', JSON.stringify(sentReader));
       check('KEY PROVIDER: while a key provider reads, the page shows that it can take up to two minutes, not Claude\'s ten seconds', heldReached && /^Reading your chart/.test(reading) && /up to two minutes/.test(reading) && !/ten seconds/.test(reading), JSON.stringify([heldReached, reading]));
-      check('KEY PROVIDER: a kind it cannot read (Grok and a PDF) is said with no consent box', k2.msg.includes(grokPdf) && !k2.consent, JSON.stringify([k2.msg, k2.consent]));
+      // The board's refusal itself (Grok and a PDF, before any consent) is guarded in server.orgchart-read-4559.test.js;
+      // this route is stubbed, so the page can only show the board's sentence (round 5: a 'no consent box' half could not fail).
+      check('KEY PROVIDER: the page shows the board\'s sentence for a kind the key provider cannot read (Grok and a PDF)', k2.msg.includes(grokPdf), JSON.stringify(k2.msg));
       changed = true;
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
       await pk.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 }).catch(() => {});

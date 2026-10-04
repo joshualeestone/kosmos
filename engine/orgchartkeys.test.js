@@ -454,7 +454,7 @@ test('#4560: a bare 403 or 404 (no provider code) is not blamed on the key: it c
   assert.match(keys.refusal(x, 400, { error: { code: 'invalid_api_key' } }), /did not accept this key/, 'CONTROL: the nested shape still reads');
 });
 
-test('#4560: a key read stops before the Kosmos+ relay gives up on the board (120 s), so a phone never waits on a read nobody sees', () => {
+test('#4560: both reads stop under the Kosmos+ relay\'s 120 s wait (it still gives up first on a slow upload: stated in the plan)', () => {
   const keys = require('./orgchartkeys');
   assert.ok(keys.TIMEOUT_MS < 120 * 1000, 'TIMEOUT_MS ' + keys.TIMEOUT_MS + ' is not under the relay\'s 120 s');
   assert.ok(keys.TIMEOUT_MS >= 60 * 1000, 'TIMEOUT_MS ' + keys.TIMEOUT_MS + ' is too short for a reasoning model');
