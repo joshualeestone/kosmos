@@ -117,8 +117,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       document.body.classList.remove('fold-a');
       return out;
     });
-    ok(t + ' #3129 folded, the rule stays inside the rail and the rail cannot scroll sideways',
-      folded.hdr && folded.left >= -0.5 && folded.right >= -0.5 && folded.scroll <= folded.client, JSON.stringify(folded));
+    ok(t + ' #3129 folded, the rule still runs exactly edge to edge and the rail cannot scroll sideways',
+      folded.hdr && Math.abs(folded.left) <= 0.5 && Math.abs(folded.right) <= 0.5 && folded.scroll <= folded.client, JSON.stringify(folded));
 
     // 2) The top + opens the shared add-member modal, scoped to this project, picker populated
     //    with the FREE agents (out-a, out-b), not the members.
