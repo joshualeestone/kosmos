@@ -468,3 +468,39 @@ live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunn
 - Live: 25 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.
+
+## Cut to the core (2026-10-04, Baron's independent review on PR #5263, Splinter's go)
+The 40-round loop did not converge because its late rounds found edges of machinery the loop itself had added (the
+kosmos#120 pattern). Cut back to what the card and its four real defects need:
+- **Kept:**
+  - isSameOriginDownload, isBoardPage with the reserved labels, pageSaysDownloadRefusal, downloadDestination;
+  - the WKDownload delegates and the navigation and response policies;
+  - the 204/205 rule, and the error-page and web-page rules;
+  - quarantine;
+  - one plain modal Allow per Kosmos+ computer per run, with Return answering Don't Allow (round 23).
+- **Removed:**
+  - the 0.1 s wake timer and frontSince ("Allow sleeps for a second" and "sleeps while covered");
+  - downloadAlertsUp, the pending-failure batching and summaries;
+  - the quiet window, quietToldThisPage and summaryToldForPage;
+  - the per-Kosmos+-computer save cap (savesByHost).
+- **New rule for what is said:**
+  - A policy refusal (not a board, not this board's origin, a computer the person did not allow, the page changed while
+    asked, WebKit stopping it) is LOGGED only. The person either chose it or is not on a Kosmos page, and with no de-dup a
+    repeating page could otherwise pile alerts up.
+  - A real failure of a download the board started (an error page, a web page for a file, no Downloads folder, a failed
+    write, a missing quarantine mark) is one plain modal alert each.
+- **Trade-offs accepted:**
+  - A click at the instant the Allow question appears could land on Allow (no wake timer; Return still answers Don't
+    Allow).
+  - A refusal on a board page is not said on screen.
+  - An allowed Kosmos+ computer that repeats failing downloads gets one alert each (the person allowed it).
+  - No save cap: the person allowed that computer.
+- **Tests:**
+  - The live selftest has 23 rows; the cap, two-failures and burst arms are gone.
+  - The rows now assert that real failures are said and policy refusals are not; sabotage (alerting quiet refusals
+    again) turns those two rows red.
+  - native-app.download-5167.test.js: 28 tests, with the machinery-only ones dropped and five core tests added (the
+    per-computer ask and Return, 204 never saved, quiet is log-only with a negative pin that the machinery stays gone,
+    a not-a-board page cannot save, a dangling symlink is taken).
+  - The 68 related and audit test files: 2835 tests, 0 fail.
+  - The mode selftest: 86/86.
