@@ -23,7 +23,9 @@ MONDAY (main is frozen until the 07:00 pin).
   - across every control's own box (every 3px, edges included), a tap must land on that control
   - a point answered by another control OUTSIDE that control's drawn box (1px slack for a snapped shared edge) is a
     cover: a hit area taking a neighbour's tap
-  - a control drawn on top (an open menu) is stacking and does not count
+  - a point INSIDE another control's box counts too (padding taken back by a negative margin is a hit area), unless
+    that control sits in its own layer (fixed, absolute, sticky, an open dialog: an open menu is stacking) or is drawn
+    inside this one (a label's own input); 1.5px of a snapped shared edge is ignored
   - labels are scanned (a label row takes a tap for its control), and a DESCENDANT's hit area over its own card counts
     (Angel's review: both were false greens); only an ancestor answering inside a control is skipped
 
@@ -48,5 +50,13 @@ MONDAY (main is frozen until the 07:00 pin).
   label beside a button reads 0. Real screens, 12 incl. the three Settings ones, 48 shots: covers 0.
 - render-room-msgbox-2806 passes (the room header kept at 36). Wiring 12/12.
 
+- Round 2 (blind): padded hit areas were a false green (fixed: told apart by layer); the check pinned only part of its
+  claim (fixed: it reads every rule from computed style, with stand-ins for the data-only controls; deleting the
+  menu-tab, document-row, Try again and Tasks-back rules now reds it by name); the name's area is clipped on a touch
+  tablet's one-screen list, carded as #5225 (scope here is the phone).
+- Synthetic covers cases: label, nested and padded caught; honest label and an absolute menu not; real screens 48
+  shots, 0; the room header at 44 still caught.
+
 ## Weakest premise
-- WebKit not re-run tonight (the box hung on WebKit earlier); Chromium with touch + isMobile stands in.
+- WebKit ran on Mortals in Angel's review (AI settings and names clean); not re-run here after round 2's changes,
+  which touch only the tool and the check, not the page's CSS.
