@@ -1744,11 +1744,6 @@ function sameListedPath(resolved, walked, platform = process.platform) {
   return norm(resolved) === norm(walked);
 }
 
-/* #5165's name for the gates (open-file's own, without the list's rules), kept so its callers read the same. */
-function fileInFolder(folder, name, where = 'this project', act = 'open') {
-  return resolveListedFile(folder, name, where, { act });
-}
-
 /**
  * #5165: is the file a download just OPENED (`opened`, from fstat on the descriptor) the one the gates passed (resolveListedFile)
  * (`gated`, from its stat)? What stops a file swapped in between the gates and the open, so it must hold where a
@@ -3531,6 +3526,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, fileInFolder, sameOpenedFile, sameListedPath,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
   isUnderTmpDir, tmpFolderRefused,
 };

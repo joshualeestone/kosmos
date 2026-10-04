@@ -2,7 +2,7 @@
 /**
  * #5165 on a WINDOWS board. Over Kosmos+ a file click downloads, and the download routes
  * (/api/project/:id/file-download, /api/agent/:name/files/download) hand out the file
- * projects.fileInFolder resolves. This file tests that gate on Windows; it does not boot the
+ * projects.resolveListedFile resolves (in its listed mode, #4997's rebase onto #5165). This file tests that gate on Windows; it does not boot the
  * server, so the routes' own glue is covered by server.file-download-5165.test.js on a Mac. The user who found it was on Windows
  * (Josh, 2026-10-03 12:48), so the gate must hold where the board runs on Windows. "win32" in
  * this name puts it in the windows CI job (tools/windows-tests.js), on a real Windows runner;
@@ -71,7 +71,7 @@ test('W1 + W3: the list\u2019s own name for a file in a subfolder resolves to it
     const listed = projects.listFiles(folder, 50);
     const entry = (listed.files || []).find((f) => /Q3 deck\.pptx$/.test(f.name));
     assert.ok(entry, 'the list did not show the deck: ' + JSON.stringify(listed));
-    const found = projects.fileInFolder(folder, entry.name);
+    const found = projects.resolveListedFile(folder, entry.name, 'this project', { listed: true, act: 'download' });
     assert.equal(found.ok, true, 'the list\u2019s own name ' + JSON.stringify(entry.name) + ' was refused: ' + found.because);
     assert.equal(found.st.size, DECK.length);
     assert.equal(path.basename(found.given), 'Q3 deck.pptx', 'the download would be named something else');
@@ -93,7 +93,7 @@ test('W2: a name in Windows form is refused, so the download route reads nothing
     '\\\\server\\share\\secret.txt',
     path.join(folder, 'decks', 'Q3 deck.pptx'),
   ]) {
-    const found = projects.fileInFolder(folder, name);
+    const found = projects.resolveListedFile(folder, name, 'this project', { listed: true, act: 'download' });
     assert.equal(found.ok, false, 'accepted ' + JSON.stringify(name));
     assert.match(found.because, /not a file in this project/, JSON.stringify(name));
   }
@@ -130,14 +130,14 @@ test('W6: sameOpenedFile refuses a swap where the file system reports no inode, 
   const real = path.join(folder, 'decks', 'Q3 deck.pptx');
   const fd = fs.openSync(real, 'r');
   try {
-    const found = projects.fileInFolder(folder, 'decks/Q3 deck.pptx');
+    const found = projects.resolveListedFile(folder, 'decks/Q3 deck.pptx', 'this project', { listed: true, act: 'download' });
     assert.equal(projects.sameOpenedFile(found.st, fs.fstatSync(fd)), true, 'the real file, stat by path and by handle, read as different files');
   } finally { fs.closeSync(fd); }
   const other = path.join(folder, 'decks', 'other.pptx');
   fs.writeFileSync(other, Buffer.alloc(DECK.length + 3));
   const fd2 = fs.openSync(other, 'r');
   try {
-    const found = projects.fileInFolder(folder, 'decks/Q3 deck.pptx');
+    const found = projects.resolveListedFile(folder, 'decks/Q3 deck.pptx', 'this project', { listed: true, act: 'download' });
     assert.equal(projects.sameOpenedFile(found.st, fs.fstatSync(fd2)), false, 'CONTROL: a different real file read as the same one');
   } finally { fs.closeSync(fd2); }
 });
