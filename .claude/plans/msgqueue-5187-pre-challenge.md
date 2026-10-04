@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: msgqueue-5187
-diff_hash: f809133ca3e0c51c39536b6f6550e20b6ed0add5cfb1845e44386d997a007b61
+diff_hash: 4e08704fc22691296fb7396be83abb3c8cc63e4f6ac3ecf94a610fca74b59d0e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-03T23:31:00Z
-iterations: 3
+timestamp: 2026-10-04T04:15:00Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3
-**Converged:** Yes (iteration 3 raised no new findings)
-**Total findings:** 6 (0 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 2 NITs)
-**Fixed:** 6 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Iterations:** 4
+**Converged:** Yes (iteration 4 resolved reviewer blockers)
+**Total findings:** 8 (2 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 2 NITs)
+**Fixed:** 8 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -31,3 +31,7 @@ converged: true
 
 #### Iteration 3
 - Reviewer check: All focused test suites pass, zero em dashes across all files, and doctrine checks pass. Converged cleanly.
+
+#### Iteration 4 (Kano Review Blockers)
+- [BLOCKER] engine/status.js: antigravityQueued exit condition counted waiting messages whenever matches existed without a queue prompt -> FIXED: strictly require hasQueuePrompt.
+- [BLOCKER] engine/status.js: when messages are queued, footer replaces "esc to cancel" with "Press up to edit queued messages", causing classify to fall through to UNKNOWN -> FIXED: return WORKING if /esc to cancel/ matches OR waiting is not null.
