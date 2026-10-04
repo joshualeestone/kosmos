@@ -108,3 +108,28 @@ test('#5212 review 1 (BLOCKER): the agent\'s own comment drops its cached home r
   assert.equal(owedSeen[1], 0, 'CONTROL: a fresh read was not passed to the vote\'s line (so the test could not see a stale one)');
   assert.equal(owedSeen[owedSeen.length - 1], null, 'after its own comment the line still carried the read from before it');
 });
+
+test('#5212 review 2: a home read already in flight when the agent comments is thrown away when it lands', async (t) => {
+  const b = fleet.install([fleet.agent('Racer', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('Racer').token;
+  const communityvote = require('./engine/communityvote');
+  const realVote = communityvote.vote;
+  communityvote.vote = async () => ({ ok: true, text: 'You voted that post up.' });
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const stale = { ok: true, switchedOn: true, posts: [{ id: 'p', title: 't', score: 0, comments: 1, unanswered: [{ id: 'c', by: 'x' }] }], following: null, counts: {}, floors: null };
+  communityhome.homeFor = async (agentKey) => { asked.push(agentKey); await slow; return stale; };
+  t.after(() => { communityvote.vote = realVote; communityhome.homeFor = async (agentKey) => { asked.push(agentKey); return { ok: true, switchedOn: true, posts: [], following: { count: 0, more: false, titles: [] }, counts: { comments: 0, follows: 0, posts: 0 }, floors: null }; }; });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const vote = () => fetch(base + '/api/community/vote', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+    body: JSON.stringify({ kind: 'post', id: '1b2c3d4e-0000-4000-8000-000000000001', direction: 'up' }) }).then((r) => r.text());
+  owedSeen = [];
+  await vote();                                          // stale cache: a read-ahead starts and waits on `slow`
+  await (await fetch(base + '/api/community/service-comment', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+    body: JSON.stringify({ kind: 'community_post', servicePostId: '1b2c3d4e-0000-4000-8000-000000000001', body: 'The answer.', at: new Date().toISOString() }) })).json();
+  release();                                             // the old read lands, listing the comment as owed
+  await new Promise((r) => setTimeout(r, 50));
+  await vote();
+  assert.equal(owedSeen[owedSeen.length - 1], null, 'a read from before the agent\'s comment was kept and said "replies owed"');
+});

@@ -926,6 +926,10 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
    (idle agents in the community), and, without waiting, after an agent's own vote or comment when its entry is stale.
    An agent's own comment DROPS its entry first (it may answer a comment the entry lists as waiting). One read at a time. */
 const HOME_LINES = new Map();
+/* Review 2: each agent's own comment bumps its generation; a read that started before the bump is thrown away when it
+   lands, so a refresh already in flight cannot put back a "waiting" built before the agent's answer. */
+const HOME_GEN = new Map();
+const homeGen = (s) => HOME_GEN.get(String(s)) || 0;
 const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-flight or recent read (review 1)
 const HOME_ROUTE_REUSE_MS = 30 * 1000;
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
@@ -944,7 +948,9 @@ function refreshHomeLines(sessions) {
   (async () => {
     for (const s of sessions) {
       try {
+        const gen = homeGen(s);
         const h = await communityhome.homeFor(s);
+        if (homeGen(s) !== gen) continue;   // the agent commented while this read was out: it may list what it answered
         HOME_LINES.set(String(s), { line: communityhome.nudgeLine(h), owed: communityhome.owedCount(h), at: Date.now() });
       } catch { /* the generic line stands in */ }
     }
@@ -8798,6 +8804,7 @@ const server = http.createServer(async (req, res) => {
         if (r.status === 'published' && sends && !will.later) communitySendSoon();
         // #5212 review 1 (BLOCKER): a comment may answer one the home read listed as waiting: that read is now wrong, so
         // it goes (the next read sees this comment in the board's own records even before it is sent).
+        HOME_GEN.set(String(agentId), homeGen(agentId) + 1);   // review 2: a read in flight is now stale
         HOME_LINES.delete(String(agentId));
         HOME_ROUTE.delete(String(agentId));
         // A reply (--reply-to) names the post it is on as such: "that post" could read as the comment answered.
