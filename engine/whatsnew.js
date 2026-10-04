@@ -44,7 +44,7 @@ const PLATFORMS = Object.freeze(['mac', 'windows']);
 /* Matched in any case ("macos", "MacOS", "PCS", and "MAC" too), except the all-lower-case words in
    NOT_PLATFORM_WORDS. So a careless "on a mac" or "on windows" is NOT caught. "OS X" is matched as a pair. */
 const PLATFORM_WORDS = Object.freeze({
-  mac: ['Mac', 'Macs', 'macOS', 'Macintosh', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
+  mac: ['Mac', 'Macs', 'macOS', 'MacOSX', 'Macintosh', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
   windows: ['Windows', 'PC', 'PCs'],
 });
 const NOT_PLATFORM_WORDS = Object.freeze(['mac', 'macs', 'windows']);

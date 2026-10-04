@@ -150,7 +150,7 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
   assert.match(one({ line: 'Now on MacOS.' }).join(' '), /names mac but has no "platforms"/, 'a common miswriting of macOS');
   assert.match(one({ title: 'WINDOWS' }).join(' '), /names windows but has no "platforms"/);
   assert.deepEqual(one({ title: 'Faster OS', line: 'X marks the spot.' }), [], 'a title ending "OS" and a line starting "X" are not "OS X"');
-  for (const line of ['Now on macos.', 'On a Macintosh.', 'Since OS X 10.9.', 'On an imac.', 'PCS too.']) {
+  for (const line of ['Now on macos.', 'On a Macintosh.', 'Since OS X 10.9.', 'On an imac.', 'PCS too.', 'Now on MacOSX.']) {
     assert.ok(one({ line }).some((p) => /has no "platforms"/.test(p)), line + ' was not seen as naming a platform');
   }
   assert.match(one({ line: 'On a Mac, like Windows already did.', platforms: ['mac'] }).join(' '), /is for mac but names mac and windows.*reword it to name only/,
@@ -177,7 +177,7 @@ test('#5224: the committed file never tells one platform about another (checked 
   for (const [node, other] of [['darwin', 'windows'], ['win32', 'mac']]) {
     const shown = whatsnew.read(obj.version, whatsnew.FILE, node) || [];   // none is allowed: every highlight may be for the other
     for (const h of shown) {
-      const named = whatsnew.platformsNamed(h.title + ' ' + h.line);
+      const named = [...new Set([...whatsnew.platformsNamed(h.title), ...whatsnew.platformsNamed(h.line)])];   // each field alone, as problems() reads them
       assert.ok(!named.length || named.includes(node === 'darwin' ? 'mac' : 'windows'), node + ' would show "' + h.line + '" (about ' + other + ')');
     }
   }

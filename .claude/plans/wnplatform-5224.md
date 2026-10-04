@@ -43,7 +43,7 @@ for a version with no file. A server.test.js route test exercises it for whichev
 (Windows on a Mac host); it has not run on a Windows board.
 
 ## Tests
-- engine/whatsnew.test.js adds 4 tests (and tools.whats-new-check-3955.test.js 2, server.test.js 1 route test): per-platform filtering, the empty result, the naming rule with controls,
+- engine/whatsnew.test.js adds 5 tests (and tools.whats-new-check-3955.test.js 2, server.test.js 1 route test): per-platform filtering, the empty result, the naming rule with controls,
   and the committed file read as each board reads it.
 - Sabotage: dropping the filter turns 3 red. Main's untagged file is refused by the cut check (exit 3).
 - 52 related and audit test files: 2342 tests, 2258 pass, 0 fail, 84 skipped.
