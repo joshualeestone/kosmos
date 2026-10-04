@@ -183,7 +183,7 @@ function handleEvent(projectId, line, heldAt) {
           s.behindArmedAt = sealed.epoch;
           s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
         }
-        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile.');
+        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
       if (!opened && !sealed) {
@@ -203,7 +203,7 @@ function handleEvent(projectId, line, heldAt) {
         }
         if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
           && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key.');
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key, or this computer\'s clock is ahead of the owner\'s.');
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -508,7 +508,10 @@ const HELD_MAX = INBOUND_PER_WINDOW;
 /* How long a member holds its posts after seeing a message sealed one epoch ahead of
    its own (it missed a rotation; the owner re-sends each pass). The epoch on an
    envelope cannot be checked before it opens, so a forged one must cost no more than
-   this pause, which is no more than a relay can do anyway by dropping frames. */
+   this pause, which is no more than a relay can do anyway by dropping frames. Longer than
+   the 90 s grace (#5197), so a post sent after it, still under the old key, is refused on
+   the other boards: holding until the key arrives would let a forger pause a member
+   indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record

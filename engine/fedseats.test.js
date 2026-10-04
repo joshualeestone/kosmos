@@ -1808,10 +1808,16 @@ test('#5197: a member\'s grace runs from the owner\'s rotation time, clamped to 
     say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-' + id, { from: 'In flight', kind: 'person', text: label }) });
     await settle();
     assert.deepStrictEqual(h.recorded.map((r) => r.text), shows ? [label] : [], label);
+    if (shows) {   // the slow clock's grace still ends 90 s after receipt
+      t.mock.timers.tick(31 * 1000);
+      say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-' + id, { from: 'Late', kind: 'person', text: '91 s after receipt' }) });
+      await settle();
+      assert.deepStrictEqual(h.recorded.map((r) => r.text), [label], 'a slow clock kept the old key open past 90 s from receipt');
+    }
   }
 });
 
-test('#5197: a member opens only the epoch just before its current one: a second rotation inside the grace closes the first key at once', async (t) => {
+test('#5197: a member opens only the epoch just before its current one (unchanged by #5197, pinned with the shorter grace)', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T21:00:00Z') });
   const owner = fedseal.newKeyPair();
   federation.recordLink('proj-5197-two', { role: 'member', edge_id: 'edge-5197-two' });
