@@ -30,7 +30,9 @@ const TOKEN_FILE = require('./boardauth').TOKEN_FILE;
 // store.ROOT is AGENT_WORKFORCE_DATA + '/Kosmos'; that is where board.token and the token-only list live,
 // and what guardTokenOnlyFolder defaults dataRoot to in production (called with no deps).
 fs.mkdirSync(store.ROOT, { recursive: true });
-const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME };
+// runner/runnerOf: the guard is a Claude Code settings file, so it now refuses an unnamed or non-Claude runner
+// (#4491 review WARNING 1); these tests name Claude unless they test that refusal.
+const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude' };
 function agentDir(name) { return path.join(SANDBOX, 'workers', name); }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
 function tokenAbs() { return path.join(store.ROOT, TOKEN_FILE); }
@@ -251,4 +253,74 @@ test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent
   // all-missing path: returns the resolved-absolute form without throwing
   const missing = path.join(base, 'no', 'such', 'dir', 'x.json');
   assert.equal(setup.realOrLeaf(missing), path.join(fs.realpathSync.native(base), 'no', 'such', 'dir', 'x.json'), 'an all-missing path under an existing base was not rejoined correctly');
+});
+
+/* ---- #4491 review (self-review, BLOCKERs 1 and 2, WARNINGs 1 and 4) ---- */
+
+test('BLOCKER 1: every board.token path, its temp copy and the token-only list are denied WRITES too, in both layers', () => {
+  const dir = agentDir('pilot-write');
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'pilot-write', DEPS).ok, true);
+  const st = readSettings(dir);
+  const list = sendertoken.tokenOnlyFile();
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(tokenAbs())})`), 'a file tool can still WRITE board.token');
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(path.join(store.ROOT, '.' + TOKEN_FILE))}.*)`), 'the temp copy can be written');
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(list)})`), 'the agent can delete itself from the token-only list');
+  const dw = st.sandbox.filesystem.denyWrite;   // already resolved by the guard (realOrLeaf)
+  assert.ok(dw.includes(fs.realpathSync(store.ROOT) + path.sep + TOKEN_FILE), 'a shell can still write board.token');
+  assert.ok(dw.includes(fs.realpathSync(path.dirname(list)) + path.sep + path.basename(list)), 'a shell can still edit the token-only list');
+});
+
+test('BLOCKER 2: every named world store is covered (read and write), not only the current one', () => {
+  const base = path.join(SANDBOX, 'worldsbase');
+  const w1 = path.join(SANDBOX, 'worlds', 'w1', 'Kosmos'); const w2 = path.join(SANDBOX, 'worlds', 'w2', 'Kosmos');
+  for (const d of [base, w1, w2]) fs.mkdirSync(d, { recursive: true });
+  const worlds = { listWorlds: (b) => (b === base ? ['w1', 'w2'] : []), worldStoreRoot: (b, w) => (w === 'w1' ? w1 : w2) };
+  const dir = agentDir('pilot-worlds');
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'pilot-worlds', { ...DEPS, legacyRoots: [], worldsBase: base, worlds }).ok, true);
+  const st = readSettings(dir);
+  for (const root of [w1, w2]) {
+    const tok = path.join(root, TOKEN_FILE);
+    assert.ok(st.permissions.deny.includes(`Read(${ruleAbs(tok)})`), 'another world token is readable: ' + root);
+    assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(tok)})`), 'another world token is writable: ' + root);
+    const real = fs.realpathSync(root) + path.sep + TOKEN_FILE;
+    assert.ok(st.sandbox.filesystem.denyRead.includes(real), 'a shell can read another world token: ' + root);
+    assert.ok(st.sandbox.filesystem.denyWrite.includes(real), 'a shell can write another world token: ' + root);
+  }
+  // A world lookup that throws degrades to the other roots, never fails the guard.
+  const boom = { listWorlds: () => { throw new Error('registry unreadable'); }, worldStoreRoot: () => null };
+  assert.equal(setup.guardTokenOnlyFolder(agentDir('pilot-boom'), 'pilot-boom', { ...DEPS, legacyRoots: [], worldsBase: base, worlds: boom }).ok, true);
+});
+
+test('WARNING 1: a non-Claude or unnamed runner is NOT reported guarded, and nothing is written for it', () => {
+  for (const runner of ['codex', 'gemini', 'grok', 'antigravity', 'muse', undefined]) {
+    const dir = agentDir('pilot-np-' + (runner || 'none'));
+    const g = setup.guardTokenOnlyFolder(dir, 'np', { ...DEPS, runner });
+    assert.equal(g.ok, false, String(runner) + ' was reported guarded');
+    assert.equal(g.unsupported, true);
+    assert.match(g.because, /only Claude agents/);
+    assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a settings file nobody reads was written');
+  }
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['cl', 'cx'] }) + '\n');
+  const warned = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = (x) => { warned.push(String(x)); return true; };
+  let out;
+  try {
+    out = setup.refreshTokenOnlyGuards({ ...DEPS, runnerOf: (n) => (n === 'cx' ? 'codex' : 'claude'), workerDir: (n) => agentDir('np-refresh-' + n) });
+  } finally { process.stderr.write = realWrite; }
+  assert.deepEqual(out.guarded, ['cl']);
+  assert.deepEqual(out.unguarded.map((u) => u.name), ['cx']);
+  assert.match(warned.join(''), /NOT guarded[^\n]*cx \(only Claude agents/);
+});
+
+test('WARNING 4: creation names the runner to the guard and still refuses when it fails; the board start refreshes the guards', () => {
+  const CREATE = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  const at = CREATE.indexOf("step('kept the board token out of its reach'");
+  assert.ok(at > 0, 'the guard step is gone from createAgent');
+  const stepSrc = CREATE.slice(at, CREATE.indexOf('\n  });', at));   // the step's own close (its body has `{ runner });`)
+  assert.match(stepSrc, /guardTokenOnlyFolder\(workerDir\(name\), name, \{ runner \}\)/, 'the runner is not passed, so every agent reads as unnamed');
+  assert.match(stepSrc, /if \(!guarded\.ok\) throw new Error/, 'a failed guard no longer refuses the creation');
+  assert.match(CREATE.slice(0, at), /const runner = providerRunner\(provider\);/, 'runner is not the recorded provider runner');
+  const SERVER = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(SERVER, /setupAssistant\.refreshTokenOnlyGuards\(\)/, 'the board start no longer refreshes the guards');
 });

@@ -620,10 +620,20 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
   const roots = [dataRoot];
   const add = (r) => { if (r && typeof r === 'string' && !roots.includes(r)) roots.push(r); };
   try { const lr = deps.legacyRoots !== undefined ? deps.legacyRoots : guideLegacyRoots(home); if (Array.isArray(lr)) lr.forEach(add); } catch { /* current store only */ }
+  let base = null;
   try {
-    const base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
     if (base && base !== dataRoot) add(base);   // the default world's base, when this agent is in a named world
   } catch { /* current store only */ }
+  // #4491 review: EVERY named world's store too, since the board accepts any world's token. Concrete paths
+  // for the worlds that exist now; the
+  // board-start refresh rewrites the guard, so a world made later is covered from the agent's next start.
+  try {
+    if (base) {
+      const worlds = deps.worlds || require('./worlds');
+      for (const w of worlds.listWorlds(base)) { try { add(worlds.worldStoreRoot(base, w)); } catch { /* skip that one */ } }
+    }
+  } catch { /* the roots above only */ }
   return roots;
 }
 
@@ -673,12 +683,18 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') }];
+  // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
+  // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below.
+  const listFile = require('./sendertoken').tokenOnlyFile();
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
+    ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
+    ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
+    `Edit(${ruleAbs(listFile)})`,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles };
+  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile };
 }
 
 /*
@@ -698,15 +714,23 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * refused command being re-run with dangerouslyDisableSandbox (every Kosmos agent runs
  * --dangerously-skip-permissions); allowLocalBinding true keeps the loopback board reachable.
  *
- * DEFENSE-IN-DEPTH, honestly: a fully durable lock needs this block in root-owned MANAGED settings (an
- * admin step, parked on the card as needs-operator); without it this raises the bar but a determined
- * agent on the same Mac user is not fully shut out (a hardlink of the token outside the denied path is
- * the residual). refreshTokenOnlyGuards warns when the managed belt is absent.
+ * NOT A BOUNDARY, honestly (#4491 review WARNING 2): this raises the bar for an agent's shell and its file
+ * tools. It does not shut out a determined agent running as the same Mac user, managed settings or not:
+ * the file tools can still rewrite a hook script its settings already run, its own launch job or the
+ * supervisor script, or drop a LaunchAgent that runs at next login, and a hardlink of the token outside
+ * the denied path is a further residual. Root-owned MANAGED settings (an admin step, parked on the card)
+ * stop it editing this guard away, nothing more. refreshTokenOnlyGuards warns when they are absent.
  * { ok: true } | { ok: false, because }. Never throws.
  */
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   try {
     if (!dir || !agentName) return { ok: false, because: 'no folder' };
+    // #4491 review WARNING 1: this guard is a Claude Code settings file. Codex runs with its approvals and
+    // sandbox bypassed, and Gemini, Grok, Antigravity and Muse never read it, so writing it for them guarded
+    // nothing while every caller reported it guarded. Say so instead. The caller names the runner; an
+    // unknown one is not assumed to be Claude.
+    const runner = deps.runner;
+    if (runner !== 'claude') return { ok: false, unsupported: true, because: 'only Claude agents can be kept from reading the board token so far; this agent runs on ' + (runner || 'an unknown runner') };
     const settingsDir = path.join(dir, '.claude');
     fs.mkdirSync(settingsDir, { recursive: true });
     const file = path.join(settingsDir, 'settings.json');
@@ -733,7 +757,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = rules.tokenPaths.map(realOrLeaf);
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },
@@ -769,14 +793,21 @@ function managedSettingsPresent(platform = process.platform) {
    parked admin step). workerDir is overridable for tests. { guarded: [names], managed: boolean }. Never throws. */
 function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
-  const out = { guarded: [], managed: managedSettingsPresent(platform) };
+  const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // one parse site (#4491)
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
     let dir = null;
     try { dir = toDir(name); } catch { dir = null; }
-    if (dir && guardTokenOnlyFolder(dir, name, deps).ok) out.guarded.push(name);
+    let runner = null;
+    try { runner = deps.runnerOf ? deps.runnerOf(name) : create.recordedRunner(name); } catch { runner = null; }
+    const g = dir ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no folder' };
+    if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
+  }
+  if (out.unguarded.length) {
+    process.stderr.write('#4491: ' + out.unguarded.length + ' token-only agent(s) NOT guarded from reading the board token: '
+      + out.unguarded.map((u) => u.name + ' (' + u.because + ')').join('; ') + '\n');
   }
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.
