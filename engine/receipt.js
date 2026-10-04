@@ -470,21 +470,31 @@ async function forAgent(who, { limit = 10, now = Date.now() } = {}) {
     if (!proj || !proj.id) continue;
     for (const task of proj.tasks || []) {
       const iso = closedAtOf(task);
-      if (iso) closed.push({ proj, task, iso, at: Date.parse(iso) });
+      const at = iso ? Date.parse(iso) : NaN;
+      if (Number.isFinite(at)) closed.push({ proj, task, iso, at });   // an unreadable close time cannot be ordered
     }
   }
   closed.sort((x, y) => y.at - x.at || String(x.proj.id).localeCompare(String(y.proj.id)) || x.task.number - y.task.number);
-  const out = [];
+  const picked = [];
   let more = false;
   for (const c of closed) {
     /* Held by this agent? The task's own activity says, before any transcript is read. */
     const holds = holdsFrom(taskchat.read(c.proj.id, c.task.number), c.at);
     if (!holds[who]) continue;
-    if (out.length >= lim) { more = true; break; }
-    const r = await forTask(c.proj.id, c.task, { now });
-    const mine = (r && Array.isArray(r.agents) ? r.agents : []).find((x) => x && x.who === who) || null;
-    out.push({ project: c.proj.id, projectName: c.proj.name || c.proj.id, number: c.task.number, sentence: c.task.sentence || '',
-      closedAt: c.iso, retries: (r && r.retries) || null, receipt: mine });
+    if (picked.length >= lim) { more = true; break; }
+    picked.push(c);
+  }
+  /* A few at a time, in order (review 1: one after another, ten receipts not yet kept read their transcripts in series
+     before anything painted). Each is the shared, kept receipt once it settles. */
+  const out = new Array(picked.length);
+  const AT_ONCE = 3;
+  for (let i = 0; i < picked.length; i += AT_ONCE) {
+    await Promise.all(picked.slice(i, i + AT_ONCE).map(async (c, j) => {
+      const r = await forTask(c.proj.id, c.task, { now });
+      const mine = (r && Array.isArray(r.agents) ? r.agents : []).find((x) => x && x.who === who) || null;
+      out[i + j] = { project: c.proj.id, projectName: c.proj.name || c.proj.id, number: c.task.number, sentence: c.task.sentence || '',
+        closedAt: c.iso, retries: (r && r.retries) || null, receipt: mine };
+    }));
   }
   return { ok: true, receipts: out, more };
 }

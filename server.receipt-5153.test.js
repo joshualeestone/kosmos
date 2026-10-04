@@ -73,3 +73,19 @@ test('an agent\'s receipts route: a list for the page, an agent\'s token refused
   res = await fetch(base + '/api/agent/%E0%A4%A/receipts');
   assert.equal(res.status, 400);
 });
+
+test('an agent\'s receipts route carries a real receipt to the page', async () => {
+  const projects = require('./engine/projects');
+  const taskchat = require('./engine/taskchat');
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'vera'), { recursive: true });
+  projects.writeAll([...projects.readAll(), { id: 'route-p', name: 'Route project', agents: ['vera'],
+    tasks: [{ number: 1, sentence: 'Ship the notes', closedAt: '2026-10-01T11:00:00.000Z' }] }]);
+  const file = taskchat.taskChatFile('route-p', 1);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [{ at: '2026-10-01T10:00:00.000Z', kind: 'created', who: 'vera' }, { at: '2026-10-01T11:00:00.000Z', kind: 'closed' }]
+    .map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const res = await fetch(base + '/api/agent/vera/receipts');
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.receipts.map((x) => [x.project, x.number, x.sentence, x.receipt && x.receipt.who]), [['route-p', 1, 'Ship the notes', 'vera']]);
+});

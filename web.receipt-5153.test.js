@@ -197,7 +197,8 @@ test('a Recent work row: the task\'s sentence over "closed <date> · files · co
     receipt: { who: 'ann', available: true, transcriptsWithWork: 1, files: ['a.md', 'b.md'], filesMore: 0, commands: 1,
       models: { 'claude-fable-5': buckets(1e6, 0, 0, 0) } } };
   const meta = WB.dWorkMeta(item, NOW);
-  assert.match(meta, /^closed Oct 2 · 2 files · 1 command · 1(\.0)?M tokens · about \$10 at API prices$/);
+  const day = new Date('2026-10-02T15:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });   // this machine's own words for the date
+  assert.equal(meta.replace(/1\.0M/, '1M'), 'closed ' + day + ' · 2 files · 1 command · 1M tokens · about $10 at API prices');
   const html = WB.dWorkRowHtml(item, NOW);
   assert.ok(html.includes('Write the &lt;launch&gt; notes'), 'the sentence is escaped');
   assert.ok(html.includes('data-project="p1"') && html.includes('data-task="7"'));
@@ -223,4 +224,9 @@ test('the link under Recent work does not promise this agent\'s tasks while the 
   const box = RAW.slice(RAW.indexOf('id="d-work"'), RAW.indexOf('id="d-work"') + 1500);
   assert.match(box, />Open the Tasks page</);
   assert.doesNotMatch(box, />See all/);
+});
+
+test('Open the Tasks page goes through the Tasks page\'s own door for all tasks, and only while its tab is in the bar', () => {
+  assert.match(SCRIPT, /getElementById\('d-work-more'\)\.addEventListener\('click', \(\) => openProjectTasks\(null\)\)/);
+  assert.match(SCRIPT, /more\.hidden = !\(body\.more && !\(tab && tab\.hidden\)\)/);
 });
