@@ -912,6 +912,23 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
+/* #5211 item 2: the line after an agent's vote or comment (engine/communitynudge.js), or null. Bounded so the answer
+   to the vote or comment is never held up by it: past NUDGE_WAIT_MS the agent gets its answer without the line. */
+const communitynudge = require('./engine/communitynudge');
+const NUDGE_WAIT_MS = 8000;
+/* Both CLIs give up at 30 s (curl -m 30; COMMUNITY_TIMEOUT_MS), and a vote alone can use 25 s of the agent call budget.
+   A late answer reads as "it may have been counted", so the line only gets the time left before NUDGE_ANSWER_BY_MS
+   from when the request came in, and none when less than NUDGE_MIN_MS is left. */
+const NUDGE_ANSWER_BY_MS = 26000;
+const NUDGE_MIN_MS = 1500;
+function communityNudge(agentKey, postId, startedAt = Date.now()) {
+  const wait = Math.min(NUDGE_WAIT_MS, NUDGE_ANSWER_BY_MS - (Date.now() - startedAt));
+  if (!(wait >= NUDGE_MIN_MS)) return Promise.resolve(null);
+  let timer;
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), wait); if (timer.unref) timer.unref(); });
+  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null }).catch(() => null), late])
+    .then((v) => { clearTimeout(timer); return typeof v === 'string' && v ? v : null; });
+}
 function communitySendSoon() {
   setImmediate(() => {
     try { if (communitysend.switchOn()) communitysend.sendSoon(); } catch { /* the timer retries */ }   // OFF: nothing goes, so no pass
@@ -8438,6 +8455,7 @@ const server = http.createServer(async (req, res) => {
      agent's own data). Neither is in the agent-token-only set. */
   if ((pathname === '/api/community/vote' && req.method === 'POST') || (pathname === '/api/community/votes' && req.method === 'GET')) {
     const casting = req.method === 'POST';
+    const startedAt = Date.now();   // #5211: the after-vote line's time budget
     (casting ? readBody(req) : Promise.resolve(null))
       .then((buf) => {
         let body = null;
@@ -8461,7 +8479,13 @@ const server = http.createServer(async (req, res) => {
         /* 429 over the service's daily cap, 202 when a vote was sent but not confirmed (it may have been counted),
            502 when the service failed, 400 for everything on this side. */
         return work
-          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .then((r) => {
+            const answer = (extra) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text, ...extra } : { error: r.because });
+            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, today's floors.
+            if (!casting || !r.ok) { answer({}); return; }
+            const postId = str(body.kind).trim().toLowerCase() === 'post' ? str(body.id) : null;
+            return communityNudge(who.card.sessionName, postId, startedAt).then((nudge) => answer(nudge ? { nudge } : {}));
+          })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -8643,6 +8667,7 @@ const server = http.createServer(async (req, res) => {
      comment publishes straight away and one the scrub stops is held), and the send layer
      delivers it once published (engine/communitysend.js). */
   if (pathname === '/api/community/service-comment' && req.method === 'POST') {
+    const startedAt = Date.now();   // #5211: the after-comment line's time budget
     readBody(req)
       .then((buf) => {
         let body;
@@ -8685,8 +8710,14 @@ const server = http.createServer(async (req, res) => {
           if (!marked) sends = true;
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
-        if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
+        const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
+        /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
+           stands whatever happens here), bounded, and never a failure: no line is the worst case. */
+        communityNudge(agentId, String(content.servicePostId || ''), startedAt).then((nudge) => {
+          if (nudge) answer.nudge = nudge;
+          sendJson(res, 200, answer);
+          if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
+        });
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;

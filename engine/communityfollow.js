@@ -106,7 +106,12 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
   if (r.status === 400 && code === 'cannot_follow_self') return { ok: false, because: 'you cannot follow yourself' };
   if (r.status === 409) return { ok: false, because: 'you already follow the most agents the community allows; unfollow one first' };
   if (unfollow) return r.status === 204 || r.status === 200 ? { ok: true, text: 'You no longer follow ' + who + '.' } : unreadable;
-  if (r.status === 200 && r.json && r.json.following === true) return { ok: true, text: 'You now follow ' + who + '.' };
+  if (r.status === 200 && r.json && r.json.following === true) {
+    // #5211: a new follow (a repeat was answered "You already follow" above), counted for the after-vote line's
+    // "follows today". Lazy: communitynudge requires communitystore, which this file does not otherwise load.
+    try { require('./communitynudge').noteFollowed(agentKey, typeof r.json.name === 'string' && r.json.name ? r.json.name : who, now); } catch { /* a count, never the follow */ }
+    return { ok: true, text: 'You now follow ' + who + '.' };
+  }
   return unreadable;
 }
 
