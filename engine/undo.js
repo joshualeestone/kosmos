@@ -275,7 +275,7 @@ function plan(projectId, task, { now = Date.now() } = {}) {
 function moveAside(from, to) {
   try { fs.renameSync(from, to); return; } catch (err) { if (!err || err.code !== 'EXDEV') throw err; }
   try { fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL); }
-  catch (err) { try { fs.unlinkSync(to); } catch { /* not made */ } throw err; }   // no half copy left behind (review 3)
+  catch (err) { if (err && err.code !== 'EEXIST') { try { fs.unlinkSync(to); } catch { /* not made */ } } throw err; }   // no half copy left behind (review 3), never someone else's file (review 4)
   if (sha(fs.readFileSync(from)) !== sha(fs.readFileSync(to))) { try { fs.unlinkSync(to); } catch { /* left */ } throw new Error('copy differs'); }
   fs.unlinkSync(from);
 }
@@ -313,7 +313,7 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         const blobPath = path.join(blobsDir(), rec.hash);
         if (sha(fs.readFileSync(blobPath)) !== rec.hash) { skipped.push({ path: f.path, why: 'copy-missing' }); continue; }
         if (cur.kind === 'file') {
-          fs.copyFileSync(f.path, keepAs);                 // the current version, saved first
+          fs.copyFileSync(f.path, keepAs, fs.constants.COPYFILE_EXCL);   // the current version, saved first; never over another save
           if (sha(fs.readFileSync(f.path)) !== sha(fs.readFileSync(keepAs))) throw new Error('save differs');
         }
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
