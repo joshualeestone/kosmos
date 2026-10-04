@@ -73,7 +73,10 @@ const COVERS = () => {
     const r = el.getBoundingClientRect();
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     const other = hit && hit.closest ? hit.closest(SEL) : null;
-    if (other && other !== el && !el.contains(other) && !other.contains(el)) out.push((el.id || el.className) + ' <- ' + (other.id || other.className));
+    if (!other || other === el || el.contains(other) || other.contains(el)) continue;
+    const o = other.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x >= o.left && x < o.right && y >= o.top && y < o.bottom) continue;   // drawn on top (a menu over the page), not a hit area
+    out.push((el.id || el.className) + ' <- ' + (other.id || other.className));
   }
   return out;
 };
