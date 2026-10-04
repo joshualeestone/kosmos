@@ -70,13 +70,18 @@ const REACH = (sel) => {
 // other control's drawn box, with 1px of slack for a snapped shared edge, is stacking, not a hit area.
 const COVERS = () => {
   const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], input:not([type="hidden"]), textarea';
-  const layered = (top, under) => {
-    for (let n = top; n && !n.contains(under); n = n.parentElement) {
+  // The nearest ANCESTOR in its own layer: positioned out of the flow (fixed, absolute, sticky) or an
+  // open dialog / popover. Two controls answer each other's points as STACKING only when they sit in different
+  // layers (a menu over the page); two in the same layer overlapping is a hit area, however positioned (round 3).
+  const layerOf = (n) => {
+    for (n = n && n.parentElement; n && n.nodeType === 1; n = n.parentElement) {   // ancestors only: a positioned control is in its container's layer
       const pos = getComputedStyle(n).position;
-      if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky' || (n.matches && n.matches('dialog[open], :popover-open'))) return true;
+      if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') return n;
+      try { if (n.matches('dialog[open]') || n.matches(':popover-open')) return n; } catch { /* an engine without :popover-open */ }
     }
-    return false;
+    return null;
   };
+  const layered = (top, under) => layerOf(top) !== layerOf(under);
   const out = [];
   for (const el of document.querySelectorAll(SEL)) {
     if (el.disabled || !el.checkVisibility()) continue;
@@ -115,7 +120,10 @@ const RULES = () => {
   const notice = standIn('body', '<div class="pnotice"><button class="qopt" type="button">Try again</button></div>');
   const doc = standIn('#pj-one-view', '<button class="pj-doc" type="button">doc</button>');
   const mh = (sel, el) => { const e = el || document.querySelector(sel); return e ? getComputedStyle(e).minHeight : 'missing'; };
-  const after = (sel, el) => { const e = el || document.querySelector(sel); if (!e) return 'missing'; const a = getComputedStyle(e, '::after'); return a.content === 'none' ? 'none' : a.width + 'x' + a.height; };
+  // An area is read as numbers, and only on a laid-out element: an unrendered one returns the rule's text unresolved
+  // ("max(100%, 44px)"), which would pass any string test (round 3). #tsk-back is shown for the read.
+  const after = (sel, el) => { const e = el || document.querySelector(sel); if (!e) return 'missing'; const a = getComputedStyle(e, '::after'); if (a.content === 'none') return 'none'; const w = parseFloat(a.width), h = parseFloat(a.height); return Number.isFinite(w) && Number.isFinite(h) && /px$/.test(a.width) && /px$/.test(a.height) ? [w, h] : 'unresolved ' + a.width + 'x' + a.height; };
+  const back = document.querySelector('#tsk-back'); const wasHidden = back && back.hidden; if (back) back.hidden = false;
   const out = {
     'Sort agents': mh('#agent-sort'), 'Sort projects': mh('#pj-sort'), 'menu tab': mh('.apphead .tab'),
     'Open Terminal': mh('#d-open-terminal'), 'Remove this agent': mh('#d-remove-start'), 'Send': mh('#d-term-send'), 'Trust & Restart': mh('#d-trust-restart'),
@@ -125,6 +133,7 @@ const RULES = () => {
     'tasks back area': after('#tsk-back'), 'notice close area': after(null, toast.firstChild), 'name area': after('.namego'),
   };
   for (const m of made) m.remove();
+  if (back) back.hidden = wasHidden;
   return out;
 };
 
@@ -162,6 +171,10 @@ const RULES = () => {
       const boardCovers = await page.evaluate(COVERS);
       chk(boardCovers.length === 0, `${tag} board: no control is taken by a neighbour's hit area`, JSON.stringify(boardCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} board: no sideways scroll`);
+      // Every rule this change adds, read on the board, where a name is laid out (the reach and cover lines see only what is on screen).
+      const rules = await page.evaluate(RULES);
+      const bad = Object.entries(rules).filter(([k, v]) => (k === 'terminal box font' ? v !== '16px' : /area$/.test(k) ? !(Array.isArray(v) && v[0] >= 44 && v[1] >= 44) : v !== '44px'));
+      chk(bad.length === 0, `${tag} every rule this change adds applies on touch (44px, the 44px areas, 16px)`, JSON.stringify(bad.length ? bad : rules));
 
       // A project's room.
       await open(page, '?tab=projects', '#pj-list .pj-row');
@@ -181,10 +194,7 @@ const RULES = () => {
       chk(btns.length >= 2 && btns.every(([, h]) => h >= 44), `${tag} AI settings: its visible buttons are 44 tall`, JSON.stringify(btns));
       const aiCovers = await page.evaluate(COVERS);
       chk(aiCovers.length === 0, `${tag} AI settings: no control is taken by a neighbour's hit area`, JSON.stringify(aiCovers));
-      // Every rule this change adds, on the touch phone (the reach and cover lines above see only what is on screen).
-      const rules = await page.evaluate(RULES);
-      const bad = Object.entries(rules).filter(([k, v]) => (k === 'terminal box font' ? v !== '16px' : /area$/.test(k) ? (v === 'none' || v === 'missing' || !v.includes('44px')) : v !== '44px'));
-      chk(bad.length === 0, `${tag} every rule this change adds applies on touch (44px, the 44px areas, 16px)`, JSON.stringify(bad.length ? bad : rules));
+
       chk(errs.length === 0, `${tag} no page errors`, errs.slice(0, 2).join(' | '));
       await ctx.close();
     }
