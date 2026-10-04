@@ -4073,7 +4073,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
+  'POST /api/undo/keep']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -8317,7 +8318,8 @@ const server = http.createServer(async (req, res) => {
      - GET/PUT /api/undo-setting { on }: the switch. The person's: an agent's token is refused on PUT.
      - POST /api/undo/keep { path, cwd, session }: the report hook's call just before a Claude agent edits a file. The
        board keeps a copy only while the switch is on; the answer says whether it did. Agents' hooks call it, so an
-       agent's token is accepted here (it copies a file on this computer into Kosmos's own data, nothing more).
+       agent's token is accepted here (it copies a file on this computer into Kosmos's own data, nothing more); it is
+       in AGENT_TOKEN_ROUTES (Baron's review), and a token-only caller gets copies for its own sessions only.
      - GET /api/project/:id/task/:n/undo: what an undo would do, file by file. POST { paths }: do it for those files.
        The person's: an agent's token is refused, and nothing happens with the switch off. */
   if (pathname === '/api/undo-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -8345,7 +8347,12 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { kept: false, because: 'unreadable request' }); return; }
-        sendJson(res, 200, require('./engine/undo').keep(body.path, { cwd: body.cwd, session: body.session }));
+        /* Baron's review: a token-only agent (#4491) reaches this route on its agent token alone, so the copy is
+           kept only for that agent's OWN session or folder; anyone else's is refused (not-yours). A caller holding
+           the board token (the person, every agent's CLI today) is not narrowed, as before. */
+        const only = agentTokenOnlyCaller(req);
+        if (only === '') { sendJson(res, 403, { kept: false, because: 'that agent token names nobody' }); return; }
+        sendJson(res, 200, require('./engine/undo').keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
       })
       .catch(() => sendJson(res, 400, { kept: false, because: 'unreadable request' }));
     return;

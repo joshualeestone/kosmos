@@ -130,7 +130,7 @@ function readIndex() {
  * absolute or carries control characters, a session or folder that is not a Kosmos agent's, a link, a folder, a file
  * over MAX_BYTES.
  */
-function keep(file, { cwd = '', session = '', now = Date.now() } = {}) {
+function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null } = {}) {
   try {
     const sw = read();
     if (!sw.on) return { kept: false, because: 'off' };
@@ -139,6 +139,13 @@ function keep(file, { cwd = '', session = '', now = Date.now() } = {}) {
     /* A session that started after the last look (an agent just restarted) is looked for again, at most every 5 s. */
     if (!who && now - sessionsCache.at > 5000) { sessionsCache.at = 0; who = ownerOf(String(cwd || ''), String(session || ''), now); }
     if (!who) return { kept: false, because: 'not-an-agent' };
+    /* Baron's review: a caller on an agent token alone (server.js agentTokenOnlyCaller) keeps copies for its OWN sessions
+       only: its exact name, or its store key for an older token that carries only the key. */
+    if (onlyFor && typeof onlyFor === 'object') {
+      let mine = false;
+      try { mine = onlyFor.byKey ? require('./store').safeKey(who) === onlyFor.key : who === onlyFor.name; } catch { mine = false; }
+      if (!mine) return { kept: false, because: 'not-yours' };
+    }
     const abs = path.resolve(file);
     let st = null;
     try { st = fs.lstatSync(abs); } catch (err) { if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' }; }

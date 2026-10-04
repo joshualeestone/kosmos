@@ -102,3 +102,50 @@ test('the real `kosmos keep-copy` reaches the board and a copy is kept, a name w
   const metas = indexLines();
   assert.ok(metas.some((m) => m.path === file && m.session === 's-cli' && m.existed), 'the path arrived whole');
 });
+
+/* Baron's review: on an ENFORCING board a token-only agent (#4491) reaches POST /api/undo/keep on its agent token
+   alone (it is in AGENT_TOKEN_ROUTES), and gets copies for its OWN sessions only. Before, every keep was refused at
+   the gate and the hook swallowed it, so Undo later offered nothing, silently. */
+test('undo keep on an enforcing board: a token-only agent keeps its own copies, never another agent\'s; no token is refused', async () => {
+  const { boardAuthState } = require('./server');
+  const sendertoken = require('./engine/sendertoken');
+  const store = require('./engine/store');
+  assert.deepEqual((await put('/api/undo-setting', { on: true })).body, { on: true, ok: true });
+  const mk = (name) => {
+    const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+    fs.mkdirSync(folder, { recursive: true });
+    store.writeProfile(name, { displayName: name });
+    const file = path.join(fs.realpathSync(folder), 'mine.md');
+    fs.writeFileSync(file, 'BEFORE ' + name);
+    return { folder: fs.realpathSync(folder), file };
+  };
+  const wen = mk('wen');
+  const xia = mk('xia');
+  require('./engine/undo').resetForTests();
+  const wenTok = sendertoken.mint('wen').token;
+  const xiaTok = sendertoken.mint('xia').token;
+  const keepAs = async (tok, body) => {
+    const res = await fetch(base + '/api/undo/keep', { method: 'POST', headers: { 'content-type': 'application/json', ...(tok ? { 'x-kosmos-agent-token': tok } : {}) }, body: JSON.stringify(body) });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true;
+  boardAuthState.token = 'BOARD_TOKEN_5153_review_0123456789abcdef';
+  try {
+    let r = await keepAs(wenTok, { path: wen.file, cwd: wen.folder, session: 's-wen' });
+    assert.equal(r.status, 200, 'a token-only agent was refused at the gate: ' + JSON.stringify(r.body));
+    assert.equal(r.body.kept, true, 'its own file was not kept: ' + JSON.stringify(r.body));
+    r = await keepAs(xiaTok, { path: wen.file, cwd: wen.folder, session: 's-wen' });
+    assert.equal(r.status, 200);
+    assert.deepEqual([r.body.kept, r.body.because], [false, 'not-yours'], 'one agent kept copies in another agent\'s name');
+    r = await keepAs(xiaTok, { path: xia.file, cwd: xia.folder, session: 's-xia' });
+    assert.equal(r.body.kept, true, 'CONTROL: the second agent keeps its own');
+    r = await keepAs(null, { path: wen.file, cwd: wen.folder, session: 's-wen' });
+    assert.equal(r.status, 403, 'no credential on an enforcing board was let through');
+    r = await keepAs('f'.repeat(64), { path: wen.file, cwd: wen.folder, session: 's-wen' });
+    assert.equal(r.status, 403, 'a token the board never issued was let through');
+  } finally {
+    boardAuthState.on = was.on;
+    boardAuthState.token = was.token;
+  }
+});
