@@ -40,6 +40,9 @@ const dir = () => path.join(store.ROOT, 'undo');
 const switchFile = () => path.join(store.ROOT, 'undo.json');
 const blobsDir = () => path.join(dir(), 'blobs');
 const indexFile = () => path.join(dir(), 'index.jsonl');
+/* What an undo saved or moved aside lives OUTSIDE dir(): turning the switch off or the sweep never touches it (review 2:
+   it held the person's files, and "nothing is deleted" has to stay true). */
+const savedRoot = () => path.join(store.ROOT, 'undo-saved');
 const mkdirPrivate = (d) => { fs.mkdirSync(d, { recursive: true, mode: 0o700 }); try { fs.chmodSync(d, 0o700); } catch { /* best effort */ } };
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
@@ -130,7 +133,9 @@ function keep(file, { cwd = '', session = '', now = Date.now() } = {}) {
     const sw = read();
     if (!sw.on) return { kept: false, because: 'off' };
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { kept: false, because: 'not-absolute' };
-    const who = ownerOf(String(cwd || ''), String(session || ''), now);
+    let who = ownerOf(String(cwd || ''), String(session || ''), now);
+    /* A session that started after the last look (an agent just restarted) is looked for again, at most every 5 s. */
+    if (!who && now - sessionsCache.at > 5000) { sessionsCache.at = 0; who = ownerOf(String(cwd || ''), String(session || ''), now); }
     if (!who) return { kept: false, because: 'not-an-agent' };
     const abs = path.resolve(file);
     let st = null;
@@ -150,8 +155,12 @@ function keep(file, { cwd = '', session = '', now = Date.now() } = {}) {
     }
     const rec = { id: String(now).padStart(14, '0') + '-' + crypto.randomBytes(4).toString('hex'), path: abs, existed: Boolean(st),
       hash, at: new Date(now).toISOString(), agent: who, cwd: String(cwd || ''), session: String(session || ''),
-      mode: st ? st.mode & 0o7777 : null, dirReal };
-    fs.appendFileSync(indexFile(), JSON.stringify(rec) + '\n', { mode: 0o600 });
+      mode: st ? st.mode & 0o7777 : null, dirReal, mtimeMs: st ? st.mtimeMs : null };
+    /* A torn last line (a crash mid-append) must not swallow this one too (review 2). */
+    let lead = '';
+    try { const fd = fs.openSync(indexFile(), 'r'); const size = fs.fstatSync(fd).size; const b = Buffer.alloc(1);
+      if (size) { fs.readSync(fd, b, 0, 1, size - 1); if (b[0] !== 10) lead = '\n'; } fs.closeSync(fd); } catch { /* no index yet */ }
+    fs.appendFileSync(indexFile(), lead + JSON.stringify(rec) + '\n', { mode: 0o600 });
     maybeSweep(now);
     return { kept: true };
   } catch {
@@ -174,7 +183,10 @@ function sweep(now = Date.now()) {
     }
     const used = new Set(live.map((r) => r.hash).filter(Boolean));
     for (const n of fs.existsSync(blobsDir()) ? fs.readdirSync(blobsDir()) : []) {
-      if (!used.has(n) && !n.endsWith('.tmp')) { try { fs.rmSync(path.join(blobsDir(), n), { force: true }); } catch { /* next sweep */ } }
+      const f = path.join(blobsDir(), n);
+      let stale = !used.has(n) && !n.endsWith('.tmp');
+      if (n.endsWith('.tmp')) { try { stale = now - fs.statSync(f).mtimeMs > 3600000; } catch { stale = false; } }   // a keep that died
+      if (stale) { try { fs.rmSync(f, { force: true }); } catch { /* next sweep */ } }
     }
   } catch { /* the next sweep */ }
 }
@@ -238,16 +250,31 @@ function plan(projectId, task, { now = Date.now() } = {}) {
     try { dirReal = fs.realpathSync(path.dirname(p)); } catch { dirReal = ''; }
     const flag = (why) => { if (entry.ok) { entry.ok = false; entry.why = why; } };
     if (cur.kind === 'other') flag('not-a-file');
-    else if (rec.dirReal && dirReal && dirReal !== rec.dirReal) flag('moved');
+    /* No folder recorded (the file was created in a folder that did not exist yet): its folder must still be exactly
+       the path it was named by, not a link to somewhere else (review 2). */
+    else if (rec.dirReal ? (dirReal && dirReal !== rec.dirReal) : (dirReal && dirReal !== path.dirname(p))) flag('moved');
     else if (cur.kind === 'missing') flag('gone');   // created and since removed, or deleted after: never brought back
     else if (cur.st.mtimeMs > closedAt + CHANGED_SLACK_MS) flag('changed-since');
     else if (rec.existed && !fs.existsSync(path.join(blobsDir(), rec.hash || '-'))) flag('copy-missing');
     else if (index.some((r) => r.path === p && r.atMs >= from && r.atMs <= closedAt && !holders.includes(r.agent))) flag('shared');
     else if (index.some((r) => r.path === p && r.agent === who && inside(holds[who], r.atMs) && inside(others.get(who) || [], r.atMs))) flag('other-task');
-    else if (!Number.isFinite(since) || since > hold0) flag('incomplete');
+    /* The first copy may not be from before the agent's first edit (review 2): the switch went on after the agent began,
+       the file had already changed inside the hold when its first copy was made (a late or missed keep, a command's
+       change), or the hold is older than the copies kept. */
+    else if (!Number.isFinite(since) || since > hold0 || (rec.existed && Number.isFinite(rec.mtimeMs) && rec.mtimeMs > hold0)
+      || hold0 < now - KEEP_DAYS * 86400000) flag('incomplete');
     files.push(entry);
   }
   return { ready: true, closedAt: closedIso, files };
+}
+
+/* Move a file aside, across volumes too (review 2: rename fails between disks): copy, check it arrived whole, then
+   remove the original. If anything differs the original stays where it was. */
+function moveAside(from, to) {
+  try { fs.renameSync(from, to); return; } catch (err) { if (!err || err.code !== 'EXDEV') throw err; }
+  fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+  if (sha(fs.readFileSync(from)) !== sha(fs.readFileSync(to))) { try { fs.unlinkSync(to); } catch { /* left */ } throw new Error('copy differs'); }
+  fs.unlinkSync(from);
 }
 
 /**
@@ -262,7 +289,7 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   const chosen = new Set(Array.isArray(paths) ? paths : []);
   const byId = new Map(readIndex().map((r) => [r.id, r]));
   const stamp = new Date(now).toISOString().replace(/[:.]/g, '-') + '-' + crypto.randomBytes(3).toString('hex');   // one folder per undo
-  const savedIn = path.join(dir(), 'saved', stamp);
+  const savedIn = path.join(savedRoot(), stamp);
   const done = [];
   const skipped = [];
   for (const f of p.files) {
@@ -276,13 +303,18 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
       const keepAs = path.join(savedIn, sha(Buffer.from(f.path)).slice(0, 16) + '-' + path.basename(f.path));
       if (f.action === 'move-aside') {
         if (cur.kind !== 'file') { skipped.push({ path: f.path, why: 'gone' }); continue; }
-        fs.renameSync(f.path, keepAs);                     // the created file, moved aside: never deleted
+        moveAside(f.path, keepAs);                         // the created file, moved aside: never deleted
       } else {
         if (cur.kind === 'file') fs.copyFileSync(f.path, keepAs);   // the current version, saved first
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
-        fs.copyFileSync(path.join(blobsDir(), rec.hash), tmp, fs.constants.COPYFILE_EXCL);
-        if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
-        fs.renameSync(tmp, f.path);                        // replaces the entry itself: never writes through a link
+        try {
+          fs.copyFileSync(path.join(blobsDir(), rec.hash), tmp, fs.constants.COPYFILE_EXCL);
+          if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
+          fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
+        } catch (err) {
+          try { fs.unlinkSync(tmp); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
+          throw err;
+        }
       }
       fs.writeFileSync(keepAs + '.json', JSON.stringify({ path: f.path, action: f.action, project: projectId, task: task.number }), { mode: 0o600 });
       done.push(f.path);
@@ -294,4 +326,4 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   return { done, skipped, savedIn: done.length ? savedIn : null };
 }
 
-module.exports = { read, setOn, keep, plan, apply, sweep, resetForTests, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+module.exports = { read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };

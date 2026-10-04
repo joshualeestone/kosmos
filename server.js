@@ -8363,7 +8363,8 @@ const server = http.createServer(async (req, res) => {
     } catch { task = null; }
     if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
     if (req.method === 'GET') {
-      try { sendJson(res, 200, { on: undo.read().on, ...undo.plan(id, task) }); }
+      /* Off: nothing to offer, and no index or task files read on every receipt view (review 2). */
+      try { const on = undo.read().on; sendJson(res, 200, on ? { on, ...undo.plan(id, task) } : { on, ready: false, because: 'off', files: [] }); }
       catch { sendJson(res, 500, { error: 'we could not work out the undo just now' }); }
       return;
     }

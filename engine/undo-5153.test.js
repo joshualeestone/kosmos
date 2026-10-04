@@ -45,6 +45,8 @@ function edit(file, content, at, cwd) {
   return r;
 }
 const task = (closedAt = T('11:00')) => ({ number: 1, closedAt });
+/* A file as it was before any hold: written, then dated 09:00, so its first copy is plainly from before the agent began. */
+function original(file, content) { fs.writeFileSync(file, content); const t = new Date(ms('09:00')); fs.utimesSync(file, t, t); }
 
 test('the switch is OFF until it is turned on: nothing is kept, and an undo does nothing', () => {
   assert.deepEqual(undo.read(), { on: false, ok: true, since: null });
@@ -52,7 +54,7 @@ test('the switch is OFF until it is turned on: nothing is kept, and an undo does
   fs.writeFileSync(f, 'x');
   assert.deepEqual(undo.keep(f, { cwd: path.dirname(f) }), { kept: false, because: 'off' });
   assert.equal(undo.apply('px', task(), [f]).because, 'off');
-  assert.equal(fs.existsSync(path.join(SB, 'data', 'undo', 'copies')), false, 'a copy was kept with the switch off');
+  assert.equal(fs.existsSync(path.join(store.ROOT, 'undo', 'index.jsonl')), false, 'a copy was kept with the switch off');
 });
 
 test('undo puts an edited file back to the copy before the FIRST edit in the task, saving its current version first', () => {
@@ -60,7 +62,7 @@ test('undo puts an edited file back to the copy before the FIRST edit in the tas
   const project = 'p' + (++pn);
   const ann = worker('ann');
   const f = path.join(ann, 'notes.md');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'ann' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'FIRST EDIT', '10:10', ann);
   edit(f, 'SECOND EDIT', '10:20', ann);
@@ -93,7 +95,7 @@ test('a file changed after the task closed is listed and never overwritten', () 
   const project = 'p' + (++pn);
   const cy = worker('cy');
   const f = path.join(cy, 'a.md');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'cy' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'AGENT', '10:10', cy);
   fs.writeFileSync(f, 'THE PERSON, LATER');
@@ -109,7 +111,7 @@ test('only the agent\'s own folder and holds count; another agent\'s edit of the
   const di = worker('di');
   const ed = worker('ed');
   const f = path.join(di, 'shared.md');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'di' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'BEFORE THE TASK', '09:00', di);   // a copy from before the hold: not this task's
   edit(f, 'DI', '10:10', di);
@@ -145,7 +147,7 @@ test('a file swapped for a link after its copy is never written through: listed,
   const project = 'p' + (++pn);
   const gi = worker('gi');
   const f = path.join(gi, 'conf.yml');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'gi' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'AGENT', '10:10', gi);
   const target = path.join(SB, 'precious.txt');
@@ -163,7 +165,7 @@ test('a file deleted after the task closed is not brought back', () => {
   const project = 'p' + (++pn);
   const hu = worker('hu');
   const f = path.join(hu, 'gone.md');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'hu' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'AGENT', '10:10', hu);
   fs.rmSync(f);
@@ -179,7 +181,7 @@ test('the same agent on two overlapping tasks: an edit inside the other task is 
   projects.writeAll([...projects.readAll(), { id: project, name: 'Overlap', agents: ['io'], tasks: [
     { number: 1, sentence: 'one', closedAt: T('11:00') }, { number: 2, sentence: 'two', closedAt: T('11:00') }] }]);
   const f = path.join(io, 'both.md');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'io' }, { at: '11:00', kind: 'closed' }]);
   activity(project, 2, [{ at: '10:00', kind: 'created', who: 'io' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'IO', '10:10', io);
@@ -190,7 +192,7 @@ test('turned on after the agent began: its history is incomplete, so a file is f
   const project = 'p' + (++pn);
   const ju = worker('ju');
   const f = path.join(ju, 'late.md');
-  fs.writeFileSync(f, 'ORIGINAL');
+  original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '07:00', kind: 'created', who: 'ju' }, { at: '11:00', kind: 'closed' }]);   // began before 08:00
   edit(f, 'AGENT', '10:10', ju);
   assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'incomplete']]);
@@ -215,4 +217,69 @@ test('copies are private (0600 files, 0700 folders); the sweep drops old ones; t
 
 test('an open task has nothing to undo', () => {
   assert.deepEqual(undo.plan('px', { number: 1, closedAt: null }), { ready: false, because: 'open', files: [] });
+});
+
+test('turning the switch off deletes the copies, never what an undo saved or moved aside', () => {
+  const project = 'p' + (++pn);
+  const lo = worker('lo');
+  const f = path.join(lo, 'made.md');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'lo' }, { at: '11:00', kind: 'closed' }]);
+  edit(f, 'MADE', '10:10', lo);
+  const r = undo.apply(project, task(), [f], { now: ms('12:00') });
+  assert.deepEqual(r.done, [f]);
+  undo.setOn(false);
+  assert.ok(fs.readdirSync(r.savedIn).some((n) => n.endsWith('-made.md')), 'the moved-aside file was deleted with the copies');
+  undo.setOn(true, ms('08:00'));
+});
+
+test('a file created in a new folder: if that folder is later a link to elsewhere, nothing is moved through it', (t) => {
+  const project = 'p' + (++pn);
+  const mo = worker('mo');
+  const sub = path.join(mo, 'fresh');
+  const f = path.join(sub, 'x.md');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'mo' }, { at: '11:00', kind: 'closed' }]);
+  edit(f, 'MADE', '10:10', mo);   // the folder did not exist when the copy was kept
+  const elsewhere = fs.mkdtempSync(path.join(SB, 'elsewhere-'));
+  fs.writeFileSync(path.join(elsewhere, 'x.md'), 'NOT YOURS');
+  const old = new Date(ms('10:30')); fs.utimesSync(path.join(elsewhere, 'x.md'), old, old);
+  fs.rmSync(sub, { recursive: true });
+  try { fs.symlinkSync(elsewhere, sub); } catch { t.skip('links cannot be made here'); return; }
+  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'moved']]);
+  assert.deepEqual(undo.apply(project, task(), [f], { now: ms('12:00') }).done, []);
+  assert.equal(fs.readFileSync(path.join(elsewhere, 'x.md'), 'utf8'), 'NOT YOURS');
+});
+
+test('a first copy made after the file had already changed inside the hold is marked incomplete, not "before this task"', () => {
+  const project = 'p' + (++pn);
+  const nu = worker('nu');
+  const f = path.join(nu, 'late.md');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'nu' }, { at: '11:00', kind: 'closed' }]);
+  fs.writeFileSync(f, 'CHANGED BY A COMMAND');
+  const t5 = new Date(ms('10:05')); fs.utimesSync(f, t5, t5);   // inside the hold, before any copy
+  edit(f, 'AGENT', '10:10', nu);
+  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'incomplete']]);
+});
+
+test('moving aside across disks copies, checks and then removes; a failed restore leaves no temp file behind', (t) => {
+  const d = fs.mkdtempSync(path.join(SB, 'xdev-'));
+  const from = path.join(d, 'a.md');
+  fs.writeFileSync(from, 'CONTENT');
+  const realRename = fs.renameSync;
+  const m = t.mock.method(fs, 'renameSync', (a, b) => { const e = new Error('cross-device'); e.code = 'EXDEV'; throw e; });
+  undo.moveAside(from, path.join(d, 'b.md'));
+  m.mock.restore();
+  assert.equal(fs.existsSync(from), false);
+  assert.equal(fs.readFileSync(path.join(d, 'b.md'), 'utf8'), 'CONTENT');
+
+  const project = 'p' + (++pn);
+  const ov = worker('ov');
+  const f = path.join(ov, 'r.md');
+  original(f, 'ORIGINAL');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'ov' }, { at: '11:00', kind: 'closed' }]);
+  edit(f, 'AGENT', '10:10', ov);
+  t.mock.method(fs, 'renameSync', (a, b) => { if (path.basename(a).startsWith('.kosmos-undo-')) { const e = new Error('read-only'); e.code = 'EROFS'; throw e; } return realRename(a, b); });
+  const r = undo.apply(project, task(), [f], { now: ms('12:00') });
+  assert.deepEqual(r.skipped.map((x) => x.why), ['failed']);
+  assert.deepEqual(fs.readdirSync(ov).filter((n) => n.startsWith('.kosmos-undo-')), [], 'the old content was left beside the file');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'AGENT', 'nothing changed');
 });

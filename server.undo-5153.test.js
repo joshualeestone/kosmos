@@ -56,6 +56,7 @@ test('undo: off until the person turns it on; a kept copy undoes a closed task\'
   const file = path.join(fs.realpathSync(folder), 'notes.md');
   fs.writeFileSync(file, 'ORIGINAL');
   const now = Date.now();
+  const before = new Date(now - 5000); fs.utimesSync(file, before, before);   // as it was before the agent began
   const iso = (ms) => new Date(ms).toISOString();
   projects.writeAll([...projects.readAll(), { id: 'undo-p', name: 'Undo project', agents: ['uri'], tasks: [{ number: 1, sentence: 'Edit the notes', closedAt: iso(now + 60000) }] }]);
   const chat = taskchat.taskChatFile('undo-p', 1);
