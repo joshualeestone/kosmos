@@ -163,9 +163,35 @@ test('#4649: an invites record that cannot be read is never overwritten; the cod
   }
 });
 
-test('#4649: the label never leaves this computer and is capped', () => {
+test('#4649: a label is cleaned and capped, and an unknown ref reads as not sealed', () => {
   assert.strictEqual(fedmembers.cleanLabel('x'.repeat(200)).length, fedmembers.LABEL_MAX);
   assert.strictEqual(fedmembers.cleanLabel('   '), null);
   assert.strictEqual(fedmembers.cleanLabel(42), null);
   assert.strictEqual(fedseal.isSealedRef('ref-never'), false);
+});
+
+test('#4649 review round 1: two invites at once on a never-shared project make ONE ref, not two', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const remote = stubRemote({ '/v1/mac/federation/invite': async () => { await gate; return inviteAnswer(); } });
+  const a = fedmembers.invite(remote, { project: 'twice', invited_kind: 'person' }, here(['twice']));
+  const b = fedmembers.invite(remote, { project: 'twice', invited_kind: 'agent' }, here(['twice']));
+  await new Promise((r) => setImmediate(r));
+  release();
+  const [ra, rb] = await Promise.all([a, b]);
+  assert.deepStrictEqual([ra.status, rb.status], [200, 200]);
+  const refs = remote.calls.map((c) => c.body.project_ref);
+  assert.strictEqual(refs.length, 2);
+  assert.strictEqual(refs[0], refs[1], 'two refs: one of the codes opens a room this board never sits in');
+  assert.strictEqual(federation.linkFor('twice').ref, refs[0]);
+});
+
+test('#4649: fedmembers.forget drops a project\'s rows and only its own', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  await fedmembers.invite(remote, { project: 'keep', invited_kind: 'person' }, here(['keep']));
+  await fedmembers.invite(remote, { project: 'drop', invited_kind: 'person' }, here(['drop']));
+  assert.strictEqual(fedmembers.forget('drop'), true);
+  assert.deepStrictEqual(fedmembers.rowsFor('drop'), []);
+  assert.strictEqual(fedmembers.rowsFor('keep').length, 1);
+  assert.strictEqual(fedmembers.forget('never'), false);
 });

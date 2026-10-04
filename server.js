@@ -16560,6 +16560,8 @@ const server = http.createServer(async (req, res) => {
         // or old members). Best effort: an unreadable record already keeps every
         // post of a room on this computer.
         try { fedseal.forgetRoom(made.id); } catch { /* see above */ }
+        // #4649: and no outside invites of an earlier project of the same id.
+        try { fedmembers.forget(made.id); } catch { /* see above */ }
         // Only the page sends federation_ref (the create screen that minted the
         // invites); a process caller's is ignored.
         if (fedRef) {
@@ -16803,6 +16805,8 @@ const server = http.createServer(async (req, res) => {
       try { federation.forgetLink(id); } catch { /* create clears it too */ }
       // #3728: and its room keys, so a later project of the same id starts with none.
       try { fedseal.forgetRoom(id); } catch { /* create clears it too */ }
+      // #4649: and its outside invites, so a later project of the same id lists none of them.
+      try { fedmembers.forget(id); } catch { /* create clears it too */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).
@@ -17485,18 +17489,20 @@ const server = http.createServer(async (req, res) => {
             ? await fedmembers.invite(remote, body, {
               projectExists: (id) => { try { return !!projects.get(id); } catch { return false; } },
               projectName: (id) => { try { const p = projects.get(id); return p && p.name; } catch { return null; } },
+              // The same createdAt fedseats.stampOf compares a link with (its deps below), so the link is this project's.
+              projectCreated: (id) => { try { const p = projects.get(id, []); return p ? (p.createdAt || null) : null; } catch { return null; } },
             })
             : await federation.invite(remote, body))
           : await federation.verify(remote, body);
+        // A project shared for the first time sits in its room now, not at the next 60 s pass (ensure is idempotent).
+        if (out.status === 200 && pathname === '/api/federation/invite' && typeof body.project === 'string' && body.project) {
+          fedseats.ensure(body.project).catch(() => {});
+        }
         sendJson(res, out.status, out.body);
       })
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
-  /* kosmos#4649: the "add your other computer" code for a project on this computer, for
-     ANOTHER computer of the same account to join its shared room. Screen-only like invite:
-     it marks the project shared with the person's other computers (its owner seat then
-     opens even with no guest). */
   /* #4649: the owner's Members list of people and agents from outside, and removing or withdrawing one. Screen
      only, like invite: these act on the coordinator through this Mac's signature. */
   if (pathname === '/api/federation/members' && req.method === 'GET') {
@@ -17504,7 +17510,7 @@ const server = http.createServer(async (req, res) => {
     let pid = null;
     try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
     if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-    fedmembers.members(remote, pid).then((out) => sendJson(res, out.status, out.body))
+    fedmembers.members(remote, pid, Date.now(), { projectExists: (id) => { try { return !!projects.get(id); } catch { return false; } } }).then((out) => sendJson(res, out.status, out.body))
       .catch((err) => sendJson(res, 500, { error: (err && err.message) || 'we could not read who was invited' }));
     return;
   }
@@ -17523,6 +17529,10 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
+  /* kosmos#4649: the "add your other computer" code for a project on this computer, for
+     ANOTHER computer of the same account to join its shared room. Screen-only like invite:
+     it marks the project shared with the person's other computers (its owner seat then
+     opens even with no guest). */
   if (pathname === '/api/federation/own-code' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {

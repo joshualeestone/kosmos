@@ -32,6 +32,7 @@ const { start, server } = require('./server');
 const remote = require('./engine/remote');
 const projects = require('./engine/projects');
 const federation = require('./engine/federation');
+const fedseats = require('./engine/fedseats');
 
 let edgeList = [];
 const signedCalls = [];
@@ -82,6 +83,8 @@ test('#4649: from the screen: invite from an existing project, see it in Members
   assert.ok(inv.json.invite_id, 'no invite id came back');
   const link = federation.linkFor(pid);
   assert.equal(link && link.role, 'owner', 'the existing project was not recorded as shared');
+  // Review round 1: the seat check (fedseats.stampOf) must take the new link as THIS project's, or it forgets it.
+  assert.ok(fedseats.linkFor(pid), 'the seat check reads the new owner link as an earlier project\'s: the room would never be sat in');
   const sent = signedCalls.filter((c) => c.route === '/v1/mac/federation/invite').at(-1).body;
   assert.equal(sent.project_ref, link.ref);
   assert.equal(sent.project_name, 'Spring Launch', 'the coordinator got a name other than the project\'s own');
@@ -104,4 +107,31 @@ test('#4649: from the screen: invite from an existing project, see it in Members
   assert.equal(wd.status, 200, JSON.stringify(wd.json));
   m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
   assert.equal(m.json.invites.find((r) => r.label === 'Scout').state, 'withdrawn');
+});
+
+test('#4649 review round 1: a link left by an earlier project of the same id is replaced, never reused', async () => {
+  const made = projects.create({ name: 'Reused Name' });
+  const pid = made.id || (made.project && made.project.id);
+  federation.recordLink(pid, { role: 'owner', ref: 'ref-of-the-old-project', project_created: '2001-01-01T00:00:00.000Z' });
+  assert.equal(fedseats.linkFor(pid), null, 'precondition: the seat check must already read this link as stale');
+  const inv = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person', label: 'Lee' }, SCREEN);
+  assert.equal(inv.status, 200, JSON.stringify(inv.json));
+  const sent = signedCalls.filter((c) => c.route === '/v1/mac/federation/invite').at(-1).body;
+  assert.notEqual(sent.project_ref, 'ref-of-the-old-project', 'a new guest was invited into the old project\'s room');
+  assert.ok(fedseats.linkFor(pid), 'the replacement link is not this project\'s either');
+});
+
+test('#4649 review round 1: removing a project forgets its outside invites, so a new project of the same name lists none', async () => {
+  const made = projects.create({ name: 'Short Lived' });
+  const pid = made.id || (made.project && made.project.id);
+  await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person', label: 'Private Label' }, SCREEN);
+  let m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
+  assert.equal(m.json.invites.length, 1, 'precondition: the invite is listed');
+  const del = await call('DELETE', '/api/project/' + encodeURIComponent(pid), undefined, SCREEN);
+  assert.ok(del.status < 300, 'the project was not removed: ' + del.status + ' ' + JSON.stringify(del.json));
+  const again = projects.create({ name: 'Short Lived' });
+  const pid2 = again.id || (again.project && again.project.id);
+  assert.equal(pid2, pid, 'precondition: the freed id is reused, which is the case this guards');
+  m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid2), undefined, SCREEN);
+  assert.deepEqual(m.json.invites, [], 'a new project listed the removed project\'s invites and labels');
 });

@@ -37,7 +37,20 @@ The build plan is on #4649 (comment 5982094423), and the board API contract is t
    coordinator for the room itself.
 3. Remove relies on the owner's next room check to rotate the key (up to the 60 s pass, #5191's window).
 
+## Review round 1 (opus): 3 blockers, all fixed with a test that reds when the fix is removed
+- The new owner link was stamped with the INVITE time; fedseats.stampOf compares it with the project's createdAt, so
+  the seat check forgot the link within 60 s and the guest joined a room nobody sat in. Now stamped with the
+  project's createdAt (the create path's rule); the server test asserts fedseats.linkFor accepts it.
+- A link left by an earlier project of the same id (#3851) was reused, so a new guest joined the OLD room. Now
+  forgotten first, with its room keys and invite rows, as the own-code route does.
+- Two invites at once on a never-shared project minted two refs. Invites for one project now run one at a time.
+- Also: the seat starts at once after an invite from an existing project (ensure); removing a project forgets its
+  invite rows (and the create path does, for a reused id); Members answers 404 for a project not on this board;
+  Withdraw keys on the coordinator's own sentences (slice 2: "already been used", "already withdrawn", "no such
+  invite") and on the connector's "does not sign" / a bare HTTP 404 for an older connector or coordinator.
+
 ## Tests
-engine/fedmembers.test.js (8) and server.fedmembers-4649.test.js (2), plus federation.test.js and
-server.federation-3311.test.js: 32/32. Mutations, each red on its own test: Remove without the project check;
-the label sent to the coordinator; Members without the screen gate.
+engine/fedmembers.test.js (10), server.fedmembers-4649.test.js (4), engine/federation.test.js and
+server.federation-3311.test.js: 59/59. Mutations, each red on its own test: Remove without the project check; the
+label sent to the coordinator; Members without the screen gate; the invite-time stamp; no stale-link forget; no
+per-project serialization; no forget on project removal.

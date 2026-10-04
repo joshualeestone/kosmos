@@ -82,10 +82,31 @@ function markWithdrawn(projectId, inviteId, at) {
   return true;
 }
 
-/** The owner link for a project, or a refusal: { link } | { status, body }. */
+/** Forget a removed project's invite rows, so a later project of the same id (ids are name slugs and are reused)
+    starts with none: its Members list must never show another project's invites or the owner's labels for them. */
+function forget(projectId) {
+  const all = readAll();
+  if (!own(all, projectId)) return false;
+  delete all[projectId];
+  writeAll(all);
+  return true;
+}
+
+/** The owner link for a project, or a refusal: { link } | { status, body }. A link left by an EARLIER project of the
+    same id (#3851's stamp: fedseats.linkFor says no, federation.linkFor says yes) is not this project's. It is
+    forgotten here, with that room's keys and invite rows, as the own-code route does, so a new invite can never put
+    a guest into the old project's room. */
 function ownerLinkOf(projectId) {
   let link;
-  try { link = federation.linkFor(projectId); } catch (err) {
+  try {
+    const raw = federation.linkFor(projectId);
+    if (raw && !require('./fedseats').linkFor(projectId)) {
+      federation.forgetLink(projectId);
+      try { require('./fedseal').forgetRoom(projectId); } catch { /* an unreadable record keeps every post here */ }
+      try { forget(projectId); } catch { /* the list says it could not read its record */ }
+    }
+    link = federation.linkFor(projectId);
+  } catch (err) {
     return { status: 500, body: { error: (err && err.message) || 'we cannot read the connected-projects record on this computer right now' } };
   }
   if (link && link.role === 'member') return { status: 409, body: { reason: 'not-owner', error: 'Only the owner of this project can invite people to it.' } };
@@ -99,7 +120,19 @@ function ownerLinkOf(projectId) {
  * today. Either way the invite is recorded here with the owner's label. `projectExists(id)` answers whether the
  * project is on this board, and `projectName(id)` its name.
  */
-async function invite(remote, body, { projectExists, projectName, now = Date.now() } = {}) {
+/* Invites for one project run one at a time: two at once on a never-shared project would each mint a ref, and the
+   code whose ref lost the race would open a room this board never sits in (review round 1). */
+const inviteChains = new Map();
+function invite(remote, body, deps = {}) {
+  const key = body && typeof body.project === 'string' ? body.project : null;
+  if (!key) return inviteNow(remote, body, deps);
+  const prev = inviteChains.get(key) || Promise.resolve();
+  const next = prev.then(() => inviteNow(remote, body, deps), () => inviteNow(remote, body, deps));
+  inviteChains.set(key, next);
+  next.finally(() => { if (inviteChains.get(key) === next) inviteChains.delete(key); }).catch(() => {});
+  return next;
+}
+async function inviteNow(remote, body, { projectExists, projectName, projectCreated, now = Date.now() } = {}) {
   const label = cleanLabel(body && body.label);
   let projectId = null;
   let req = body;
@@ -110,7 +143,15 @@ async function invite(remote, body, { projectExists, projectName, now = Date.now
     const o = ownerLinkOf(projectId);
     if (!o.link && o.status) return o;
     const ref = o.link ? o.link.ref : crypto.randomUUID();
-    if (!o.link) linkToRecord = { role: 'owner', ref, project_created: new Date(now).toISOString() };
+    if (!o.link) {
+      /* Stamped with the PROJECT's createdAt, as the create path stamps it (fedseats.stampOf compares the two): any
+         other value reads as a link left by an earlier project, and the seat check forgets it (review round 1). A
+         never-shared project also starts with no room keys, whatever an earlier project of its id left. */
+      const born = projectCreated ? projectCreated(projectId) : null;
+      linkToRecord = { role: 'owner', ref };
+      if (typeof born === 'string' && born) linkToRecord.project_created = born;
+      try { require('./fedseal').forgetRoom(projectId); } catch { /* an unreadable record keeps every post here */ }
+    }
     req = Object.assign({}, body, { project_ref: ref, project_name: (projectName && projectName(projectId)) || body.project_name });
     delete req.project;
   }
@@ -137,7 +178,8 @@ async function invite(remote, body, { projectExists, projectName, now = Date.now
 }
 
 /** The project's Members rows from outside, newest first (the contract's GET /api/federation/members). */
-async function members(remote, projectId, now = Date.now()) {
+async function members(remote, projectId, now = Date.now(), { projectExists } = {}) {
+  if (projectExists && !projectExists(projectId)) return { status: 404, body: { error: 'That project is not on this computer.' } };
   const o = ownerLinkOf(projectId);
   if (o.status) return o.body.reason === 'not-owner' ? { status: 200, body: { owner: false, invites: [], checked_at: null } } : o;
   let rows;
@@ -194,13 +236,17 @@ async function withdraw(remote, projectId, inviteId, now = Date.now()) {
   if (!row) return { status: 404, body: { error: 'That invite is not one this project made.' } };
   const r = await remote.macRequest('POST', MAC_WITHDRAW, { invite_id: inviteId });
   if (!r || !r.ok) {
+    /* The coordinator's own sentences (kosmos-relay fed.rs withdraw_for) first, then the two ways the route can be
+       missing: a connector older than it refuses to sign it, and a coordinator older than it has no such path. */
     const b = String((r && r.because) || '');
-    if (/already (been )?(used|joined|redeemed)/i.test(b)) return { status: 409, body: { reason: 'joined', error: 'Someone already joined with this code. Remove them instead.' } };
-    if (/\b404\b|not found|unknown route|no route/i.test(b)) return { status: 409, body: { reason: 'unsupported', error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.' } };
+    if (/already been used/i.test(b)) return { status: 409, body: { reason: 'joined', error: 'Someone already joined with this code. Remove them instead.' } };
+    if (/already withdrawn/i.test(b)) { try { markWithdrawn(projectId, inviteId, now); } catch { /* the list reads it next time */ } return { status: 200, body: { withdrawn: true } }; }
+    if (/no such invite/i.test(b)) return { status: 404, body: { error: 'Kosmos+ does not know this code any more. It cannot be used.' } };
+    if (/does not sign/i.test(b) || /\bHTTP 404\b/.test(b)) return { status: 409, body: { reason: 'unsupported', error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.' } };
     return { status: 502, body: { error: b || 'Kosmos could not withdraw this code just now. Try again in a moment.' } };
   }
   try { markWithdrawn(projectId, inviteId, now); } catch (err) { return { status: 500, body: { error: err.message } }; }
   return { status: 200, body: { withdrawn: true } };
 }
 
-module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor };
+module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget };
