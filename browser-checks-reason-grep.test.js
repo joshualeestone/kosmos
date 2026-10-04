@@ -577,9 +577,8 @@ test('SITE_COUNTS is sorted, one well-formed line per check, and names only chec
   }
 });
 
-/* The finding-emit sites of one check: every emitPrefixes() prefix the scan below
-   examines, with whether it is decoration only. Its length is that check's first
-   SITE_COUNTS number; measuredSites() reads it too. */
+/* The finding-emit sites of one check. Its length is that check's first SITE_COUNTS
+   number. */
 function findingEmitSites(src) {
   const out = [];
   for (const prefix of emitPrefixes(src)) {
@@ -725,4 +724,7 @@ test('a check with no SITE_COUNTS line is told its real pair, both slots measure
   const ghost = siteCountMismatches({ 'no-such-check.js': 1 }, 0, 'test', {});
   assert.deepEqual(ghost, ["no-such-check.js: 1 test sites matched and it has no SITE_COUNTS line "
     + "(add 'no-such-check.js': [1, ?], in sorted order)"]);
+  assert.deepEqual(siteCountMismatches({ 'no-such-check.js': 1 }, 1, 'test', {}),
+    ["no-such-check.js: 1 test sites matched and it has no SITE_COUNTS line "
+    + "(add 'no-such-check.js': [?, 1], in sorted order)"]);
 });
