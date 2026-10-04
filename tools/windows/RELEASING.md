@@ -52,7 +52,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    and COMMIT that on the release branch, beside the version bump, before building (an uncommitted edit
    makes the tree dirty). Add it even when an earlier Windows number already shows these highlights: the
    board does not open the same words twice, and the check stays on. A hotfix with nothing
-   to announce: `KOSMOS_CUT_NO_WHATS_NEW=1 bash tools/build-kosmos-windows.sh`.
+   to announce: `KOSMOS_CUT_NO_WHATS_NEW=1 bash tools/build-kosmos-windows.sh`. A highlight tagged
+   `"platforms": ["mac"]` is not shown on Windows (#5224); if every highlight is Mac-only, Windows shows no window.
 
    ```
    bash tools/build-kosmos-windows.sh

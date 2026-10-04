@@ -32,7 +32,10 @@ improvement it gained would have died with the session that wrote it.
    The operator writes it and commits it to main before the cut, like the versions
    entry; release.sh never writes it. `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
-   sentence for the line; no em dashes. A cut whose file is missing, not for the
+   sentence for the line; no em dashes. A highlight about one platform carries
+   `"platforms": ["mac"]` (or `["windows"]`) and shows only there (#5224); a title or
+   line that says Mac, macOS, Windows or PC must carry it, or the check refuses the
+   file. A cut whose file is missing, not for the
    version being cut, or not one the window can draw stops here
    (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
    `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and that release shows no
