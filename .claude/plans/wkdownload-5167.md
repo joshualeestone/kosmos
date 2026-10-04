@@ -488,3 +488,4 @@ kosmos#120 pattern). Cut back to what the card and its four real defects need:
   - The 68 related and audit test files: 2835 tests, 0 fail.
   - The mode selftest: 86/86.
 - Fresh-loop round 2: an Allow counts only for the page that asked: a main-frame commit during the question (pageCommits) voids the answer, so a switch to connect and back to the same host cannot record an Allow for a page the person never saw. A same-host reload during the question now fails safe (not saved).
+- Fresh-loop round 3: a page change during the question voids only an Allow; Don't Allow is always kept (a reloading page cannot ask again and again). The question is shown on the next main-queue turn, not inside WebKit's policy callback (the handlers wait in downloadAsks). The cross-origin redirect backstop is a quiet refusal, per the rule.

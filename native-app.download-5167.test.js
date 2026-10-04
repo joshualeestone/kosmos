@@ -272,9 +272,11 @@ test('#5167 core: a dangling symlink at the destination is taken, never written 
     /FileManager\.default\.attributesOfItem\(atPath: \$0\.path\)/);
 });
 
-test('#5167 core: an Allow counts only for the page that asked (a commit during the question voids the answer)', () => {
+test('#5167 core: an Allow counts only for the page that asked (a commit during the question voids an Allow, never a Don\'t Allow); the question waits a turn', () => {
   const b = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
-  assert.match(b, /let commitsBefore = pageCommits\n\s+let asked = alert\.runModal\(\)/);
-  assert.match(b, /guard committedPageURL\?\.host\?\.lowercased\(\) == host, pageCommits == commitsBefore else \{/);
+  assert.match(b, /let commitsBefore = pageCommits\n\s+\/\/ On the next turn/, 'the commit count is not taken when the question is asked');
+  assert.match(b, /DispatchQueue\.main\.async \{ \[self\] in/, 'the question runs inside WebKit\'s policy callback');
+  assert.match(b, /if asked, committedPageURL\?\.host\?\.lowercased\(\) != host \|\| pageCommits != commitsBefore \{/,
+    'a page change voids Don\'t Allow too (a reloading page could ask again and again), or no longer voids an Allow');
   assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {'), /pageCommits \+= 1/);
 });
