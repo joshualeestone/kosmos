@@ -85,7 +85,9 @@ const AREA = (el) => {
   // Bounded tightly: every area here is exactly max(its box, 44), so nothing 26px out from the centre (4px past the 22
   // of a 44 area), or 4px past a wider box's own edge, may answer (round 5: 40 let a 76px-tall area pass).
   const far = Math.max(26, r.width / 2 + 4), farV = Math.max(26, r.height / 2 + 4);
-  const bounded = [[0, -farV], [0, farV], [-far, 0], [far, 0]].every(([dx, dy]) => !hits(cx + dx, cy + dy));
+  // A bound probe off the screen tests nothing, so it fails rather than passes (round 6).
+  const onScreen = (x, y) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  const bounded = [[0, -farV], [0, farV], [-far, 0], [far, 0]].every(([dx, dy]) => onScreen(cx + dx, cy + dy) && !hits(cx + dx, cy + dy));
   return { reach, bounded };
 };
 

@@ -78,6 +78,10 @@ MONDAY (main is frozen until the 07:00 pin).
   the reviewer's A2/A3 now caught). The area bound was loose at 40px (a 76px-tall area passed; now 26px, or 4px past
   a wider box: the 76px mutant reds the names and the close).
 
+- Round 6 (blind): transform/filter/perspective/contain make a containing block, so the clip walk had false reds
+  (T1, T2, T6: fixed); body's overflow was taken as a clip (it is the viewport's: skipped, T4 caught); contain
+  paint/strict/content clips like overflow; an off-screen bound probe now fails rather than passes.
+
 ## Weakest premise
 - WebKit ran on Mortals in Angel's review (AI settings and names clean); not re-run here after round 2's changes,
   which touch only the tool and the check, not the page's CSS.
