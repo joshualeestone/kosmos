@@ -982,7 +982,9 @@ const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
  * took it. Only the words and who said them leave this Mac.
  */
 function post(projectId, msg) {
-  return sendPost(projectId, msg, 0);
+  const m = msg || {};
+  // Only the public fields: the hold's own (invites, sealedHeld...) cannot be set from outside.
+  return sendPost(projectId, { from: m.from, kind: m.kind, text: m.text, files: m.files }, 0);
 }
 /** Whether a post could ever go out: its line, sealed, within the connector's limit. Sealed
     with a throwaway key, so the measure is the real one (the key changes no length; a large
@@ -1024,7 +1026,13 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     const st = roomSeal(projectId);
     let inv = null;
     let unknown = false;
-    if (l === undefined || st === undefined) { inv = []; unknown = true; }
+    // Cannot tell whose room it is, or who an owner's room includes: nothing it could be held
+    // for is knowable, so it is refused now rather than promised and dropped later.
+    if (l === undefined || (st === undefined && l && l.role === 'owner')) {
+      if (!heldAt) say(projectId, 'That message stayed on this computer: it cannot read its shared-project records right now, so it cannot tell who this room includes.');
+      return false;
+    }
+    if (st === undefined) inv = null;   // a member's room: nobody to limit it to
     else if (l && l.role === 'owner' && !(st && st.peers && Object.keys(st.peers).length)) {
       try { inv = fedseal.pendingInvites(l.ref).map((p) => p.invite); } catch { inv = []; unknown = true; }
     }
@@ -1082,7 +1090,7 @@ function flushHeld(projectId, s) {
       // that room. Held on an edge that has since ended: not sent through another.
       if (held[i].edge && held[i].edge !== s.edge) { moved += 1; continue; }
       if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
-        // Pinned members exist, none from an invite live when it was written: not for them.
+        // Pinned members exist and not all came from an invite live when it was written.
         if (pinnedAny(projectId)) { if (held[i].msg.invitesUnknown) unknownWho += 1; else unmeant += 1; continue; }
       }
       s.reheld = false;
@@ -1114,8 +1122,10 @@ function flushHeld(projectId, s) {
 }
 /** Owner: whether any pinned member was pinned from one of these invites. */
 function pinnedFrom(projectId, invites) {
+  // EVERY pinned member, since a post goes to the whole room under its one key.
   const st = roomSeal(projectId);
-  return !!(st && st.peers && Object.values(st.peers).some((p) => p && invites.includes(p.invite)));
+  const peers = st && st.peers ? Object.values(st.peers) : [];
+  return peers.length > 0 && peers.every((p) => p && invites.includes(p.invite));
 }
 function pinnedAny(projectId) {
   const st = roomSeal(projectId);

@@ -58,9 +58,10 @@ A seat that ends (member removed) with posts held says how many were not sent. A
 moves onto a guest's edge: that is the same room.
 
 An owner's post held while NO member is pinned records the invites live when it was written, and
-goes only to a member pinned from one of them (rounds 12-13): never to someone invited afterwards.
-Held with members already in, it is for them. When the records cannot be read at hold time it fails
-closed (not sent if anyone is pinned, with a note saying why). A post held while the room was known
+goes only while EVERY pinned member came from one of them (rounds 12-15; a post goes to the whole
+room under one key): never to someone invited afterwards.
+Held with members already in, it is for them. When an owner's records cannot be read at the moment of
+posting, it is refused at once (it cannot know whom it would be for), not held and dropped later. A post held while the room was known
 to be sealed is never sent in the clear; one held on an unreadable record goes by what the record
 says once it reads. A seat not connected still ages its held posts out at each pass, with a note.
 A flush that throws keeps what it had not handled (untested: nothing reachable in sendPost throws).

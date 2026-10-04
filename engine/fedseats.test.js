@@ -2555,24 +2555,41 @@ test('#5192: an owner\'s post held while a member is already in the room goes to
   assert.deepStrictEqual(out.map((o) => o.m.text), ['to the member already here'], 'a post held with a member in the room was dropped: ' + JSON.stringify(h.notes));
 });
 
-test('#5192: an owner\'s post held while the link record cannot be read is not sent to a later invitee', async (t) => {
+test('#5192: an owner\'s post meeting unreadable records is refused at once, not promised and dropped later', async (t) => {
   const early = newInvite('5192lu');
   const { h, seat } = await ownerRoom('proj-5192-lu', 'ref-5192-lu', 'room-5192-lu', [early]);
   const broken = t.mock.method(federation, 'linkFor', () => { throw new Error('EIO'); });
-  fedseats.post('proj-5192-lu', { from: 'Josh', kind: 'person', text: 'for early only' });
+  assert.strictEqual(fedseats.post('proj-5192-lu', { from: 'Josh', kind: 'person', text: 'for early only' }), false);
   broken.mock.restore();
-  const late = newInvite('5192lulate');
-  fedseal.stashInvite('ref-5192-lu', late);
-  h.edges = h.edges.concat([{ id: 'edge-inv-5192lulate', project_ref: 'ref-5192-lu', status: 'active', invite_id: 'inv-5192lulate' }]);
-  const member = fedseal.newKeyPair();
-  say(seat, { event: 'message', data: fedseal.helloFrame(late.s, late.code, member, 'room-5192-lu') });
+  assert.ok(h.notes.some((n) => /stayed on this computer: it cannot read its shared-project records/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(!h.notes.some((n) => /is held on this computer/.test(n.text)), 'it was promised: ' + JSON.stringify(h.notes));
+  void seat;
+});
+
+test('#5192: an owner\'s held post goes only when every pinned member came from an invite live when it was written', async (t) => {
+  const early = newInvite('5192all');
+  const { h, seat } = await ownerRoom('proj-5192-all', 'ref-5192-all', 'room-5192-all', [early]);
+  fedseats.post('proj-5192-all', { from: 'Josh', kind: 'person', text: 'for early only' });
+  const late = newInvite('5192alllate');
+  fedseal.stashInvite('ref-5192-all', late);
+  h.edges = h.edges.concat([{ id: 'edge-inv-5192alllate', project_ref: 'ref-5192-all', status: 'active', invite_id: 'inv-5192alllate' }]);
+  // The early member is pinned, but its flush's write fails, so the post stays held.
+  const realWrite = seat.stdin.write.bind(seat.stdin);
+  let fail = true;
+  // Only a message envelope ({v, epoch, nonce, ct}); key frames carry "t".
+  seat.stdin.write = (chunk, ...rest) => { if (fail && /"ct"/.test(String(chunk)) && !/"t":/.test(String(chunk))) { fail = false; throw new Error('EPIPE'); } return realWrite(chunk, ...rest); };
+  const ke = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(early.s, early.code, ke, 'room-5192-all') });
+  await settle();
+  const kl = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(late.s, late.code, kl, 'room-5192-all') });
   await settle();
   const frames = lines(seat);
-  const share = frames.find((f) => f.t === 'key-share');
-  assert.ok(share, 'fixture: pinned');
-  const got = fedseal.openShare(late.s, late.code, member, share, 'room-5192-lu');
-  assert.deepStrictEqual(frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-lu', f)).filter(Boolean), []);
-  assert.ok(h.notes.some((n) => /could not read who the shared project included/.test(n.text)), JSON.stringify(h.notes));
+  const share = frames.filter((f) => f.t === 'key-share').pop();
+  const got = fedseal.openShare(late.s, late.code, kl, share, 'room-5192-all');
+  const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-all', f)).filter(Boolean);
+  assert.deepStrictEqual(posts, [], 'a post written before the late invite reached the room once its invitee was in');
+  assert.ok(h.notes.some((n) => /came from an invite made after it was written/.test(n.text)), JSON.stringify(h.notes));
 });
 
 test('#5192: a post held on an unreadable record in a room that turns out unsealed goes, in the clear as before', async (t) => {
