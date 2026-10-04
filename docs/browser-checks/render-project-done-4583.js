@@ -161,21 +161,24 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
         // And on a row with NO "Done not set" (the empty track is there on every row): the common orphan case.
         const other = [...document.querySelectorAll('#pj-list .pj-row')].find((r) => (r.textContent || '').includes('Given Done Project'));
         let noTag = null;
+        let nAdded = added.length;
         if (other && !other.querySelector('.pj-doneunset')) {
           const oh = other.querySelector('.pjcard-h') || other;
           const f2 = document.createElement('span'); f2.className = 'pjfaces'; f2.innerHTML = '<span class="pjcount">3 agents</span>'; oh.appendChild(f2); added.push(f2);
           const c2 = chip.cloneNode(true); other.appendChild(c2); added.push(c2);
           noTag = { chip: box(c2), name: box(other.querySelector('.pjname')), faces: box(f2) };
+          nAdded = added.length;
           // Review of the gap fix: a status-only row (no count, no tag) lost the most room to empty tracks; measure it too.
-          if (!other.querySelector('.pjpill')) {
-            f2.remove();
-            const p2 = document.createElement('span'); p2.className = 'pjpill'; p2.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; oh.appendChild(p2); added.push(p2);
-            noTag.pillOnly = { name: box(other.querySelector('.pjname')), pill: box(p2) };
-          }
+          // The injected-cell count (5) is taken above, before this step, so it means the same whatever this step adds.
+          // A fixture row that already has a status is measured as it is (the page's own pill), never left unmeasured.
+          f2.remove();
+          let p2 = other.querySelector('.pjpill');
+          if (!p2) { p2 = document.createElement('span'); p2.className = 'pjpill'; p2.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; oh.appendChild(p2); added.push(p2); }
+          noTag.pillOnly = { name: box(other.querySelector('.pjname')), pill: box(p2) };
         }
         const phone = window.matchMedia('(max-width: 40rem)').matches;
         for (const el of added) el.remove();
-        return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), added: added.length, plain, full, withChip, noTag, phone };
+        return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), added: nAdded, plain, full, withChip, noTag, phone };
       });
       const onLine = (x) => Math.abs(x.mid - m.full.name.mid) <= 3;
       // Both widths: the injected cells are on the name's line (else the arm tests nothing), the tag keeps its size, and
