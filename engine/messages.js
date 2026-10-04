@@ -1891,7 +1891,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      written since countFrom, synchronously. */
   let allowed = lim.roomArrivalsPerWindow;
   if (lim.on && operator !== true && arrivals + charged > allowed) {
-    const steps = require('./taskchat').progressTimes(projectId, now, countFrom).filter((t) => t >= countFrom).length;
+    const taskSteps = require('./taskchat').progressTimes(projectId, now, countFrom).filter((t) => t >= countFrom).length;
+    /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
+       same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
+       earn the most there is. */
+    const fileSteps = taskSteps >= ROOM_PROGRESS_STEPS ? 0 : projectsMod.changedFileTimes(projectId, countFrom, now).length;
+    const steps = taskSteps + fileSteps;
     allowed += Math.min(lim.roomArrivalsPerWindow, steps * Math.ceil(lim.roomArrivalsPerWindow / ROOM_PROGRESS_STEPS));
   }
   if (operator !== true && arrivals + charged > allowed) {
