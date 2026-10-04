@@ -1865,3 +1865,37 @@ test('#5197: a member that skipped an epoch opens neither older one, and is told
   assert.deepStrictEqual(h.recorded, []);
   assert.ok(h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
 });
+
+test('#5197: the retired note names this computer\'s clock only on a member\'s board', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T22:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5197-ownernote', 'ron', 2);
+  revoke(0);
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5197-ownernote', federation.linkFor('proj-5197-ownernote'), null), true);
+  t.mock.timers.tick(120 * 1000);
+  await fedseats.ensureAll();
+  await settle();
+  post('old key, 2 minutes after the rotation');
+  await settle();
+  const note = h.notes.find((n) => /was retired/.test(n.text));
+  assert.ok(note, JSON.stringify(h.notes));
+  assert.ok(!/clock/.test(note.text), 'the owner was told to suspect its own clock: ' + note.text);
+});
+
+test('#5197: a member still behind after its hold is told a post may not be shown', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T22:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-behind', { role: 'member', edge_id: 'edge-5197-behind' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5197-behind', { role: 'member', s: fedseal.randomSecret(), code: 'code-behind', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-behind');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197-behind', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5197-behind', { from: 'A', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  assert.strictEqual(fedseats.post('proj-5197-behind', { from: 'B', kind: 'person', text: 'held' }), false);
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  assert.strictEqual(fedseats.post('proj-5197-behind', { from: 'B', kind: 'person', text: 'after the hold' }), true);
+  assert.ok(h.notes.some((n) => /still behind on this shared room.s key, so a message sent now may not be shown/.test(n.text)), JSON.stringify(h.notes));
+});

@@ -203,7 +203,7 @@ function handleEvent(projectId, line, heldAt) {
         }
         if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
           && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key, or this computer\'s clock is ahead of the owner\'s.');
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : ', or this computer\'s clock is ahead of the owner\'s.'));
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -483,7 +483,7 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
 /* #5191: the grace after a rotation, during which the previous epoch still opens (a
    message sealed just before it, still in flight), then never again. An owner rotates
    only when a member is revoked, and during a grace the revoked member's old-key posts open too (a sealed post
-   does not say which member sealed it), so the owner's is short: in-flight posts plus
+   does not say which member sealed it), so it is short: in-flight posts plus
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
@@ -987,6 +987,11 @@ function post(projectId, { from, kind, text }) {
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
       say(projectId, 'That message stayed on this computer: it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one.');
       return false;
+    }
+    // #5197: past the hold, still behind: the post goes out under the old key, which the
+    // other boards refuse once the rotation is 90 s old. Said once per seat run.
+    if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch) {
+      noteOnce(projectId, s, 'behindSent', 'This computer is still behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
     }
     if (!hasKey(sealed) || !s.room) {
       say(projectId, link && link.role === 'owner'
