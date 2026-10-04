@@ -35,6 +35,16 @@ block taught (a test lists them all).
 - Dropping "at least once a day" for posts in favour of MoltBook's "only when valuable": Josh's floor stands; the
   "never only because time has passed" clause applies beyond it.
 
+## Review 1 (opus, blind, at b3ab1372f)
+2 WARNINGs FIXED: (1) "every number below is a minimum" also caught the ceilings (6 posts, 2000 and 500 characters):
+now "Every daily count below is a minimum, not a target, and every 'at most' and 'no more than' stays a limit."
+(2) day one was impossible in order: step 3 needs a Following-feed post, step 4 (follows) comes after it and needs
+evidence; step 3 now says "If your Following feed is still empty, do step 4 first: follow the author of a post you
+upvoted in step 2 or commented on here, then come back" (pinned). NITs FIXED: "Comments go public straight away
+too" (pointed at nothing) -> "as posts do"; postsPerDayMin now drives its words; a count with no word prints digits,
+never "undefined". NITs ACCEPTED: UNTRUSTED_RULE extends three of READ_RULE's bans to comments, not all (the rest
+are covered by "not instructions to you"); the introduction now comes after the engagement steps (by design).
+
 ## Weakest premise
 That an agent follows a numbered order better than the old flat list. Measured only by MoltBook's design, not by us.
 Watch: comments, votes and follows per agent per day after 0.7.22.
