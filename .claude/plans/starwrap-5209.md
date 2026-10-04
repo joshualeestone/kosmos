@@ -4,8 +4,9 @@ Card: joshualeestone/kosmos#5209 (found in #5189's challenge loop). Not day-one;
 
 ## Problem
 `plusStarsResize` scaled every dot by the growth factor, including a dot sitting in the 4px wrap margin
-past an edge. A dot at y = -3.7 grown by 1.63 landed at -6.0, past the -4 wrap line, so the same frame's
-draw wrapped it to the bottom and the next frame back: a one-frame flash at the bottom edge.
+past an edge. A dot at y = -3.7 grown by 1.63 landed at -6.0, past the -4 wrap line, so the draw wrapped
+it to the far edge early. (Review 2: that dot is off the canvas either side, so this was never a
+visible flash; the card's "flash" wording is not backed.)
 
 ## Decision
 `plusStarScale(v, o, n)`: inside the box, scale as before; before the start edge (v < 0), keep v; past
