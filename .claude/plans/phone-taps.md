@@ -72,6 +72,11 @@ MONDAY (main is frozen until the 07:00 pin).
 - KNOWN, NOT FIXED (named): a padded hit area over a neighbour when each sits in its own absolutely positioned row
   wrapper reads as stacking (case 11). Telling that from a real overlay needs z-order, which hit-testing alone does not
   give; none of the audited screens has the shape (48 shots, 0 covers; the room-at-44 control still caught).
+  Same family: two FIXED controls overlapping each other (each is its own layer) read as stacking (round 5 NIT).
+- Round 5 (blind): the round-4 clip rule clipped a control by every overflow ancestor, so a fixed or absolute control
+  that ESCAPES one was skipped entirely (false green; fixed: only ancestors in its containing-block chain clip it;
+  the reviewer's A2/A3 now caught). The area bound was loose at 40px (a 76px-tall area passed; now 26px, or 4px past
+  a wider box: the 76px mutant reds the names and the close).
 
 ## Weakest premise
 - WebKit ran on Mortals in Angel's review (AI settings and names clean); not re-run here after round 2's changes,
