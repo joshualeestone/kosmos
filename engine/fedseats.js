@@ -201,7 +201,7 @@ function handleEvent(projectId, line, heldAt) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
         }
-        if (sealed && sealed.role === 'owner' && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)) {
+        if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)) {
           noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired (someone was removed from the shared project), so it was not shown.');
           return;
         }
@@ -481,17 +481,18 @@ const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 /* #5191: the grace after a rotation, during which the previous epoch still opens (a
    message sealed just before it, still in flight), then never again. An owner rotates
-   only when a member is
-   revoked, and during a grace the revoked member's old-key posts open too (a sealed post
+   only when a member is revoked, and during a grace the revoked member's old-key posts open too (a sealed post
    does not say which member sealed it), so the owner's is short: in-flight posts plus
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
    EDGE_FRESH_MS, about 75 s, and up to one 60 s pass more while Kosmos+ cannot answer
-   (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it.
-   #5197: a member uses the same grace. It is not told why the owner rotated, but the
-   owner rotates only on a revoke, so a 10 minute member grace was 10 minutes in which
-   every other member showed the revoked member's old-key posts. */
+   (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it,
+   which a sealed room does not rely on (the relay is not trusted).
+   #5197: a member uses the same grace, so a relay that keeps a revoked member posting
+   cannot have the other members show it for 10 minutes. A member's grace runs from the
+   owner's rotation time on its own clock: a member clock running ahead shortens it
+   (fails closed: in-flight posts refused there). */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One

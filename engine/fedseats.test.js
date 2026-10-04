@@ -1763,4 +1763,5 @@ test('#5197: a remaining member opens a revoked member\'s old key for 90 s after
   say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'Revoked', kind: 'person', text: 'at 2 min' }) });
   await settle();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['at 60 s'], 'a member opened the old key past 90 s');
+  assert.ok(h.notes.some((n) => /earlier key arrived after that key was retired/.test(n.text)), 'refused for some other reason: ' + JSON.stringify(h.notes));
 });

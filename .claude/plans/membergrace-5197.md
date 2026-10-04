@@ -19,6 +19,15 @@ next connect, on each pass, and at once when the owner refuses one of its old-ke
 The refused post itself is not resent (#5192). What would change my mind: evidence that members
 routinely miss a rotation for more than 90 s while posting.
 
+Second premise (challenge round 1): the grace is the owner's rotation time judged on the
+member's clock, so a member clock running ahead shortens it, to nothing at 90 s ahead. Fails
+closed (in-flight posts refused on that board, a revoked member's never shown). Stated in
+fedseal.js NOT CLAIMED. Not fixed: measuring from receipt would let a member catching up late
+reopen the old key, which #3728 ruled out.
+
+A member refusing an older, retired epoch's post now gets the same 'key was retired' note as
+the owner instead of 'could not open'.
+
 ## Control
 engine/fedseats.test.js '#5197': rotate at R; an old-key post at R+60 s shows, one at R+2 min
 does not. Perturbed: the old 10 min grace turns it red.
