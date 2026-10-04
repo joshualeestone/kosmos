@@ -8313,6 +8313,74 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #5153 slice 4: undo a closed task's file changes (engine/undo.js; off by default, Josh can override).
+     - GET/PUT /api/undo-setting { on }: the switch. The person's: an agent's token is refused on PUT.
+     - POST /api/undo/keep { path, cwd, session }: the report hook's call just before a Claude agent edits a file. The
+       board keeps a copy only while the switch is on; the answer says whether it did. Agents' hooks call it, so an
+       agent's token is accepted here (it copies a file on this computer into Kosmos's own data, nothing more).
+     - GET /api/project/:id/task/:n/undo: what an undo would do, file by file. POST { paths }: do it for those files.
+       The person's: an agent's token is refused, and nothing happens with the switch off. */
+  if (pathname === '/api/undo-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/undo').read();
+    sendJson(res, 200, { on: r.on, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/undo-setting' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this setting is the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'on must be true or false' }); return; }
+        const r = require('./engine/undo').setOn(body.on);
+        sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  if (pathname === '/api/undo/keep' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { kept: false, because: 'unreadable request' }); return; }
+        sendJson(res, 200, require('./engine/undo').keep(body.path, { cwd: body.cwd, session: body.session }));
+      })
+      .catch(() => sendJson(res, 400, { kept: false, because: 'unreadable request' }));
+    return;
+  }
+  const taskUndo = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/undo$/);
+  if (taskUndo && (req.method === 'GET' || req.method === 'POST')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'undoing a task is the person\'s, not an agent\'s' }); return; }
+    const id = decodeSegment(taskUndo[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const undo = require('./engine/undo');
+    let task = null;
+    try {
+      const proj = (require('./engine/projects').readAll() || []).find((x) => x && x.id === id);
+      task = proj ? require('./engine/tasks').byNumber(proj, Number(taskUndo[2])) || null : null;
+    } catch { task = null; }
+    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
+    if (req.method === 'GET') {
+      try { sendJson(res, 200, { on: undo.read().on, ...undo.plan(id, task) }); }
+      catch { sendJson(res, 500, { error: 'we could not work out the undo just now' }); }
+      return;
+    }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!Array.isArray(body.paths) || !body.paths.every((x) => typeof x === 'string')) { sendJson(res, 400, { error: 'paths must be a list of files' }); return; }
+        const out = undo.apply(id, task, body.paths);
+        if (out.because === 'off') { sendJson(res, 409, { error: 'undo is turned off in Settings', ...out }); return; }
+        sendJson(res, 200, out);
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* #4375: the owner's industry, shared on their agents' public Community profiles ("Works for ...").
      Optional, from a FIXED list (engine/communityindustry.js), never free text. GET gives the list with
      the setting so the page draws exactly the keys the board will accept; `ok:false` is an unreadable
