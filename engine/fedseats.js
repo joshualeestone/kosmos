@@ -704,9 +704,14 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
   // one would be refused for that, so they wait for a pass that can read it.
   // r undefined: the step threw, nothing is known, and nothing is released.
   if (s.held && s.held.length && ((r && r.checked) || (pass && r && !r.unreadable))) {
-    const held = s.held;
-    s.held = [];
-    s.heldIds = new Set();
+    // A checked answer covers only posts that arrived within EDGE_FRESH_MS of when it was
+    // asked for: a later one (the answer was old by the time this step ran, behind a slow
+    // sealing step) stays held for its own check or the next pass. The unchecked pass
+    // release (Kosmos+ cannot answer) shows them all, as before.
+    const coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
+    const held = s.held.filter((h) => h.at <= coversUntil);
+    s.held = s.held.filter((h) => h.at > coversUntil);
+    s.heldIds = new Set(s.held.map((h) => h.id));
     for (const { line, at } of held) {
       try { handleEvent(projectId, line, at); } catch (err) {
         console.error('#5191: a held post for ' + JSON.stringify(projectId) + ' could not be handled: ' + String((err && err.message) || err));
@@ -744,7 +749,7 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
     return true;
   }
   s.heldIds.add(opened.id);
-  s.held.push({ line, at: now });
+  s.held.push({ line, at: now, id: opened.id });
   if (link && !s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const ask = sharedEdges(now);
     // The answer's own ask time: one joined from another room may be older than this post.

@@ -1341,11 +1341,13 @@ test('#5191: fifty posts in a second make one edge check, and a fresh check hold
   h.gate = null;
   await settle();
   assert.strictEqual(h.asked - asked, 1, 'a flood made more than one edge check');
-  assert.strictEqual(h.recorded.length, 51);
-  // That answer was asked for 16 s ago, so the next post asks again; one right after it does not.
+  // post 50 arrived 16 s after that answer was asked: the answer does not cover it, it waits.
+  assert.strictEqual(h.recorded.length, 50);
+  // That answer was asked for 16 s ago, so the next post asks again (and frees post 50); one right after it does not.
   post('right after');
   await settle();
   assert.strictEqual(h.asked - asked, 2);
+  assert.strictEqual(h.recorded.length, 52);
   post('and again');
   await settle();
   assert.strictEqual(h.asked - asked, 2, 'a post inside EDGE_FRESH_MS asked again');
@@ -1802,4 +1804,61 @@ test('#5191: an honest post held through a failed check is still shown when the 
   await fedseats.ensureAll();
   await settle();
   assert.deepStrictEqual(shown(h), ['from the member who stays'], 'an honest post held through one failed check was refused');
+});
+
+test('#5191: the pass does not release a post that arrived after its edges answer was asked (a slow sealing step)', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  let edges = [];
+  const calls = [];
+  const recorded = [];
+  const spawned = {};
+  fedseats.stopAll();
+  fedseats.configure({
+    spawnSeat: (edge) => { const c = fakeChild(); (spawned[edge] = c); spawned.last = c; return c; },
+    macRequest: () => { const snap = JSON.parse(JSON.stringify(edges)); let res; const p = new Promise((r) => { res = r; }); calls.push({ at: Date.now(), go: () => res({ ok: true, data: { as_owner: snap, as_member: [] } }) }); return p; },
+    recordExternal: (pid, m) => recorded.push({ pid, ...m }), onStatus: () => {}, enrolled: () => true, projectExists: () => true,
+    projectCreatedAt: () => undefined, note: () => {},
+  });
+  // rooms R1 and R2, one pinned member each; R2 also has an unspent invite (for a hello that blocks its chain)
+  const setup = [];
+  for (const tag of ['a1', 'a2']) {
+    const inv = newInvite(tag); const ref = 'ref-' + tag; const room = 'room-' + tag; const id = 'proj-' + tag;
+    fedseal.stashInvite(ref, inv);
+    federation.recordLink(id, { role: 'owner', ref });
+    edges.push({ id: 'edge-' + inv.invite, project_ref: ref, status: 'active', invite_id: inv.invite });
+    setup.push({ inv, ref, room, id });
+  }
+  const extra = newInvite('a2x'); fedseal.stashInvite('ref-a2', extra);
+  for (const r of setup) {
+    const p = fedseats.ensure(r.id); await settle(); calls.forEach((c) => c.go()); calls.length = 0; await p; await settle();
+    r.seat = spawned.last; say(r.seat, { event: 'connected', room: r.room, expires_at: 9 }); await settle();
+    say(r.seat, { event: 'message', data: fedseal.helloFrame(r.inv.s, r.inv.code, fedseal.newKeyPair(), r.room) });
+    await settle(); calls.forEach((c) => c.go()); calls.length = 0; await settle();
+    assert.strictEqual(Object.keys(fedseal.roomState(r.id).peers).length, 1);
+  }
+  const R2 = setup[1];
+  // an outsider's hello on R2 blocks R2's seal chain (its edges request is slow)
+  say(R2.seat, { event: 'message', data: fedseal.helloFrame(extra.s, extra.code, fedseal.newKeyPair(), R2.room) });
+  await settle();
+  const helloCall = calls.shift(); assert.ok(helloCall);
+  // pass starts at P: R1's check asks the pass edges (pre-revoke) and it answers at once
+  const pass = fedseats.ensureAll(); await settle();
+  while (calls.length) { calls.shift().go(); await settle(); }
+  // R2 revoked 5 s later; its only member posts 15 s after that (25 s+ after the pass answer was asked)
+  t.mock.timers.tick(5000);
+  edges = edges.map((e) => e.project_ref === 'ref-a2' ? Object.assign({}, e, { status: 'revoked' }) : e);
+  t.mock.timers.tick(15000);
+  say(R2.seat, { event: 'message', data: fedseal.seal(fedseal.roomState(R2.id).keys[0], 0, R2.room, { from: 'B', kind: 'person', text: 'after revoke' }) });
+  await settle();
+  const postCall = calls.shift(); // the post's own check (post-revoke snapshot), still out
+  // the hello's request finally answers (19 s): R2's chain moves on to the pass step
+  t.mock.timers.tick(1000);
+  helloCall.go(); await settle(); await settle();
+  await pass;
+  assert.deepStrictEqual(recorded.map((r) => r.text), [], 'the pass released a post under an answer asked before it arrived');
+  assert.ok(postCall, 'fixture: the post asked its own check');
+  postCall.go(); await settle(); await settle();
+  assert.strictEqual(fedseal.roomState(R2.id).epoch, 1, 'the post\'s own check did not rotate');
+  assert.deepStrictEqual(recorded.map((r) => r.text), [], 'the revoked member\'s post was shown');
+  harness();   // put the shared harness back for any later test
 });

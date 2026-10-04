@@ -82,3 +82,9 @@ doubled (N5); selfShared owner (N4).
   is never detected. Stated, not changed.
 - With no members left, a post that joins a check already out can be shown if the revoke landed after
   that check was asked: bounded by about 15 s plus a round trip (N3), not the members-left 75 s.
+
+## Round 12 (22:11)
+- A checked answer releases only held posts that arrived within EDGE_FRESH_MS of when it was asked
+  (a pass step delayed behind a slow sealing step used an answer older than the post). Later posts
+  wait for their own check or the next pass. The no-members residual holds again: up to 15 s from the
+  ask, plus the round trip of the check that covers the post.
