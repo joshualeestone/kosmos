@@ -52,20 +52,21 @@ const INBOUND_ROWS_PER_DAY = 2000;
 const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
-const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;
+const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer
 /* #5193: a member's edge revoked by the owner, told in one plain sentence. The connector's own
    reason for it reads "...that connection has been revoked. Ask to be re-invited. (HTTP 409 on
    /v1/mac/federation/room-ticket)", which shows a raw path and says "ask" twice. */
-const REVOKED_REFUSAL = /\brevoked\b/i;
+const REVOKED_REFUSAL = /that connection has been revoked/i;   // the connector's FINAL_REFUSALS phrase, not any 'revoked'
 const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
 /** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
-    (the room's sentence says what to do), and without a trailing full stop. */
+    (the room's sentence says what to do), and without a trailing full stop. Applied to the raw
+    reason before it is cut to length, so a long one cannot keep half a trailer. */
 function plainReason(why) {
   return String(why || '')
     .replace(/\s*\(HTTP \d{3}[^)]*\)/gi, '')
     .replace(/\s*Ask to be re-invited\.?/gi, '')
     .trim().replace(/[.\s]+$/, '') || 'the connection ended';
-}   // #4645: either wording of the retired answer
+}
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
 /* The longest stdout line kept while waiting for its newline. The connector
@@ -136,7 +137,9 @@ function handleEvent(projectId, line, heldAt) {
   try { ev = JSON.parse(line); } catch { return; }
   if (!ev || typeof ev !== 'object') return;
   const s = seats.get(projectId);
-  if (!s) return;
+  // #5193: a seat ended by the edge check ignores what its dying connector still has in the pipe
+  // (a late 'connected' or 'disconnected' would change the status; a message would be recorded).
+  if (!s || s.stopped) return;
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
   if (ev.event === 'connected') {
@@ -150,7 +153,7 @@ function handleEvent(projectId, line, heldAt) {
   }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
-    s.ended = clean(ev.because, 200) || 'the connection ended';
+    s.ended = clean(plainReason(ev.because), 200) || 'the connection ended';
     // Some final refusals are about THIS Mac or account, not the edge (the
     // connector's FINAL_REFUSALS). Signing in again fixes those, so nothing about
     // the edge is kept and the person is told the real fix.
@@ -170,7 +173,7 @@ function handleEvent(projectId, line, heldAt) {
     // #5193: one plain sentence, said once (the edges check may have said it already).
     if (s.revokedNoted) return;
     if (REVOKED_REFUSAL.test(s.ended)) { s.revokedNoted = true; say(projectId, REVOKED_NOTE); return; }
-    say(projectId, 'This computer is no longer connected to the external project: ' + plainReason(s.ended) + '. To take part again, ask the owner for a new code.');
+    say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
     return;
   }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
@@ -719,7 +722,8 @@ function endRevokedMember(projectId, s, link) {
   if (!s.revokedNoted) { s.revokedNoted = true; say(projectId, REVOKED_NOTE); }
   try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended })); } catch { /* ends again at its next ticket ask */ }
   setStatus(projectId, 'ended');
-  s.stopped = true;   // the child's close then neither restarts it nor tells the room again
+  s.stopped = true;   // the child's close then neither restarts it nor tells the room again, and
+                      // handleEvent ignores lines still in its pipe
   if (s.timer) { clearTimeout(s.timer); s.timer = null; }
   if (s.child) letGo(s.child);
 }

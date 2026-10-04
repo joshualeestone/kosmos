@@ -387,7 +387,7 @@ async function memberRoom(id) {
 }
 const REVOKED_5193 = 'The owner removed this computer from the project. Ask them for a new code to join again.';
 
-test('#5193: a member that posts right after a revoke is told at once, in one plain sentence, and the seat ends', async () => {
+test('#5193: a member that posts after a revoke is told on that post\'s check, in one plain sentence, and the seat ends', async () => {
   const h = await memberRoom('proj-5193-post');
   h.memberEdges = [{ id: 'edge-proj-5193-post', status: 'revoked' }];
   assert.strictEqual(fedseats.post('proj-5193-post', { from: 'B', kind: 'person', text: 'still here?' }), true);
@@ -404,6 +404,21 @@ test('#5193: a member that posts right after a revoke is told at once, in one pl
   await tick();
   assert.strictEqual(h.notes.filter((n) => /removed this computer|no longer connected/.test(n.text)).length, 1, JSON.stringify(h.notes));
   assert.strictEqual(fedseats.post('proj-5193-post', { from: 'B', kind: 'person', text: 'and now?' }), false);
+});
+
+test('#5193: lines still in a revoked seat\'s pipe change nothing after the check ended it', async () => {
+  const h = await memberRoom('proj-5193-pipe');
+  h.memberEdges = [{ id: 'edge-proj-5193-pipe', status: 'revoked' }];
+  fedseats.post('proj-5193-pipe', { from: 'B', kind: 'person', text: 'x' });
+  await settle();
+  assert.strictEqual(fedseats.statusOf('proj-5193-pipe'), 'ended');
+  const before = h.recorded.length;
+  say(h.spawned[0], { event: 'disconnected' });
+  say(h.spawned[0], { event: 'connected', room: 'room-proj-5193-pipe', expires_at: 9 });
+  say(h.spawned[0], { event: 'message', data: { from: 'Ada', kind: 'person', text: 'late' } });
+  await settle();
+  assert.strictEqual(fedseats.statusOf('proj-5193-pipe'), 'ended', 'a late line changed the status');
+  assert.strictEqual(h.recorded.length, before, 'a late message was recorded');
 });
 
 test('#5193: the pass ends a revoked member without a post', async () => {
@@ -436,6 +451,21 @@ test('#5193: an ending for another reason is told without its HTTP trailer', asy
   await tick();
   const told = h.notes.filter((n) => /no longer connected/.test(n.text));
   assert.deepStrictEqual(told.map((n) => n.text), ['This computer is no longer connected to the external project: Kosmos+ refused this Mac: no such connection. To take part again, ask the owner for a new code.']);
+  // Another 'revoked' is not the owner removing this computer; a long reason keeps no half trailer.
+  for (const [id, because, want] of [
+    ['proj-5193-key', 'the room key was revoked', /no longer connected to the external project: the room key was revoked\./],
+    ['proj-5193-long', 'x'.repeat(190) + ' (HTTP 409 on /v1/mac/federation/room-ticket)', /no longer connected/],
+  ]) {
+    federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
+    const h2 = harness();
+    await fedseats.ensure(id);
+    say(h2.spawned[0], { event: 'ended', because });
+    await tick();
+    const n = h2.notes.filter((x) => x.projectId === id);
+    assert.strictEqual(n.length, 1, JSON.stringify(n));
+    assert.match(n[0].text, want);
+    assert.ok(!/HTTP|removed this computer/.test(n[0].text), n[0].text);
+  }
 });
 
 test('an inbound message that cannot be saved is said in the room and does not throw', async () => {
