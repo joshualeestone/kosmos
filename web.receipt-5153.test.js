@@ -226,9 +226,11 @@ test('a Recent work row for an agent that cannot be read, or did nothing, says s
   assert.match(WB.dWorkMeta({ ...base, closedAt: '2025-01-05T15:00:00Z', receipt: null }, NOW), /2025/, 'another year names its year');
 });
 
-test('Recent work sits inside Profile, not in the nav (Mona Lisa\'s placement)', () => {
-  const profile = RAW.slice(RAW.indexOf('id="d-sec-profile"'), RAW.indexOf('id="d-sec-instr"'));
-  assert.ok(profile.includes('id="d-work"') && profile.includes('>Recent work<'));
+test('Recent work is the bottom of the Profile view, below Instructions and Skills, not in the nav (Mona Lisa\'s placement)', () => {
+  const skills = RAW.slice(RAW.indexOf('id="d-sec-skills"'), RAW.indexOf('id="d-sec-term"'));
+  assert.ok(skills.includes('id="d-work"') && skills.includes('>Recent work<'), 'not at the end of the view');
+  assert.ok(skills.indexOf('id="d-work"') > skills.indexOf('id="d-skill-add-msg"'), 'below the Skills box');
+  assert.ok(RAW.indexOf('id="d-sec-instr"') < RAW.indexOf('id="d-work"'), 'below Instructions');
   const nav = RAW.slice(RAW.indexOf('class="dnav-pack"'), RAW.indexOf('class="dnav-pack"') + 2000);
   assert.ok(!/Recent work|data-go="work"/.test(nav), 'a nav entry was added');
 });

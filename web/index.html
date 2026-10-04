@@ -12543,19 +12543,6 @@ window.kosmosMeasureScrollbarWidth();
   </div>
   <div class="fmsg" id="d-role-msg"></div>
   </section>
-  <!-- #5153 slice 3: what this agent has worked on, at the bottom of Profile (Mona Lisa's placement, 2026-10-03: not a
-       nav entry, since the pack is a pair and a third tile or a full-width button would weigh a read-only history like
-       Direct Message). The newest closed tasks it held, each row opening that task's page, where its full receipt is.
-       Drawn by paintAgentWork on open. -->
-  <section class="dbox" id="d-work" aria-labelledby="d-work-h">
-    <h3 class="dlab" id="d-work-h">Recent work</h3>
-    <p class="dhint" id="d-work-msg" role="status"></p>
-    <div class="dwork-list" id="d-work-list"></div>
-    <!-- "Open the Tasks page", not "See all": that page takes no agent filter yet, so "See all" under this agent's list
-         would promise this agent's tasks and show everyone's (Mona Lisa, 2026-10-03). Back to "See all", filtered,
-         when it does. -->
-    <button class="linkish" type="button" id="d-work-more" hidden>Open the Tasks page</button>
-  </section>
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
@@ -12723,6 +12710,19 @@ window.kosmosMeasureScrollbarWidth();
         <div class="frow" style="margin-top:8px;"><button class="btn" id="d-skill-add" type="button">Add skill</button></div>
         <p class="fmsg" id="d-skill-add-msg" role="status" aria-live="polite"></p>
       </div>
+    </section>
+    <!-- #5153 slice 3: what this agent has worked on, at the very bottom of the Profile view, below Instructions and Skills
+         (Mona Lisa's placement, 2026-10-03: not a nav entry, since the pack is a pair; and below Instructions, which the
+         person edits and the agent reads first, so a read-only history does not push it down a screen on a phone). The newest closed tasks it held, each row opening that task's page, where its full receipt is.
+         Drawn by paintAgentWork on open. -->
+    <section class="dbox" id="d-work" aria-labelledby="d-work-h">
+      <h3 class="dlab" id="d-work-h">Recent work</h3>
+      <p class="dhint" id="d-work-msg" role="status"></p>
+      <div class="dwork-list" id="d-work-list"></div>
+      <!-- "Open the Tasks page", not "See all": that page takes no agent filter yet, so "See all" under this agent's list
+           would promise this agent's tasks and show everyone's (Mona Lisa, 2026-10-03). Back to "See all", filtered,
+           when it does. -->
+      <button class="linkish" type="button" id="d-work-more" hidden>Open the Tasks page</button>
     </section>
   </section>
   <!-- #4550: this section opens under the AI Settings button now (there is no Advanced pill). It keeps

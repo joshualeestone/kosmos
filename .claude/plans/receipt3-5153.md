@@ -54,3 +54,8 @@ per event, and only `limit` receipts are worked out). A board with thousands of 
 ## Review 3 (sonnet): CLEAN (no BLOCKER, no WARNING)
 - NITs not taken: a failed row click's message stays until the next repaint; HEAD runs the full read (as the task
   receipt route); the concurrency test would also pass at two at a time (it pins "a few, never more than three").
+
+## Design review (Mona Lisa, 2026-10-03 20:04): APPROVED, one move taken
+- Recent work moved to the very bottom of the Profile view, below Instructions and Skills (the end of d-sec-skills):
+  Instructions is the field the person edits and the agent reads first; a read-only history above it pushed it down a
+  screen on a phone. The rows, "no activity found" and "Open the Tasks page" approved as built. No new shots needed.
