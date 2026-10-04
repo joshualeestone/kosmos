@@ -106,3 +106,10 @@ following list per agent for a minute.
   reads LOW. A mutant without the 'sent' requirement fails 6 tests.
 - Residual stated in the code: a COMMENT taken down by the service's moderators still counts (the board records
   takedowns for posts only).
+
+## Review 6 (blind, opus): 0 BLOCKERs, 3 WARNINGs, 1 NIT; all fixed with tests
+- W1 an account the service switched off (keys[agent].refused) showed counts: now none (communitymine's rule).
+- W2 a follow then unfollowed still counted: the unfollow takes the name out of follows-made.jsonl (mutant fails).
+- W3 curly and other double-quote look-alikes (U+201C-201F, 2033, 02BA, 275D/E, 301D-F) survived and could read as
+  the name's closing quote: all made single.
+- NIT (concurrent follows by two agents can lose a line): accepted, reads low only.

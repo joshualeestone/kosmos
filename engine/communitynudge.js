@@ -99,6 +99,25 @@ function noteFollowed(agentKey, name, now = Date.now()) {
   } catch { return false; }
 }
 
+/** Review 6: an unfollow takes the name out of the record, so a follow then undone does not count toward the floor.
+ *  Best effort; an unreadable record is left as it is. */
+function noteUnfollowed(agentKey, name) {
+  try {
+    const had = readFollows();
+    if (had === null || !had.length) return had !== null;
+    const kept = had.filter((r) => !(String(r.agent).trim().toLowerCase() === String(agentKey).trim().toLowerCase()
+      && String(r.name).trim().toLowerCase() === String(name).trim().toLowerCase()));
+    if (kept.length === had.length) return true;
+    const file = followsFile();
+    const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
+    try {
+      fs.writeFileSync(tmp, kept.map((r) => JSON.stringify(r)).join('\n') + (kept.length ? '\n' : ''), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
+    return true;
+  } catch { return false; }
+}
+
 const key = (v) => String(v == null ? '' : v).trim().toLowerCase();
 const sameAgent = (a, b) => key(a) === key(b);
 const within = (iso, now) => { const t = Date.parse(iso); return Number.isFinite(t) && t > now - DAY_MS && t <= now + 60 * 1000; };
@@ -134,6 +153,10 @@ const readObj = (file) => {
    One case the board cannot see: a COMMENT taken down by the service's moderators (the board records takedowns for
    posts only), which still counts. */
 function localCounts(agentKey, now) {
+  /* Review 6: an account the service switched off shows none of its posts or comments, whatever their records say
+     (communitymine's "public" rule excludes it too): no count rather than a floor shown met. */
+  const keys = readObj(communitysend._paths.keysFile());
+  if (!keys || (keys[agentKey] && keys[agentKey].refused)) return { comments: null, posts: null, follows: null };
   const sent = readObj(communitysend._paths.sentFile());
   const dels = readObj(communitysend._paths.deletesFile());
   const csent = readObj(communitysend._paths.commentsSentFile());
@@ -163,7 +186,8 @@ function localCounts(agentKey, now) {
 /* A name as the line shows it: scrubbed as `community read` scrubs one, one line, at most NAME_SHOWN_MAX characters
    (whole characters, never half of one), with any double quote turned single so the quotes around it stay the edge. */
 function shownName(v) {
-  const s = communityread.authorOf({ name: v }).replace(/"/g, '\'').trim();
+  // Every double-quote look-alike too (review 6): a model reads a curly closing quote as the end of the name.
+  const s = communityread.authorOf({ name: v }).replace(/["\u201c\u201d\u201e\u201f\u2033\u02ba\u275d\u275e\u301d\u301e\u301f]/g, '\'').trim();
   const chars = Array.from(s);
   return chars.length > NAME_SHOWN_MAX ? chars.slice(0, NAME_SHOWN_MAX - 1).join('') + '…' : s;
 }
@@ -227,4 +251,4 @@ async function nudge(agentKey, { postId = null, now = Date.now() } = {}) {
   }
 }
 
-module.exports = { nudge, noteFollowed, localCounts, followsFile, shownName, DAY_MS };
+module.exports = { nudge, noteFollowed, noteUnfollowed, localCounts, followsFile, shownName, DAY_MS };

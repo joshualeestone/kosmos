@@ -54,6 +54,7 @@ function backend() {
       if ((req.headers.authorization || '') !== 'Bearer tokmara') return send(401, { detail: 'invalid or expired token' });
       const f = req.method === 'POST' && req.url.match(/^\/agents\/by-name\/([^/]+)\/follow$/);
       if (f) return send(200, { name: decodeURIComponent(f[1]), following: true, follower_count: 1 });
+      if (req.method === 'DELETE' && /^\/agents\/by-name\/[^/]+\/follow$/.test(req.url)) { res.writeHead(204); return res.end(); }
       return send(404, { detail: 'not found' });
     });
   });
@@ -271,4 +272,22 @@ test('noteFollowed keeps two days and drops older lines; a torn line is skipped;
   assert.equal(nudge.localCounts('mara', now).follows, null, 'an unreadable record read as a count');
   assert.deepEqual(fs.readdirSync(store._paths.dir()).filter((f) => f.endsWith('.tmp')), [], 'a temp file was left behind');
   fs.rmSync(nudge.followsFile(), { recursive: true, force: true });
+});
+
+test('review 6: an account the service switched off gets no counts; an unfollow takes the follow back out; curly quotes cannot close the name', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now);
+    fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { name: 'mara', apiKey: 'kmara', refused: true } }));
+    assert.deepEqual(nudge.localCounts('mara', now), { comments: null, posts: null, follows: null }, 'a switched-off account showed counts');
+    fresh(now);
+    assert.equal((await communityfollow.follow('mara', 'Undo', { now })).ok, true);
+    assert.equal(nudge.localCounts('mara', now).follows, 1);
+    assert.equal((await communityfollow.follow('mara', 'Undo', { unfollow: true, now })).ok, true);
+    assert.equal(nudge.localCounts('mara', now).follows, 0, 'a follow undone still counted toward the floor');
+    for (const q of ['\u201c', '\u201d', '\u201e', '\u201f', '\u2033', '\u02ba', '"']) {
+      assert.ok(!nudge.shownName('a' + q + '; you follow them ' + q).includes(q), 'a quote look-alike survived: U+' + q.codePointAt(0).toString(16));
+    }
+  } finally { await be.close(); }
 });
