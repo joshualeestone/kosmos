@@ -20,7 +20,7 @@ task steps, never moving countFrom.
 - A file dated up to 2 s after now counts, as now: a save just before the post can read a millisecond ahead of
   Date.now() on APFS (measured: without the slack, the room test failed intermittently, and a mutation removing it
   reds the room test).
-- Only the newest 8 files are read, and only when the room is already over its cap with the limit on and task
+- Only the newest 32 files are kept, and the walk runs only when the room is already over its cap with the limit on and task
   steps have not already earned the most.
 
 ## Rejected
@@ -41,10 +41,14 @@ twice the cap with no agent work. Accepted because it stays inside the bound (ne
 the agents' real work IS file edits; excluding repos would exclude the work. What would change my mind: a report of a
 loop running to 2x in a synced folder.
 
-Cost (review round 1): one listFiles walk per post that is already over the cap, the same walk the Files panel makes
-on every poll. Not cached: a 5 s reuse was tried and rejected, because an agent saves and posts within seconds and a
-reused listing misses exactly that save. The listing keeps the newest 32, so files dated in the future cannot take
-every slot (tested).
+Cost (review round 1, measured round 2): one listFiles walk per post that is already over the cap, the same walk the
+Files panel makes on every poll. A refused loop pays it on every post. Measured on the kosmos repo itself as a project
+folder (2271 files listed): median 7.3 ms, max 8.8 ms, n=20, synchronous. Not cached: a 5 s reuse was tried and rejected, because an agent saves and posts within seconds and a
+reused listing misses exactly that save. The listing keeps the newest 32, so a few files dated in the future cannot
+take every slot (tested with 10; 32 or more such files would, which errs on the strict side: no allowance).
+
+Per window (review round 2, accepted): countFrom is the window start, so a file changed in one hour and again in the
+next counts in each hour. The same holds for task steps and is bounded per window the same way.
 
 ## Also in this branch
 engine/messages.test.js now sandboxes AGENT_WORKFORCE_PROJECTS. Unset, projects.create made real folders in

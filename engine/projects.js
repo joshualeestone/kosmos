@@ -1254,7 +1254,7 @@ function list(roster) {
    also writes files still runs to at most twice the cap. Dot-files, scratch names and dependency or build folders are
    not counted (listFiles' rules), and no file is opened. Only the newest `limit` files are kept (the valve stops
    adding after ROOM_PROGRESS_STEPS steps; the margin over that is for files dated in the future, which are dropped
-   below and must not take every slot). listFiles' own bounds apply: a change deeper than its depth, or past its scan
+   below: a few cannot take every slot, 32 or more would, and that errs on the strict side). listFiles' own bounds apply: a change deeper than its depth, or past its scan
    budget, is not seen (the strict side). [] when the project, its folder or the list cannot be read (never throws),
    which is the strict side too: no allowance.
    ⚠️ Every file counts, whoever wrote it: in a folder that is a repo or is synced, a pull or a sync earns steps too.
