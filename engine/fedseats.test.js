@@ -1985,3 +1985,115 @@ test('#5197: a member that rotated since a forged epoch armed its hold is not wa
   assert.strictEqual(fedseats.post('proj-5197-stale', { from: 'B', kind: 'person', text: 'current' }), true);
   assert.ok(!h.notes.some((n) => /may be behind on this shared room/.test(n.text)), JSON.stringify(h.notes));
 });
+
+// ---- #5192: posts held for the room key are sent when it arrives ----
+
+test('#5192: a member\'s post held before the owner shares the key is sent, sealed, when it arrives', async () => {
+  const sk = fedseal.randomSecret();
+  federation.recordLink('proj-5192-m', { role: 'member', edge_id: 'edge-5192-m' });
+  fedseal.setRoomState('proj-5192-m', { role: 'member', s: sk, code: 'code-5192', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-m');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-m', expires_at: 9 });
+  await settle();
+  assert.strictEqual(fedseats.post('proj-5192-m', { from: 'Ana', kind: 'person', text: 'first' }), false);
+  assert.strictEqual(fedseats.post('proj-5192-m', { from: 'Ana', kind: 'person', text: 'second' }), false);
+  assert.ok(h.notes.some((n) => /is held on this computer: .*has not shared its key yet\. It is sent when the key arrives/.test(n.text)), JSON.stringify(h.notes));
+  const before = lines(seat).length;
+  const owner = fedseal.newKeyPair();
+  const roomKey = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.shareFrame(sk, 'code-5192', owner, fedseal.sealingKey().pub, roomKey, 0, 'room-5192-m') });
+  await settle();
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-5192-m', f));
+  assert.deepStrictEqual(out.map((o) => o && o.m.text), ['first', 'second'], 'the held posts were not sent, sealed, in order');
+  assert.ok(h.notes.some((n) => /2 messages held on this computer were sent/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: an owner\'s post held before any member\'s key is sent once the first member is pinned', async () => {
+  const inv = newInvite('5192o');
+  const { h, seat } = await ownerRoom('proj-5192-o', 'ref-5192-o', 'room-5192-o', [inv]);
+  assert.strictEqual(fedseats.post('proj-5192-o', { from: 'Josh', kind: 'person', text: 'before anyone' }), false);
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5192-o') });
+  await settle();
+  const frames = lines(seat);
+  const shareAt = frames.findIndex((f) => f.t === 'key-share');
+  assert.ok(shareAt >= 0, 'fixture: no share');
+  const got = fedseal.openShare(inv.s, inv.code, member, frames[shareAt], 'room-5192-o');
+  const after = frames.slice(shareAt + 1).map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-o', f)).filter(Boolean);
+  assert.deepStrictEqual(after.map((o) => o.m.text), ['before anyone'], 'the held post did not follow the key share');
+  void h;
+});
+
+test('#5192: posts held while a member is behind go out, in order, when the new key arrives, and a later post cannot overtake them', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-b', { role: 'member', edge_id: 'edge-5192-b' });
+  fedseal.setRoomState('proj-5192-b', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192b', peer: owner.pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-b');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-b', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5192-b', { from: 'A', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  fedseats.post('proj-5192-b', { from: 'B', kind: 'person', text: 'held 1' });
+  fedseats.post('proj-5192-b', { from: 'B', kind: 'person', text: 'held 2' });
+  const before = lines(seat).length;
+  const k1 = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, k1, 1, 'room-5192-b', Date.now()) });
+  await settle();
+  assert.strictEqual(lines(seat).length - before, 2, 'the held posts did not go out when the new key arrived');
+  assert.strictEqual(fedseats.post('proj-5192-b', { from: 'B', kind: 'person', text: 'after' }), true);
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 1: k1 }, 'room-5192-b', f));
+  assert.deepStrictEqual(out.map((o) => o && o.m.text), ['held 1', 'held 2', 'after']);
+  void h;
+});
+
+test('#5192: a post held for more than an hour is not sent, and the room says so; the hold is capped', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
+  const sk = fedseal.randomSecret();
+  federation.recordLink('proj-5192-old', { role: 'member', edge_id: 'edge-5192-old' });
+  fedseal.setRoomState('proj-5192-old', { role: 'member', s: sk, code: 'code-5192old', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-old');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-old', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-old', { from: 'Ana', kind: 'person', text: 'old' });
+  t.mock.timers.tick(61 * 60 * 1000);
+  for (let i = 0; i < 60; i++) fedseats.post('proj-5192-old', { from: 'Ana', kind: 'person', text: 'p' + i });
+  assert.ok(h.notes.some((n) => /50 messages are already waiting/.test(n.text)), 'the hold was not capped');
+  const before = lines(seat).length;
+  const owner = fedseal.newKeyPair();
+  const roomKey = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.shareFrame(sk, 'code-5192old', owner, fedseal.sealingKey().pub, roomKey, 0, 'room-5192-old') });
+  await settle();
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-5192-old', f));
+  assert.strictEqual(out.length, 49);
+  assert.ok(!out.some((o) => o.m.text === 'old'), 'a post held for more than an hour was sent');
+  assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: when a behind hold runs out with no new key, a new post sends the held ones first', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-exp', { role: 'member', edge_id: 'edge-5192-exp' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-exp', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192exp', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-exp');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-exp', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, 'room-5192-exp', { from: 'A', kind: 'person', text: 'epoch 1' }) });
+  await settle();
+  fedseats.post('proj-5192-exp', { from: 'B', kind: 'person', text: 'held' });
+  const before = lines(seat).length;
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  assert.strictEqual(fedseats.post('proj-5192-exp', { from: 'B', kind: 'person', text: 'after the hold' }), true);
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: k0 }, 'room-5192-exp', f));
+  assert.deepStrictEqual(out.map((o) => o && o.m.text), ['held', 'after the hold'], 'a new post overtook a held one');
+  void h;
+});
