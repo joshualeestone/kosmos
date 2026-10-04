@@ -583,14 +583,28 @@ const closeAll = (page) => page.evaluate(() => {
   /* B5: checked_at null, and the GET failing. */
   {
     const { ctx, page } = await newPage(1280, SHOW);
-    await page.evaluate((a) => { window.__members = a; }, answer(ALL, { checked_at: null }));
+    /* What the board really sends when it cannot read the connections (fedmembers.members): no joined rows at all,
+       and a joined person shown as pending or expired by the clock. So the page offers no Withdraw and no Make a new
+       code there (they would act on a state that may be wrong). DANA_P is Dana, joined, as the board then reports her. */
+    const DANA_P = row({ invite_id: 'inv-dana', label: 'Dana Ruiz', made_at: D(OCT, 1), expires_at: D(OCT, 8) });
+    await page.evaluate((a) => { window.__members = a; }, answer([DANA_P, LEE, OLD], { checked_at: null }));
     await openProjectIn(page, 'tabs');
     let f = await readFed(page, '#pj-fed-outside');
     check('B5 checked_at null: the one could-not-check line, as a plain hint', f.notes.length === 1 && f.notes[0] === NOTE, JSON.stringify(f.notes));
     const hint = await page.evaluate(() => { const n = document.querySelector('#pj-fed-outside .fedout-note'); return n ? n.className : null; });
     check('B5 the line is a .fhint (Mona\'s Q-M6), not an error', !!hint && /\bfhint\b/.test(hint) && !/\bfmsg\b/.test(hint), String(hint));
-    check('B5 checked_at null: the rows stay and Remove stays enabled', rowsAre(f.rows, EXPECT)
-      && f.rows.filter((r) => r.act === 'Remove').every((r) => r.actOn), JSON.stringify(f.rows));
+    check('B5 checked_at null: the rows stay, with no Withdraw and no Make a new code (control: B1 offers both)', rowsAre(f.rows, [
+      ['DR', 'Dana Ruiz', 'Invited · until Oct 8', ''],
+      ['LP', 'Lee Park', 'Invited · until Oct 11', ''],
+      ['OF', 'Old Friend', 'Expired Oct 1', ''],
+    ]), JSON.stringify(f.rows));
+    /* A 404 (a board without the members route, or a project not on this computer) draws nothing, not the line. */
+    await setMembers(page, { status: 404, body: { error: 'no such endpoint' } });
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B5 a 404 draws no heading, no rows and no could-not-check line (control: the 500 below has the line)',
+      f.heads.length === 0 && f.rows.length === 0 && f.notes.length === 0, JSON.stringify(f));
     await setMembers(page, { status: 500, body: { error: 'we cannot read the connected-projects record on this computer right now' } });
     await page.evaluate(() => fedMembersLoad('k'));
     await page.waitForTimeout(150);

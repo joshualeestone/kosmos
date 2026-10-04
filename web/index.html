@@ -67690,7 +67690,9 @@ function fedRowByKey(key) {
   if (!fm || !fm.ok || fm.project !== PJ_CURRENT) return null;
   return fedOutsideRows(fm.body).find((r) => fedRowKey(r) === key) || null;
 }
-function fedOutsideRowHtml(r) {
+// unchecked: the board could not read who joined (checked_at not a number). It then reports a joined person as
+// pending or expired, so Withdraw and Make a new code would act on a state that may be wrong: offer neither.
+function fedOutsideRowHtml(r, unchecked) {
   const key = fedRowKey(r);
   const kindWord = r.kind === 'agent' ? 'Agent' : (r.kind === 'person' ? 'Person' : '');
   const made = fedShortDate(r.made_at);
@@ -67705,11 +67707,11 @@ function fedOutsideRowHtml(r) {
   } else if (r.state === 'pending') {
     name = r.label || unnamed;
     sub = until ? 'Invited · until ' + until : 'Invited';
-    if (r.invite_id) { act = 'withdraw'; label = 'Withdraw'; }
+    if (r.invite_id && !unchecked) { act = 'withdraw'; label = 'Withdraw'; }
   } else {
     name = r.label || unnamed;
     sub = until ? 'Expired ' + until : 'Expired';
-    act = 'renew'; label = 'Make a new code';
+    if (!unchecked) { act = 'renew'; label = 'Make a new code'; }
   }
   const wait = r.state === 'joined' ? '' : ' fedout-wait';
   const btn = act
@@ -67739,7 +67741,8 @@ function fedOutsideHtml() {
   if (rows.length || note) {
     h += '<h4 class="fedout-h">From outside</h4>';
     if (note) h += '<p class="fhint fedout-note">' + esc(FED_NOT_CHECKED) + '</p>';
-    h += rows.map(fedOutsideRowHtml).join('');
+    const unchecked = typeof body.checked_at !== 'number';
+    h += rows.map((r) => fedOutsideRowHtml(r, unchecked)).join('');
   }
   if (loose.length) h += '<p class="fmsg fedout-msg" aria-live="polite">' + esc(loose.join(' ')) + '</p>';
   return h;
@@ -67762,7 +67765,10 @@ async function fedMembersLoad(project) {
   try {
     const res = await fetch('/api/federation/members?project=' + encodeURIComponent(project), { cache: 'no-store' });
     const body = await res.json().catch(() => null);
-    entry = { project, ok: res.ok && !!body && typeof body === 'object', body: (body && typeof body === 'object') ? body : {} };
+    // 404: a board without the members route ("no such endpoint", before #5266 merges) or a project that is not
+    // on this computer. Either way there is nobody from outside to show, and no "could not check" line to say.
+    entry = res.status === 404 ? { project, ok: true, body: {}, at: Date.now() }
+      : { project, ok: res.ok && !!body && typeof body === 'object', body: (body && typeof body === 'object') ? body : {}, at: Date.now() };
   } catch {
     entry = { project, ok: false, body: {} };
   }
@@ -67778,7 +67784,9 @@ function fedGateMembers(show) {
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
     return;
   }
-  if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
+  // A failed load is asked again on a later stamp, at most every 30 s, so the could-not-check line can clear.
+  const stale = FED_MEMBERS && FED_MEMBERS.project === PJ_CURRENT && !FED_MEMBERS.ok && Date.now() - (FED_MEMBERS.at || 0) > 30000;
+  if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT || stale) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
 }
 // The shared dialog back to its #761 self: no danger look, no error, both buttons live.
 function fedRemoveReset() {
@@ -67818,10 +67826,17 @@ function fedRemoveDone() {
   const back = ['pj-add-member', 'rail-agents-new'].map((id) => document.getElementById(id)).find((b) => b && b.getClientRects().length);
   if (back) back.focus();
 }
+// A sentence said under the list (its row gone) belongs to the action that left it: the next action clears it.
+function fedClearLoose() {
+  const fm = FED_MEMBERS;
+  const keys = new Set(fm && fm.ok ? fedOutsideRows(fm.body).map(fedRowKey) : []);
+  Object.keys(FED_MSGS).forEach((k) => { if (!keys.has(k)) delete FED_MSGS[k]; });
+}
 async function fedRemoveGo() {
   const p = MEM_PENDING;
   if (!p || !p.fed) return;
   const f = p.fed;
+  fedClearLoose();
   const go = document.getElementById('mem-go');
   const msg = document.getElementById('mem-msg');
   const fallback = 'Kosmos could not remove them just now. Try again in a moment.';
@@ -67841,6 +67856,8 @@ async function fedRemoveGo() {
     said = FED_UNREACHABLE;
   }
   FED_BUSY.delete(f.key);
+  // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
+  if (PJ_CURRENT !== f.project) return;
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   if (!said && res.ok) {
@@ -67869,6 +67886,7 @@ async function fedWithdraw(r) {
   const fallback = 'Kosmos could not withdraw this code just now. Try again in a moment.';
   FED_BUSY.add(key);
   delete FED_MSGS[key];
+  fedClearLoose();
   fedOutsidePaint(false);
   let res = null;
   let body = null;
@@ -67893,6 +67911,8 @@ async function fedWithdraw(r) {
   fedOutsidePaint(false);
   // 409 joined: someone used the code meanwhile, so the row is now a joined one; ask again to show it.
   if (res && res.status === 409 && body && body.reason === 'joined') fedMembersLoad(project);
+  // 404: the code is not known any more; let the board say what the row is now.
+  else if (res && res.status === 404) fedMembersLoad(project);
 }
 // The rows' actions, delegated: both lists are rebuilt from markup on every paint.
 document.addEventListener('click', (e) => {
