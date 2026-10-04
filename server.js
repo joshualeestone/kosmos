@@ -7104,9 +7104,11 @@ const server = http.createServer(async (req, res) => {
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
      rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
-     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
-     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
-     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js) or, with no
+     Claude, by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools (engine/orgchartkeys.js,
+     #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
+     `{ needsConsent, provider, reader, uses, keeps }`, so the page can say who reads it, and what that provider
+     keeps, before anything leaves the Mac (Liu Kang's condition 1), and the send goes only to that reader. Nothing
      is stored. Board-token gated like every /api route, and the consent send also wants the screen
      (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
      browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
@@ -7127,27 +7129,51 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
           return;
         }
-        if (!orgchartfile.modelAvailable()) {
-          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+        // #4560: who reads it is worked out ONCE for this request, and every answer below is about that reader.
+        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy();
+        if (!orgchartfile.modelAvailable(reader)) {
+          // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
+          sendJson(res, 200, { unavailable: true, problems: [noReaderWhy || orgchartfile.NO_MODEL] });
           return;
         }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
-        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
+        if (q.get('consent') !== '1') {
+          // #4560: a kind of file this reader cannot take (a PDF with Grok, say) is said instead of the consent. Asked
+          // only here: on the consented send the reader pin below decides first, so a refusal never names a provider
+          // the person was not asked about (and the key reader refuses the kind again before sending anything).
+          const cannot = orgchartfile.readerProblem(name, reader);
+          if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
+          sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) });
+          return;
+        }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
+        /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader
+           id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
+        const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' ? orgchartfile.readerId(reader) : null);
+        if (!reader || handed !== orgchartfile.readerId(reader)) {
+          // An old page (no reader id) meeting a key reader: nothing changed, the page is simply older than the board.
+          const oldPage = !q.has('reader') && reader && reader.kind === 'key';
+          sendJson(res, 409, { error: oldPage
+            ? 'This page is older than Kosmos. Reload the New Agent screen and choose the file again.'
+            : 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
+          return;
+        }
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
-        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
-           so claude stops using their plan instead of running on to its timeout. */
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
+           (Claude's run is killed; a key provider's HTTP request is dropped, so Kosmos stops waiting, though a provider
+           may finish work it had already started). */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
         if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
-        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal, reader });
         if (stop.signal.aborted) return;
         if (got.unavailable) {
           sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
         }
-        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(reader), rows: got.rows, problems: got.problems });
       })
       .catch((err) => {
         /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and
