@@ -66,14 +66,16 @@ const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them
     so a long one cannot keep half a trailer (round 2). */
 const REASON_SCAN = 1000;
 function plainReason(why) {
-  let r = clean(typeof why === 'string' ? why.slice(0, REASON_SCAN) : why, REASON_SCAN)
+  let raw = typeof why === 'string' ? why.slice(0, REASON_SCAN) : why;
+  // Never half a character: a cut on the first half of a surrogate pair drops it (round 3).
+  if (typeof raw === 'string' && /[\ud800-\udbff]$/.test(raw)) raw = raw.slice(0, -1);
+  const r = clean(clean(raw, REASON_SCAN)
     .replace(/ ?\(HTTP \d{3}[^)]*\)/gi, '')
-    .replace(/ ?Ask to be re-invited\.?/gi, '')
-    .trim();
+    .replace(/ ?Ask to be re-invited\.?/gi, ''), 200);
+  // Trimmed after the cut, so a long reason cannot end in its own full stop or a space (round 3).
   let end = r.length;
   while (end > 0 && (r[end - 1] === '.' || r[end - 1] === ' ')) end -= 1;
-  r = r.slice(0, end);
-  return clean(r, 200) || 'the connection ended';
+  return r.slice(0, end) || 'the connection ended';
 }
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
@@ -728,9 +730,13 @@ function isFresh(at, now) {
     ending across a restart, and held posts go with it (setStatus 'ended'). */
 function endRevokedMember(projectId, s, link) {
   if (!s || s.stopped || s.status === 'ended') return;
-  s.ended = 'the owner removed this computer from the project';
-  if (!s.endedNoted) { s.endedNoted = true; say(projectId, REVOKED_NOTE); }
-  try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended })); } catch { /* ends again at its next ticket ask */ }
+  // An ending already told keeps its own words on the link, so the room and the record agree (round 3).
+  if (!s.endedNoted) {
+    s.endedNoted = true;
+    s.ended = 'the owner removed this computer from the project';
+    say(projectId, REVOKED_NOTE);
+  }
+  try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended || 'the connection ended' })); } catch { /* ends again at its next ticket ask */ }
   setStatus(projectId, 'ended');
   s.stopped = true;   // the child's close then neither restarts it nor tells the room again, and
                       // handleEvent ignores lines still in its pipe

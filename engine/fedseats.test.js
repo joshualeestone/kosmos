@@ -495,6 +495,8 @@ test('#5193: an ending for another reason is told without its HTTP trailer', asy
   for (const [id, because, want] of [
     ['proj-5193-key', 'the room key was revoked', /no longer connected to the external project: the room key was revoked\./],
     ['proj-5193-long', 'x'.repeat(190) + ' (HTTP 409 on /v1/mac/federation/room-ticket)', /no longer connected/],
+    ['proj-5193-dot', 'y'.repeat(199) + '. more', /: y{199}\. To take part again/],
+    ['proj-5193-pair', '\u200b'.repeat(999) + '\u{1F600}tail', /project: the connection ended\. To take part again/],
   ]) {
     federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
     const h2 = harness();
