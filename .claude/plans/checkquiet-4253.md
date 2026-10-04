@@ -22,6 +22,12 @@ Every launcher of server.js outside the runners, on origin/main, that names neit
   is the product, so it still phones home. browser-checks.sh boots those with its exports; only the hand recipe leaks.
 - engine/, install/, deploy/ name server.js but are the product: the real install ping stays (Josh 09-14, #3038).
 
+## Re-measured after the rebase onto main (10-04 02:4x, Renet)
+docs/browser-checks/*.js naming server.js: 140; of those requiring lib-sandbox-home: 112; not requiring it: 28. The one
+new name since 10-02, render-remote-file-download-5165.js, only MENTIONS server.js in a comment (the page's platform
+marker) and boots no board, so the 27 hand-started checks above are unchanged. tools.browser-checks-quiet-4253.test.js
+5/5 on the rebased head.
+
 ## Change
 - lib-sandbox-home.js: AGENT_WORKFORCE_CREATED_URL, _FEEDBACK_URL and _COMMUNITY_URL default to the same dead port
   the runners use, only when unset (a caller's own sink wins).
