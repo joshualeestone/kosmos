@@ -6262,6 +6262,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
      areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
      answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
   :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
+  #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
 }
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;

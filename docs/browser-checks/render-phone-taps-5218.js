@@ -1,4 +1,4 @@
-// Browser-check-surface: agent-sort d-term-say d-term-send d-open-terminal d-remove-start d-trust-restart tsk-back pj-sort
+// Browser-check-surface: namego utoast qopt pj-doc plus-site-link team-orgchart-open agent-sort pj-sort apphead d-term-say d-term-send d-open-terminal d-remove-start d-trust-restart tsk-back pj-sort
 'use strict';
 /**
  * Monday's phone sweep (kosmos#5218, #5219, #5220, #5221): on a touch screen the newcomer's first screens take a
@@ -110,7 +110,7 @@ const RULES = () => {
     'Open Terminal': mh('#d-open-terminal'), 'Remove this agent': mh('#d-remove-start'), 'Send': mh('#d-term-send'), 'Trust & Restart': mh('#d-trust-restart'),
     'terminal box font': getComputedStyle(document.querySelector('#d-term-say')).fontSize, 'terminal box': mh('#d-term-say'),
     'Upload an org chart': mh('#team-orgchart-open'), 'Join Kosmos+': mh('#plus-site-link'),
-    'Try again': mh(null, notice.firstChild), 'document row': mh(null, doc),
+    'Try again': mh(null, notice.firstChild), 'document row': mh(null, doc), 'document row align': getComputedStyle(doc).alignItems,
     'tasks back area': after('#tsk-back'), 'notice close area': after(null, toast.firstChild), 'name area': after('.namego'),
   };
   for (const m of made) m.remove();
@@ -154,6 +154,11 @@ const RULES = () => {
       const boardCovers = await covers(page);
       chk(boardCovers.length === 0, `${tag} board: no control is taken by a neighbour's hit area`, JSON.stringify(boardCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} board: no sideways scroll`);
+      // The menu's tabs, measured on the real menu (April's W3: not only the CSS value).
+      await page.click('#burger'); await page.waitForTimeout(400);
+      const tabs = await page.evaluate(() => [...document.querySelectorAll('.apphead .tab')].filter((e) => e.checkVisibility()).map((e) => Math.round(e.getBoundingClientRect().height)));
+      chk(tabs.length >= 2 && tabs.every((h) => h >= 44), `${tag} menu: its tabs measure 44 tall on the real menu`, JSON.stringify(tabs));
+      await page.click('#burger'); await page.waitForTimeout(300);
       // The hit areas themselves: each reaches 44 around its control and stops short of 40px out (bounded).
       const nameAreas = await page.evaluate(`[...document.querySelectorAll('.namego')].filter((e) => e.checkVisibility()).map((e) => (${AREA})(e))`);
       chk(nameAreas.length >= 2 && nameAreas.every((a) => a.reach && a.bounded), `${tag} board: each name's hit area reaches 44 and is bounded`, JSON.stringify(nameAreas));
@@ -161,7 +166,7 @@ const RULES = () => {
       chk(closeArea.reach && closeArea.bounded, `${tag} a notice's close: its hit area reaches 44 and is bounded (stand-in)`, JSON.stringify(closeArea));
       // Every rule this change adds, read on the board, where a name is laid out (the reach and cover lines see only what is on screen).
       const rules = await page.evaluate(RULES);
-      const bad = Object.entries(rules).filter(([k, v]) => (k === 'terminal box font' ? v !== '16px' : /area$/.test(k) ? !(Array.isArray(v) && v[0] >= 44 && v[1] >= 44) : v !== '44px'));
+      const bad = Object.entries(rules).filter(([k, v]) => (k === 'terminal box font' ? v !== '16px' : k === 'document row align' ? v !== 'center' : /area$/.test(k) ? !(Array.isArray(v) && v[0] >= 44 && v[1] >= 44) : v !== '44px'));
       chk(bad.length === 0, `${tag} every rule this change adds applies on touch (44px, the 44px areas, 16px)`, JSON.stringify(bad.length ? bad : rules));
 
       // The Tasks view of a project: the back chevron's area.
@@ -173,6 +178,8 @@ const RULES = () => {
 
       // A project's room.
       await open(page, '?tab=projects', '#pj-list .pj-row');
+      const pjSortH = await page.evaluate(() => { const e = document.querySelector('#pj-sort'); return e && e.checkVisibility() ? Math.round(e.getBoundingClientRect().height) : null; });
+      chk(pjSortH !== null && pjSortH >= 44, `${tag} projects: Sort projects measures 44 tall on the real page`, String(pjSortH));
       await page.click(`#pj-list .pj-row[data-project="${launch.id}"]`);
       await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(400);
       const roomCovers = await covers(page);
@@ -207,7 +214,7 @@ const RULES = () => {
     const dt = await page.evaluate(() => getComputedStyle(document.querySelector('#d-term-say')).fontSize);
     chk(dt !== '16px', '[desktop 1280] CONTROL: the terminal box keeps its own size with a mouse', dt);
     const drules = await page.evaluate(RULES);
-    const leaked = Object.entries(drules).filter(([k, v]) => (k === 'terminal box font' ? v === '16px' : /area$/.test(k) ? v !== 'none' : v === '44px'));
+    const leaked = Object.entries(drules).filter(([k, v]) => (k === 'terminal box font' ? v === '16px' : k === 'document row align' ? false : /area$/.test(k) ? v !== 'none' : v === '44px'));
     chk(leaked.length === 0, '[desktop 1280] CONTROL: none of this change\'s rules apply with a mouse', JSON.stringify(leaked.length ? leaked : drules));
     await ctx.close();
   } catch (e) {
