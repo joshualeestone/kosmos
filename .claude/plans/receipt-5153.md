@@ -82,3 +82,13 @@ in this time", never a zero presented as fact.
 ## Review 5 (sonnet): CLEAN (no BLOCKER, no WARNING)
 - NITs not taken: the failed-read wait is kept for one task at a time (a task page shows one task); the screenshot
   screen's route is not removed after it (each screen gets a fresh page).
+
+## Design review (Mona Lisa, 2026-10-03 19:19, on the four shots): all six taken
+- Every line in the receipt one size; the "not available" line muted (a fact about the tool, not an alarm).
+- The files: the page's own toggle ("4 files" with the chevron, aria-expanded), a plain list, the folder as its muted
+  foot; at least 44px tall on a phone, the whole line tappable.
+- The heading is the column's kicker (RECEIPT, .dlab).
+- The put-back line comes first, ending the task's history, then the receipt.
+- The intro shortened: "What each agent did while it held this task, including anything else it did in that time. A
+  file changed by a command counts as a command."
+- Not this card's: the nine other taps under 44px on the task page (Mona Lisa is checking whether a card covers them).
