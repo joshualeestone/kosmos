@@ -18,9 +18,10 @@
  * whose file is not for the version being cut).
  *
  * #5224: a highlight that is about one platform carries "platforms": ["mac"] (or ["windows"]), and
- * the board shows it only on that platform. A title or line that names a platform (Mac, Macs, macOS,
- * Windows, PC, PCs) must carry the tag, naming every platform it lists, so a Windows user is never told
- * about their Mac. A highlight with no tag shows everywhere.
+ * the board shows it only on that platform. A title or line that names a platform (PLATFORM_WORDS) must
+ * carry a tag listing exactly the platforms it names, so a Windows user is never told about their Mac. A
+ * highlight with no tag shows everywhere. The words are a list, not a guarantee: "Finder" or "Start menu"
+ * name no platform here, so whoever writes the file still reads it as each platform's user.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -39,9 +40,9 @@ const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 /* #5224: the platforms a highlight can be for, and the whole words (case-sensitive) that name each. */
 const PLATFORMS = Object.freeze(['mac', 'windows']);
-const PLATFORM_WORDS = Object.freeze({ mac: ['Mac', 'Macs', 'macOS'], windows: ['Windows', 'PC', 'PCs'] });
+const PLATFORM_WORDS = Object.freeze({ mac: ['Mac', 'Macs', 'macOS', 'MacBook', 'MacBooks', 'iMac', 'iMacs'], windows: ['Windows', 'PC', 'PCs'] });
 
-/** #5224: the platforms a text names, in PLATFORMS order. */
+/** #5224: the platforms a text names, in PLATFORMS order (whole ASCII words, case-sensitive: "Mac's" is Mac, "mac" is not). */
 function platformsNamed(text) {
   const words = new Set(String(text).split(/[^A-Za-z]+/));
   return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w)));
@@ -85,9 +86,10 @@ function problems(obj, version) {
     }
     const named = platformsNamed((typeof x.title === 'string' ? x.title : '') + ' ' + (typeof x.line === 'string' ? x.line : ''));
     if (named.length && tag === undefined) {
-      out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform');
-    } else if (named.length && tag.some((p) => !named.includes(p))) {
-      out.push(n + ' is for ' + tag.join(' and ') + ' but names only ' + named.join(' and '));
+      out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform:'
+        + ' tag it with the platforms it is about, or reword it if it is not about one');
+    } else if (named.length && (tag.length !== named.length || tag.some((p) => !named.includes(p)))) {
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names ' + named.join(' and ') + ': its "platforms" must list exactly the platforms it names');
     }
   });
   return out;
@@ -100,6 +102,13 @@ function problems(obj, version) {
 function read(version, file, nodePlatform) {
   const got = readFull(version, file, nodePlatform);
   return got && got.highlights;
+}
+
+/** #5224: how many highlights each platform shows, e.g. { mac: 5, windows: 3 } (for the cut's report). */
+function countsByPlatform(obj) {
+  const out = {};
+  for (const p of PLATFORMS) out[p] = obj.highlights.filter((x) => x.platforms === undefined || x.platforms.includes(p)).length;
+  return out;
 }
 
 /**
@@ -133,8 +142,8 @@ function readFull(version, file, nodePlatform = process.platform) {
  * file's "also" show the SAME words, so the board records this key when a window is dismissed and does not
  * open the same words again on the next number (Windows on 0.7.13, then 0.7.16, from one file).
  */
-function key(version, file) {
-  const got = readFull(version, file);
+function key(version, file, nodePlatform) {
+  const got = readFull(version, file, nodePlatform);
   return got ? got.key : null;
 }
 
@@ -148,4 +157,4 @@ function logOnce(line) {
 }
 function setFileForTests(f) { fileForTests = f || null; lastLogged = null; }
 
-module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, PLATFORMS, PLATFORM_WORDS, platformsNamed, platformOf, problems, read, readFull, key, setFileForTests };
+module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, PLATFORMS, PLATFORM_WORDS, platformsNamed, platformOf, countsByPlatform, problems, read, readFull, key, setFileForTests };
