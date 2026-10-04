@@ -678,7 +678,7 @@ whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
   node "$1/tools/whats-new-check.js" "$V" "$1/web/whats-new.json" --platform=mac >/dev/null 2>&1 || rc=$?
   case "$rc" in
     0) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced; web/whats-new.json is for $V, so the \"Kosmos has been updated\" window will show on the Mac." ;;
-    3) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights for the Mac (the file is missing, for another version, or has none tagged for the Mac), so there will be no \"Kosmos has been updated\" window for it." ;;
+    3) echo "KOSMOS_CUT_NO_WHATS_NEW=1: $V ships with no highlights for the Mac (the file is missing, for another version, not one the window can draw, or every highlight in it is tagged for Windows), so there will be no \"Kosmos has been updated\" window for it." ;;
     *) echo "KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check could not run (exit $rc), so whether $V shows a \"Kosmos has been updated\" window is not known." ;;
   esac
 }
