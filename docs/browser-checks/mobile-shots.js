@@ -1126,6 +1126,27 @@ async function fitOf(page) {
       if (!onPage(r)) continue;
       if ((r.width < minTap - 0.5 || r.height < minTap - 0.5) && !reaches(target)) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
     }
+    /* A hit area that reaches past its control (a ::after, padding taken back) paints above its neighbours, so it
+       can take taps meant for them. That is the risk the reach probe above rewards, so it is measured too: inside
+       every control's own box (its centre and four points a quarter in), a tap must land on that control. A point
+       answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
+    const covers = [];
+    const SEL = 'button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
+    const controlOf = (n) => (n && n.closest ? n.closest(SEL) : null);
+    for (const el of document.querySelectorAll(SEL)) {
+      if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
+      remember(el);
+      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
+      const pts = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]].map(([fx, fy]) => [r.left + r.width * fx, r.top + r.height * fy]);
+      for (const [x, y] of pts) {
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+        const hit = document.elementFromPoint(x, y);
+        const other = controlOf(hit);
+        if (other && other !== el && !el.contains(other) && !other.contains(el)) { covers.push(name(el) + ' covered by ' + name(other)); break; }
+      }
+    }
     for (const [a, [l, t]] of moved) a.scrollTo({ left: l, top: t, behavior: 'instant' });   // instant: a smooth box would still be moving
     window.scrollTo({ left: sx, top: sy, behavior: 'instant' });
     const fields = [];
@@ -1134,7 +1155,7 @@ async function fitOf(page) {
       const fontPx = parseFloat(getComputedStyle(el).fontSize);
       if (fontPx < minFont - 0.01) fields.push(name(el) + ' ' + fontPx + 'px');
     }
-    return { taps, fields };
+    return { taps, fields, covers };
   }, { minTap: MIN_TAP_PX, minFont: MIN_FIELD_FONT_PX });
 }
 
@@ -1213,7 +1234,7 @@ async function run() {
               page.on('pageerror', (e) => pageErrors.push(String(e)));
               const file = `${sc.name}--${sz}--${theme}--${en}.png`;
               let note = '';
-              let fit = { taps: [], fields: [] };
+              let fit = { taps: [], fields: [], covers: [] };
               let audited = false;   // true only once the phone audits have actually run on this screen
               try {
                 await page.goto(board.base + '/', { waitUntil: 'load' });
@@ -1281,10 +1302,10 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
+              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, covers: fit.covers || [], audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
-                  : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
+                  : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}  covers: ${(fit.covers || []).length}`));
               await ctx.close();
             }
           }
@@ -1312,8 +1333,8 @@ async function run() {
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
     `Shots: ${rows.filter((r) => r.file).length}${rows.some((r) => !r.file) ? ` (plus ${rows.filter((r) => !r.file).length} deleted by its verify)` : ''}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
     `Skipped (phone-only at the desktop size, desktop-only at a phone size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
-    `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
+    `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px | covers |`, '|---|---|---|---|---|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} | ${r.audited ? (r.covers || []).length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');
