@@ -28,7 +28,7 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
 - A post is held only if it would be shown now (opens, inside the time window, not shown before,
   not already held by its sealed id); anything else takes no place.
   Held count is capped at INBOUND_PER_WINDOW; past it the room's minute-budget note.
-- Post-triggered checks share one Mac-wide edges answer per 15 s (sharedEdges), so busy rooms do
+- Post-triggered checks share one Mac-wide edges answer per 15 s (sharedEdges), a failed one too, so busy rooms do
   not multiply requests; a room counts as checked from when the answer was ASKED for.
 - An owner refusing an older epoch's post re-sends the current key at once (at most once per 15 s),
   so a remaining member that missed a rotation catches up before the pass. Its refused post is not

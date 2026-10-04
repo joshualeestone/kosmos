@@ -1448,6 +1448,10 @@ test('#5191: an owner refusing an older epoch\'s post re-sends the current key a
   await settle();
   assert.strictEqual(lines(seat).filter((f) => f.t === 'key-rotate').length, before + 1, 'the key was not re-sent once');
   assert.deepStrictEqual(shown(h), []);
+  t.mock.timers.tick(16 * 1000);
+  post('behind 3');
+  await settle();
+  assert.strictEqual(lines(seat).filter((f) => f.t === 'key-rotate').length, before + 2, 'the re-send never came back after 15 s');
 });
 
 test('#5191: a clock stepped back does not switch the hold off', async (t) => {
@@ -1681,4 +1685,57 @@ test('#5191: a pass that cannot read the rooms record keeps held posts for the n
   await fedseats.ensureAll();
   await settle();
   assert.deepStrictEqual(shown(h), ['held through an unreadable pass']);
+});
+
+test('#5191: a remaining member\'s post held while its own check rotates the room is still shown', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-inflight', 'rif', 2);
+  t.mock.timers.tick(20 * 1000);
+  revoke(0);
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  post('in flight from the member who stays');   // old key, held; its check finds the revoke
+  await settle();
+  t.mock.timers.tick(3000);
+  release();
+  h.gate = null;
+  await settle();
+  assert.strictEqual(fedseal.roomState('proj-5191-inflight').epoch, 1, 'fixture: the check rotated');
+  assert.deepStrictEqual(shown(h), ['in flight from the member who stays']);
+});
+
+test('#5191: during an outage busy owner rooms still share one edges request per 15 s', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const a = await pinnedRoom('proj-5191-oa', 'roa', 1);
+  const inv = newInvite('rob-0');
+  fedseal.stashInvite('ref-rob', inv);
+  federation.recordLink('proj-5191-ob', { role: 'owner', ref: 'ref-rob' });
+  a.h.edges = a.h.edges.concat([{ id: 'edge-' + inv.invite, project_ref: 'ref-rob', status: 'active', invite_id: inv.invite }]);
+  await fedseats.ensure('proj-5191-ob');
+  const seatB = a.h.spawned[a.h.spawned.length - 1];
+  say(seatB, { event: 'connected', room: 'room-rob', expires_at: 9 });
+  await settle();
+  say(seatB, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), 'room-rob') });
+  await settle();
+  t.mock.timers.tick(20 * 1000);
+  a.h.edges = null;   // Kosmos+ answers {ok: false}
+  const asked = a.h.asked;
+  a.post('A during the outage');
+  await settle();
+  say(seatB, { event: 'message', data: fedseal.seal(fedseal.roomState('proj-5191-ob').keys[0], 0, 'room-rob', { from: 'Guest', kind: 'person', text: 'B during the outage' }) });
+  await settle();
+  assert.strictEqual(a.h.asked - asked, 1, 'a failed answer made every room ask on its own');
+});
+
+test('#5191: a forged post claiming the previous epoch inside its grace is not called a retired key', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, seat, room, revoke } = await pinnedRoom('proj-5191-forged', 'rfg', 2);
+  revoke(0);
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5191-forged', federation.linkFor('proj-5191-forged'), null), true);
+  await fedseats.ensureAll();
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, room, { from: 'Forger', kind: 'person', text: 'x' }) });
+  await settle();
+  assert.ok(!h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
 });

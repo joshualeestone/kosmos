@@ -201,7 +201,7 @@ function handleEvent(projectId, line, heldAt) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
         }
-        if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch) {
+        if (sealed && sealed.role === 'owner' && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)) {
           noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired (someone was removed from the shared project), so it was not shown.');
           return;
         }
@@ -614,7 +614,8 @@ function rotateForRevoked(projectId, link, edges) {
   return revokeCheck(projectId, link, edges).then((r) => !!(r && r.rotated));
 }
 /** rotateForRevoked's step, also saying whether the edges were checked at all:
-    { checked, rotated }, or undefined when the step threw. A room with no pinned member
+    { checked, rotated, unreadable? } (unreadable: the rooms record could not be read), or
+    undefined when the step threw. A room with no pinned member
     has nothing to revoke, so it counts as checked without asking. */
 function revokeCheck(projectId, link, edges) {
   return sealStep(projectId, async () => {
@@ -650,7 +651,8 @@ function revokeCheck(projectId, link, edges) {
 /** #5191: one edges answer for the whole Mac, shared by every owner room's post-triggered
     check while it is younger than EDGE_FRESH_MS (the answer lists every project's edges),
     so the number of busy rooms does not set how often this Mac asks Kosmos+. A failed
-    answer is not reused. */
+    answer is shared too, for the same 15 s: an outage must not turn every busy room into
+    its own request. */
 let macEdges = null;
 /** Whether something done at `at` is less than EDGE_FRESH_MS old. A time ahead of the
     clock (the clock stepped back) is not fresh, so the hold cannot be switched off by it. */
@@ -662,8 +664,7 @@ function sharedEdges(now) {
   if (macEdges && isFresh(macEdges.askedAt, now)) return macEdges;
   const ask = { askedAt: now, promise: null };
   try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_EDGES, {})); } catch (err) { ask.promise = Promise.reject(err); }
-  const drop = () => { if (macEdges === ask) macEdges = null; };
-  ask.promise.then((r) => { if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) drop(); }, drop);
+  ask.promise.catch(() => {});   // each caller sees the failure as "not checked"
   macEdges = ask;
   return ask;
 }
@@ -936,7 +937,7 @@ async function ensureAll() {
   for (const id of Object.keys(links)) {
     const link = links[id];
     if (!link || link.role !== 'owner') continue;
-    try { await checkRoom(id, link, edges, true, () => pendingAt); } catch { /* retried on the next pass */ }
+    try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
   }
 }
 
