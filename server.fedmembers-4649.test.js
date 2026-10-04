@@ -144,7 +144,9 @@ test('#4649 slice 1b: joining an outside project writes "You joined <owner>\'s p
   const j = await call('POST', '/api/federation/join', { edge_id: 'edge-join-1b', agents: [] }, SCREEN);
   assert.equal(j.status, 200, JSON.stringify(j.json));
   const notes = require('./engine/messages').record().rows.filter((m) => m.project === j.json.id && m.kind === 'note').map((m) => m.text);
-  assert.ok(notes.includes("You joined maya's project."), JSON.stringify(notes));
+  assert.ok(notes.includes('You joined this project from outside. Only its owner can invite people to it.'), JSON.stringify(notes));
+  // Review round 1: the owner's freely chosen handle never goes into a note agents read as Kosmos's own voice.
+  assert.ok(!notes.some((t) => /maya/.test(t)), 'the owner\'s handle reached a room note: ' + JSON.stringify(notes));
   const m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(j.json.id), undefined, SCREEN);
   assert.equal(m.status, 200, JSON.stringify(m.json));
   assert.deepEqual([m.json.owner, m.json.owner_name, m.json.removed], [false, 'maya', false]);

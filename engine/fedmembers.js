@@ -276,13 +276,15 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
 function memberView(projectId) {
   let link = null;
   try { link = federation.linkFor(projectId); } catch { link = null; }
-  let sealed = false;
-  try { const st = require('./fedseal').roomState(projectId); sealed = !!(st && st.role === 'member'); } catch { sealed = false; }
+  // A record that cannot be read answers null ("cannot tell"), never a false "not sealed" (review round 1).
+  let sealed = null;
+  try { const st = require('./fedseal').roomState(projectId); sealed = !!(st && st.role === 'member'); } catch { sealed = null; }
   const ended = !!(link && link.ended);
-  const reason = ended && typeof link.ended === 'string' ? link.ended : null;
+  const reason = ended && typeof link.ended === 'string' ? link.ended : '';
+  // The connector's own words stay here (they carry an HTTP path); the screen gets the two facts it shows.
   return {
     owner: false, owner_name: (link && typeof link.owner_handle === 'string' && link.owner_handle) || null, sealed,
-    ended, ended_reason: reason, removed: !!(reason && /revoked|removed this computer/i.test(reason)), invites: [], checked_at: null,
+    ended, removed: /revoked|removed this computer/i.test(reason), invites: [], checked_at: null,
   };
 }
 

@@ -898,13 +898,15 @@ test('#3728: the owner shares the room key with a member who knows the invite, a
   assert.strictEqual(lines(seat).length, n, 'a second key was pinned from one invite');
 });
 
-test('#4649 slice 1b: the owner\'s room says who joined, by the owner\'s label, once, when the member\'s computer is pinned', async () => {
+test('#4649 slice 1b: the owner\'s room says who joined, by the owner\'s label, once, when the member\'s computer is pinned', async (t) => {
   const inv = newInvite('jl');
   const anon = newInvite('jl2');
   const file = require('path').join(require('./store').ROOT, require('./fedmembers').FILE);
   const all = require('fs').existsSync(file) ? JSON.parse(require('fs').readFileSync(file, 'utf8')) : {};
   all['proj-joinline'] = [{ invite_id: inv.invite, label: 'Dana Ruiz', kind: 'person', made_at: 1, expires_at: 9e9 }];
+  const before = require('fs').existsSync(file) ? require('fs').readFileSync(file) : null;
   require('fs').writeFileSync(file, JSON.stringify(all));
+  t.after(() => { if (before) require('fs').writeFileSync(file, before); else require('fs').rmSync(file, { force: true }); });
   const { h, seat } = await ownerRoom('proj-joinline', 'ref-joinline', 'room-jl', [inv, anon]);
   const joined = () => h.notes.filter((n) => /joined/.test(n.text)).map((n) => n.text);
   assert.deepStrictEqual(joined(), [], 'a join line before anyone joined');

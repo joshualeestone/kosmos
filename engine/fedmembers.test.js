@@ -308,6 +308,15 @@ test('#4649 slice 1b: a project this board JOINED answers who owns it, whether i
   federation.recordLink('theirs', { role: 'member', edge_id: 'e-9', owner_handle: 'maya', ended: 'the connection ended' });
   m = await fedmembers.members(stubRemote({}), 'theirs');
   assert.deepStrictEqual([m.body.ended, m.body.removed], [true, false], 'an ending that was not a removal read as one');
+  assert.strictEqual(m.body.ended_reason, undefined, 'the connector\'s raw words reached the screen');
+  // A seal record that cannot be read is "cannot tell", never "not sealed".
+  const sealFile = require('path').join(require('./store').ROOT, fedseal.ROOMS_FILE || 'fed-seal-rooms.json');
+  const saved = fs.existsSync(sealFile) ? fs.readFileSync(sealFile) : null;
+  fs.writeFileSync(sealFile, '{ damaged');
+  try {
+    m = await fedmembers.members(stubRemote({}), 'theirs');
+    assert.strictEqual(m.body.sealed, null, 'an unreadable seal record read as not sealed');
+  } finally { if (saved) fs.writeFileSync(sealFile, saved); else fs.rmSync(sealFile, { force: true }); }
 });
 
 test('#4649 slice 1b: a project shared only with this account\'s other computers answers self_shared, not a refusal', async () => {

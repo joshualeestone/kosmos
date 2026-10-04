@@ -17637,10 +17637,11 @@ const server = http.createServer(async (req, res) => {
           }
         }
         if (!snap.own) {
-          /* #4649 slice 1b (Q-K1): the member's room says whose project it joined. The handle is the coordinator's,
-             cut and cleaned at verify (federation.externalName). */
+          /* #4649 slice 1b (Q-K1): the member's room says it joined from outside. The owner's handle is NOT in it
+             (review round 1): agents read a note as Kosmos's own voice ("[kosmos] ..."), and the handle is a name the
+             owner chose freely, so it could speak as Kosmos. The screen shows the owner's name from Members instead. */
           try {
-            messages.roomNote(made.id, snap.owner_handle ? 'You joined ' + snap.owner_handle + '\'s project.' : 'You joined this project from outside.');
+            messages.roomNote(made.id, 'You joined this project from outside. Only its owner can invite people to it.');
           } catch { /* the note is furniture; the room exists regardless */ }
         }
         if (snap.own) {
