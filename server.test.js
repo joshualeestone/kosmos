@@ -14198,6 +14198,37 @@ test('#4928: a platform number in "also" shows the highlights once; the same wor
   assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');
 });
 
+test('#5224: /api/whats-new serves only this platform\'s highlights; all for the other platform is none, and a dismissal keeps the earlier record', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const store2 = require('./engine/store');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-plat-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  const seenFile = nodePath.join(store2.ROOT, 'seen-version.json');
+  let before = null;
+  try { before = fs2.readFileSync(seenFile, 'utf8'); } catch { before = null; }
+  whatsnew.setFileForTests(file);
+  t.after(() => {
+    whatsnew.setFileForTests(null);
+    fs2.rmSync(dir, { recursive: true, force: true });
+    if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
+  });
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const other = whatsnew.platformOf(process.platform) === 'windows' ? 'mac' : 'windows';
+  const elsewhere = { icon: 'shield', title: 'Elsewhere', line: other === 'mac' ? 'On a Mac, it says so.' : 'On a Windows PC, it says so.', platforms: [other] };
+  const everywhere = { icon: 'spark', title: 'A thing', line: 'It does a thing.' };
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [elsewhere, everywhere] }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, [everywhere], 'the other platform\'s highlight was served here');
+  // The earlier record, then a file whose every highlight is for the other platform: none, and the record is kept.
+  fs2.writeFileSync(seenFile, JSON.stringify({ version: '0.0.1', highlightsFor: '0.0.5' }) + '\n');
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [elsewhere] }));
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a window would open with nothing for this platform');
+  const r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.5', 'words never shown here replaced the record');
+});
+
 /* ------------------------------------------------------------------------- *
  * #539: the working rules, consented. The GET plans, only the click writes,
  * and a fleet click never overrides a per-agent Not now.
