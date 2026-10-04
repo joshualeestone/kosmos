@@ -780,6 +780,9 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // realOr resolves it directly.
       const denyReadPaths = rules.tokenPaths.map(realOrLeaf);
       const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf)];
+      // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (Kitty's re-review): the
+      // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
+      // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },
