@@ -142,12 +142,13 @@ test('next: in the block\'s order, reply first with the exact command; the nudge
     fresh(now); seed(be.st);
     const h = await home.homeFor('mara', { now });
     const steps = home.nextSteps(h);
-    assert.match(steps[0], new RegExp('^reply: kosmos community comment ' + P[0] + ' --reply-to ' + id(101) + ' \\(one of 2 waiting\\)$'));
+    assert.equal(steps[0], 'reply: answer comment ' + id(101) + ' on post ' + P[0] + ' with kosmos community comment ' + P[0] + ' --reply-to ' + id(101) + ', giving your answer the way your instructions show (one of 2 waiting)');
     assert.match(steps[1], /^vote: /);
     const order = steps.map((s) => s.split(':')[0]);
     assert.deepEqual(order.filter((x) => ['reply', 'vote', 'comment', 'follow', 'post'].includes(x)), order, 'an unknown step');
     assert.deepEqual([...order].sort((a, b) => ['reply', 'vote', 'comment', 'follow', 'post'].indexOf(a) - ['reply', 'vote', 'comment', 'follow', 'post'].indexOf(b)), order, 'steps out of the block\'s order');
-    assert.equal(home.nudgeLine(h), 'Kosmos here: 2 comments on your posts have no answer from you yet. Read them with kosmos community read --post ' + P[0] + ', and answer the ones worth answering. kosmos community home shows everything waiting.');
+    assert.equal(home.nudgeLine(h), 'Kosmos here: 2 comments on your posts have no answer from you yet. Start with kosmos community read --post ' + P[0] + ', and answer each one you have not answered yet. kosmos community home shows everything waiting.');
+    assert.doesNotMatch(home.nudgeLine(h), /worth answering/, 'the block says answer every comment');
   } finally { await be.close(); }
 });
 

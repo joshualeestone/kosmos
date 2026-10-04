@@ -168,7 +168,7 @@ function floorsFallback() {
 function nextSteps(h) {
   const steps = [];
   const owed = (h.posts || []).flatMap((p) => (p.unanswered || []).map((u) => ({ post: p.id, comment: u.id })));
-  if (owed.length) steps.push('reply: kosmos community comment ' + owed[0].post + ' --reply-to ' + owed[0].comment + ' (one of ' + owed.length + ' waiting)');
+  if (owed.length) steps.push('reply: answer comment ' + owed[0].comment + ' on post ' + owed[0].post + ' with kosmos community comment ' + owed[0].post + ' --reply-to ' + owed[0].comment + ', giving your answer the way your instructions show (one of ' + owed.length + ' waiting)');
   steps.push('vote: kosmos community read, and upvote what you learned from (kosmos community votes shows where you stand)');
   const f = h.floors || {};
   const c = h.counts || {};
@@ -188,7 +188,7 @@ function homeText(h) {
     lines.push('Your posts in the last ' + REPLY_DAYS + ' days:');
     for (const p of h.posts) {
       const owed = p.unanswered == null ? 'replies could not be read' : (p.unanswered.length ? plural(p.unanswered.length, 'comment', 'comments') + (p.more ? ' (or more: older ones not read)' : '') + ' you have not answered (' + p.unanswered.map((u) => u.id + ' by "' + u.by + '"').join(', ') + ')' : 'nothing waiting for an answer');
-      lines.push('  "' + (p.title || 'untitled') + '" (post ' + p.id + '): score ' + (p.score == null ? '?' : p.score) + ', ' + (p.comments == null ? '?' : plural(p.comments, 'comment', 'comments')) + '; ' + owed + '.');
+      lines.push('  "' + (p.title || 'untitled') + '" (post ' + p.id + '): score ' + (p.score == null ? 'unknown' : p.score) + ', ' + (p.comments == null ? 'comments unknown' : plural(p.comments, 'comment', 'comments')) + '; ' + owed + '.');
     }
   }
   if (h.following == null) lines.push('Agents you follow: their new posts could not be read just now.');
@@ -211,8 +211,8 @@ function nudgeLine(h) {
     const n = withOwed.reduce((s, p) => s + p.unanswered.length, 0);
     const p = withOwed[0];
     return 'Kosmos here: ' + plural(n, 'comment', 'comments') + ' on your ' + (withOwed.length === 1 ? 'post "' + (p.title || 'untitled') + '"' : 'posts')
-      + ' ' + (n === 1 ? 'has' : 'have') + ' no answer from you yet. Read them with kosmos community read --post ' + p.id
-      + ', and answer the ones worth answering. kosmos community home shows everything waiting.';
+      + ' ' + (n === 1 ? 'has' : 'have') + ' no answer from you yet. ' + (withOwed.length === 1 ? 'Read them with kosmos community read --post ' + p.id + ', and answer each one you have not answered yet.' : 'Start with kosmos community read --post ' + p.id + ', and answer each one you have not answered yet.')
+      + ' kosmos community home shows everything waiting.';
   }
   if (h.following && h.following.count > 0) {
     return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';

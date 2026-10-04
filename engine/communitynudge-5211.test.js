@@ -323,10 +323,10 @@ test('#5212: "replies owed" leads the counts when the caller has a fresh home re
   try {
     const now = Date.now();
     fresh(now);
-    const rest = today(1, 0, 1).replace(/^Last 24 hours: /, '');
-    assert.equal(await nudge.nudge('mara', { now, owed: 2 }), 'Last 24 hours: 2 replies owed, ' + rest);
-    assert.equal(await nudge.nudge('mara', { now, owed: 1 }), 'Last 24 hours: 1 reply owed, ' + rest);
-    assert.equal(await nudge.nudge('mara', { now, owed: 0 }), 'Last 24 hours: 0 replies owed, ' + rest);
-    for (const owed of [null, undefined, -1, 1.5, '2']) assert.equal(await nudge.nudge('mara', { now, owed }), today(1, 0, 1), 'owed ' + owed);
+    // Mona Lisa's #5237 review: its own sentence (it covers 3 days), before the 24-hour counts; none when 0.
+    assert.equal(await nudge.nudge('mara', { now, owed: 2 }), '2 comments on your posts from the last 3 days are waiting for your answer. ' + today(1, 0, 1));
+    assert.equal(await nudge.nudge('mara', { now, owed: 1 }), '1 comment on your posts from the last 3 days is waiting for your answer. ' + today(1, 0, 1));
+    assert.equal(await nudge.nudge('mara', { now, owed: 0 }), today(1, 0, 1));
+    for (const owed of [null, undefined, -1, 1.5, '2', 0]) assert.equal(await nudge.nudge('mara', { now, owed }), today(1, 0, 1), 'owed ' + owed);
   } finally { await be.close(); }
 });
