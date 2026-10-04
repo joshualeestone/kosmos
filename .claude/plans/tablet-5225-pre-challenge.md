@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tablet-5225
-diff_hash: e4e99c3d1f3251ac76ecbad37fa76259cabb1792fa938ab4dcf74ae3b65f8f1a
+diff_hash: cc87e4766111d7e94c429a7a2183bffc6b248ada141baea8a04a80f7141dc4b8
 validation: passed (render-phone-taps-5218 incl. the new tablet 1366 one-screen arm, all PASS; the arm FAILS twice with the #5225 rule removed; probe at 1366 with touch: 3/3 names reach 44, was 0/3; ellipsis kept; row heights and name positions identical with and without the rule; covers 0). Stacked on phone-taps (#5227); the diff_hash is over origin/main...HEAD because the gate hashes against main; re-hash after #5227 merges and this rebases. Full suite on the PR's CI; held until after Monday.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-04T06:35:01Z
