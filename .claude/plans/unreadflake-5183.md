@@ -19,7 +19,7 @@ suggestion) would fix nothing.
   same as its readLook, so only unread changes.
 - The unread arm records every paint of the card as it happens (look, line, and whether updCheckNowClick painted it),
   skipping calls that did not paint (paintUpdateCard returns early during a press). It asserts the press's own paint
-  says could-not-reach, and that the second paint after the press still does. (FINAL design after challenge-loop
+  says could-not-reach, and that a status poll carrying the press's look (unreachable) paints could-not-reach too. (FINAL design after challenge-loop
   iterations 1-3; the earlier "counter after the press, wait for one repaint" design below is superseded.)
 
 ## Proof (alone, sandboxed board booted as the harness does: fake-tmux, DRY_RUN, first run completed)
@@ -56,3 +56,4 @@ assertion guards the fixture's agreement. Re-proven: fixed PASSES 2 of 2; old fi
 (its recorded paint: reached:true, "Could not read"), while the press assertion passes, as it should.
 Iteration 2 (sonnet): WARNING taken. paintUpdateCard returns early while a press is in flight (line still "Checking."), and a poll answered then already carries the press's look, so the recorder logged a non-paint that findIndex could take for the press. The recorder now logs only calls that painted (line not ending "Checking."); stalls print a named message. Re-proven: fixed PASSES 2 of 2; old fixture FAILS only the poll assertion. Not forced in a test: the in-flight skipped call itself (reasoned from web/index.html:21618).
 Iteration 3 (opus): WARNING taken. Nothing tied the 'press' paint to the press, so a press handler that stopped painting would be stood in for by the next poll (the linked stub makes it say could-not-reach). Now the press paint is the first painted by updCheckNowClick (stack). Proven: fixed PASSES; old fixture FAILS the poll assertion only; INJECTED regression (if (0) on updCheckNowClick's paintUpdateCard call, reverted with git checkout) FAILS the press assertion by name.
+Iteration 4 (sonnet): WARNING taken. 'The second paint after the press' was a heuristic that two overlapping stale polls could turn red falsely. Now the poll assertion waits for the first non-press paint whose look is unreachable (a poll answered after the press) and asserts its line; with the stubs unlinked no such poll comes and it fails by name. NITs taken: no iteration labels in code comments; the name coupling is commented; the stale Left section marked.
