@@ -14214,6 +14214,7 @@ test('#5224: /api/whats-new serves only this platform\'s highlights; all for the
     fs2.rmSync(dir, { recursive: true, force: true });
     if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
   });
+  fs2.writeFileSync(seenFile, JSON.stringify({ version: '0.0.1' }) + '\n');   // a known record: no earlier dismissal hides these words
   const current = JSON.parse((await req('/api/whats-new')).body).current;
   const other = whatsnew.platformOf(process.platform) === 'windows' ? 'mac' : 'windows';
   const elsewhere = { icon: 'shield', title: 'Elsewhere', line: other === 'mac' ? 'On a Mac, it says so.' : 'On a Windows PC, it says so.', platforms: [other] };

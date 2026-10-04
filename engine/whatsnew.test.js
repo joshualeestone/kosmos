@@ -137,6 +137,9 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
   assert.match(one({ line: 'Works on macOS.', platforms: ['mac', 'windows'] }).join(' '), /is for mac and windows but names only mac: take the other platform out/);
   assert.match(one({ line: 'Now on MacOS.' }).join(' '), /names mac but has no "platforms"/, 'a common miswriting of macOS');
   assert.match(one({ title: 'WINDOWS' }).join(' '), /names windows but has no "platforms"/);
+  for (const line of ['Now on macos.', 'On a Macintosh.', 'Since OS X 10.9.', 'On an imac.', 'PCS too.']) {
+    assert.ok(one({ line }).some((p) => /has no "platforms"/.test(p)), line + ' was not seen as naming a platform');
+  }
   assert.match(one({ line: 'On a Mac, like Windows already did.', platforms: ['mac'] }).join(' '), /is for mac but names mac and windows.*reword it to name only/,
     'a Mac-tagged line that names Windows too');
   assert.match(one({ line: 'On a MacBook or an iMac.' }).join(' '), /names mac but has no "platforms"/);

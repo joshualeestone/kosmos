@@ -40,16 +40,20 @@ const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 /* #5224: the platforms a highlight can be for, and the whole words (case-sensitive) that name each. */
 const PLATFORMS = Object.freeze(['mac', 'windows']);
-/* Lower-case "windows" and "mac" are left out on purpose: a window on screen, a MAC address. */
+/* Matched in any case ("macos", "MacOS", "PCS"), except the all-lower-case words in NOT_PLATFORM_WORDS: a
+   window on screen, a MAC address written as "mac". "OS X" is two words and is matched as a pair. */
 const PLATFORM_WORDS = Object.freeze({
-  mac: ['Mac', 'Macs', 'macOS', 'MacOS', 'MACOS', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
-  windows: ['Windows', 'WINDOWS', 'PC', 'PCs'],
+  mac: ['Mac', 'Macs', 'macOS', 'Macintosh', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
+  windows: ['Windows', 'PC', 'PCs'],
 });
+const NOT_PLATFORM_WORDS = Object.freeze(['mac', 'macs', 'windows']);
 
-/** #5224: the platforms a text names, in PLATFORMS order (whole ASCII words, case-sensitive: "Mac's" is Mac, "mac" is not). */
+/** #5224: the platforms a text names, in PLATFORMS order (runs of ASCII letters: "Mac's" and "MacOS" are Mac, "mac" is not). */
 function platformsNamed(text) {
-  const words = new Set(String(text).split(/[^A-Za-z]+/));
-  return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w)));
+  const s = String(text);
+  const words = new Set(s.split(/[^A-Za-z]+/).filter((w) => !NOT_PLATFORM_WORDS.includes(w)).map((w) => w.toLowerCase()));
+  if (/\bOS X\b/i.test(s)) words.add('osx');
+  return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w.toLowerCase())));
 }
 
 /** #5224: the board's platform as a PLATFORMS value, or null on any other (only untagged highlights show there). */
