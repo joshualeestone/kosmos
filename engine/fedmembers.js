@@ -242,10 +242,13 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
   /* #4649 slice 3 review round 2: a member pinned before this shipped (or whose first note failed) has no account on
      its row, so its posts would never carry the label. The edges read here name it: backfill, best effort. */
   if (edges) {
+    // Gathered, then ONE write (review round 3); a failed write is retried at the next look, which is all this is.
+    const changes = [];
     for (const row of rows) {
       const e = edges.find((x) => x.invite_id === row.invite_id && x.status === 'active' && typeof x.member_account_id === 'string');
-      if (e && row.member !== e.member_account_id) { try { noteMember(projectId, row.invite_id, e.member_account_id); } catch { /* next look */ } }
+      if (e && row.member !== e.member_account_id) changes.push([row.invite_id, e.member_account_id]);
     }
+    if (changes.length) { try { noteMembers(projectId, changes); } catch { /* next look */ } }
   }
   const out = rows.slice().reverse().map((row) => {
     const edge = edges ? edges.filter((e) => e.invite_id === row.invite_id).sort((a, b) => b.created_at - a.created_at)[0] : null;
@@ -301,23 +304,36 @@ function memberView(projectId) {
     coordinator's edge names it). The room route then shows the owner's own label on that account's posts. The
     account id itself is never sent to the page or an agent (review: it would let one guest recognise another across
     rooms); only the label the owner typed is. A code with no row here (the create screen) is not remembered. */
-function noteMember(projectId, inviteId, account) {
-  if (typeof account !== 'string' || !account) return false;
+function noteMember(projectId, inviteId, account) { return noteMembers(projectId, [[inviteId, account]]) > 0; }
+/** Several [inviteId, account] at once, in one write; how many rows changed. */
+function noteMembers(projectId, pairs) {
   const all = readAll();
   const list = own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
-  const row = list.find((r) => r && r.invite_id === inviteId);
-  if (!row || row.member === account) return false;
-  row.member = account;
-  writeAll(all);
-  return true;
+  let n = 0;
+  for (const [inviteId, account] of pairs) {
+    if (typeof account !== 'string' || !account) continue;
+    const row = list.find((r) => r && r.invite_id === inviteId);
+    if (!row || row.member === account) continue;
+    row.member = account;
+    n += 1;
+  }
+  if (n) writeAll(all);
+  return n;
 }
-/** The owner's label for the account that posted (`member`, the relay's stamp), or null. */
+/** The owner's labels by account (the relay's stamp), from ONE read of the record: a Map, empty when nothing can
+    be read. The newest invite's label wins (a removed member who rejoined through a new invite gets the new label;
+    review round 3). */
+function labelsFor(projectId) {
+  const out = new Map();
+  let rows;
+  try { rows = rowsFor(projectId); } catch { return out; }
+  for (const r of rows) if (r && typeof r.member === 'string' && r.member && r.label) out.set(r.member, r.label);   // rows are oldest first
+  return out;
+}
+/** One account's label, or null (a convenience over labelsFor; never call it per row). */
 function labelForMember(projectId, member) {
   if (typeof member !== 'string' || !member) return null;
-  let rows;
-  try { rows = rowsFor(projectId); } catch { return null; }
-  const row = rows.find((r) => r && r.member === member && r.label);
-  return row ? row.label : null;
+  return labelsFor(projectId).get(member) || null;
 }
 
 /** The owner's room line when a member's computer first arrives (slice 1b, Q-K1): the owner's label for that invite,
@@ -375,4 +391,4 @@ async function withdraw(remote, projectId, inviteId, now = Date.now()) {
   return { status: 200, body: { withdrawn: true } };
 }
 
-module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine, noteMember, labelForMember };
+module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine, noteMember, noteMembers, labelForMember, labelsFor };

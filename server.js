@@ -17020,6 +17020,9 @@ const server = http.createServer(async (req, res) => {
     try {
       const rec = messages.record();
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
+      /* #4649 slice 3: the owner's labels by stamped account, read ONCE per request (review round 3: a read per row
+         stalled a busy room). The text view never shows them, so it does not read them. */
+      const labelOf = asText ? new Map() : fedmembers.labelsFor(id);
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
       const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
@@ -17042,7 +17045,7 @@ const server = http.createServer(async (req, res) => {
           ? Object.assign({ kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true },
             /* #4649 slice 3: the owner's own label for the account that posted (the relay's stamp, matched on this
                board). The stamp itself never leaves the board. */
-            (() => { const l = fedmembers.labelForMember(id, m.member); return l ? { invited_as: l } : {}; })())
+            (() => { const l = typeof m.member === 'string' ? labelOf.get(m.member) : null; return l ? { invited_as: l } : {}; })())
           : m.kind === 'note'
           ? { kind: 'note', text: noteTextNow(m, noteNames), at: m.at }
           : m.kind === 'post'

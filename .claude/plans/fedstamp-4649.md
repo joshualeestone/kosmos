@@ -31,6 +31,14 @@ Shape, agreed with Baron (HEADS-UP 13:47): the connector's stdout event gains a 
 - NITs stated: one account redeeming two invites gets the first row's label; a rejoin through the same invite with
   another account relabels that invite.
 
+## Review round 3 (opus): 1 BLOCKER, fixed
+- The room route read and parsed fed-invites.json once per stamped outside post: a busy room (up to 2000 kept per
+  day) would have stalled the board on every poll. Now one read per request (fedmembers.labelsFor, a Map), and none
+  for the text view, which never shows labels. Tested by counting reads (50 posts, at most 1 read); the per-row
+  version reds it.
+- Members' backfill is gathered and written once (noteMembers). The newest invite's label wins for an account that
+  rejoined. Tested.
+
 ## Weakest premise
 An owner's own other computers post as `<account>:<mac>`, never matching a guest edge; they are the owner's, and the
 screen shows them as the owner's (the #4657 `same_account` flag), not under any invitee.
@@ -38,5 +46,5 @@ screen shows them as the owner's (the #4657 `same_account` flag), not under any 
 ## Tests
 engine/fedseats.test.js (slice 3), engine/messages.external-3311.test.js (slice 3), engine/fedmembers.test.js
 (noteMember / labelForMember), server.fedmembers-4649.test.js (the room's invited_as; no id in the room or
-/api/messages), plus the slice 1 / 1b files: 196/196. Mutations, each red: take `member` from `data`; store any
+/api/messages), plus the slice 1 / 1b files: 198/198. Mutations, each red: take `member` from `data`; store any
 `member`; no strip in /api/messages; no invited_as; no noteMember at the pin.

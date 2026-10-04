@@ -358,3 +358,12 @@ test('#4649 slice 3 review round 2: Members backfills the account of a member pi
   assert.strictEqual(fedmembers.labelForMember('backfill', 'acct-lee'), 'Lee', 'the account was not backfilled from the edges Members read');
   assert.ok(m.body.invites.every((r) => !('member' in r)), 'the backfill leaked the account id into the answer');
 });
+
+test('#4649 slice 3 review round 3: the newest invite\'s label wins for an account that rejoined', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const a = await fedmembers.invite(remote, { project: 'rejoin', invited_kind: 'person', label: 'Dana' }, here(['rejoin']));
+  const b = await fedmembers.invite(remote, { project: 'rejoin', invited_kind: 'person', label: 'Dana (contractor)' }, here(['rejoin']));
+  assert.strictEqual(fedmembers.noteMembers('rejoin', [[a.body.invite_id, 'acct-d'], [b.body.invite_id, 'acct-d']]), 2);
+  assert.strictEqual(fedmembers.labelForMember('rejoin', 'acct-d'), 'Dana (contractor)');
+  assert.strictEqual(fedmembers.labelsFor('rejoin').get('acct-d'), 'Dana (contractor)');
+});

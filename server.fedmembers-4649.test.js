@@ -173,3 +173,23 @@ test('#4649 slice 3: the room shows the owner\'s label on a stamped outside post
   assert.equal(all.status, 200);
   assert.ok(!JSON.stringify(all.json).includes('acct-dana-777'), 'an account id reached /api/messages');
 });
+
+test('#4649 slice 3 review round 3: the room reads the invites record once per request, not once per stamped post', async () => {
+  const fs2 = require('node:fs');
+  const fedmembers = require('./engine/fedmembers');
+  const messages = require('./engine/messages');
+  const made = projects.create({ name: 'Busy Stamped Room' });
+  const pid = made.id || (made.project && made.project.id);
+  const inv = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person', label: 'Kim' }, SCREEN);
+  fedmembers.noteMember(pid, inv.json.invite_id, 'acct-kim-1');
+  for (let i = 0; i < 50; i += 1) messages.externalPost(pid, { from: 'Kim', fromKind: 'person', text: 'post ' + i, member: 'acct-kim-1' });
+  const real = fs2.readFileSync;
+  let reads = 0;
+  fs2.readFileSync = function (p, ...rest) { if (String(p).endsWith(fedmembers.FILE)) reads += 1; return real.call(this, p, ...rest); };
+  let room;
+  try { room = await call('GET', '/api/project/' + encodeURIComponent(pid) + '/room', undefined, SCREEN); } finally { fs2.readFileSync = real; }
+  assert.equal(room.status, 200);
+  const labelled = (room.json.messages || room.json.rows || []).filter((m) => m && m.invited_as === 'Kim').length;
+  assert.equal(labelled, 50, 'precondition: every stamped post is labelled');
+  assert.ok(reads <= 1, 'the invites record was read ' + reads + ' times for one room request');
+});
