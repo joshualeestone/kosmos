@@ -70,6 +70,8 @@
  *       minus opens it with no danger look, no stale message and a live button. Control: the 502 state just before.
  *  B14  after a Withdraw refusal, focus is on that row's Withdraw (not <body>) and the sentence is in #fed-live.
  *       Control: #fed-live is empty or absent before the action.
+ *  B15  consolidated layout on a board with NO agents of its own: the rail still lists the project's people from
+ *       outside (the Members card is hidden there). Control: B9, the same rows with agents on the board.
  *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
  *       checked answer is not asked again after the same 30 s.
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
@@ -763,6 +765,17 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(150);
     const gone = await page.evaluate(() => !document.getElementById('alist-fed-outside'));
     check('B9 control: an empty answer adds nothing to the rail', gone === true, 'absent=' + gone);
+    await ctx.close();
+  }
+
+  /* B15: consolidated, a board with no agents of its own. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; window.__agents = []; }, answer([DANA, LEE]));
+    await openProjectIn(page, 'consolidated');
+    const f = await readFed(page, '#alist-fed-outside');
+    check('B15 no agents on the board: the rail still lists the people from outside (control: B9 with agents)',
+      f.exists && f.rows.length === 2 && f.rows.some((r) => r.act === 'Remove') && f.rows.some((r) => r.act === 'Withdraw'), JSON.stringify(f));
     await ctx.close();
   }
 

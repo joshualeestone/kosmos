@@ -22839,7 +22839,25 @@ function paintAgentList() {
      project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
      leaving the project always clears it. */
   paintRailPjNotice();
-  if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
+  /* kosmos#4649 slice B: the rail is rebuilt on every status poll, and now holds focusable outside actions, so a
+     focused one is found again by its row key after the rebuild instead of dropping to <body>. */
+  const ae = document.activeElement;
+  const fedFocusKey = (ae && ae.closest && ae.closest('#alist .fedout-act[data-fed-key]')) ? ae.dataset.fedKey : null;
+  const fedRefocusRail = () => {
+    if (!fedFocusKey) return;
+    const b = [...alist.querySelectorAll('.fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === fedFocusKey);
+    if (b) b.focus();
+  };
+  if (!shown.length) {
+    setAgentsGrouped(false);
+    // A board with no agents of its own still lists the open project's people from outside in this layout,
+    // where the Members card is hidden (#3948): otherwise their Remove and Withdraw are unreachable here.
+    const fedOutE = (layoutConsolidated() && PJ_CURRENT && typeof fedOutsideHtml === 'function') ? fedOutsideHtml() : '';
+    alist.innerHTML = boardEmpty();
+    if (fedOutE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-outside" class="fedout">' + fedOutE + '</div>');
+    fedRefocusRail();
+    return;
+  }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   const inProj = (openProj && Array.isArray(openProj.agents))
     ? new Set(openProj.agents.map((m) => m && m.sessionName).filter(Boolean)) : null;
@@ -22872,6 +22890,7 @@ function paintAgentList() {
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
     setAgentsGrouped(true);
+    fedRefocusRail();
   } else {
     alist.innerHTML = shown.map(lrow).join('');
     setAgentsGrouped(false);
@@ -67768,8 +67787,9 @@ function fedOutsidePaint(tabOnly) {
   if (el && el.__fedHtml !== html) { el.__fedHtml = html; el.innerHTML = html; }
   if (tabOnly) return;
   // The consolidated rail draws the section inside its own list, so it repaints that list while it groups.
-  // Only when the section's markup changed: the 60 s refetch would otherwise rebuild the whole rail every minute.
-  if (AGENTS_GROUPED && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
+  // Only when the section's markup changed, so an answer that changes nothing adds no extra rebuild (the status
+  // poll rebuilds the rail anyway). PJ_CURRENT covers a board with no agents, whose rail is not grouped.
+  if ((AGENTS_GROUPED || PJ_CURRENT) && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
     && fedOutsidePaint.rail !== html) { fedOutsidePaint.rail = html; paintAgentList(); }
 }
 async function fedMembersLoad(project) {
@@ -67911,6 +67931,7 @@ async function fedRemoveGo() {
     if (fm && fm.ok && fm.project === f.project && fm.body && Array.isArray(fm.body.invites)) {
       fm.body.invites = fm.body.invites.map((r) => (r && r.edge_id === f.edge_id ? Object.assign({}, r, { state: 'removed' }) : r));
     }
+    fedOutsidePaint(false);   // the row goes now, not when the refetch answers
     if (still) fedRemoveDone();
     fedMembersLoad(f.project);
     return;
@@ -67951,7 +67972,17 @@ async function fedWithdraw(r) {
   }
   FED_BUSY.delete(key);
   if (PJ_CURRENT !== project) return;
-  if (!said && res.ok) { await fedMembersLoad(project); if (PJ_CURRENT === project) fedRefocus(key); return; }
+  if (!said && res.ok) {
+    // As Remove: the kept answer must not show the code again if the refetch fails, and the row goes now.
+    const fm = FED_MEMBERS;
+    if (fm && fm.ok && fm.project === project && fm.body && Array.isArray(fm.body.invites)) {
+      fm.body.invites = fm.body.invites.map((x) => (x && x.invite_id === r.invite_id && x.state === 'pending' ? Object.assign({}, x, { state: 'withdrawn' }) : x));
+    }
+    fedOutsidePaint(false);
+    await fedMembersLoad(project);
+    if (PJ_CURRENT === project) fedRefocus(key);
+    return;
+  }
   if (!said) {
     said = res.status === 403 ? fallback
       : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { lapses: fedShortDate(r.expires_at) });
