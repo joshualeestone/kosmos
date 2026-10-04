@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: fedmembers-4649
-diff_hash: 8458a8d58c9167a9031249932b612e50bed1d4255a19e2e993d8c6cacd89c624
-validation: slice 1 + slice 1b (folded in; Pete's Q-K1/K4/K6): the five focused files 176/176 (engine/fedmembers, engine/fedseats, server.fedmembers-4649, engine/federation, server.federation-3311). engine/fedmembers.test.js, server.fedmembers-4649.test.js, engine/federation.test.js, server.federation-3311.test.js Mutations, each red on its own test: Remove without the project check; the label sent to the coordinator; Members without the screen gate; the invite-time stamp; no stale-link forget; no per-project serialization; no forget on project removal; no re-read before the late link write; no listing of unrecorded connections; no clamp; no unstash (409, 404 and 500 paths). Slice 1b mutations, each red: no owner join line; no member join note; self_shared back to a 409; the owner handle back in the note. Full suite on Mortals and full browser checks (server.js): pending on the combined head.
+diff_hash: 5d3a9bb328586533ea6edadda34e99fc4abea892e9e49824f257fa32bd1041f9
+validation: slice 1 + slice 1b (folded in; Pete's Q-K1/K4/K6): the five focused files 176/176 (engine/fedmembers, engine/fedseats, server.fedmembers-4649, engine/federation, server.federation-3311). engine/fedmembers.test.js, server.fedmembers-4649.test.js, engine/federation.test.js, server.federation-3311.test.js Mutations, each red on its own test: Remove without the project check; the label sent to the coordinator; Members without the screen gate; the invite-time stamp; no stale-link forget; no per-project serialization; no forget on project removal; no re-read before the late link write; no listing of unrecorded connections; no clamp; no unstash (409, 404 and 500 paths). Slice 1b mutations, each red: no owner join line; no member join note; self_shared back to a 409; the owner handle back in the note. Slice 3 (board half, folded in): the room's invited_as, the stamp never leaving the board, one read per request; its files plus the above 198/198; slice 3 mutations, each red: member from data; store any member; no strip in /api/messages; no invited_as; no noteMember at the pin; no backfill; per-row reads (51 reads). Full suite on Mortals and full browser checks (server.js): pending on the combined head.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-04T17:31:36Z
-iterations: 8
+timestamp: 2026-10-04T18:56:04Z
+iterations: 12
 converged: true
 ---
 
@@ -52,3 +52,18 @@ Per-round detail is in .claude/plans/fedmembers-4649.md ("Review round N" sectio
 - [NIT] raw connector reason passed to the screen --> FIXED: dropped; [NIT] self_shared with owner:true --> STATED on the card; [NIT] fedseats test did not restore its record --> FIXED
 #### Iteration 8 (sonnet, slice 1b): 0 B, 0 W, 4 N. Converged.
 - [NIT] a test title still quoted the old note --> FIXED; [NIT] first commit message superseded --> STATED here; [NIT] labels kept bidi/format characters --> FIXED, tested; [NIT] an agent with the screen could set a label --> STATED: invite is screen-only
+
+### Slice 3, board half (folded into this branch): rounds 9 to 12
+#### Iteration 9 (opus): 0 B, 1 W, 2 N
+- [WARNING] GET /api/messages returned raw rows, so a local agent could read every guest's account id (cross-room recognition) --> FIXED: the board maps the stamp to the owner's label (invited_as) and the id never leaves it; /api/messages strips it; tested, mutations red
+- [NIT] no route carried member to the page --> FIXED by invited_as; [NIT] sealed path untested --> covered by fedseats' existing open path (data replaced, top level kept)
+#### Iteration 10 (sonnet): 0 B, 3 W, 2 N
+- [WARNING] members pinned before this shipped never labelled --> FIXED: Members backfills from the edges it reads; tested
+- [WARNING] member_account_id name unpinned --> STATED: it is the coordinator's FederationEdge field, not the relay frame
+- [WARNING] the id sits in local files --> STATED: the rule is routes and agent-read text
+- [NIT] x2 stated (first-match label; rejoin relabels)
+#### Iteration 11 (opus): 1 B, 1 W, 1 N
+- [BLOCKER] the room route read fed-invites.json once per stamped post (a busy room would stall the board on every poll) --> FIXED: one read per request (labelsFor), none for the text view; tested by counting reads (per-row version reads 51 times, red)
+- [WARNING] backfill wrote per row --> FIXED: one write; [NIT] oldest label won --> FIXED: newest wins, tested
+#### Iteration 12 (sonnet): 0 B, 0 W, 3 N. Converged.
+- [NIT] reads <= 1 could pass at 0 --> FIXED: equal 1; [NIT] batch failure drops all --> STATED (the file read fails whole anyway); [NIT] trailer model name --> not a defect (the session's attribution line)
