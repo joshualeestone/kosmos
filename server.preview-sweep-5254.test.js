@@ -128,12 +128,44 @@ test('#5254: a removed agent\'s pages are swept; an unreadable removed list is n
   assert.equal(fs.existsSync(dir), false, 'a removed agent\'s page stayed');
 });
 
-test('#5254: a cache folder with no record (drawn before this) is swept', () => {
+test('#5254: a cache folder with no record (drawn before this) is swept once it is old; CONTROL: a young one is kept', () => {
   const old = path.join(filepreview.CACHE, 'f'.repeat(32));
   fs.mkdirSync(old, { recursive: true });
   fs.writeFileSync(path.join(old, 'a'.repeat(32) + '.png'), PNG);
   filepreview.sweep({ removal: NOBODY_REMOVED });
-  assert.equal(fs.existsSync(old), false);
+  assert.equal(fs.existsSync(old), true, 'a young folder with no record (maybe a first render) was swept');
+  filepreview.sweep({ removal: NOBODY_REMOVED, now: Date.now() + 11 * 60 * 1000 });
+  assert.equal(fs.existsSync(old), false, 'an old folder with no record stayed');
+});
+
+test('#5254 review 1: a sweep DURING a first render does not take it, even when old; the page is drawn', async () => {
+  fs.writeFileSync(path.join(FILES, 'racing.pdf'), Buffer.from('%PDF-1.4 racing'));
+  attachments.setRenderer((file, dir) => {
+    filepreview.sweep({ removal: NOBODY_REMOVED, now: Date.now() + 11 * 60 * 1000 });   // the hourly timer, mid-render
+    fs.writeFileSync(path.join(dir, 'preview.png'), Buffer.concat([PNG, fs.readFileSync(file)]));
+  });
+  try {
+    await draw('/api/agent/ava/files/preview', 'racing.pdf');
+  } finally {
+    attachments.setRenderer((file, dir) => {
+      if (renderFails) return;
+      fs.writeFileSync(path.join(dir, 'preview.png'), Buffer.concat([PNG, fs.readFileSync(file)]));
+    });
+  }
+  assert.ok(folderFor(path.join(FILES, 'racing.pdf')), 'the page was not kept with its record');
+});
+
+test('#5254 review 1: an agent named with stray spacing matches its cleaned removed name', async () => {
+  const create = require('./engine/create');
+  fs.writeFileSync(path.join(FILES, 'case.pdf'), Buffer.from('%PDF-1.4 case'));
+  await draw('/api/agent/ava/files/preview', 'case.pdf');
+  const dir = folderFor(path.join(FILES, 'case.pdf'));
+  const rec = JSON.parse(fs.readFileSync(path.join(dir, filepreview.SOURCE_FILE), 'utf8'));
+  rec.owner.id = 'ava ';   // as a route could have decoded it (cleanName trims)
+  fs.writeFileSync(path.join(dir, filepreview.SOURCE_FILE), JSON.stringify(rec));
+  assert.equal(create.cleanName('ava '), 'ava', 'premise: the removed list stores the cleaned name');
+  filepreview.sweep({ removal: { removedNames: () => ({ ok: true, names: ['ava'] }) } });
+  assert.equal(fs.existsSync(dir), false, 'an owner spelled differently from its removed name kept its page');
 });
 
 test('#5254: a failed render leaves no folder behind (the record is written only beside a page)', async () => {

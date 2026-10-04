@@ -122,7 +122,9 @@ async function preview(folder, name, where, opts) {
     prune();
     sweep();   // #5254
   }
-  noteSource(dir, got.target, opts && opts.owner);   // #5254: a page drawn before this change gets its record on its next view
+  // #5254: a page drawn before this change gets its record on its next view. Only beside a page that exists (review
+  // 1: a sweep during this render may have taken the folder; never recreate it holding a record and no page).
+  if (fs.existsSync(out)) noteSource(dir, got.target, opts && opts.owner);
   try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
 }
 
@@ -132,8 +134,11 @@ async function preview(folder, name, where, opts) {
    whose file is no longer a regular file at that path, whose project is no longer listed, or whose agent was removed,
    and any folder without a readable record (drawn before this, so its file cannot be checked; a picture is cheap to
    draw again). It runs after each new render, at board start, after a project is removed, and hourly (server.js).
-   A removed-agents list that cannot be read is not taken as "nobody removed": that check is skipped, never guessed. */
+   A removed-agents list that cannot be read is not taken as "nobody removed": that check is skipped, never guessed.
+   Known cost (review 1): the file check is a synchronous lstat per folder (at most CACHE_KEEP), so a PDF on a network
+   drive that hangs can stall the board for that sweep; an unmounted one answers at once and its page is swept. */
 const SOURCE_FILE = 'source.json';
+const YOUNG_MS = 10 * 60 * 1000;   // a folder with no record younger than this may be a first render in progress
 function noteSource(dir, target, owner) {
   const own = owner && (owner.kind === 'project' || owner.kind === 'agent') && typeof owner.id === 'string' ? { kind: owner.kind, id: owner.id } : null;
   const body = JSON.stringify({ target, owner: own });
@@ -157,17 +162,36 @@ function sweep(deps = {}) {
     const got = (deps.removal || require('./remove')).removedNames();
     removedAgents = got && got.ok ? new Set(got.names) : null;
   } catch { removedAgents = null; }
+  // Review 1 (BLOCKER): a FIRST render works inside its folder (r-<pid>-...) before the record exists, so a sweep
+  // during it must not take the folder. A folder with a render in it is skipped, and one with no record is left
+  // until it is YOUNG_MS old (a render's own timeout is far shorter).
+  const now = deps.now || Date.now();
+  // Review 1: removed-agent names are stored cleaned (create.cleanName), so the owner is compared the same way.
+  let clean = (n) => n;
+  try { clean = require('./create').cleanName; } catch { /* compare as given */ }
   let removed = 0;
   for (const e of ents) {
     const d = path.join(CACHE, e.name);
+    let inside = [];
+    try { inside = fs.readdirSync(d); } catch { inside = []; }
+    if (inside.some((n) => n.startsWith('r-'))) continue;   // a render is in progress here
     let rec = null;
     try { rec = JSON.parse(fs.readFileSync(path.join(d, SOURCE_FILE), 'utf8')); } catch { rec = null; }
+    if (!rec) {
+      let young = true;
+      try { young = now - fs.statSync(d).mtimeMs < YOUNG_MS; } catch { young = true; }
+      if (young) continue;
+    }
     let gone = !rec || typeof rec.target !== 'string';
     if (!gone) {
       try { gone = !fs.lstatSync(rec.target).isFile(); } catch { gone = true; }
     }
     if (!gone && rec.owner && rec.owner.kind === 'project' && projectIds) gone = !projectIds.has(rec.owner.id);
-    if (!gone && rec.owner && rec.owner.kind === 'agent' && removedAgents) gone = removedAgents.has(rec.owner.id);
+    if (!gone && rec.owner && rec.owner.kind === 'agent' && removedAgents) {
+      let c = rec.owner.id;
+      try { c = clean(rec.owner.id) || rec.owner.id; } catch { c = rec.owner.id; }
+      gone = removedAgents.has(rec.owner.id) || removedAgents.has(c);
+    }
     if (gone) { try { fs.rmSync(d, { recursive: true, force: true }); removed++; } catch { /* next sweep */ } }
   }
   return { removed };
