@@ -686,15 +686,37 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below.
   const listFile = require('./sendertoken').tokenOnlyFile();
+  // #4491 re-review (Ice Cream Kitty): the gate's list of worlds comes from the worlds registry, so the
+  // registry (and its temp and lock names) is write-denied too, and every world's store gets a glob, so a world
+  // added after this was written is covered as well. The `*` mid-path is the guide's rule shape (#4752, measured
+  // refused on Claude Code 2.1.285).
+  const worldRules = [];
+  const worldWrites = [];
+  try {
+    const base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    if (base) {
+      const worlds = deps.worlds || require('./worlds');
+      const reg = worlds.registryPath(base);
+      worldRules.push(`Edit(${ruleAbs(reg)})`, `Edit(${ruleAbs(path.join(base, '.' + path.basename(reg)))}.*)`);
+      worldWrites.push(reg);
+      const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
+      for (const leaf of [store.APP, store.LEGACY_APP]) {
+        for (const verb of ['Read', 'Edit']) {
+          worldRules.push(`${verb}(${ruleAbs(worldsDir)}/*/${leaf}/${tokenFile})`, `${verb}(${ruleAbs(worldsDir)}/*/${leaf}/.${tokenFile}.*)`);
+        }
+      }
+    }
+  } catch { /* the concrete paths above only */ }
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
     ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
     `Edit(${ruleAbs(listFile)})`,
+    ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile };
+  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites };
 }
 
 /*
@@ -757,7 +779,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = rules.tokenPaths.map(realOrLeaf);
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },

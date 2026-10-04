@@ -274,7 +274,8 @@ test('BLOCKER 2: every named world store is covered (read and write), not only t
   const base = path.join(SANDBOX, 'worldsbase');
   const w1 = path.join(SANDBOX, 'worlds', 'w1', 'Kosmos'); const w2 = path.join(SANDBOX, 'worlds', 'w2', 'Kosmos');
   for (const d of [base, w1, w2]) fs.mkdirSync(d, { recursive: true });
-  const worlds = { listWorlds: (b) => (b === base ? ['w1', 'w2'] : []), worldStoreRoot: (b, w) => (w === 'w1' ? w1 : w2) };
+  const real = require('./worlds');
+  const worlds = { listWorlds: (b) => (b === base ? ['w1', 'w2'] : []), worldStoreRoot: (b, w) => (w === 'w1' ? w1 : w2), registryPath: real.registryPath, WORLDS_SUBDIR: real.WORLDS_SUBDIR };
   const dir = agentDir('pilot-worlds');
   assert.equal(setup.guardTokenOnlyFolder(dir, 'pilot-worlds', { ...DEPS, legacyRoots: [], worldsBase: base, worlds }).ok, true);
   const st = readSettings(dir);
@@ -287,7 +288,7 @@ test('BLOCKER 2: every named world store is covered (read and write), not only t
     assert.ok(st.sandbox.filesystem.denyWrite.includes(real), 'a shell can write another world token: ' + root);
   }
   // A world lookup that throws degrades to the other roots, never fails the guard.
-  const boom = { listWorlds: () => { throw new Error('registry unreadable'); }, worldStoreRoot: () => null };
+  const boom = { listWorlds: () => { throw new Error('registry unreadable'); }, worldStoreRoot: () => null, registryPath: (b) => path.join(b, 'worlds.json'), WORLDS_SUBDIR: 'worlds' };
   assert.equal(setup.guardTokenOnlyFolder(agentDir('pilot-boom'), 'pilot-boom', { ...DEPS, legacyRoots: [], worldsBase: base, worlds: boom }).ok, true);
 });
 
@@ -323,4 +324,22 @@ test('WARNING 4: creation names the runner to the guard and still refuses when i
   assert.match(CREATE.slice(0, at), /const runner = providerRunner\(provider\);/, 'runner is not the recorded provider runner');
   const SERVER = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(SERVER, /setupAssistant\.refreshTokenOnlyGuards\(\)/, 'the board start no longer refreshes the guards');
+});
+
+test('re-review (Kitty): the worlds registry is write-denied, and a world added LATER is covered by a glob (both verbs)', () => {
+  const base = path.join(SANDBOX, 'worldsbase-later');
+  fs.mkdirSync(base, { recursive: true });
+  const real = require('./worlds');
+  const worlds = { listWorlds: () => [], worldStoreRoot: () => null, registryPath: real.registryPath, WORLDS_SUBDIR: real.WORLDS_SUBDIR };
+  const dir = agentDir('pilot-later');
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'pilot-later', { ...DEPS, legacyRoots: [], worldsBase: base, worlds }).ok, true);
+  const st = readSettings(dir);
+  const reg = real.registryPath(base);
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(reg)})`), 'the agent can add a world to the registry');
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(path.join(base, '.' + path.basename(reg)))}.*)`), 'the registry temp/lock names are writable');
+  assert.ok(st.sandbox.filesystem.denyWrite.includes(fs.realpathSync(base) + path.sep + path.basename(reg)), 'a shell can write the registry');
+  const wd = ruleAbs(path.join(base, real.WORLDS_SUBDIR));
+  for (const verb of ['Read', 'Edit']) {
+    assert.ok(st.permissions.deny.includes(`${verb}(${wd}/*/${store.APP}/${TOKEN_FILE})`), verb + ': a world made after the guard is uncovered');
+  }
 });
