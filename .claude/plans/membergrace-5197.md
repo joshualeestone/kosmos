@@ -24,6 +24,14 @@ A member that has not yet seen a newer-epoch post holds nothing, so its first po
 can be refused with no note; and the behind hold arms once per epoch the member holds, so a
 forged envelope that armed it earlier leaves a real miss at that epoch unheld. Kept: re-arming
 would let a forger pause a member indefinitely. Both are the #5192 class (noted there).
+The same cut applies when the RECEIVER is the late one (challenge round 16): an honest member's
+old-key post sent promptly but delivered to another member more than 90 s after the rotation (a
+relay delay, or that member reconnecting late and receiving the backlog) is refused there with the
+'retired' note. Fails closed, the cost of the shorter grace, same evidence would change my mind.
+The post-hold warning is keyed to the epoch that armed the hold, so a member that falls behind a
+second time at a later epoch is held again but a warning already given is not repeated for the
+earlier one; a member lagging two rotations in a row is told once, not twice (round 16, kept: the
+arm-once rule is the forgery guard and the note shares it).
 
 Second premise (challenge round 1): the grace is the owner's rotation time judged on the
 member's clock, so a member clock running ahead shortens it, to nothing at 90 s ahead. Fails
@@ -37,8 +45,12 @@ A member refusing an older epoch's post it held now gets a 'key was retired' not
 'could not open'. That note (shared with the owner, reworded here) names both causes, someone
 removed or a computer still catching up; a member's also says its own clock may be off.
 A member past its 3 minute behind hold is told once that a post may not be shown.
+The 'retired' note shows once per seat run, so after a revoked member's post triggers it, a later
+refusal of an honest lagging member's post on that board is silent (round 16). Kept: the note
+already names both causes, and a note per refused post is what the room's minute budget note
+exists to avoid.
 
 ## Control
 engine/fedseats.test.js '#5197': rotate at R; an old-key post at R+89 s shows, one at R+91 s
 does not, and is refused with the 'retired' note. Clock skew both ways; a member that joined
-after a rotation is not told a key was retired. Perturbed: a 10 minute member grace in graceAfter turns it red.
+after a rotation is not told a key was retired. Perturbed, measured 2026-10-03 23:00 CDT on a scratch copy at 3a422d266: a 10 minute member grace in graceAfter turns two '#5197' tests red (90 s, and the clamped grace), 9 pass.

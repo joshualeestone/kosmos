@@ -33,7 +33,7 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
   not multiply requests; a room counts as checked from when the answer was ASKED for.
 - An owner refusing an older epoch's post re-sends the current key at once (at most once per 15 s),
   so a remaining member that missed a rotation catches up before the pass. Its refused post is not
-  resent (#5192). Member side 10 min grace: #5197.
+  resent (#5192). Member side grace: 90 s since #5197 (was 10 min).
 - Held posts are in memory: a board restart while they wait loses them, like any post in transit.
 
 ## Behaviour changes outside the owner's grace
