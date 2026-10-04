@@ -2117,6 +2117,9 @@ test('#5192: a held post refused for good does not strand the ones behind it', a
   const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-5192-long', f));
   assert.deepStrictEqual(out.map((o) => o && o.m.text), ['B', 'C']);
   assert.ok(h.notes.some((n) => /too long to send/.test(n.text)));
+  const toolong = h.notes.findIndex((n) => /too long to send/.test(n.text));
+  const firstHeld = h.notes.findIndex((n) => /is held on this computer/.test(n.text));
+  assert.ok(toolong < firstHeld, 'a post that could never go was told it would be sent: ' + JSON.stringify(h.notes));
 });
 
 test('#5192: a held post that had a file says the file stayed when it is sent', async () => {

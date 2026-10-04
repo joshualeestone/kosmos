@@ -21,6 +21,8 @@ A post held because a member is behind goes, when that hold runs out with no new
 the member has; the hold note says so (the others may not accept it, #5197).
 
 ## Bounds
+A post that could never go (too long once sealed, measured by sealing it with a throwaway key) is
+refused at once with the too-long note, not held.
 A post re-held during a flush keeps the time it was first held, so passes never reset its hour. A
 flush runs only through the project's live, connected seat (a key that arrives while the seat is down
 keeps the posts held until it is up; a replaced seat never sends another's). A held post the write

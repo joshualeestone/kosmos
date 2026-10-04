@@ -514,7 +514,7 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    still under the old key, is past the grace and refused on the other boards (those whose
    clock is not behind the owner's). It arms once per epoch this member holds, so a forged
    envelope that armed it leaves a real miss of the next rotation, at that epoch, unheld
-   (#5192 is where a refused post would be kept and resent): holding until the key arrives would let a forger pause a member
+   (nothing resends a post that went out and was refused; #5192 holds only posts not yet sent): holding until the key arrives would let a forger pause a member
    indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
@@ -977,11 +977,22 @@ const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
 function post(projectId, msg) {
   return sendPost(projectId, msg, 0);
 }
+/** Whether a post could ever go out: its line, sealed, within the connector's limit. Sealed
+    with a throwaway key, so the measure is the real one (the key changes no length; a large
+    epoch stands in for any epoch). */
+function fitsSealed(payload) {
+  try { return Buffer.byteLength(JSON.stringify(fedseal.seal(fedseal.randomSecret(), 999999, 'room', payload))) <= MAX_POST_LINE; } catch { return false; }
+}
 /** Hold one post until the room's key arrives. `why` finishes "That message is held on
     this computer: ..."; `when` says when it goes. `heldAt`: when a post being flushed was
     first held (its age carries over, so re-holding never resets the hour); 0 for a new one.
     False, as post() returns for a post that did not go now. */
 function holdPost(projectId, s, msg, why, when, heldAt) {
+  // One that could never go is refused now, as it would be once the key arrived, and takes no place.
+  if (!fitsSealed({ from: clean(msg.from, 80) || 'someone', kind: msg.kind === 'agent' ? 'agent' : 'person', text: String(msg.text || '') })) {
+    if (!heldAt) say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
+    return false;
+  }
   // Posts held past the hour no longer count against the cap; the next flush says so.
   const fresh = [];
   for (const h of s.outbox || []) {
