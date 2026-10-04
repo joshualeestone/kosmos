@@ -1278,13 +1278,13 @@ function changedFileTimes(projectId, since, now = Date.now(), limit = 200) {
     const mine = folderState(found.folder).real;
     const nested = mine ? all.filter((p) => p && p.id !== projectId && typeof p.folder === 'string' && p.folder)
       .map((p) => folderState(p.folder).real)
-      .filter((r) => typeof r === 'string' && r.startsWith(mine + path.sep))
+      .filter((r) => typeof r === 'string' && r.startsWith(mine.endsWith(path.sep) ? mine : mine + path.sep))
       .map((r) => path.relative(mine, r).split(path.sep).join('/') + '/') : [];
     const files = nested.length ? listed.files.filter((f) => !nested.some((n) => f.name.startsWith(n))) : listed.files;
     /* What making the project wrote (the BRIEF.md stub, a done typed at creation) is not work moving: a room in its
        first hour would otherwise get a step for being new. A file last changed within FILE_CREATED_SLACK_MS of the
        project's createdAt does not count. A Kosmos write LATER (a done typed into BRIEF.md afterwards) does count:
-   bounded like any step, and the person writing the brief is the project moving. */
+       bounded like any step, and the person writing the brief is the project moving. */
     const born = Date.parse(found.createdAt);
     const from = Number.isFinite(born) ? Math.max(since, born + FILE_CREATED_SLACK_MS) : since;
     /* A file written a moment before the post that asks can carry a time a millisecond or so AFTER `now` (the file

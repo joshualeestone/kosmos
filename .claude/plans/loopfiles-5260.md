@@ -52,7 +52,9 @@ next counts in each hour. The same holds for task steps and is bounded per windo
 
 Nested projects (review round 3, fixed): a project folder inside another project's folder (~/repo and ~/repo/docs)
 would have let the inner room's edits earn the outer room steps, breaking #4786's "another room's work earns none".
-Files under another project's folder are skipped (tested both ways).
+Files under another project's folder are skipped (tested both ways). Cost (round 4): that check resolves every other
+project's folder (folderState: realpath, stat, access) on each over-cap post: cheap for local folders, but a stale
+network drive behind a project could block that post. Stated, not guarded.
 
 A later Kosmos write (a done typed into BRIEF.md after creation) counts: bounded, and it is the project moving.
 
