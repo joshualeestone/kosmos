@@ -811,8 +811,15 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate((d) => fedGateStamp(d), OFF);
     await page.waitForTimeout(100);
     f = await readFed(page, '#pj-fed-outside');
-    check('B12 gate off: nothing asked; the stamp to show asks once and draws Lee; the stamp back hides it (control: B8)',
-      off === 0 && on === 1 && shownRows === 1 && f.display === 'none', JSON.stringify({ off, on, shownRows, display: f.display }));
+    const hidden = f.display === 'none';
+    // Back to show with a fresh answer: no new ask, but the section is drawn again at once.
+    await page.evaluate((d) => fedGateStamp(d), SHOW);
+    await page.waitForTimeout(100);
+    const again = await asksK();
+    f = await readFed(page, '#pj-fed-outside');
+    check('B12 gate off: nothing asked; the stamp to show asks once and draws Lee; off hides it; show again redraws it without a new ask (control: B8)',
+      off === 0 && on === 1 && shownRows === 1 && hidden && again === 1 && f.rows.length === 1 && f.display !== 'none',
+      JSON.stringify({ off, on, shownRows, hidden, again, rows: f.rows.length, display: f.display }));
     await ctx.close();
   }
 
@@ -832,7 +839,7 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
     await page.waitForTimeout(100);
     const openBefore = (await modal(page)).open;
-    await page.evaluate(() => fedGateMembers(false));
+    await page.evaluate((d) => fedGateStamp(d), OFF);   // the real gate path, not fedGateMembers directly
     await page.waitForTimeout(100);
     const openAfter = (await modal(page)).open;
     check('B11b the gate leaving "show" closes an open outside Remove (control: open just before)', openBefore === true && openAfter === false,

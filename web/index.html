@@ -34035,8 +34035,8 @@ function fedGateStamp(data) {
   }
   if (typeof pjAddMenuSync === 'function') pjAddMenuSync();
   /* kosmos#4649 slice B: the "From outside" section. A gate that leaves "show" closes an open outside
-     removal; a gate that reaches "show" with a project open and no members answer for it asks once
-     (a project opened before the first status poll stamped the gate). */
+     removal. On "show" (every status poll) it asks for the members answer when there is none for the open
+     project or it is stale (30 s unchecked or failed, 60 s checked), and otherwise repaints the section. */
   if (typeof fedGateMembers === 'function') fedGateMembers(mode === 'show');
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
@@ -66412,6 +66412,8 @@ function pjFedMessage(body, fallback, opts) {
   /* kosmos#4649 slice B: Withdraw's 409 `unsupported` (a coordinator older than the withdraw route).
      The board's sentence ends "...stops working on its own when it lapses."; the screen adds the date
      (Kitty's Q-K2), passed as opts.lapses ("Oct 11"). Shown as given when there is no date. */
+  // Withdraw's 409 `joined`: the board's own sentence, as given; the map below is only for a body without one.
+  if (reason === 'joined' && typeof body.error === 'string' && body.error) return body.error;
   if (reason === 'unsupported' && typeof body.error === 'string' && body.error) {
     return (opts && opts.lapses) ? body.error.replace(/\.\s*$/, '') + ' on ' + opts.lapses + '.' : body.error;
   }
@@ -66425,7 +66427,7 @@ function pjFedMessage(body, fallback, opts) {
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
     'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
     'not-owner': 'Only the owner of this project can invite people to it.',   // kosmos#4649 invite sheet, Kitty's 409
-    'joined': 'Someone already joined with this code. Remove them instead.',   // kosmos#4649 slice B: Withdraw's 409
+    'joined': 'Someone already joined with this code. Remove them instead.',   // kosmos#4649 slice B: Withdraw's 409, when the board gave no sentence
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
     // kosmos#4699: an own code names the computer that made it, and only this account's computers count.
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
@@ -67774,7 +67776,11 @@ async function fedMembersLoad(project) {
   FED_MEMBERS_ASKING = project;
   let entry;
   try {
-    const res = await fetch('/api/federation/members?project=' + encodeURIComponent(project), { cache: 'no-store' });
+    // A request that never settles must not stop every later ask (FED_MEMBERS_ASKING): give up after 20 s.
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : 0;
+    const res = await fetch('/api/federation/members?project=' + encodeURIComponent(project), { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .finally(() => { if (timer) clearTimeout(timer); });
     const body = await res.json().catch(() => null);
     // 404: a board without the members route ("no such endpoint", before #5266 merges) or a project that is not
     // on this computer. Either way there is nobody from outside to show, and no "could not check" line to say.
@@ -67810,6 +67816,8 @@ function fedGateMembers(show) {
     && (fedOutsideRows(fmNow.body).length > 0 || fmNow.body.shared === true)));
   const stale = fmNow && fmNow.project === PJ_CURRENT && !document.hidden && Date.now() - (fmNow.at || 0) > (unsure ? 30000 : 60000);
   if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT || stale) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
+  // No ask needed: still repaint, since a stamp to off emptied the tab's section and only a paint brings it back.
+  else fedOutsidePaint(true);
 }
 // The shared dialog back to its #761 self: no danger look, no error, both buttons live.
 function fedRemoveReset() {
@@ -67939,11 +67947,13 @@ async function fedWithdraw(r) {
   }
   FED_MSGS[key] = said; fedSay(said);
   fedOutsidePaint(false);
+  // 409 joined: someone used the code meanwhile, so the row is now a joined one; 404: the code is not known any
+  // more. Both ask again, and focus is placed after that repaint (the row's key changes or the row goes).
+  if ((res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)) {
+    await fedMembersLoad(project);
+    if (PJ_CURRENT !== project) return;
+  }
   fedRefocus(key);
-  // 409 joined: someone used the code meanwhile, so the row is now a joined one; ask again to show it.
-  if (res && res.status === 409 && body && body.reason === 'joined') fedMembersLoad(project);
-  // 404: the code is not known any more; let the board say what the row is now.
-  else if (res && res.status === 404) fedMembersLoad(project);
 }
 // A refusal is drawn inside markup that every paint replaces, where a live region is not reliably announced,
 // so it is also said once in a region that is never replaced (made on first use, visually hidden).
@@ -67959,15 +67969,20 @@ function fedSay(text) {
   el.textContent = '';
   setTimeout(() => { el.textContent = text || ''; }, 50);
 }
+// Made at load too, so the region exists before its first sentence (a region inserted just before an update
+// is not reliably announced).
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => fedSay(''));
+else fedSay('');
 // The repaint replaces the pressed button: focus goes to the same row's button if it is still shown, else to the
 // Members "+" (as fedRemoveDone does), never to <body>.
 function fedRefocus(key) {
   const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent);
   const plus = [document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((x) => x && x.offsetParent);
   const to = b || plus;
-  // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section.
+  // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section or in
+  // the Remove dialog that is closing (focus leaves a hidden dialog later, not at once).
   const at = document.activeElement;
-  if (to && (!at || at === document.body || (at.closest && at.closest('.fedout')))) to.focus();
+  if (to && (!at || at === document.body || (at.closest && at.closest('.fedout, #mem-modal')))) to.focus();
 }
 // The rows' actions, delegated: both lists are rebuilt from markup on every paint.
 document.addEventListener('click', (e) => {
