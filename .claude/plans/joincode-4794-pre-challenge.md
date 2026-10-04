@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: joincode-4794
-diff_hash: 01e10ae84ca4fa8906afca3edbef3d0c6b0cac2319a8b8c6dd086992d075a558
-validation: passed (Mortals, mortals-validate at 48a823a65 = this branch merged with origin/main, hash 01e10ae84ca4, EXIT=0 12:11; browser checks this branch changes run at the exact head on Mortals 11:50: render-connect-sheet-4637 all passed, mobile-shots 20 shots 0 overflow 0 errors; coarse and surface browser-check gates rc 0 under bash -c, the surface gate with three per-check overrides in commit trailers)
+diff_hash: e2005120688458e52ffe15ab8ed18377d9c330af6a39ac8574dee77ce38f92cd
+validation: PENDING at 3789fda373 (fresh mortals-validate queued 17:15 CDT, log pete-jc4794-3789; the earlier pass at 48a823a65 does not cover the guard commits). Targeted: the three #4794/Allow tests pass locally; browser-check gate rc 0
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-04T17:13:11Z
-iterations: 8
+timestamp: 2026-10-04T22:14:12Z
+iterations: 9
 converged: true
 ---
 
@@ -28,3 +28,12 @@ converged: true
 
 ### Weakest premise
 That the code the page shows on the allowing computer is the code the tunnel will accept at Allow (the tunnel recomputes at Allow and refuses a mismatch; the page words that refusal).
+
+### Iteration 9 (after PR review, 2026-10-04T22:14:12Z)
+**Trigger:** Ice Cream Kitty's PR review: WARNING, join/confirm and devices/allow were not screen-only, so a local caller with the board token (an agent included) could read the code from GET /api/remote/join and finish the pairing with nobody comparing.
+- FIXED c117dcf86c: both routes 403 a caller isViaScreen reads as a process, as federation invite/verify do; deny/remove stay open (they only take access away). Only the board page calls these routes (web/, browser checks stub them, no CLI caller). New test; fails on the unguarded server (rc 1).
+**Reviewer model:** sonnet (blind). **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 1 NIT.
+- [WARNING] server.js:9060 the GET still exposes the code; say the guard is advisory --> FIXED 3789fda373 (comment)
+- [WARNING] server.test.js the body-token path is untested --> FIXED 3789fda373 (third shape; a guard ignoring the body fails it, rc 1)
+- [NIT] the control's 400 reads like success --> FIXED 3789fda373 (comment)
+Not converged by a further clean round: the two warnings were comment and test-coverage only, with no code-path change after the reviewed guard. Disclosed rather than claimed.
