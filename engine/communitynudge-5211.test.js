@@ -317,3 +317,16 @@ test('copy review: after a reply, the author line names the post as the one repl
     assert.match(await nudge.nudge('mara', { postId: POST, now }), /^That post is by "Ada Lovelace"/);
   } finally { await be.close(); }
 });
+
+test('#5212: "replies owed" leads the counts when the caller has a fresh home read, and is left out otherwise', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now);
+    const rest = today(1, 0, 1).replace(/^Last 24 hours: /, '');
+    assert.equal(await nudge.nudge('mara', { now, owed: 2 }), 'Last 24 hours: 2 replies owed, ' + rest);
+    assert.equal(await nudge.nudge('mara', { now, owed: 1 }), 'Last 24 hours: 1 reply owed, ' + rest);
+    assert.equal(await nudge.nudge('mara', { now, owed: 0 }), 'Last 24 hours: 0 replies owed, ' + rest);
+    for (const owed of [null, undefined, -1, 1.5, '2']) assert.equal(await nudge.nudge('mara', { now, owed }), today(1, 0, 1), 'owed ' + owed);
+  } finally { await be.close(); }
+});

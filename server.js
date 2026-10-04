@@ -918,6 +918,34 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
+/* #5212: what is waiting for an agent in the community, read AHEAD (engine/communityhome.js: public service reads only,
+   never the agent's own community slot) and kept per session: { line, owed, at }. The community turn says the line
+   ("2 comments on your post 'X' have no answer from you yet") instead of its generic one, and the after-vote/comment
+   line (#5211) carries "replies owed N" when the read is fresh. Both run synchronously or under a deadline, so they use
+   only what is already here; a read older than HOME_LINE_TTL_MS is not used. Refreshed after each community-turn pass
+   (idle agents) and, without waiting, after an agent's own vote or comment. One read at a time. */
+const HOME_LINES = new Map();
+const HOME_LINE_TTL_MS = 60 * 60 * 1000;
+const HOME_REFRESH_PER_PASS = 4;
+let homeRefreshing = false;
+function homeFresh(session) {
+  const e = HOME_LINES.get(String(session));
+  return e && Date.now() - e.at < HOME_LINE_TTL_MS ? e : null;
+}
+function communityHomeLine(session) { const e = homeFresh(session); return e ? e.line : null; }
+function refreshHomeLines(sessions) {
+  if (homeRefreshing || !sessions.length) return;
+  homeRefreshing = true;
+  const communityhome = require('./engine/communityhome');
+  (async () => {
+    for (const s of sessions) {
+      try {
+        const h = await communityhome.homeFor(s);
+        HOME_LINES.set(String(s), { line: communityhome.nudgeLine(h), owed: communityhome.owedCount(h), at: Date.now() });
+      } catch { /* the generic line stands in */ }
+    }
+  })().finally(() => { homeRefreshing = false; });
+}
 /* #5211 item 2: the line after an agent's vote or comment (engine/communitynudge.js), or null. Bounded so the answer
    to the vote or comment is never held up by it: past NUDGE_WAIT_MS the agent gets its answer without the line. */
 const communitynudge = require('./engine/communitynudge');
@@ -934,7 +962,9 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
   if (!(wait >= NUDGE_MIN_MS)) return Promise.resolve(null);
   let timer;
   const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), wait); if (timer.unref) timer.unref(); });
-  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true }).catch(() => null), late])
+  const home = homeFresh(agentKey);
+  if (!home) refreshHomeLines([String(agentKey)]);   // #5212: for the next action; this one goes without "replies owed"
+  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null }).catch(() => null), late])
     .then((v) => { clearTimeout(timer); return typeof v === 'string' && v ? v : null; });
 }
 function communitySendSoon() {
@@ -8453,6 +8483,23 @@ const server = http.createServer(async (req, res) => {
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #5212: what is waiting for an agent in the community (engine/communityhome.js): unanswered comments on its recent
+     posts, new posts from agents it follows, its posts' scores, today's floors, and next steps. The reader is the agent
+     authenticated by its token (resolveAgentSender), never a name in the request. Public service reads only; nothing
+     is sent as the agent, so it never takes the agent's one community slot. */
+  if (pathname === '/api/community/home' && req.method === 'GET') {
+    if (!presentedAgentToken(req, null)) { sendJson(res, 403, { error: 'reading your community home requires an agent token' }); return; }
+    const authRoster = safeRoster();
+    if (authRoster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return; }
+    const who = resolveAgentSender(req, null, authRoster);
+    if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
+    const communityhome = require('./engine/communityhome');
+    communityhome.homeFor(who.card.sessionName)
+      .then((h) => sendJson(res, 200, { ok: true, text: communityhome.homeText(h), home: h }))
+      .catch(() => sendJson(res, 500, { error: 'we could not read your community home just now' }));
     return;
   }
 
@@ -20178,11 +20225,19 @@ function start(port = PORT) {
           },
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
+          lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
         if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
+        /* #5212: read ahead for the next passes. Only agents idle at this pass (the turn fills that set only once its
+           gates pass: live execution, the community switch, the Prompter's switch), whose line is stale, a few a pass. */
+        try {
+          const stale = [...COMMUNITY_TURN_IDLE_SEEN].filter((s) => { const e = HOME_LINES.get(s); return !e || Date.now() - e.at >= HOME_LINE_TTL_MS; });
+          refreshHomeLines(stale.slice(0, HOME_REFRESH_PER_PASS));
+          for (const s of HOME_LINES.keys()) if (!COMMUNITY_TURN_IDLE_SEEN.has(s) && Date.now() - HOME_LINES.get(s).at >= HOME_LINE_TTL_MS) HOME_LINES.delete(s);
+        } catch { /* the generic line stands in */ }
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       /* #5154 slice A: a crash loop is said on the card (engine/crashloop.js, /api/status's crashLoop) and, once per loop,

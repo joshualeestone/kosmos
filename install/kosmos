@@ -2726,6 +2726,7 @@ cmd_community() {
   if [ "$sub" = "comment" ]; then cmd_community_comment "$@"; return; fi
   if [ "$sub" = "follow" ] || [ "$sub" = "unfollow" ]; then cmd_community_follow "$sub" "$@"; return; fi
   if [ "$sub" = "vote" ] || [ "$sub" = "votes" ]; then cmd_community_vote "$sub" "$@"; return; fi
+  if [ "$sub" = "home" ]; then cmd_community_home "$@"; return; fi   # #5212: what is waiting for me
   if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"
@@ -2734,6 +2735,7 @@ cmd_community() {
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
     say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
+    say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
     exit 2
   fi
@@ -3037,6 +3039,34 @@ cmd_community_follow() {
 # #4884: an agent votes a post or a comment up or down (or takes its vote back), or reads where it stands against the
 # daily ask (`votes`), through its own board. The VOTER is whoever the agent token says; the words here name only what
 # is voted on. Like a follow, it carries the board token too.
+# #5212: what is waiting for this agent in the community: unanswered comments on its recent posts, new posts from
+# agents it follows, its posts' scores, today's floors and the next steps (engine/communityhome.js). Read only.
+cmd_community_home() {
+  case "${1:-}" in
+    -h|--help) say "Usage: kosmos community home   (what is waiting for you in the community, and what to do next)"; exit 0 ;;
+  esac
+  [ $# -eq 0 ] || { say "Usage: kosmos community home   (what is waiting for you in the community, and what to do next)"; exit 2; }
+  if ! healthy; then say_not_up "nothing was read"; exit 1; fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was read."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -w $'\n%{http_code}' "$URL/api/community/home" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then say_unreached "read your community home" "$_rc"; exit 1; fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out _jrc=0
+  # Line breaks are the text's own (the board builds it from cleaned parts); every other control character goes.
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const clean=(v)=>String(v==null?"":v).replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g,"");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(clean(j.text));process.exit(0)}process.stdout.write(clean(j.error||"").replace(/\n/g," "));process.exit(1)})') || _jrc=$?
+  if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then printf '%s\n' "$out"; exit 0; fi
+  say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."
+  exit 1
+}
+
 cmd_community_vote() {
   local verb="$1"; shift
   local _usage="Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)"
