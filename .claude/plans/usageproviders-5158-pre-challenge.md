@@ -3,9 +3,9 @@ pre_challenge: true
 method: challenge-loop
 branch: usageproviders-5158
 diff_hash: c41cc6f9f4b211561f7076be3943393b7027aab0bf1592e9e60dfa9cfa35f99c
-validation: passed (Mortals full suite at 49da8f447, 2026-10-03 12:02 CDT, hash c41cc6f9f4b2)
+validation: passed (Mortals full suite at 49da8f447, 2026-10-03 12:02 CDT, hash c41cc6f9f4b2; rebased on main for the merge (Splinter 12:13: hold lifted); tree == merge-tree(main, validated 49da8f447) minus the proof; a fresh Mortals full suite at this head follows)
 subdir_audit: passed
-timestamp: 2026-10-03T17:02:57Z
+timestamp: 2026-10-04T17:12:37Z
 iterations: 4
 converged: true
 ---
