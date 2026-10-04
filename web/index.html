@@ -6305,8 +6305,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 @media (hover: none), (pointer: coarse) {
   #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold) { min-height: 44px; }
   #pj-task-view .tkwho-pick { padding: 14px 0 14px 19px; margin: -14px 0 -14px -19px; min-width: 44px; box-sizing: border-box;
-                              border-bottom: 0; text-decoration: underline dashed transparent; text-underline-offset: 3px; }
+                              border-bottom: 1px solid transparent; text-decoration: underline dashed transparent; text-underline-offset: 3px; }   /* the base's 1px border kept, invisible, so the row keeps its height */
   #pj-task-view .tkwho-pick:is(:hover, :focus-visible) { text-decoration-color: var(--label-2); }
+  /* The base focus ring would wrap the whole padded box (over the avatar and the line beside the name): on touch the
+     focus shows as a solid underline under the name instead. */
+  #pj-task-view .tkwho-pick:focus-visible { outline: none; text-decoration: underline solid var(--label); text-decoration-thickness: 2px; }
   #pj-task-view .tkpart-go { padding: 14px 10px 14px 0; margin: -14px -10px -14px 0; }
   /* These two stand on their own lines, where padding with a negative margin cannot be paid back exactly (the line's
      strut moves the text 2 to 6px), so they are honest 44px boxes instead: the subtasks block grows a little on a
