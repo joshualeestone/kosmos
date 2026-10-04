@@ -27,6 +27,11 @@ Stacked on heldsend-5192 (#5191 -> #5197 -> #5192 -> this). After Monday, before
   any "revoked"): "The owner removed this computer from the project. Ask them for a new code to
   join again." Any other ending keeps the old sentence with the reason cleaned: no `(HTTP ...)` trailer and no
   "Ask to be re-invited." (the room's sentence already says what to do).
+- One ending sentence per seat, whichever path says it first (the edges check or an earlier 'ended' line);
+  reset when the seat connects again, so a later real ending is still told (round 2).
+- The reason comes from outside and can be a 64 KB line: only its first 1000 characters are read, cleaned
+  first (format characters out, whitespace collapsed), then trimmed, then cut to 200 (round 2: unbounded,
+  the patterns stalled the board for up to 5.6 s on hostile input; bounded they take about 0.1 ms).
 
 ## Rejected
 - Holding a member's post until the edge check answers: it would add a round trip to every post. The cost of

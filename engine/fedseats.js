@@ -59,13 +59,21 @@ const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account
 const REVOKED_REFUSAL = /that connection has been revoked/i;   // the connector's FINAL_REFUSALS phrase, not any 'revoked'
 const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
 /** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
-    (the room's sentence says what to do), and without a trailing full stop. Applied to the raw
-    reason before it is cut to length, so a long one cannot keep half a trailer. */
+    (the room's sentence says what to do), and without a trailing full stop. The reason comes from
+    outside and can be a whole 64 KB line, so only its first REASON_SCAN characters are read, and
+    cleaned first (format characters out, whitespace runs collapsed) so neither a hidden character
+    nor a run of spaces defeats or slows the patterns; it is cut to its shown length only after,
+    so a long one cannot keep half a trailer (round 2). */
+const REASON_SCAN = 1000;
 function plainReason(why) {
-  return String(why || '')
-    .replace(/\s*\(HTTP \d{3}[^)]*\)/gi, '')
-    .replace(/\s*Ask to be re-invited\.?/gi, '')
-    .trim().replace(/[.\s]+$/, '') || 'the connection ended';
+  let r = clean(typeof why === 'string' ? why.slice(0, REASON_SCAN) : why, REASON_SCAN)
+    .replace(/ ?\(HTTP \d{3}[^)]*\)/gi, '')
+    .replace(/ ?Ask to be re-invited\.?/gi, '')
+    .trim();
+  let end = r.length;
+  while (end > 0 && (r[end - 1] === '.' || r[end - 1] === ' ')) end -= 1;
+  r = r.slice(0, end);
+  return clean(r, 200) || 'the connection ended';
 }
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
@@ -143,7 +151,7 @@ function handleEvent(projectId, line, heldAt) {
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
   if (ev.event === 'connected') {
-    setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false;
+    setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false; s.endedNoted = false;
     // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
     sayHello(projectId, s);
@@ -153,7 +161,7 @@ function handleEvent(projectId, line, heldAt) {
   }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
-    s.ended = clean(plainReason(ev.because), 200) || 'the connection ended';
+    s.ended = plainReason(ev.because);
     // Some final refusals are about THIS Mac or account, not the edge (the
     // connector's FINAL_REFUSALS). Signing in again fixes those, so nothing about
     // the edge is kept and the person is told the real fix.
@@ -170,9 +178,11 @@ function handleEvent(projectId, line, heldAt) {
     // the owner leaving, so the note (and its "ask the owner") is a member's.
     const link = safeLink(projectId);
     if (!link || link.role !== 'member') return;
-    // #5193: one plain sentence, said once (the edges check may have said it already).
-    if (s.revokedNoted) return;
-    if (REVOKED_REFUSAL.test(s.ended)) { s.revokedNoted = true; say(projectId, REVOKED_NOTE); return; }
+    // #5193: one ending sentence per seat, whichever path says it first (the edges check, or an
+    // earlier 'ended' line on this live seat): never two, never two that disagree (round 2).
+    if (s.endedNoted) return;
+    s.endedNoted = true;
+    if (REVOKED_REFUSAL.test(s.ended)) { say(projectId, REVOKED_NOTE); return; }
     say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
     return;
   }
@@ -719,7 +729,7 @@ function isFresh(at, now) {
 function endRevokedMember(projectId, s, link) {
   if (!s || s.stopped || s.status === 'ended') return;
   s.ended = 'the owner removed this computer from the project';
-  if (!s.revokedNoted) { s.revokedNoted = true; say(projectId, REVOKED_NOTE); }
+  if (!s.endedNoted) { s.endedNoted = true; say(projectId, REVOKED_NOTE); }
   try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended })); } catch { /* ends again at its next ticket ask */ }
   setStatus(projectId, 'ended');
   s.stopped = true;   // the child's close then neither restarts it nor tells the room again, and

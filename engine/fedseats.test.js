@@ -421,6 +421,46 @@ test('#5193: lines still in a revoked seat\'s pipe change nothing after the chec
   assert.strictEqual(h.recorded.length, before, 'a late message was recorded');
 });
 
+test('#5193: one ending sentence per seat: a second ended line, or the revoke check after a generic ending, says nothing more', async () => {
+  const h = await memberRoom('proj-5193-once');
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: no such connection. (HTTP 404 on /v1/mac/federation/room-ticket)' });
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: no such connection.' });
+  await tick();
+  h.memberEdges = [{ id: 'edge-proj-5193-once', status: 'revoked' }];
+  fedseats.post('proj-5193-once', { from: 'B', kind: 'person', text: 'x' });
+  await settle();
+  const told = h.notes.filter((n) => n.projectId === 'proj-5193-once' && /no longer connected|removed this computer/.test(n.text));
+  assert.strictEqual(told.length, 1, JSON.stringify(told));
+});
+
+test('#5193: a seat that connects again after an ending can be told about a later one', async () => {
+  const h = await memberRoom('proj-5193-again');
+  say(h.spawned[0], { event: 'ended', because: 'the relay closed the room' });
+  await tick();
+  say(h.spawned[0], { event: 'connected', room: 'room-proj-5193-again', expires_at: 9 });
+  await tick();
+  say(h.spawned[0], { event: 'ended', because: 'the relay closed the room again' });
+  await tick();
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-5193-again' && /no longer connected/.test(n.text)).length, 2, JSON.stringify(h.notes));
+});
+
+test('#5193: a hostile 64 KB reason is cleaned quickly and shows no trailer', async () => {
+  for (const because of ['a' + ' '.repeat(65000) + 'b', '. '.repeat(32000), '(HTTP 409 '.repeat(6000)]) {
+    const id = 'proj-5193-big-' + because.length;
+    federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
+    const h = harness();
+    await fedseats.ensure(id);
+    const t0 = Date.now();
+    say(h.spawned[0], { event: 'ended', because });
+    await tick();
+    // Bounded, plainReason takes about 0.1 ms on each of these; unbounded it took 265 ms (round 2, measured).
+    assert.ok(Date.now() - t0 < 50, 'a ' + because.length + ' character reason took ' + (Date.now() - t0) + ' ms');
+    const n = h.notes.filter((x) => x.projectId === id);
+    assert.strictEqual(n.length, 1, JSON.stringify(n).slice(0, 300));
+    assert.ok(n[0].text.length < 400, 'the shown reason was not cut');
+  }
+});
+
 test('#5193: the pass ends a revoked member without a post', async () => {
   const h = await memberRoom('proj-5193-pass');
   h.memberEdges = [{ id: 'edge-proj-5193-pass', status: 'revoked' }];
