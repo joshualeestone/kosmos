@@ -54,9 +54,6 @@ const FOREIGN_TOK = 'FOREIGN_acct_token_0123456789abcdef';
 let base;
 
 test.before(async () => {
-  await start(0);
-  base = `http://127.0.0.1:${server.address().port}`;
-
   const storeBase = worlds.baseRoot(process.env); // == worldBase() capture: SANDBOX/data/Kosmos
   const DEFAULT_W = { id: 'default', name: 'Kosmos 1', createdAt: null, base: null };
   const LEFT_W = { id: 'wleft', name: 'Left World', createdAt: new Date().toISOString(), base: null };
@@ -82,6 +79,11 @@ test.before(async () => {
   const foreignRoot = path.join(SANDBOX, 'foreign-account', 'Kosmos');
   fs.mkdirSync(foreignRoot, { recursive: true });
   fs.writeFileSync(path.join(foreignRoot, 'board.token'), FOREIGN_TOK);
+
+  // #5247: the board snapshots the worlds it may accept when it STARTS, so the registry above is written first,
+  // as on a real Mac, where the world the browser left existed before the switch restarted the board.
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
 
   // The board booted fully-sandboxed, so enforcement is OFF. Confirm (the zero-churn
   // property) then flip it on with the ACTIVE world's token, as the real board does.
@@ -138,4 +140,47 @@ test('NEGATIVE: random garbage is REFUSED', async () => {
 test.after(() => {
   try { server.close(); } catch { /* ignore */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+/* #5247: a world ADDED to the registry after the board started (by anything but the board) does not widen what the
+   gate accepts; one the board creates itself does; and a world hidden since start stops counting. */
+test('#5247: a world added to the registry after start is REFUSED at the gate; one the board made is accepted', async () => {
+  const { knowWorld } = require('./server');
+  const storeBase = worlds.baseRoot(process.env);
+  const reg = JSON.parse(fs.readFileSync(worlds.registryPath(storeBase), 'utf8'));
+  const LATE_W = { id: 'wlate', name: 'Late World', createdAt: new Date().toISOString(), base: null };
+  const LATE_TOK = 'LATE_world_token_0123456789abcdef01';
+  reg.worlds.push(LATE_W);
+  fs.writeFileSync(worlds.registryPath(storeBase), JSON.stringify(reg));
+  const lateRoot = worlds.worldStoreRoot(storeBase, LATE_W);
+  fs.mkdirSync(lateRoot, { recursive: true });
+  fs.writeFileSync(path.join(lateRoot, 'board.token'), LATE_TOK);
+  assert.equal((await hit('/api/status', { headers: { 'x-kosmos-board-token': LATE_TOK } })).code, 403,
+    'a world written into the registry after start widened the gate');
+  // Control: the world known at start is still accepted in the same state (the 403 above is about the late world).
+  assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': OTHER_TOK } })).code, 403);
+  knowWorld('wlate');   // what the create route does for a world this board made
+  assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': LATE_TOK } })).code, 403,
+    'a world this board created is not accepted');
+});
+
+test('#5247: a world hidden since start stops counting (the snapshot can only narrow)', async () => {
+  const storeBase = worlds.baseRoot(process.env);
+  const reg = JSON.parse(fs.readFileSync(worlds.registryPath(storeBase), 'utf8'));
+  const left = reg.worlds.find((w) => w.id === 'wleft');
+  left.hiddenAt = new Date().toISOString();
+  fs.writeFileSync(worlds.registryPath(storeBase), JSON.stringify(reg));
+  try {
+    assert.equal((await hit('/api/status', { headers: { 'x-kosmos-board-token': OTHER_TOK } })).code, 403);
+  } finally {
+    delete left.hiddenAt;
+    fs.writeFileSync(worlds.registryPath(storeBase), JSON.stringify(reg));
+  }
+});
+
+test('#5247: the create route tells the gate about the world it made, and start() takes the snapshot', () => {
+  const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(SRC, /world = worlds\.createWorld\(base, body\.name\); knowWorld\(world && world\.id\);/);
+  assert.match(SRC, /function start\(port = PORT\) \{\n  snapshotWorlds\(\);/);
+  assert.match(SRC, /\.filter\(\(w\) => known\.has\(w\.id\)\)/);
 });

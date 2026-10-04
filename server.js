@@ -806,6 +806,17 @@ function boardTokenRefusal(req, tail) {
    `tokenOk` callsites (the /api/team operator path and the report/reply #1968
    guards) have a CLI or agent-token presenter that reads the LIVE booted-world token
    off disk, never a stale cookie, so they stay strictly active-token. */
+/* #5247: the worlds whose tokens the gate may accept besides the active one: the ones this board knew when it
+   started, plus any it creates itself (the create route calls knowWorld). The registry on disk is still read so a
+   world hidden since start stops counting, but a world ADDED to the file by anything else does not widen what the
+   gate accepts. A world switch restarts the board (#2346), so the switched-to board snapshots the worlds then.
+   null until start() takes it: before that the gate accepts the active token only (fail-closed). */
+let KNOWN_WORLD_IDS = null;
+function snapshotWorlds() {
+  try { KNOWN_WORLD_IDS = new Set(worlds.listWorlds(worldBase()).map((w) => w.id)); }
+  catch { KNOWN_WORLD_IDS = new Set(); }
+}
+function knowWorld(id) { if (KNOWN_WORLD_IDS && typeof id === 'string') KNOWN_WORLD_IDS.add(id); }
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -815,7 +826,9 @@ function boardTokenOk(req) {
   let others;
   try {
     const base = worldBase();
+    const known = KNOWN_WORLD_IDS || new Set();   // #5247: only worlds known at start or created by this board
     others = worlds.listWorlds(base)
+      .filter((w) => known.has(w.id))
       .map((w) => boardauth.readTokenFrom(worlds.worldStoreRoot(base, w)))
       .filter(Boolean);
   } catch {
@@ -5925,7 +5938,7 @@ const server = http.createServer(async (req, res) => {
         const asked = worldimport.picksFromBody(base, body);
         if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
         let world;
-        try { world = worlds.createWorld(base, body.name); }
+        try { world = worlds.createWorld(base, body.name); knowWorld(world && world.id); }   // #5247: a world this board made counts at its gate
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
         /* An import failure must NOT fail the create: the Kosmos already exists, so
            a thrown copy would orphan it. Each agent is copied or refused with its
@@ -19486,6 +19499,7 @@ function federateOut(projectId, delivery, operator) {
 }
 
 function start(port = PORT) {
+  snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
@@ -20671,6 +20685,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
