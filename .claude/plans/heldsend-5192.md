@@ -46,8 +46,10 @@ arrives.
 
 ## Owner side (asked in review, kept)
 Each held post records the edge its seat was on; one whose seat has since moved to another edge (an
-owner's member revoked, another joined) is not sent, and the room says so. So a post only ever reaches
-the connection it was written while sharing with.
+owner's member revoked, another joined on a new edge) is not sent, and the room says so. This is NOT
+a reader list: while that edge lasts, anyone who joins the room gets the held post, which is what the
+owner's hold note says ("to the first computer that joins"). Challenge round 9 asked for membership at
+hold time; an owner holding has no pinned member by definition, so that would send nothing ever.
 An owner's post held before its first member is pinned goes to that member when it joins (within the
 hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
 is sent to the first computer that joins with its key, if one joins within the hour.

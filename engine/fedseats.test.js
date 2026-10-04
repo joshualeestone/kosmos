@@ -2371,7 +2371,7 @@ test('#5192: a post that meets an unreadable rooms record is held, not dropped, 
   assert.deepStrictEqual(out.map((o) => o.m.text), ['kept']);
 });
 
-test('#5192: an owner\'s held post is not sent to someone who joined on another edge after it was written', async (t) => {
+test('#5192: an owner\'s held post is not sent once the edge it was held on has ended and the seat sits on another', async (t) => {
   const a = newInvite('5192ea');
   const b = newInvite('5192eb');
   for (const inv of [a, b]) fedseal.stashInvite('ref-5192-edge', inv);
@@ -2428,4 +2428,26 @@ test('#5192: a new post that waits behind held ones does not use up the may-be-b
   fail = false;
   fedseats.post('proj-5192-bnote', { from: 'B', kind: 'person', text: 'goes' });
   assert.ok(h.notes.some((n) => /may be behind on this shared room/.test(n.text)), 'the note was not said when a post went under the old key');
+});
+
+test('#5192: a forged epoch that armed a behind hold does not make a later flush claim the old key', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T03:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-fkey', { role: 'member', edge_id: 'edge-5192-fkey' });
+  fedseal.setRoomState('proj-5192-fkey', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192fk', peer: owner.pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-fkey');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-fkey', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 7, 'room-5192-fkey', { from: 'Forger', kind: 'person', text: 'x' }) });
+  await settle();
+  fedseats.post('proj-5192-fkey', { from: 'B', kind: 'person', text: 'held' });
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, fedseal.randomSecret(), 1, 'room-5192-fkey', Date.now()) });
+  await settle();
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  await fedseats.ensureAll();
+  await settle();
+  assert.ok(h.notes.some((n) => /held on this computer was sent/.test(n.text)), 'fixture: flushed');
+  assert.ok(!h.notes.some((n) => /under the key this computer has/.test(n.text)), 'a forged epoch made a flush under the current key claim the old one: ' + JSON.stringify(h.notes));
 });

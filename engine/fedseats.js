@@ -1005,8 +1005,10 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and as many messages as Kosmos sends at once are already waiting for it.');
     return false;
   }
-  // The connection it was written for: an owner's seat moves to another member's edge when
-  // one is revoked, and a post must never reach someone it was not written while sharing with.
+  // The edge its seat was on: an owner's seat moves to another member's edge when that one
+  // ends, and a post held on an edge that has ended is not sent through another. (Not a list
+  // of who may read it: anyone who joins the room while that edge lasts gets it, as the
+  // owner's hold note says.)
   s.outbox.push({ msg, at: heldAt || Date.now(), edge: s.edge });
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
@@ -1018,7 +1020,7 @@ function flushHeld(projectId, s) {
   s.outbox = s.outbox || [];
   // Only through this seat while it is the project's live, connected seat: a seat replaced
   // (an id reused) or not up keeps its posts held rather than sending or dropping them.
-  if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child) return;
+  if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child || !s.child.stdin) return;
   const held = s.outbox;
   s.outbox = [];
   s.flushing = true;
@@ -1029,7 +1031,7 @@ function flushHeld(projectId, s) {
   let moved = 0;
   // A member past a behind hold with no new key sends under the key it has (#5197).
   const st0 = roomSeal(projectId);
-  const oldKey = !!(st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch);
+  const oldKey = !!(st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && s.behindArmedAt === st0.epoch);
   let i = 0;
   try {
     for (; i < held.length; i++) {
@@ -1100,7 +1102,9 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
         ? 'this computer has not heard this shared room\'s name from the relay yet'
         : link && link.role === 'owner'
         ? 'this shared room is sealed, and no member\'s computer has joined with its key yet'
-        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', hasKey(sealed) || !link || link.role !== 'owner'
+        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', hasKey(sealed)
+        ? 'when the relay names the room, if that is within the hour'
+        : !link || link.role !== 'owner'
         ? 'when the key arrives, if it arrives within the hour'
         : 'to the first computer that joins with its key, if one joins within the hour', heldAt);
     }
