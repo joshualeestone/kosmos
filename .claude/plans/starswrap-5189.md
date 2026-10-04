@@ -39,8 +39,9 @@ box at about 1.5-1.9 s between the reads (reviewer: FAIL on unplanted dots at a 
 it ever shows in a cut run.
 
 ## Weakest premise
-The 4px wrap margin is read from the page source, not from the page at runtime; if it changes, the span
-is slightly off (8/size is under 0.01 at these sizes, well inside 0.03).
+The 4px wrap margin is read from the page source, not from the page at runtime. And the span is the
+AFTER-re-size box's, while a dot that wrapped before the re-size wrapped on the old box's span; the error
+is 8/old - 8/new (about 0.004 at 698 -> 1136 px), inside the 0.03 margin. (Challenge loop iteration 1.)
 
 ## Left
 Blind review; full validation + browser-checks on the exact head (Mortals, after job-5183); PR; merge.

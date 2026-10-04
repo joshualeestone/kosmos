@@ -102,11 +102,12 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
       await page.waitForTimeout(300);
       const grown = await read();
       chk(same(grown) && grown.cssH > settled.cssH, `${t} after the section grows, the buffer follows (not only on a window resize)`, JSON.stringify({ settled, grown }));
-      /* A dot drifts at most about 0.14px a frame (dot 0, planted above, at 0.11), so in the ~30 frames between the
-         reads it moves a few px: well under 3% of the box. A re-seed puts it anywhere. Eight dots all within 3% by
-         chance is not a real risk. */
+      /* A dot drifts at most about 0.14px a frame (dot 0, planted above, at 0.11), so between the reads it moves a
+         few px: well under 3% of the box. A re-seed puts it anywhere. Eight dots all within 3% by chance is not a real
+         risk. */
       const placesAfter = await places();
-      /* The wrap span as a fraction of the box: (size + 8) / size, read from the page after the re-size. */
+      /* The wrap span as a fraction of the box: (size + 8) / size, read after the re-size. A dot that wrapped before
+         the re-size wrapped on the old box's span; the two differ by 8/old - 8/new, inside the 0.03 margin here. */
       const span = await page.evaluate(() => [(plusSW + 8) / plusSW, (plusSH + 8) / plusSH]);
       const kept = placesBefore.length === 8 && placesBefore.every((p, i) => placesAfter[i] && wrapDist(p[0], placesAfter[i][0], span[0]) < 0.03 && wrapDist(p[1], placesAfter[i][1], span[1]) < 0.03);
       chk(placesBefore[0] && placesAfter[0] && placesBefore[0][1] > 1 && placesAfter[0][1] < 0.5, `${t} the planted dot crossed the field's edge, so the wrap was exercised (#5189)`, JSON.stringify([placesBefore[0], placesAfter[0]]));
