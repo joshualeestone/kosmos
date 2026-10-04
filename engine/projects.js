@@ -1654,16 +1654,14 @@ function listFiles(folder, limit, opts) {
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
  *
- * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project), and `act` the verb
- * (open, or download for the download routes, so a refusal under a download never talks about opening).
+ * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project), and `opts.act` the
+ * verb (#5165: open, or download for the download routes, so a refusal under a download never talks about opening).
+ * #4997: these gates are shared by every route that touches a listed file (open, the preview, the download, the
+ * reveal), so the refusal logic exists once. With opts.listed (the routes that hand bytes to a page) it also applies
+ * the list's own rules: no link on the path, no hidden or skipped folder, the list's depth, no ':' on Windows, and the
+ * resolved file must be the walked one. openFile does not pass it.
  * Returns { ok: true, target, st, given } or { ok: false, because }.
  */
-/* `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project).
-   #4997: the doc block above describes openFile, whose three gates now live here, shared by every route that touches
-   a listed file (open, the preview, the download, the reveal), so the refusal logic exists once. With opts.listed
-   (the routes that hand bytes to a page, engine/filepreview.js) it also applies the list's own rules: no link on the
-   path, no hidden or skipped folder, the list's depth, no ':' on Windows, and the resolved file must be the walked
-   one. openFile does not pass it. opts.act (#5165) is the verb the refusals say. */
 function resolveListedFile(folder, name, where = 'this project', opts = null) {
   const act = (opts && opts.act) || 'open';   // #5165: the verb in a refusal (open, download)
   const given = String(name == null ? '' : name);
@@ -1722,10 +1720,21 @@ function resolveListedFile(folder, name, where = 'this project', opts = null) {
      skipped node_modules/ on a case-blind disk): realpath (native) answers the name as it is ON DISK, which the list
      shows, so any other spelling differs from the walked path. Measured on APFS. It replaced a per-segment folder read
      that had no bound on a huge folder. */
-  if (walked && target !== path.join(state.real, given)) return { ok: false, because: 'that is not a file in ' + where };
+  if (walked && !sameListedPath(target, path.join(state.real, given))) return { ok: false, because: 'that is not a file in ' + where };
   /* #5165: sameOpenedFile, so a drive that reports inode 0 (Windows FAT, exFAT) compares size and times, not 0 === 0. */
   if (walked && !sameOpenedFile(walked, st)) return { ok: false, because: 'that file changed while it was being opened' };
   return { ok: true, target, st, given };
+}
+
+/* The resolved path against the walked one (resolveListedFile's listed mode). Exact off Windows, where it was measured
+   (it also refuses another case or normalisation of a name, review 2/4). On Windows, where a name's case does not
+   matter to the disk, both are normalised and case-folded: the listed mode now gates #5165's downloads there, and an
+   unmeasured case or separator difference must not refuse a file #5165 served; a link swapped in is still refused by
+   the lstat walk and by sameOpenedFile. */
+function sameListedPath(resolved, walked, platform = process.platform) {
+  if (platform !== 'win32') return resolved === walked;
+  const norm = (p) => path.win32.normalize(String(p)).toLowerCase();
+  return norm(resolved) === norm(walked);
 }
 
 /* #5165's name for the gates (open-file's own, without the list's rules), kept so its callers read the same. */
@@ -3515,6 +3524,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, fileInFolder, sameOpenedFile,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, fileInFolder, sameOpenedFile, sameListedPath,
   isUnderTmpDir, tmpFolderRefused,
 };

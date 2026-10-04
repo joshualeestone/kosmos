@@ -388,3 +388,10 @@ test('#4997 review 11: a hidden file renamed over a listed name between the reso
   assert.equal(got.ok, false, 'the hidden file was served: ' + (got.bytes ? got.bytes.toString() : ''));
   assert.equal(got.because, 'that file changed while it was being read', 'refused, but not by the read\'s own check');
 });
+
+test('#4997 + #5165: the resolved-equals-walked check is exact off Windows and case- and separator-blind on Windows (sameListedPath)', () => {
+  assert.equal(projects.sameListedPath('/a/B.png', '/a/B.png', 'darwin'), true);
+  assert.equal(projects.sameListedPath('/a/b.png', '/a/B.png', 'darwin'), false, 'off Windows another case is refused');
+  assert.equal(projects.sameListedPath('C:\\Proj\\B.png', 'c:\\proj/b.png', 'win32'), true, 'Windows: case and separators do not refuse');
+  assert.equal(projects.sameListedPath('C:\\Proj\\B.png', 'C:\\Proj\\C.png', 'win32'), false, 'CONTROL: another file is still refused on Windows');
+});
