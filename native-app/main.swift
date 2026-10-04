@@ -2753,7 +2753,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         // A download this app will not save is refused, not loaded in the window instead (from a board page's own
         // frame only a blob: or data: download gets here: WebKit makes a cross-origin `download` link a plain link).
-        // Said unless a frame inside the page asked for it (that is only logged).
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             let boardPage = isBoardPage(committedPageURL, board: badgeOrigin)
@@ -2782,7 +2781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /* #5167: what each response does, in the order below: an attachment from the board's origin, on a board
-       page, is saved (for a Kosmos+ computer, after the person allows it); any other attachment is refused and said
+       page, is saved (for a Kosmos+ computer, after the person allows it); any other attachment is refused and logged
        (a foreign file the window cannot show likewise); a board file the window cannot show is saved; anything
        else is shown if WebKit can show its type and cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
@@ -2846,9 +2845,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         download.delegate = self
     }
 
-    /// #5167: a download the person started that does not save is said, never only logged (a click that
-    /// does nothing is the bug #5167 fixes). Swapped out by --kosmos-app-download-selftest, which has no one
-    /// to press OK.
+    /// #5167: how a failed download the board started is said (one modal alert). Swapped out by
+    /// --kosmos-app-download-selftest, which has no one to press OK. A policy refusal is only logged (tellDownloadFailed).
     static var downloadAlertPresenter: ((String) -> Void)?
 
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
@@ -2900,6 +2898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // composer must never grant it.
         allow.keyEquivalent = ""
         refuse.keyEquivalent = "\r"
+        alert.window.initialFirstResponder = refuse   // with Full Keyboard Access a stray Space must not answer Allow either
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         NSApp.activate(ignoringOtherApps: true)   // in front, where the person can read it
