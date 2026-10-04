@@ -4,7 +4,7 @@
     {
       "icon": "shield",
       "title": "Agents that keep stopping",
-      "line": "An agent that keeps stopping right after it starts now says Keeps stopping. With Kosmos+ phone notifications on, your phone is told once."
+      "line": "An agent that stops right after each start now shows Keeps stopping on its card. With Kosmos+ phone notifications on, your phone is told."
     },
     {
       "icon": "chat",
