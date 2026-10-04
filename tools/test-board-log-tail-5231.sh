@@ -2,7 +2,7 @@
 # kosmos#5231: when a check's board dies between attempts, the run must say why before cleanup removes the sandbox.
 # This exercises the REAL board_log_tail and wait_up, extracted from tools/browser-checks.sh (as
 # test-wait-up-collision-1073.sh does), against the exact failure line from the card's Mortals run.
-RUNNER="${RUNNER:-tools/browser-checks.sh}"
+RUNNER="${RUNNER:-$(cd "$(dirname "$0")/.." && pwd)/tools/browser-checks.sh}"   # as test-wait-up-collision-1073.sh: from anywhere
 [ -r "$RUNNER" ] || { echo "FAIL  $RUNNER not found"; exit 1; }
 BLT_SRC="$(awk '/^board_log_tail\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$RUNNER")"
 WAIT_UP_SRC="$(awk '/^wait_up\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$RUNNER")"
