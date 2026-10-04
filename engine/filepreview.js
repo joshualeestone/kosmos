@@ -127,7 +127,7 @@ async function preview(folder, name, where, opts) {
 function reveal(folder, name, where, opts) {
   const got = resolve(folder, name, where, opts);
   if (!got.ok) return got;
-  return projects.revealFile(got.target);
+  return projects.revealFile(got.target, { namedAs: path.join(String(folder), got.given) });   // the record's spelling, for Windows (as openFile)
 }
 
 module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, resolve, preview, reveal, _setNofollowForTest };

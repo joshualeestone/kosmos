@@ -211,3 +211,23 @@ test('#4997 + #5165: a document in a project on a mapped drive (Z:\\ resolving t
     explorer.setStatForTests(null);
   }
 });
+
+test('#4997: the preview\'s Show in File Explorer, on a mapped drive (Z:\\ resolving to \\\\server\\share), hands Explorer the Z:\\ name (CONTROL: a record that names a UNC path itself is still refused)', () => {
+  const filepreview = require('./filepreview');
+  const calls = [];
+  projects.setRevealPlatform('win32');
+  explorer.setRunner((exe, args) => { calls.push(args); return { ok: true }; });
+  mappedDriveWorld('Z:\\proj', '\\\\server\\share\\proj', ['a.png']);
+  try {
+    const shown = filepreview.reveal('Z:\\proj', 'a.png', 'this project', {});
+    assert.deepEqual(shown, { ok: true }, 'a mapped-drive file could not be shown: ' + (shown && shown.because));
+    assert.equal(calls.length, 1);
+    assert.match(calls[0][0], /^\/select,"Z:\\proj[\\/]a\.png"$/, 'Explorer was not handed the drive-letter path: ' + calls[0][0]);
+  } finally {
+    projects.setFsWorldForTests(null);
+    projects.setRevealPlatform(null);
+    explorer.setRunner(null);
+    explorer.setStatForTests(null);
+  }
+  assert.equal(explorer.revealFile('\\\\server\\share\\proj\\a.png').ok, false, 'CONTROL: a UNC path named directly is still refused');
+});

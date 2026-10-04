@@ -19,13 +19,15 @@ function lift(win = false) {
   const fetches = [];
   const PV_ATTS = new Map();
   const msg = { textContent: 'stale' };
+  const downloads = [];
   // eslint-disable-next-line no-new-func
-  const fn = new Function('PV_ATTS', 'pvOpen', 'fetch', 'document', 'asSentence', 'onWindows',
+  const fn = new Function('PV_ATTS', 'pvOpen', 'fetch', 'document', 'asSentence', 'onWindows', 'kplusDownload', 'kplusSayer',
     "'use strict';\nconst FILES_PV_ID = " + JSON.stringify('files-preview') + ';\nlet FILES_PV_AT = null;\n' + page.lift(SCRIPT, 'filesPvOpen') + '\nreturn filesPvOpen;')(
     PV_ATTS, (id, from) => { opened.push([id, from]); return true; },
     async (url, init) => { fetches.push([url, init && init.method, init && JSON.parse(init.body)]); return { ok: false, status: 409, json: async () => ({ because: 'refused here' }) }; },
-    { getElementById: (id) => (id === 'pv-msg' ? msg : null) }, (s) => s, () => win);
-  return { fn, opened, fetches, PV_ATTS, msg };
+    { getElementById: (id) => (id === 'pv-msg' ? msg : null) }, (s) => s, () => win,
+    (kind, owner, name, say) => downloads.push([kind, owner, name, typeof say]), (el) => { const f = () => {}; f.el = el; return f; });
+  return { fn, opened, fetches, PV_ATTS, msg, downloads };
 }
 const row = (doc, size) => ({ dataset: { doc }, closest: () => ({ id: 'd-files-list' }), querySelector: (sel) => (sel === '.pj-doc-w' ? { textContent: size || '12 KB' } : null) });
 const plain = { button: 0 };
@@ -88,4 +90,16 @@ test('#4997 review 2: heic and avif (a browser may not decode them) and, on Wind
   const win = lift(true);
   assert.equal(win.fn(row('a.pdf'), { agent: 'ava' }, plain), false);
   assert.equal(win.fn(row('a.jpeg'), { agent: 'ava' }, plain), true, 'CONTROL: a jpeg on Windows');
+});
+
+test('#4997: over Kosmos+ the preview\'s Download for a Files-list file goes through kplusDownload (its ?check=1 look says a refusal), and pvOpen prefers it to a bare link', () => {
+  const { fn, PV_ATTS, downloads } = lift();
+  fn(row('shot one.PNG'), { agent: 'ava b' }, plain);
+  PV_ATTS.get('files-preview').download();
+  fn(row('reports/Q3.pdf'), { project: 'p-1' }, plain);
+  PV_ATTS.get('files-preview').download();
+  assert.deepEqual(downloads, [['agent', 'ava b', 'shot one.PNG', 'function'], ['project', 'p-1', 'reports/Q3.pdf', 'function']]);
+  const pv = page.lift(SCRIPT, 'pvOpen');
+  assert.ok(pv.indexOf("kplusRemote() && typeof a.download === 'function'") > -1 && pv.indexOf("kplusRemote() && typeof a.download === 'function'") < pv.indexOf("dl.setAttribute('download', a.name)"),
+    'pvOpen does not prefer the record\'s own download over the bare link when remote');
 });

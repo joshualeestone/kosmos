@@ -224,11 +224,15 @@ function openFile(file, opts) {
   return shown.ok ? { ok: true, revealedInstead: true, say: REVEALED_INSTEAD_SENTENCE } : shown;
 }
 
-/** #4930: show one file selected in its folder in File Explorer (never opens it). */
-function revealFile(file) {
+/** #4930: show one file selected in its folder in File Explorer (never opens it). #4997: `opts.namedAs` as openFile
+    takes it (the path the project record names, so a Z:\ project resolving to \\server\share is shown by its Z:\
+    name; the resolved target is still checked). */
+function revealFile(file, opts) {
+  const namedAs = opts && typeof opts.namedAs === 'string' ? opts.namedAs : file;
   // The refusal's own words speak of opening; this never opens, so it says what it could not do.
-  if (targetRefusal(file, 'file')) return { ok: false, because: 'Kosmos cannot show that file in File Explorer' };
-  return launch(['/select,' + quotedPath(path.win32.normalize(file))]);
+  if (targetRefusal(namedAs, 'file')) return { ok: false, because: 'Kosmos cannot show that file in File Explorer' };
+  if (namedAs !== file && resolvedTargetRefusal(file)) return { ok: false, because: 'Kosmos cannot show that file in File Explorer' };
+  return launch(['/select,' + quotedPath(path.win32.normalize(namedAs))]);
 }
 
 /** Open one of the closed list of Settings pages, by purpose. */
