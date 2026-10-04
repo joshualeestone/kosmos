@@ -166,6 +166,12 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
           const f2 = document.createElement('span'); f2.className = 'pjfaces'; f2.innerHTML = '<span class="pjcount">3 agents</span>'; oh.appendChild(f2); added.push(f2);
           const c2 = chip.cloneNode(true); other.appendChild(c2); added.push(c2);
           noTag = { chip: box(c2), name: box(other.querySelector('.pjname')), faces: box(f2) };
+          // Review of the gap fix: a status-only row (no count, no tag) lost the most room to empty tracks; measure it too.
+          if (!other.querySelector('.pjpill')) {
+            f2.remove();
+            const p2 = document.createElement('span'); p2.className = 'pjpill'; p2.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; oh.appendChild(p2); added.push(p2);
+            noTag.pillOnly = { name: box(other.querySelector('.pjname')), pill: box(p2) };
+          }
         }
         const phone = window.matchMedia('(max-width: 40rem)').matches;
         for (const el of added) el.remove();
@@ -194,7 +200,9 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
       // track ends exactly one 12 px space before the count: on a row with no tag, and on the tag row on a phone.
       const oneGap = (a, b) => Math.abs((b.l - a.r) - 12) <= 1;
       ok(`#5070 roadmap @${vw}: an empty "Done not set" track costs the name no room (one 12 px space before the count)`,
-        m.found && m.noTag && onLine(m.full.faces) && oneGap(m.noTag.name, m.noTag.faces) && (!m.phone || oneGap(m.full.name, m.full.faces)),
+        m.found && m.noTag && Math.abs(m.noTag.faces.mid - m.noTag.name.mid) <= 3 && oneGap(m.noTag.name, m.noTag.faces)
+          && m.noTag.pillOnly && Math.abs(m.noTag.pillOnly.pill.mid - m.noTag.pillOnly.name.mid) <= 3 && oneGap(m.noTag.pillOnly.name, m.noTag.pillOnly.pill)
+          && oneGap(m.full.faces, m.full.pill) && (!m.phone || oneGap(m.full.name, m.full.faces)),
         JSON.stringify({ noTag: m.noTag, full: m.full, phone: m.phone }));
     }
     await p.setViewportSize({ width: 1400, height: 900 });
