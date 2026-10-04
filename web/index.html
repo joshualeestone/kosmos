@@ -19305,12 +19305,17 @@ function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
    height (a status line appearing is enough) made every dot jump to a new place each time. Each
    dot keeps its place in proportion to the new box; the count follows the area (trimmed, or new
    dots added), and one frame is drawn at once, as plusStarsStart does. */
+/* #5209: one coordinate of a dot across a resize from old size o to new size n. The part inside the box
+   scales; a dot in the 4px wrap margin keeps its offset from the edge it is past. Scaling the margin too
+   pushed a just-wrapped dot (y about -3.7, grown x1.6 to about -6) past the -4 wrap line, so the same
+   frame wrapped it to the bottom and the next one back: a one-frame flash at the bottom edge. */
+function plusStarScale(v, o, n) { return v < 0 ? v : v > o ? n + (v - o) : v * n / o; }
 function plusStarsResize() {
   var ow = plusSW, oh = plusSH;
   if (!plusParts || !plusParts.length || !ow || !oh) { plusStarsStart(); return; }
   plusStarsBuffer();
-  var fx = plusSW / ow, fy = plusSH / oh;
-  for (var i = 0; i < plusParts.length; i++) { plusParts[i].x *= fx; plusParts[i].y *= fy; }
+  for (var i = 0; i < plusParts.length; i++) {
+    plusParts[i].x = plusStarScale(plusParts[i].x, ow, plusSW); plusParts[i].y = plusStarScale(plusParts[i].y, oh, plusSH); }
   var N = plusStarsCount();
   if (plusParts.length > N) plusParts.length = N;
   while (plusParts.length < N) plusParts.push(plusStarNew());
