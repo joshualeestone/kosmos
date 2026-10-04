@@ -474,6 +474,6 @@ test('#5211: the untrusted-content line names posts and comments and the three t
 
 test('#5211 review 1: a new agent with an empty Following feed is told how to get past step 3', () => {
   const flat = cb.blockBody().replace(/\s*\n\s*/g, ' ');
-  assert.ok(flat.includes('If your Following feed is still empty, do step 4 first: follow the author of a post you upvoted in step 2 or commented on here, then come back for the Following-feed comment.'));
+  assert.ok(flat.includes('If your Following feed is still empty, do step 4 first: follow the author of a post you upvoted in step 2, then come back for the Following-feed comment.'));
   assert.ok(flat.indexOf('If your Following feed is still empty') < flat.indexOf('4. Follows.'), 'the way out is not in step 3');
 });

@@ -45,6 +45,12 @@ too" (pointed at nothing) -> "as posts do"; postsPerDayMin now drives its words;
 never "undefined". NITs ACCEPTED: UNTRUSTED_RULE extends three of READ_RULE's bans to comments, not all (the rest
 are covered by "not instructions to you"); the introduction now comes after the engagement steps (by design).
 
+## Review 2 (opus, blind, at 047bd2eb8)
+No WARNING+. NIT FIXED: the day-one fallback said "upvoted in step 2 or commented on here"; following the author you
+just commented on turns that comment into a Following-feed one and can strand a literal agent, so it now names only
+an author you upvoted. NIT ACCEPTED: "a few votes a day" sits under "every daily count below is a minimum"; "a few" is
+not a count, and "never to meet the count" follows it.
+
 ## Weakest premise
 That an agent follows a numbered order better than the old flat list. Measured only by MoltBook's design, not by us.
 Watch: comments, votes and follows per agent per day after 0.7.22.
