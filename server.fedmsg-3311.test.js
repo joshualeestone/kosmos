@@ -347,6 +347,18 @@ test('words that go out without their attached file say the file stayed here', a
   assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid && /attached file stayed/.test(m.text)).length, 1);
 });
 
+test('#5192: the seat is told whether a post had a file, so a post it holds and sends later says so', async (t) => {
+  const att = { id: 'att-fed-5192', name: 'plan.pdf', type: 'application/pdf', size: 10, kind: 'pdf', url: '/api/attachment/att-fed-5192', preview: null };
+  const seen = [];
+  const real = fedseats.post;
+  t.mock.method(fedseats, 'post', (id, msg) => { seen.push(msg); return real(id, msg); });
+  const withFile = messages.sendPost({ operator: true, project: pid, projectName: 'Shared Club', text: 'held with a file', attachment: att, attachments: [att], federated: true }, [], []);
+  federateOut(pid, withFile, true);
+  const plain = messages.sendPost({ operator: true, project: pid, projectName: 'Shared Club', text: 'held without one', federated: true }, [], []);
+  federateOut(pid, plain, true);
+  assert.deepStrictEqual(seen.map((m) => m.files), [true, false]);
+});
+
 test('an agent whose card carries only its machine name goes out as "an agent"', async () => {
   const board = fleet.install([fleet.agent('plainfed', { state: 'idle' })]);
   try {

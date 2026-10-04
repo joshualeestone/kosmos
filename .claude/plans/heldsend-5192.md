@@ -12,14 +12,17 @@ arrives." Held when:
 - a member is inside its behind hold (#3728).
 
 Sent, oldest first, by flushHeld when the key may have arrived: a member's accepted key-share, an
-accepted key-rotate, an owner pinning a member (after the share frame), a seat's `connected`, and
-before any post that goes out now (so a new post never overtakes a held one, for example when a
-behind hold runs out with no new key). One that still cannot go is held again with everything after
-it, in order. The room says how many were sent.
+accepted key-rotate, an owner pinning a member (after the share frame), a seat's `connected`, each
+60 s pass, and before any post that goes out now (so a new post never overtakes a held one). One
+that is held again keeps everything after it held, in order; one refused for good (too long, could
+not seal) says why and the rest carry on. The room says how many were sent, and whether any had a
+file (the server tells the seat: `files`), since files never leave this computer.
+A post held because a member is behind goes, when that hold runs out with no new key, under the key
+the member has; the hold note says so (the others may not accept it, #5197).
 
 ## Bounds
 At most 50 held per seat (past that: "stayed on this computer ... 50 messages are already waiting");
-one held more than an hour is not sent, and the room says how many. Sealed at send time, so the
+one held more than an hour is not sent, and no longer counts against the cap; the room says how many. Sealed at send time, so the
 receivers' freshness checks see a fresh time.
 
 ## Rejected
@@ -43,4 +46,7 @@ indefinitely.
 ## Controls (engine/fedseats.test.js '#5192', each perturbed red)
 member post before the share is sent sealed, in order, on the share; owner post before the first
 pin follows the share frame; behind-held posts go out on the rotate, before a later post; a post
-after a hold ran out with no key sends the held one first; over an hour not sent + note; cap 50.
+after a hold ran out with no key sends the held one first; over an hour not sent + note; cap 50
+(a stale post takes no place); a refusal for good does not strand the rest; a held post with a file
+says so when sent (and server.fedmsg: the server passes `files`); held for a missing room id goes on
+connect, and the pass flushes after a behind hold ran out; a stopped seat sends nothing held.

@@ -948,7 +948,7 @@ async function ensureAll() {
   // coming back (it already holds a key, so it does not say hello again).
   for (const id of Object.keys(links)) {
     const seat = seats.get(id);
-    if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); } catch { /* next pass */ } }
+    if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); flushHeld(id, seat); } catch { /* next pass */ } }
   }
   for (const id of Object.keys(links)) {
     const link = links[id];
@@ -973,15 +973,22 @@ function post(projectId, msg) {
   return sendPost(projectId, msg, false);
 }
 /** Hold one post until the room's key arrives. `why` finishes "That message is held on
-    this computer: ...". False, as post() returns for a post that did not go now. */
-function holdPost(projectId, s, msg, why, flushing) {
-  s.outbox = s.outbox || [];
+    this computer: ..."; `when` says when it goes. False, as post() returns for a post that
+    did not go now. */
+function holdPost(projectId, s, msg, why, when, flushing) {
+  // Posts held past the hour no longer count against the cap; the next flush says so.
+  const fresh = [];
+  for (const h of s.outbox || []) {
+    if (Date.now() - h.at <= HELD_POSTS_AGE_MS) fresh.push(h);
+    else s.staleHeld = (s.staleHeld || 0) + 1;
+  }
+  s.outbox = fresh;
   if (s.outbox.length >= HELD_POSTS_MAX) {
     if (!flushing) say(projectId, 'That message stayed on this computer: ' + why + ', and ' + HELD_POSTS_MAX + ' messages are already waiting for it.');
     return false;
   }
   s.outbox.push({ msg, at: Date.now() });
-  if (!flushing) say(projectId, 'That message is held on this computer: ' + why + '. It is sent when the key arrives.');
+  if (!flushing) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
 }
 /** Send the posts held for the key, oldest first, now that it may have arrived. One that
@@ -992,26 +999,30 @@ function flushHeld(projectId, s) {
   s.outbox = [];
   s.flushing = true;
   let sent = 0;
-  let stale = 0;
+  let files = 0;
+  let stale = s.staleHeld || 0;
+  s.staleHeld = 0;
   try {
     for (let i = 0; i < held.length; i++) {
       if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
-      if (sendPost(projectId, held[i].msg, true) === true) { sent += 1; continue; }
-      // Not sent: sendPost held it again (at the end of the new outbox) or refused it for
-      // good. Everything after it waits too, in order.
+      if (sendPost(projectId, held[i].msg, true) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
+      // Held again (it is now at the end of the outbox): everything after it waits too, in
+      // order. Not held again: refused for good (its own line said why); carry on.
+      if (!s.outbox.length) continue;
       const rest = held.slice(i + 1).filter((h) => Date.now() - h.at <= HELD_POSTS_AGE_MS);
       stale += held.length - i - 1 - rest.length;
-      s.outbox = (s.outbox || []).concat(rest);
+      s.outbox = s.outbox.concat(rest);
       break;
     }
   } finally {
     s.flushing = false;
   }
-  if (sent) say(projectId, sent === 1 ? 'The message held on this computer was sent.' : sent + ' messages held on this computer were sent.');
+  if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent.' : sent + ' messages held on this computer were sent.')
+    + (files ? (files === 1 ? ' Its attached file stayed on this computer.' : ' Their attached files stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
 }
-function sendPost(projectId, { from, kind, text }, flushing) {
-  const msg = { from, kind, text };
+function sendPost(projectId, { from, kind, text, files }, flushing) {
+  const msg = { from, kind, text, files: files === true };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has
@@ -1043,12 +1054,12 @@ function sendPost(projectId, { from, kind, text }, flushing) {
   }
   if (sealedRoom) {
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
-      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', flushing);
+      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or when this computer stops waiting for it in a few minutes (then under the key it has, which the others may not accept)', flushing);
     }
     if (!hasKey(sealed) || !s.room) {
       return holdPost(projectId, s, msg, link && link.role === 'owner'
         ? 'this shared room is sealed, and no member\'s computer has joined with its key yet'
-        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', flushing);
+        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', 'when the key arrives (within an hour)', flushing);
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
