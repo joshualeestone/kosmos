@@ -57,8 +57,14 @@ The build plan is on #4649 (comment 5982094423), and the board API contract is t
 - Also: the room line on Remove is written by the board (the contract said so; the plan had said the screen),
   worded by whether the room is sealed; the description sent is the project's on this board, like the name.
 
+## Review round 4 (sonnet): 1 warning, fixed
+- The board's own description (or a name) over the coordinator's bound (1000 / 200) refused every invite. Now cut
+  to the bound; tested with 5000 characters.
+- One newest-first order across recorded and unrecorded rows (by joined_at, else made_at); rows from unrecorded
+  codes can share an invite_id, so a screen keys them by edge_id.
+
 ## Tests
 engine/fedmembers.test.js (10), server.fedmembers-4649.test.js (4), engine/federation.test.js and
-server.federation-3311.test.js: 63/63. Mutations, each red on its own test: Remove without the project check; the
+server.federation-3311.test.js: 64/64. Mutations, each red on its own test: Remove without the project check; the
 label sent to the coordinator; Members without the screen gate; the invite-time stamp; no stale-link forget; no
 per-project serialization; no forget on project removal.

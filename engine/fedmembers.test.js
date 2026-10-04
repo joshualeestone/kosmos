@@ -82,27 +82,28 @@ test('#4649: Members joins this board\'s record with the coordinator\'s connecti
   const file = path.join(require('./store').ROOT, fedmembers.FILE);
   const all = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   all.book = [
-    { invite_id: 'i-expired', label: 'Old', kind: 'person', made_at: now - 9 * DAY * 1000, expires_at: sec - DAY },
-    { invite_id: 'i-removed', label: 'Sam', kind: 'person', made_at: now - 5000, expires_at: sec + DAY },
-    { invite_id: 'i-joined', label: 'Dana Ruiz', kind: 'person', made_at: now - 4000, expires_at: sec + DAY },
-    { invite_id: 'i-withdrawn', label: 'Pat', kind: 'agent', made_at: now - 3000, expires_at: sec + DAY, withdrawn_at: now - 100 },
-    { invite_id: 'i-pending', label: null, kind: 'agent', made_at: now - 2000, expires_at: sec + DAY },
+    { invite_id: 'i-expired', label: 'Old', kind: 'person', made_at: sec - 9 * DAY, expires_at: sec - DAY },
+    { invite_id: 'i-removed', label: 'Sam', kind: 'person', made_at: sec - 500, expires_at: sec + DAY },
+    { invite_id: 'i-joined', label: 'Dana Ruiz', kind: 'person', made_at: sec - 400, expires_at: sec + DAY },
+    { invite_id: 'i-withdrawn', label: 'Pat', kind: 'agent', made_at: sec - 30, expires_at: sec + DAY, withdrawn_at: sec - 1 },
+    { invite_id: 'i-pending', label: null, kind: 'agent', made_at: sec - 20, expires_at: sec + DAY },
   ];
   fs.writeFileSync(file, JSON.stringify(all));
   const remote = stubRemote({ '/v1/mac/federation/edges': { ok: true, data: { as_owner: [
-    edge('e-joined', 'ref-book', 'i-joined', 'active', 2000),
-    edge('e-removed', 'ref-book', 'i-removed', 'revoked', 1500),
-    edge('e-other', 'ref-other', 'i-pending', 'active', 1800),   // another project's edge with a colliding id: ignored
+    edge('e-joined', 'ref-book', 'i-joined', 'active', sec - 10),
+    edge('e-removed', 'ref-book', 'i-removed', 'revoked', sec - 50),
+    edge('e-other', 'ref-other', 'i-pending', 'active', sec - 5),   // another project's edge with a colliding id: ignored
   ], as_member: [] } } });
   const out = await fedmembers.members(remote, 'book', now);
   assert.strictEqual(out.status, 200, JSON.stringify(out));
   assert.strictEqual(out.body.owner, true);
   assert.strictEqual(out.body.checked_at, Math.floor(now / 1000));
+  // Newest first by when someone joined, else when the code was made.
   assert.deepStrictEqual(out.body.invites.map((r) => [r.invite_id, r.state]), [
-    ['i-pending', 'pending'], ['i-withdrawn', 'withdrawn'], ['i-joined', 'joined'], ['i-removed', 'removed'], ['i-expired', 'expired'],
+    ['i-joined', 'joined'], ['i-pending', 'pending'], ['i-withdrawn', 'withdrawn'], ['i-removed', 'removed'], ['i-expired', 'expired'],
   ]);
   const joined = out.body.invites.find((r) => r.invite_id === 'i-joined');
-  assert.deepStrictEqual([joined.edge_id, joined.joined_at, joined.label], ['e-joined', 2000, 'Dana Ruiz']);
+  assert.deepStrictEqual([joined.edge_id, joined.joined_at, joined.label], ['e-joined', sec - 10, 'Dana Ruiz']);
   assert.strictEqual(out.body.invites.find((r) => r.invite_id === 'i-pending').edge_id, null, 'another project\'s connection was shown in this list');
   // The coordinator cannot be asked: the record still answers, and says it was not checked.
   const down = await fedmembers.members(stubRemote({}), 'book', now);
@@ -242,4 +243,13 @@ test('#4649 review round 3: Remove gives the room line with the owner\'s label, 
   const rm = await fedmembers.remove(r2, 'lined', 'e-l');
   // The invite went through federation.invite, which seals the room (#3728).
   assert.strictEqual(rm.roomLine, 'You removed Dana Ruiz. New messages here are sealed with a new key they do not have.');
+});
+
+test('#4649 review round 4: a project name or description longer than the coordinator takes is cut, never refused', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const out = await fedmembers.invite(remote, { project: 'long', invited_kind: 'person' },
+    { projectExists: () => true, projectName: () => 'N'.repeat(500), projectDesc: () => 'D'.repeat(5000) });
+  assert.strictEqual(out.status, 200, 'a long description the owner never typed into the invite refused it: ' + JSON.stringify(out));
+  assert.strictEqual(remote.calls[0].body.project_desc.length, federation.DESC_MAX);
+  assert.strictEqual(remote.calls[0].body.project_name.length, federation.NAME_MAX);
 });

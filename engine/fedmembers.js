@@ -155,10 +155,13 @@ async function inviteNow(remote, body, { projectExists, projectName, projectDesc
       try { require('./fedseal').forgetRoom(projectId); } catch { /* an unreadable record keeps every post here */ }
     }
     // The project's name on this board, never one the request supplied (the coordinator shows it to the invitee).
-    req = Object.assign({}, body, { project_ref: ref, project_name: (projectName && projectName(projectId)) || projectId });
-    // And its description on this board, never the request's (review round 3).
+    /* Its name and description on this board, never the request's (review round 3), cut to the bounds
+       federation.invite enforces: a long description the owner never typed into the invite must not refuse it
+       (review round 4). */
+    const name = String((projectName && projectName(projectId)) || projectId).slice(0, federation.NAME_MAX);
+    req = Object.assign({}, body, { project_ref: ref, project_name: name });
     const desc = projectDesc ? projectDesc(projectId) : null;
-    if (typeof desc === 'string' && desc.trim()) req.project_desc = desc; else delete req.project_desc;
+    if (typeof desc === 'string' && desc.trim()) req.project_desc = desc.slice(0, federation.DESC_MAX); else delete req.project_desc;
     delete req.project;
   }
   const out = await federation.invite(remote, req);
@@ -231,7 +234,12 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
     const extra = edges.filter((e) => !known.has(e.invite_id))
       .map((e) => ({ invite_id: e.invite_id, label: null, kind: e.member_kind || null, made_at: null, expires_at: null,
         state: e.status === 'active' ? 'joined' : 'removed', edge_id: e.id, joined_at: e.created_at }));
-    out.push(...extra.sort((a, b) => b.joined_at - a.joined_at));
+    out.push(...extra);
+    /* One order for both kinds of row, newest first (review round 4): by when someone joined, else when the code was
+       made; a row with neither sorts last. Rows from codes not recorded here can share an invite_id (several people,
+       or one person rejoining): a screen keys a row by edge_id when it has one. */
+    const at = (r) => (Number.isFinite(r.joined_at) ? r.joined_at : (Number.isFinite(r.made_at) ? r.made_at : 0));
+    out.sort((a, b) => at(b) - at(a));
   }
   let sealed = false;
   try { sealed = !!(o.link && require('./fedseal').isSealedRef(o.link.ref)); } catch { sealed = false; }
