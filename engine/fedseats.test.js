@@ -1901,7 +1901,7 @@ test('#5197: a member still behind after its hold is told a post may not be show
   assert.ok(h.notes.some((n) => /may be behind on this shared room.s key, so a message sent now may not be shown/.test(n.text)), JSON.stringify(h.notes));
 });
 
-test('#5197: a forged higher epoch holds a member that has caught up for at most the 3 minute hold', async (t) => {
+test('#5197: a forged higher epoch holds a member for at most the 3 minute hold, even after a real rotation', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T22:00:00Z') });
   const owner = fedseal.newKeyPair();
   federation.recordLink('proj-5197-forged', { role: 'member', edge_id: 'edge-5197-forged' });
@@ -1938,4 +1938,30 @@ test('#5197: a rotation that does not reach the epoch that armed the hold does n
   await settle();
   assert.strictEqual(fedseal.roomState('proj-5197-partial').epoch, 1, 'fixture: moved to epoch 1');
   assert.strictEqual(fedseats.post('proj-5197-partial', { from: 'B', kind: 'person', text: 'still behind epoch 2' }), false, 'a rotation short of epoch 2 ended the hold');
+});
+
+test('#5197: a forged epoch that armed a hold does not use up the warning for a real lag later', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T22:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-twice', { role: 'member', edge_id: 'edge-5197-twice' });
+  fedseal.setRoomState('proj-5197-twice', { role: 'member', s: fedseal.randomSecret(), code: 'code-twice', peer: owner.pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-twice');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197-twice', expires_at: 9 });
+  await settle();
+  const warned = () => h.notes.filter((n) => /may be behind on this shared room/.test(n.text)).length;
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 999, 'room-5197-twice', { from: 'Forger', kind: 'person', text: 'x' }) });
+  await settle();
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  fedseats.post('proj-5197-twice', { from: 'B', kind: 'person', text: 'after a forged hold' });
+  assert.strictEqual(warned(), 1);
+  // A real rotation to 1, then a real one to 2 this member misses.
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, fedseal.randomSecret(), 1, 'room-5197-twice', Date.now()) });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 2, 'room-5197-twice', { from: 'A', kind: 'person', text: 'epoch 2' }) });
+  await settle();
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  fedseats.post('proj-5197-twice', { from: 'B', kind: 'person', text: 'after a real hold' });
+  assert.strictEqual(warned(), 2, 'the forged hold used up the warning for the real one');
 });

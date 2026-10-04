@@ -509,8 +509,8 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    its own (it missed a rotation; the owner re-sends each pass). The epoch on an
    envelope cannot be checked before it opens, so a forged one must cost no more than
    this pause, which is no more than a relay can do anyway by dropping frames. Longer than
-   the 90 s grace (#5197), so a post sent after it, still under the old key, is refused on
-   the other boards: holding until the key arrives would let a forger pause a member
+   the 90 s grace (#5197), and armed no earlier than the rotation, so a post sent after it,
+   still under the old key, is past the grace and refused on the other boards: holding until the key arrives would let a forger pause a member
    indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
@@ -997,9 +997,9 @@ function post(projectId, { from, kind, text }) {
     }
     // #5197: past the hold and maybe still behind (the epoch that armed it is unauthenticated):
     // the post goes out under the old key, which the other boards refuse once the rotation is
-    // 90 s old. Said once per seat run.
+    // 90 s old. Said once per epoch that armed a hold (a forged one cannot use up the note).
     if (s.behind && s.behind.epoch > sealed.epoch) {
-      noteOnce(projectId, s, 'behindSent', 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
+      noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
