@@ -67,7 +67,7 @@ A flush that throws keeps what it had not handled (untested: nothing reachable i
 
 ## Weakest premise
 Held posts live in the seat's memory: a board restart loses them silently (the room's own copy of
-each stays); a stop or an end says so. A post held more than an hour is treated as no longer wanted. What
+each stays); an end says so, a stop does not (see Not covered). A post held more than an hour is treated as no longer wanted. What
 would change my mind: evidence that keys routinely take more than an hour to arrive, or that boards
 restart while posts wait.
 

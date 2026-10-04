@@ -1031,7 +1031,8 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     msg = Object.assign({}, msg, { invites: inv, invitesUnknown: unknown });
   }
   s.outbox.push({ msg, at: heldAt || Date.now(), edge: s.edge });
-  if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
+  s.reheld = true;   // flushHeld's signal that this post is waiting again (not refused for good)
+  if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
 }
 /** #5192: a seat that is not connected (waiting for a guest, reconnecting) keeps its held
@@ -1084,10 +1085,11 @@ function flushHeld(projectId, s) {
         // Pinned members exist, none from an invite live when it was written: not for them.
         if (pinnedAny(projectId)) { if (held[i].msg.invitesUnknown) unknownWho += 1; else unmeant += 1; continue; }
       }
+      s.reheld = false;
       if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
       // Held again (it is now at the end of the outbox): everything after it waits too, in
       // order. Not held again: refused for good (its own line said why); carry on.
-      if (!s.outbox.length) continue;
+      if (!s.reheld) continue;
       const rest = held.slice(i + 1).filter((h) => Date.now() - h.at <= HELD_POSTS_AGE_MS);
       stale += held.length - i - 1 - rest.length;
       s.outbox = s.outbox.concat(rest);
@@ -1187,6 +1189,7 @@ function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown,
     return false;
   }
   // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
+  if (!heldAt && s.flushing) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
   if (!heldAt && s.outbox && s.outbox.length) {
     flushHeld(projectId, s);
     if (s.outbox.length) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);

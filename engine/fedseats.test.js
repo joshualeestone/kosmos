@@ -2608,3 +2608,26 @@ test('#5192: posts held on a seat that is not connected still age out at the pas
   await settle();
   assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
 });
+
+test('#5192: a held post that cannot be sealed at flush time is refused for good and the rest still go', async (t) => {
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-noseal', { role: 'member', edge_id: 'edge-5192-noseal' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-noseal', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192ns', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-noseal');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', expires_at: 9 });   // no room id: held
+  await settle();
+  for (const text of ['bad', 'B', 'C']) fedseats.post('proj-5192-noseal', { from: 'Ana', kind: 'person', text });
+  const realSeal = fedseal.seal;
+  t.mock.method(fedseal, 'seal', (key, epoch, room, payload, ...rest) => {
+    if (payload && payload.text === 'bad' && key === k0) throw new Error('cannot seal');
+    return realSeal(key, epoch, room, payload, ...rest);
+  });
+  say(seat, { event: 'connected', room: 'room-5192-noseal', expires_at: 10 });
+  await settle();
+  const out = lines(seat).map((f) => fedseal.open({ 0: k0 }, 'room-5192-noseal', f)).filter(Boolean);
+  assert.deepStrictEqual(out.map((o) => o.m.text), ['B', 'C'], 'a refusal for good stranded the posts behind it');
+  assert.ok(h.notes.some((n) => /could not be sealed/.test(n.text)), JSON.stringify(h.notes));
+});
