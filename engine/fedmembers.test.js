@@ -104,9 +104,8 @@ test('#4649: Members joins this board\'s record with the coordinator\'s connecti
   ]);
   const joined = out.body.invites.find((r) => r.invite_id === 'i-joined');
   assert.deepStrictEqual([joined.edge_id, joined.joined_at, joined.label], ['e-joined', sec - 10, 'Dana Ruiz']);
-  // #4649 slice 3: the account that joined, which the relay stamps on its posts, so the screen can group them.
-  assert.strictEqual(joined.member, 'acct-dana');
-  assert.strictEqual(out.body.invites.find((r) => r.invite_id === 'i-pending').member, null);
+  // #4649 slice 3 (review): the account id is never handed to the screen; the board maps it to the label itself.
+  assert.ok(out.body.invites.every((r) => !('member' in r)), 'an account id reached the Members answer');
   assert.strictEqual(out.body.invites.find((r) => r.invite_id === 'i-pending').edge_id, null, 'another project\'s connection was shown in this list');
   // The coordinator cannot be asked: the record still answers, and says it was not checked.
   const down = await fedmembers.members(stubRemote({}), 'book', now);
@@ -335,4 +334,15 @@ test('#4649 slice 1b: joinedLine uses the owner\'s label for that invite, else a
 
 test('#4649 slice 1b review round 2: a label loses bidi overrides and invisible format characters', () => {
   assert.strictEqual(fedmembers.cleanLabel('Dana\u202e Ruiz\u200b\u2066'), 'Dana Ruiz');
+});
+
+test('#4649 slice 3: the board remembers which account joined through an invite, and labels that account\'s posts with the owner\'s label', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const made = await fedmembers.invite(remote, { project: 'stamped', invited_kind: 'person', label: 'Dana Ruiz' }, here(['stamped']));
+  assert.strictEqual(fedmembers.labelForMember('stamped', 'acct-dana'), null, 'a label before anyone was pinned');
+  assert.strictEqual(fedmembers.noteMember('stamped', made.body.invite_id, 'acct-dana'), true);
+  assert.strictEqual(fedmembers.labelForMember('stamped', 'acct-dana'), 'Dana Ruiz');
+  assert.strictEqual(fedmembers.labelForMember('stamped', 'acct-someone-else'), null);
+  assert.strictEqual(fedmembers.noteMember('stamped', 'inv-not-made-here', 'acct-x'), false, 'an invite this board never made took a member');
+  assert.strictEqual(fedmembers.labelForMember('stamped', undefined), null);
 });

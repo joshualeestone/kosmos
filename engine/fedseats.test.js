@@ -936,6 +936,28 @@ test('#4649 slice 1b: the owner\'s room says who joined, by the owner\'s label, 
   assert.deepStrictEqual(joined(), ['Dana Ruiz joined.', 'Someone joined from outside.']);
 });
 
+test('#4649 slice 3: pinning a member remembers the coordinator\'s account for that invite, so its posts get the owner\'s label', async (t) => {
+  const inv = newInvite('stamp');
+  const fm = require('./fedmembers');
+  const file = require('path').join(require('./store').ROOT, fm.FILE);
+  const before = require('fs').existsSync(file) ? require('fs').readFileSync(file) : null;
+  const all = before ? JSON.parse(before) : {};
+  all['proj-stamp-o'] = [{ invite_id: inv.invite, label: 'Dana Ruiz', kind: 'person', made_at: 1, expires_at: 9e9 }];
+  require('fs').writeFileSync(file, JSON.stringify(all));
+  t.after(() => { if (before) require('fs').writeFileSync(file, before); else require('fs').rmSync(file, { force: true }); });
+  const room = 'room-stamp';
+  federation.recordLink('proj-stamp-o', { role: 'owner', ref: 'ref-stamp-o' });
+  fedseal.stashInvite('ref-stamp-o', inv);
+  const h = harness({ edges: [{ id: 'edge-' + inv.invite, project_ref: 'ref-stamp-o', status: 'active', invite_id: inv.invite, member_account_id: 'acct-dana' }] });
+  await fedseats.ensure('proj-stamp-o');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room, expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) });
+  await settle();
+  assert.strictEqual(fm.labelForMember('proj-stamp-o', 'acct-dana'), 'Dana Ruiz', 'the pinned member\'s account was not remembered');
+});
+
 test('#3728: an owner never speaks or listens in the clear once it has made a sealing invite, key or no key yet', async () => {
   const inv = newInvite('oc');
   const { h, seat } = await ownerRoom('proj-seal-oc', 'ref-seal-oc', 'room-oc', [inv]);

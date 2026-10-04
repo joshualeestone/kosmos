@@ -15342,7 +15342,10 @@ const server = http.createServer(async (req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)) });
+      // #4649 slice 3: an outside row's relay stamp (an account id) stays on this board, as in the room route.
+      const rows = guideMaskedRows(messages.list(who), null).map((m) => (m && m.kind === 'external' && 'member' in m
+        ? (() => { const c = Object.assign({}, m); delete c.member; return c; })() : m));
+      sendJson(res, 200, { messages: withPreviews(rows) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -17036,7 +17039,10 @@ const server = http.createServer(async (req, res) => {
           /* #3311: from outside this Kosmos; `external: true` is what the page
              and the text view key on, never the name. */
           : m.kind === 'external'
-          ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
+          ? Object.assign({ kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true },
+            /* #4649 slice 3: the owner's own label for the account that posted (the relay's stamp, matched on this
+               board). The stamp itself never leaves the board. */
+            (() => { const l = fedmembers.labelForMember(id, m.member); return l ? { invited_as: l } : {}; })())
           : m.kind === 'note'
           ? { kind: 'note', text: noteTextNow(m, noteNames), at: m.at }
           : m.kind === 'post'

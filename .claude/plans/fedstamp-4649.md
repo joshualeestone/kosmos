@@ -11,8 +11,12 @@ Shape, agreed with Baron (HEADS-UP 13:47): the connector's stdout event gains a 
   `data` is ignored. No key at all when absent (an existing exact-shape test pins the row).
 - engine/messages.js externalPost: keeps `member` only in the account shape (`^[A-Za-z0-9_-]{1,80}(:[A-Za-z0-9_-]{1,80})?$`);
   anything else is not stored.
-- engine/fedmembers.js: each Members row carries `member` = the edge's `member_account_id`, so the screen (Pete) can put
-  a post whose `member` matches under that row's label ('Scout' under 'Dana Ruiz').
+- (Review round 1: the account id must not leave the board; it would let one guest recognise another across rooms,
+  and GET /api/messages would have handed it to any local agent with the board token.) So the BOARD maps it:
+  when fedseats pins a member (ownerHello), the coordinator's edge names its account; fedmembers.noteMember records
+  it on that invite's row. The room route adds `invited_as: <the owner's label>` to an outside post whose stamp
+  matches, and never the stamp. GET /api/messages strips `member` from outside rows. Members rows carry no `member`.
+  Pete's screen shows 'Scout' under 'Dana Ruiz' from `invited_as` alone.
 
 ## Weakest premise
 An owner's own other computers post as `<account>:<mac>`, never matching a guest edge; they are the owner's, and the
@@ -20,5 +24,6 @@ screen shows them as the owner's (the #4657 `same_account` flag), not under any 
 
 ## Tests
 engine/fedseats.test.js (slice 3), engine/messages.external-3311.test.js (slice 3), engine/fedmembers.test.js
-(Members `member`), plus the slice 1 / 1b files: 192/192. Mutations, each red: take `member` from `data`; store any
-`member`; no `member` on Members rows.
+(noteMember / labelForMember), server.fedmembers-4649.test.js (the room's invited_as; no id in the room or
+/api/messages), plus the slice 1 / 1b files: 195/195. Mutations, each red: take `member` from `data`; store any
+`member`; no strip in /api/messages; no invited_as; no noteMember at the pin.

@@ -797,6 +797,8 @@ async function ownerHello(projectId, s, link, frame, me) {
   sendFrame(s, fedseal.shareFrame(inv.s, inv.code, me, frame.pub, st.keys[st.epoch], st.epoch, s.room));
   // #4649 slice 1b: the owner's room says who joined, by the owner's own label for that invite.
   try { say(projectId, require('./fedmembers').joinedLine(projectId, inv.invite)); } catch { /* the line is furniture */ }
+  // #4649 slice 3: and remembers which account that is, so its posts can carry the owner's label.
+  try { require('./fedmembers').noteMember(projectId, inv.invite, edge.member_account_id); } catch { /* the label is furniture */ }
   if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
 }
 function onKeyFrame(projectId, s, frame) {

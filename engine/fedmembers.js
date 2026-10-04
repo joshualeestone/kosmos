@@ -249,9 +249,6 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
     return {
       invite_id: row.invite_id, label: row.label || null, kind: row.kind, made_at: row.made_at, expires_at: row.expires_at,
       state, edge_id: edge ? edge.id : null, joined_at: edge ? edge.created_at : null,
-      // #4649 slice 3: the account that joined, which the relay stamps on its posts as `member`: the screen groups
-      // a post under this row's label by it.
-      member: edge && typeof edge.member_account_id === 'string' ? edge.member_account_id : null,
     };
   });
   /* Review round 3: a connection with no row here (its code was made on the create screen, or on another of this
@@ -260,8 +257,7 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
     const known = new Set(rows.map((r) => r.invite_id));
     const extra = edges.filter((e) => !known.has(e.invite_id))
       .map((e) => ({ invite_id: e.invite_id, label: null, kind: e.member_kind || null, made_at: null, expires_at: null,
-        state: e.status === 'active' ? 'joined' : 'removed', edge_id: e.id, joined_at: e.created_at,
-        member: typeof e.member_account_id === 'string' ? e.member_account_id : null }));
+        state: e.status === 'active' ? 'joined' : 'removed', edge_id: e.id, joined_at: e.created_at }));
     out.push(...extra);
     /* One order for both kinds of row, newest first (review round 4): by when someone joined, else when the code was
        made; a row with neither sorts last. Rows from codes not recorded here can share an invite_id (several people,
@@ -291,6 +287,29 @@ function memberView(projectId) {
     owner: false, owner_name: (link && typeof link.owner_handle === 'string' && link.owner_handle) || null, sealed,
     ended, removed: /revoked|removed this computer/i.test(reason), invites: [], checked_at: null,
   };
+}
+
+/** #4649 slice 3: remember which account joined through an invite, when the owner's board pins that member (the
+    coordinator's edge names it). The room route then shows the owner's own label on that account's posts. The
+    account id itself is never sent to the page or an agent (review: it would let one guest recognise another across
+    rooms); only the label the owner typed is. A code with no row here (the create screen) is not remembered. */
+function noteMember(projectId, inviteId, account) {
+  if (typeof account !== 'string' || !account) return false;
+  const all = readAll();
+  const list = own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
+  const row = list.find((r) => r && r.invite_id === inviteId);
+  if (!row || row.member === account) return false;
+  row.member = account;
+  writeAll(all);
+  return true;
+}
+/** The owner's label for the account that posted (`member`, the relay's stamp), or null. */
+function labelForMember(projectId, member) {
+  if (typeof member !== 'string' || !member) return null;
+  let rows;
+  try { rows = rowsFor(projectId); } catch { return null; }
+  const row = rows.find((r) => r && r.member === member && r.label);
+  return row ? row.label : null;
 }
 
 /** The owner's room line when a member's computer first arrives (slice 1b, Q-K1): the owner's label for that invite,
@@ -348,4 +367,4 @@ async function withdraw(remote, projectId, inviteId, now = Date.now()) {
   return { status: 200, body: { withdrawn: true } };
 }
 
-module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine };
+module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine, noteMember, labelForMember };

@@ -151,3 +151,25 @@ test('#4649 slice 1b: joining an outside project writes a join note that never n
   assert.equal(m.status, 200, JSON.stringify(m.json));
   assert.deepEqual([m.json.owner, m.json.owner_name, m.json.removed], [false, 'maya', false]);
 });
+
+test('#4649 slice 3: the room shows the owner\'s label on a stamped outside post; the account id never leaves the board', async () => {
+  const fedmembers = require('./engine/fedmembers');
+  const messages = require('./engine/messages');
+  const made = projects.create({ name: 'Stamped Room' });
+  const pid = made.id || (made.project && made.project.id);
+  const inv = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person', label: 'Dana Ruiz' }, SCREEN);
+  assert.equal(inv.status, 200, JSON.stringify(inv.json));
+  assert.equal(fedmembers.noteMember(pid, inv.json.invite_id, 'acct-dana-777'), true);
+  assert.ok(messages.externalPost(pid, { from: 'Scout', fromKind: 'agent', text: 'batch 1 checked', member: 'acct-dana-777' }));
+  assert.ok(messages.externalPost(pid, { from: 'Eve', fromKind: 'person', text: 'from someone unknown', member: 'acct-unknown-1' }));
+  const room = await call('GET', '/api/project/' + encodeURIComponent(pid) + '/room', undefined, SCREEN);
+  assert.equal(room.status, 200, JSON.stringify(room.json).slice(0, 300));
+  const body = JSON.stringify(room.json);
+  assert.ok(!body.includes('acct-dana-777') && !body.includes('acct-unknown-1'), 'an account id reached the room answer');
+  const ext = (room.json.messages || room.json.rows || []).filter((m) => m && m.kind === 'external');
+  assert.equal(ext.find((m) => m.text === 'batch 1 checked').invited_as, 'Dana Ruiz');
+  assert.equal(ext.find((m) => m.text === 'from someone unknown').invited_as, undefined);
+  const all = await call('GET', '/api/messages', undefined, SCREEN);
+  assert.equal(all.status, 200);
+  assert.ok(!JSON.stringify(all.json).includes('acct-dana-777'), 'an account id reached /api/messages');
+});
