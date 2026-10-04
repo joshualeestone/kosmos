@@ -6497,7 +6497,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0 })) return;   // flat, as the list
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0, owner: { kind: 'agent', id: name } })) return;   // flat, as the list
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -17246,6 +17246,7 @@ const server = http.createServer(async (req, res) => {
     try { everyMember = [...new Set(projects.readAll().filter((p) => p && p.id === id).flatMap((p) => p.agents || []))]; } catch { everyMember = []; }
     try {
       gone = projects.remove(id);
+      try { filepreview.sweep(); } catch { /* #5254: best effort; the hourly sweep follows */ }
       /* #3311: its seat and its link go with it NOW. Project ids are name slugs
          and a freed one is reused, so a later local project of the same name
          would otherwise inherit a room outside this Mac. */
@@ -17814,7 +17815,7 @@ const server = http.createServer(async (req, res) => {
     try { record = projects.readAll().find((x) => x.id === id) || null; }
     catch (err) { refuse(500, String((err && err.message) || 'we cannot read your projects right now')); return; }
     if (!record) { refuse(404, 'there is no project by that name'); return; }
-    if (listedFileVerb(req, res, verb, record.folder, 'this project')) return;
+    if (listedFileVerb(req, res, verb, record.folder, 'this project', { owner: { kind: 'project', id } })) return;
     sendJson(res, 405, { ok: false, because: verb === 'reveal-file' ? 'use POST for that' : 'use GET for that' });   // as the agent route says
     return;
   }
@@ -20181,6 +20182,9 @@ function federateOut(projectId, delivery, operator) {
 
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
+  /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
+  try { filepreview.sweep(); } catch { /* best effort */ }
+  setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

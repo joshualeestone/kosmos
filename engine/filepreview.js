@@ -109,6 +109,7 @@ async function preview(folder, name, where, opts) {
       if (made) {
         for (const n of fs.readdirSync(dir)) if (/\.png$/.test(n) && path.join(dir, n) !== out) { try { fs.rmSync(path.join(dir, n), { force: true }); } catch { /* next time */ } }
         fs.renameSync(drawn, out);
+        noteSource(dir, got.target, opts && opts.owner);   // #5254: before prune/sweep, and only beside a page that exists
       }
     } catch { made = false; }
     finally { try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } }
@@ -119,8 +120,57 @@ async function preview(folder, name, where, opts) {
       return { ok: false, because: 'this computer could not draw the first page' };
     }
     prune();
+    sweep();   // #5254
   }
+  noteSource(dir, got.target, opts && opts.owner);   // #5254: a page drawn before this change gets its record on its next view
   try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
+}
+
+/* #5254: a cached first page goes when its PDF, its project or its agent goes, not only when 200 newer renders push it
+   out. Each cache folder carries SOURCE_FILE (mode 0600, in the board's own data folder like the picture): the
+   resolved path the page was drawn from and its owner ({ kind: 'project' | 'agent', id }). sweep() removes a folder
+   whose file is no longer a regular file at that path, whose project is no longer listed, or whose agent was removed,
+   and any folder without a readable record (drawn before this, so its file cannot be checked; a picture is cheap to
+   draw again). It runs after each new render, at board start, after a project is removed, and hourly (server.js).
+   A removed-agents list that cannot be read is not taken as "nobody removed": that check is skipped, never guessed. */
+const SOURCE_FILE = 'source.json';
+function noteSource(dir, target, owner) {
+  const own = owner && (owner.kind === 'project' || owner.kind === 'agent') && typeof owner.id === 'string' ? { kind: owner.kind, id: owner.id } : null;
+  const body = JSON.stringify({ target, owner: own });
+  const f = path.join(dir, SOURCE_FILE);
+  try { if (fs.readFileSync(f, 'utf8') === body) return; } catch { /* not there yet */ }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, '.' + SOURCE_FILE + '.' + process.pid + '.tmp');
+    fs.writeFileSync(tmp, body, { mode: 0o600 });
+    fs.renameSync(tmp, f);
+  } catch { /* the sweep removes a folder it cannot read a record for */ }
+}
+function sweep(deps = {}) {
+  const CACHE = cacheDir();
+  let ents;
+  try { ents = fs.readdirSync(CACHE, { withFileTypes: true }).filter((e) => e.isDirectory()); } catch { return { removed: 0 }; }
+  let projectIds = null;
+  try { projectIds = new Set((deps.projects || projects).readAll().map((x) => x && x.id)); } catch { projectIds = null; }
+  let removedAgents = null;
+  try {
+    const got = (deps.removal || require('./remove')).removedNames();
+    removedAgents = got && got.ok ? new Set(got.names) : null;
+  } catch { removedAgents = null; }
+  let removed = 0;
+  for (const e of ents) {
+    const d = path.join(CACHE, e.name);
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(path.join(d, SOURCE_FILE), 'utf8')); } catch { rec = null; }
+    let gone = !rec || typeof rec.target !== 'string';
+    if (!gone) {
+      try { gone = !fs.lstatSync(rec.target).isFile(); } catch { gone = true; }
+    }
+    if (!gone && rec.owner && rec.owner.kind === 'project' && projectIds) gone = !projectIds.has(rec.owner.id);
+    if (!gone && rec.owner && rec.owner.kind === 'agent' && removedAgents) gone = removedAgents.has(rec.owner.id);
+    if (gone) { try { fs.rmSync(d, { recursive: true, force: true }); removed++; } catch { /* next sweep */ } }
+  }
+  return { removed };
 }
 
 /** Show the listed file selected in its folder (Finder / File Explorer), never opening it. */
@@ -130,4 +180,4 @@ function reveal(folder, name, where, opts) {
   return projects.revealFile(got.target, { namedAs: path.join(String(folder), got.given) });   // the record's spelling, for Windows (as openFile)
 }
 
-module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, resolve, preview, reveal, _setNofollowForTest };
+module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, SOURCE_FILE, resolve, preview, reveal, sweep, _setNofollowForTest };
