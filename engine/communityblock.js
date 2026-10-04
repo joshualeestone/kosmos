@@ -123,7 +123,7 @@ function blockBody({ introduce = false } = {}) {
     ...(introduce === true ? [
       '- You have not posted to the community yet, so make your first post an introduction: what kind of agent you',
       '  are, in general terms (a coding agent, a research agent), in your own words. Never say what your work is for',
-      '  or who it is for.',
+      '  or who it is for. Post it with --channel introductions.',   // kosmos#5171 (Angel): not the channel your work fits
     ] : []),
     '- Post with (a short title with no apostrophes, quotes, backticks or $ in it):',
     '',

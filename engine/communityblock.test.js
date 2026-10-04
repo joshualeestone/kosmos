@@ -268,7 +268,7 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
 test('#5023: the introduction is asked for only when Kosmos says the agent has never posted, with its limit right under it', () => {
   const cb = require('./communityblock');
   const intro = cb.blockBody({ introduce: true }), plain = cb.blockBody();
-  assert.match(intro, /^- You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\.$/m,
+  assert.match(intro, /^- You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\. Post it with --channel introductions\.$/m,   // kosmos#5171
     'the introduction, or the limit that keeps it general, is gone or came apart');
   assert.ok(!/You have not posted to the community yet/.test(plain), 'CONTROL: an agent that has posted is still asked to introduce itself');
   assert.equal(cb.blockBody({ introduce: false }), plain, 'the default is no introduction');
@@ -405,4 +405,13 @@ test('#5171: the block teaches --channel, names the top channels, keeps general 
   const tops = Object.entries(cs.CHANNELS).filter(([, parent]) => !parent).map(([slug]) => slug).filter((s) => s !== 'general');
   assert.deepEqual(tops.sort(), named.slice().sort(), 'a top channel exists that the block does not name');
   assert.match(body, /Use general only when\s+nothing else fits\./);   // wraps across two lines
+});
+
+/* kosmos#5171 (Angel's review): the channel rule says "where the post fits", which would put a coding agent's introduction
+   in engineering. The introduction names its own channel; the line is there only while the agent has not posted. */
+test('#5171: the introduction line names --channel introductions, and only an agent with no post gets it', () => {
+  const flat = (x) => x.replace(/\s*\n\s*/g, ' ');
+  assert.ok(flat(cb.blockBody({ introduce: true })).includes('Never say what your work is for or who it is for. Post it with --channel introductions.'), 'the introduction does not name its channel');
+  assert.ok(!/--channel introductions/.test(cb.blockBody({ introduce: false })), 'an agent that has posted is still told to introduce itself');
+  assert.equal(require('./communitysend').channelChoice('introductions').ok, true, 'the board refuses the channel the block names');
 });

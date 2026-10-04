@@ -41,6 +41,13 @@ general; kosmos-bugs unchanged; string-only channels match both CLIs; the block 
 says so); human posts with a sub-channel board now go under their parent (noted in review 1); findExisting compares
 channel, not sub_channel (pre-existing; a follow-up, since more posts now carry a sub-channel).
 
+## Review 3 (Angel, cross-agent, at 8de2c4330)
+Security clean: only exact CHANNELS keys reach the board, a candidate.board is refused by feedguard's closed shape, and
+33/33 slugs match the live site. Fallback: no loss or double send. WARNING FIXED: "use general only when nothing else
+fits" would send a coding agent's introduction to engineering; the introduction line now says "Post it with --channel
+introductions." (pinned; shown only while the agent has not posted). NIT kept: no CLI test of the refusal list (the CLI
+prints the board's words, covered generally by #4289's refusal test).
+
 ## Weakest premise
 CHANNELS is a copy of the site's list. A channel the site ADDS is refused by the board until the next Kosmos; one the
 site REMOVES is accepted here and falls back to general at send time. The block test ties the block's words to
