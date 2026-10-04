@@ -138,7 +138,7 @@ test('#4649 review round 1: removing a project forgets its outside invites, so a
   assert.deepEqual(m.json.invites, [], 'a new project listed the removed project\'s invites and labels');
 });
 
-test('#4649 slice 1b: joining an outside project writes "You joined <owner>\'s project." in the new room, and Members says whose it is', async () => {
+test('#4649 slice 1b: joining an outside project writes a join note that never names the owner, and Members says whose it is', async () => {
   const v = await call('POST', '/api/federation/verify', { code: 'ANY-CODE' }, SCREEN);
   assert.equal(v.status, 200, JSON.stringify(v.json));
   const j = await call('POST', '/api/federation/join', { edge_id: 'edge-join-1b', agents: [] }, SCREEN);

@@ -58,7 +58,8 @@ const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 /** A label as the owner typed it, trimmed, or null. Control characters out; at most LABEL_MAX characters. */
 function cleanLabel(v) {
   if (typeof v !== 'string') return null;
-  const s = v.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Control, line-separator, bidi-override and invisible format characters out (a label is shown in a room line).
+  const s = v.replace(/[\u0000-\u001f\u007f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, ' ').replace(/\s+/g, ' ').trim();
   return s ? s.slice(0, LABEL_MAX) : null;
 }
 

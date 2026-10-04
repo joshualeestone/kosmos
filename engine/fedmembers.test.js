@@ -329,3 +329,7 @@ test('#4649 slice 1b: a project shared only with this account\'s other computers
 test('#4649 slice 1b: joinedLine uses the owner\'s label for that invite, else a plain sentence', () => {
   assert.strictEqual(fedmembers.joinedLine('nowhere', 'inv-x'), 'Someone joined from outside.');
 });
+
+test('#4649 slice 1b review round 2: a label loses bidi overrides and invisible format characters', () => {
+  assert.strictEqual(fedmembers.cleanLabel('Dana\u202e Ruiz\u200b\u2066'), 'Dana Ruiz');
+});

@@ -26,4 +26,4 @@ Stacked on fedmembers-4649 (#5266). Answers posted on #4649, comment 5982827679.
 - NITs: raw `ended_reason` dropped; the fedseats test restores the record it writes.
 
 ## Tests
-engine/fedmembers.test.js, engine/fedseats.test.js, server.fedmembers-4649.test.js, engine/federation.test.js, server.federation-3311.test.js: 175/175. Mutations, each red on its own test: no owner join line; no member join note; self_shared back to a 409.
+engine/fedmembers.test.js, engine/fedseats.test.js, server.fedmembers-4649.test.js, engine/federation.test.js, server.federation-3311.test.js: 176/176. Mutations, each red on its own test: no owner join line; no member join note; self_shared back to a 409.
