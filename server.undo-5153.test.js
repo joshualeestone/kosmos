@@ -78,3 +78,24 @@ test('undo: off until the person turns it on; a kept copy undoes a closed task\'
   assert.equal((await post('/api/project/undo-p/task/1/undo', { paths: 'x' })).status, 400);
   assert.equal((await fetch(base + '/api/project/undo-p/task/9/undo')).status, 404);
 });
+
+test('the real `kosmos keep-copy` reaches the board and a copy is kept, a name with a space and a quote included', async () => {
+  await put('/api/undo-setting', { on: true });
+  const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'vic');
+  fs.mkdirSync(folder, { recursive: true });
+  const file = path.join(fs.realpathSync(folder), 'odd "name" here.md');
+  fs.writeFileSync(file, 'BEFORE');
+  const copies = () => { const d = path.join(require('./engine/store').ROOT, 'undo', 'copies'); let n = 0;
+    for (const k of fs.existsSync(d) ? fs.readdirSync(d) : []) n += fs.readdirSync(path.join(d, k)).filter((x) => x.endsWith('.json')).length; return n; };
+  const before = copies();
+  const { execFile } = require('node:child_process');
+  const port = String(server.address().port);
+  const code = await new Promise((resolve) => execFile('bash', [path.join(__dirname, 'install', 'kosmos'), 'keep-copy', file, fs.realpathSync(folder), 's-cli'],
+    { env: { ...process.env, KOSMOS_PORT: port, KOSMOS_HOME: HOME, TMUX_PANE: '' }, timeout: 20000 }, (err) => resolve(err ? err.code : 0)));
+  assert.equal(code, 0, 'keep-copy always exits 0');
+  assert.equal(copies(), before + 1, 'no copy was kept through the CLI');
+  const metas = [];
+  const d = path.join(require('./engine/store').ROOT, 'undo', 'copies');
+  for (const k of fs.readdirSync(d)) for (const n of fs.readdirSync(path.join(d, k))) if (n.endsWith('.json')) metas.push(JSON.parse(fs.readFileSync(path.join(d, k, n), 'utf8')));
+  assert.ok(metas.some((m) => m.path === file && m.session === 's-cli' && m.existed), 'the path arrived whole');
+});

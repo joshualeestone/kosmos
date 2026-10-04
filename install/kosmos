@@ -2477,6 +2477,26 @@ cmd_whoami() {
 # --auto marks a report the MACHINE wrote on the agent's behalf (a lifecycle
 # hook), not one the agent chose to send. An automatic `idle` will not erase a
 # standing `blocked` or `needs_you` (#900).
+# #5153 slice 4: INTERNAL, the report hook's call just before a Claude agent edits a file (not for people, so no help
+# row, like board-run). The board keeps a copy only while the person's undo switch is on (engine/undo.js). It waits for
+# the answer, because the copy must exist before the edit, but for at most 3 s: a board that does not answer means no
+# copy, never a held edit. Always exits 0, so the edit goes ahead whatever happens here.
+#   kosmos keep-copy <absolute file> [<session folder>] [<session id>]
+cmd_keep_copy() {
+  local _p="${1:-}" _cwd="${2:-}" _sid="${3:-}"
+  [ -n "$_p" ] || exit 0
+  _kc_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r\n' '   '; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(agent_board_token || true)"
+  kosmos_curl "$_bt" "$_tok" -sS -m 3 -X POST "$URL/api/undo/keep" -H 'content-type: application/json' \
+    --data "{\"path\":\"$(_kc_esc "$_p")\",\"cwd\":\"$(_kc_esc "$_cwd")\",\"session\":\"$(_kc_esc "$_sid")\"}" >/dev/null 2>&1 || true
+  exit 0
+}
+
 cmd_report() {
   local _clear=0
   # #2709: `report show` (alias `status`) is the READ-BACK -- an agent checking
@@ -4359,6 +4379,7 @@ case "${1:-}" in
   stop)    agent_board_guard "$@"; cmd_stop ;;
   restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
+  keep-copy) shift; cmd_keep_copy "$@" ;;   # #5153: internal, the report hook's copy before an edit, not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
   agents)  cmd_agents ;;
