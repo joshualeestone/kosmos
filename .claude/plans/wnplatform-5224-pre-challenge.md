@@ -2,25 +2,25 @@
 pre_challenge: true
 method: challenge-loop
 branch: wnplatform-5224
-diff_hash: 8102250294d78162c6e24655817008a2fdf0117ca7cbb5393148db5449b2ffcb
+diff_hash: f34f871b44dcba5672da8fcd8256adb65724736540ec119d83f7c7a5d2b2dfb7
 validation: passed (focused, not the full suite; see below)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-04T07:45:27Z
-iterations: 8
+timestamp: 2026-10-04T09:10:19Z
+iterations: 14
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** Yes. Iteration 8 had zero NEW findings after deduplication and deferral.
-**Total findings:** 20 actionable (0 BLOCKERs, 19 WARNINGs, 1 CONVENTION), plus NITs.
-**Fixed:** 19 | **Deferred:** 1 | **Asked (awaiting user):** 0
+**Iterations:** 14 (8 before PR #5238 opened. Angel's cross-review of the PR, a fix for it, then 6 more blind rounds.)
+**Converged:** Yes. Iteration 14 had zero NEW findings after deduplication and deferral.
+**Total findings:** 31 actionable (0 BLOCKERs, 30 WARNINGs, 1 CONVENTION), plus NITs.
+**Fixed:** 29 | **Deferred:** 2 | **Asked (awaiting user):** 0
 
 **Validation, stated honestly.** The validation helper's full sequence (`yarn test`, the whole suite) needs the shared
 heavy queue on Agent1s, which Splinter reserved for day-one runs until 07:00 CDT. That run is queued for after 07:00.
-Run at HEAD 199d579a8 on a clean tree:
-- 58 test files, exit 0: 2428 tests, 2324 pass, 0 fail, 104 skipped. The files are every test that reads whatsnew,
+Run at HEAD 91dbf8f41 on a clean tree (it was also run at 199d579a8 before the PR):
+- 58 test files, exit 0: 2429 tests, 2325 pass, 0 fail, 104 skipped. The files are every test that reads whatsnew,
   whats-new, the release docs or the Windows build, plus the repo-wide audits that list and read files.
 - server.test.js filtered to whats-new, #3955, #4928 and #5224: 5 of 5 pass.
 
@@ -93,6 +93,44 @@ that needed deleting.
 **New findings:** 0 after deduplication
 - [WARNING] engine/whatsnew.js:41-48: the word list's false positive and the lower-case gap --> duplicate of iteration 1 (FIXED) and iteration 6 (FIXED); confirmed resolved
 - [WARNING] tools/build-kosmos-windows.sh:216: "an out-of-tree caller without --platform would skip the gate" --> DEFERRED: no such caller exists. `git grep whats-new-check` finds 4 callers and all pass --platform, and a test pins each one.
+**Converged at the time (the proof was written here, and PR #5238 opened).**
+
+#### Between 8 and 9: Angel's cross-review on PR #5238
+- [WARNING] a dismissal keys on the file's version, not its words --> FIXED (782b92403): docs/releasing.md says a changed shipped file needs a new "version"
+
+#### Iteration 9
+**Reviewer model:** opus
+- [WARNING] tools/windows/RELEASING.md: "Windows shows no window" was false since --platform (the build stops) --> FIXED (01213c5f2)
+- [WARNING] docs/releasing.md: the same stale claim for both cuts --> FIXED (01213c5f2)
+- [WARNING] engine/whatsnew.js + docs: implied a MAC address is excluded; upper-case "MAC" counts as the Mac --> FIXED (01213c5f2)
+**Self-generated:** 3 (prose this loop wrote; each was replaced with a claim a test or probe guards)
+
+#### Iteration 10
+**Reviewer model:** sonnet
+- [WARNING] word-list gaps (Apple silicon, Finder) --> duplicate of iterations 3 and 4
+- [WARNING] a contrast line ("Unlike on a Mac...") cannot ship under any tag --> FIXED (e71f286da): recorded in the plan as an accepted cost
+- [WARNING] a future caller without --platform --> duplicate of iteration 8 (DEFERRED)
+
+#### Iteration 11
+**Reviewer model:** opus
+- [WARNING] engine/whatsnew.js: platformOf duplicated engine/platform's decision --> FIXED (c4f55e67f): the read's default is describe().platform, tested
+- [WARNING] server.js /seen comment stale --> FIXED (c4f55e67f)
+
+#### Iteration 12
+**Reviewer model:** sonnet
+- [WARNING] word-list gaps; title-case "Windows" --> duplicates (iterations 1, 3, 4, 10)
+- [WARNING] tools/build-kosmos-windows.sh: the exit-3 hint led with the "also" fix --> FIXED (f38870bf1)
+
+#### Iteration 13
+**Reviewer model:** opus
+**Disclosure:** this round's prompt added one line: the reviewer could judge the plan's accepted costs, but a limit the plan accepts on purpose is not by itself a new finding. That steers what counts as a finding, so it is recorded here. Iteration 14 used the unmodified prompt.
+- [WARNING] tools/release.sh opt-out message named the wrong condition and left out a malformed file --> FIXED (91dbf8f41)
+- [WARNING] "MacOSX" (one token) was not caught --> FIXED (91dbf8f41), tested
+
+#### Iteration 14
+**Reviewer model:** sonnet
+- [WARNING] title-case "Windows" / "PC-free" false positives --> duplicate of iterations 1 and 12
+- [WARNING] a file with a naming problem serves no window on any platform at runtime --> DEFERRED: by design. It is the module's existing fail-closed rule (#3955): any problem, including a malformed "also", serves the whole file as none, and the header says so. The cut check stops such a file before it ships.
 **Converged.**
 
 ### Final Ledger
@@ -119,6 +157,17 @@ that needed deleting.
 | 18 | 7 | WARNING | tools/whats-new-check.js:56 | SELF | note did not warn of the later stop | FIXED | 199d579a8 |
 | 19 | 7 | WARNING | tools/whats-new-check.js:4 | SELF | header stale | FIXED | 199d579a8 |
 | 20 | 8 | WARNING | tools/build-kosmos-windows.sh:216 | BRANCH | hypothetical caller without flag | DEFERRED | no such caller; all 4 pinned |
+| 21 | PR | WARNING | engine/whatsnew.js (dismissal) | BRANCH | dismissal keys on version | FIXED | 782b92403 |
+| 22 | 9 | WARNING | tools/windows/RELEASING.md | SELF | stale "shows no window" | FIXED | 01213c5f2 |
+| 23 | 9 | WARNING | docs/releasing.md | SELF | stale "shows no window" | FIXED | 01213c5f2 |
+| 24 | 9 | WARNING | engine/whatsnew.js comment | SELF | MAC address implied excluded | FIXED | 01213c5f2 |
+| 25 | 10 | WARNING | plan | BRANCH | contrast line unshippable, unrecorded | FIXED | e71f286da |
+| 26 | 11 | WARNING | engine/whatsnew.js:132 | SELF | own platform mapping | FIXED | c4f55e67f |
+| 27 | 11 | WARNING | server.js:15422 | BRANCH | /seen comment stale | FIXED | c4f55e67f |
+| 28 | 12 | WARNING | tools/build-kosmos-windows.sh:219 | SELF | exit-3 hint | FIXED | f38870bf1 |
+| 29 | 13 | WARNING | tools/release.sh:684 | SELF | opt-out message wrong | FIXED | 91dbf8f41 |
+| 30 | 13 | WARNING | engine/whatsnew.js:43 | SELF | MacOSX missed | FIXED | 91dbf8f41 |
+| 31 | 14 | WARNING | engine/whatsnew.js (readFull) | BRANCH | runtime fail-closed on any problem | DEFERRED | by design (#3955 rule) |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
