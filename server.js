@@ -1181,6 +1181,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
 }
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const federation = require('./engine/federation');
+const fedmembers = require('./engine/fedmembers');
 /* #3311: one room seat per federated project. What arrives is recorded in the
    room as an external row (data, never typed into a pane); a post that lands in
    a federated room is sent out through its seat (federateOut below). */
@@ -17477,8 +17478,15 @@ const server = http.createServer(async (req, res) => {
            ADVISORY: a process can present the browser header; this stops the
            default path an agent would take. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        /* #4649: an invite naming an existing project (`project`) goes through fedmembers, which finds or makes the
+           project's owner ref and records the owner's label for the Members list. */
         const out = pathname === '/api/federation/invite'
-          ? await federation.invite(remote, body)
+          ? (typeof body.project === 'string' && body.project
+            ? await fedmembers.invite(remote, body, {
+              projectExists: (id) => { try { return !!projects.get(id); } catch { return false; } },
+              projectName: (id) => { try { const p = projects.get(id); return p && p.name; } catch { return null; } },
+            })
+            : await federation.invite(remote, body))
           : await federation.verify(remote, body);
         sendJson(res, out.status, out.body);
       })
@@ -17489,6 +17497,32 @@ const server = http.createServer(async (req, res) => {
      ANOTHER computer of the same account to join its shared room. Screen-only like invite:
      it marks the project shared with the person's other computers (its owner seat then
      opens even with no guest). */
+  /* #4649: the owner's Members list of people and agents from outside, and removing or withdrawing one. Screen
+     only, like invite: these act on the coordinator through this Mac's signature. */
+  if (pathname === '/api/federation/members' && req.method === 'GET') {
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see who was invited from outside.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    fedmembers.members(remote, pid).then((out) => sendJson(res, out.status, out.body))
+      .catch((err) => sendJson(res, 500, { error: (err && err.message) || 'we could not read who was invited' }));
+    return;
+  }
+  if ((pathname === '/api/federation/remove' || pathname === '/api/federation/withdraw') && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can remove someone from an external project.' }); return; }
+        const out = pathname === '/api/federation/remove'
+          ? await fedmembers.remove(remote, body.project, body.edge_id)
+          : await fedmembers.withdraw(remote, body.project, body.invite_id);
+        sendJson(res, out.status, out.body);
+      })
+      .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
   if (pathname === '/api/federation/own-code' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
