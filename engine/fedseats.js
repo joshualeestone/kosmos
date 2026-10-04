@@ -89,6 +89,7 @@ let deps = null;
  */
 function configure(d) {
   deps = d;
+  macEdges = null;   // an answer from the previous wiring is not this one's
 }
 
 /** Whether the board wired an optional dependency (a test's check that server.js
@@ -161,7 +162,7 @@ function onEvent(projectId, line, checked) {
       const now = Date.now();
       // #5191: an owner opens a post only after a recent enough edge check (holdForCheck).
       // `checked`: this is a held post being let through after its check.
-      if (!checked && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, line, now)) return;
+      if (!checked && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, ev.data, line, now)) return;
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
       // re-send arrives it holds its posts (a revoked member may still hold its key).
       // Any epoch ahead counts (a member may have missed several rotations), but the
@@ -183,7 +184,17 @@ function onEvent(projectId, line, checked) {
         noteOnce(projectId, s, 'sealedSince', 'The owner has sealed this shared room since this computer joined, so its messages cannot be read here. Ask the owner to remove you from the shared project and send you a new code.');
         return;
       }
-      if (!opened) { noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.'); return; }
+      if (!opened) {
+        // #5191: an owner refusing an older epoch's post re-sends the current key now (at most
+        // once per EDGE_FRESH_MS), so a remaining member that missed a rotation catches up
+        // without waiting for the next pass. The refused post itself is not resent (#5192).
+        if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && now - (s.rotatesResentAt || 0) >= EDGE_FRESH_MS) {
+          s.rotatesResentAt = now;
+          sendRotates(projectId, s);
+        }
+        noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
+        return;
+      }
       const fresh = freshMessage(s, opened, now);
       if (fresh === 'seen') { noteOnce(projectId, s, 'replay', 'A sealed message arrived a second time, so it was not shown again.'); return; }
       if (fresh === 'time') {
@@ -512,15 +523,10 @@ function acceptedKeys(st, now) {
   if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < graceAfter(st)) keys[prev] = st.keys[prev];
   return keys;
 }
-/** #5191: how long the previous epoch opens after this room's last rotation. A member:
-    EPOCH_GRACE_MS. An owner: its record says why it rotated (`rotatedFor`, kept with the
-    epoch in the rooms file, so a restart inside the grace cannot forget it). The only
-    reason an owner rotates today is a revoke, and a missing or unreadable reason reads
-    as a revoke too, so a record from before #5191, or a damaged one, never gets the long
-    grace: every owner rotation gets REVOKE_GRACE_MS while a member remains, and none once
-    nobody does. "A member" is a pinned member PEER only: the owner's own other computers
-    are never pinned (a room shared with a guest is sealed against them, #4693), and when
-    #4658 lets them in they must count as the owner, never here. */
+/** #5191: how long the previous epoch opens after this room's last rotation. An owner
+    rotates only on a revoke (rotateForRevoked), so every owner rotation gets the revoke
+    grace, read from the rooms file alone. "A member" is a pinned member PEER: when #4658
+    lets the owner's own other computers in, they must count as the owner, never here. */
 function graceAfter(st) {
   if (st.role !== 'owner') return EPOCH_GRACE_MS;
   return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
@@ -614,42 +620,63 @@ function revokeCheck(projectId, link, edges) {
     const epoch = st.epoch + 1;
     const keep = {};
     for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
-    // #5191: why it rotated is kept with the epoch (graceAfter).
     fedseal.setRoomState(projectId, Object.assign({}, st, {
-      peers: keep, epoch, rotatedAt: Date.now(), rotatedFor: 'revoke', keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }),
+      peers: keep, epoch, rotatedAt: Date.now(), keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }),
     }));
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
     return { checked: true, rotated: true };
   });
 }
-/** #5191: check an owner room's edges, then let the posts held for that check through.
-    They are opened AFTER the check, under the keys it leaves: a revoke it found has
-    rotated the room, so an old-key post opens only inside graceAfter. When the check
-    could not be made the posts stay held, except on the 60 s pass (`pass`): then they
-    are shown unchecked, which is how every post was shown before #5191, so a check that
-    keeps failing is never worse than that. */
-async function checkRoom(projectId, link, edges, pass) {
+/** #5191: one edges answer for the whole Mac, shared by every owner room's post-triggered
+    check while it is younger than EDGE_FRESH_MS (the answer lists every project's edges),
+    so the number of busy rooms does not set how often this Mac asks Kosmos+. A failed
+    answer is not reused. */
+let macEdges = null;
+function sharedEdges(now) {
+  if (macEdges && now - macEdges.askedAt < EDGE_FRESH_MS) return macEdges;
+  const ask = { askedAt: now, promise: null };
+  try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_EDGES, {})); } catch (err) { ask.promise = Promise.reject(err); }
+  const drop = () => { if (macEdges === ask) macEdges = null; };
+  ask.promise.then((r) => { if (!r || !r.ok) drop(); }, drop);
+  macEdges = ask;
+  return ask;
+}
+/** #5191: check an owner room's edges, then let the posts held for that check through,
+    opened under the keys the check leaves. When the check could not be made they stay
+    held, except on the 60 s pass (`pass`), which shows them unchecked. `askedAt()` is when
+    the answer used was asked for; the room counts as checked from then, not from when the
+    answer arrived. */
+async function checkRoom(projectId, link, edges, pass, askedAt) {
+  const started = Date.now();
   const r = await revokeCheck(projectId, link, edges);
   const s = seats.get(projectId);
   if (!s) return r;
-  if (r && r.checked) s.edgesCheckedAt = Date.now();
+  if (r && r.checked) {
+    const at = typeof askedAt === 'function' ? askedAt() : 0;
+    s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
+  }
   if (s.held && s.held.length && ((r && r.checked) || pass)) {
     const held = s.held;
     s.held = [];
-    for (const line of held) onEvent(projectId, line, true);
+    s.heldNoted = false;
+    for (const line of held) {
+      try { onEvent(projectId, line, true); } catch (err) {
+        console.error('#5191: a held post for ' + JSON.stringify(projectId) + ' could not be handled: ' + String((err && err.message) || err));
+      }
+    }
   }
   return r;
 }
 /** #5191: hold a sealed post to an owner whose edges were not checked in the last
-    EDGE_FRESH_MS, and ask: once per room per EDGE_FRESH_MS, so posts arriving while a
-    check is out, or soon after one failed, wait with it (for the pass at the latest).
-    True when the post was taken. A held post is never dropped, except past HELD_MAX,
-    where the room's minute budget would refuse it anyway, and the room says so the same
-    way. */
-function holdForCheck(projectId, s, sealed, line, now) {
+    EDGE_FRESH_MS, and ask (once per room per EDGE_FRESH_MS). True when the post was taken.
+    Only a post that opens now is held: a check can only narrow what opens, so one that
+    does not open now goes straight to the usual refusal and takes no place. Held posts
+    live in this seat's memory: a board restart while they wait loses them. */
+function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
   if (now - (s.edgesCheckedAt || 0) < EDGE_FRESH_MS) return false;
+  if (!s.room || !fedseal.open(acceptedKeys(sealed, now), s.room, env)) return false;
   s.held = s.held || [];
   if (s.held.length >= HELD_MAX) {
     if (!s.heldNoted) { s.heldNoted = true; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept.'); }
@@ -660,7 +687,8 @@ function holdForCheck(projectId, s, sealed, line, now) {
     const link = safeLink(projectId);
     if (link && link.role === 'owner') {
       s.edgeAskedAt = now;
-      s.edgeAsk = checkRoom(projectId, link, null, false).catch(() => {}).then(() => { s.edgeAsk = null; });
+      const ask = sharedEdges(now);
+      s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt).catch(() => {}).then(() => { s.edgeAsk = null; });
     }
   }
   return true;
@@ -847,7 +875,8 @@ async function ensureAll() {
   // One edges request per pass, shared by every owner project: the number of
   // linked projects must not set how often this Mac calls Kosmos+.
   let pending = null;
-  const edges = () => pending || (pending = deps.macRequest('POST', MAC_EDGES, {}));
+  let pendingAt = 0;
+  const edges = () => pending || (pendingAt = Date.now(), pending = deps.macRequest('POST', MAC_EDGES, {}));
   // A seat whose link is gone (its project removed some other way) stops.
   for (const id of [...seats.keys()]) if (!Object.prototype.hasOwnProperty.call(links, id)) stop(id);
   for (const id of Object.keys(links)) {
@@ -866,7 +895,7 @@ async function ensureAll() {
   for (const id of Object.keys(links)) {
     const link = links[id];
     if (!link || link.role !== 'owner') continue;
-    try { await checkRoom(id, link, edges, true); } catch { /* retried on the next pass */ }
+    try { await checkRoom(id, link, edges, true, () => pendingAt); } catch { /* retried on the next pass */ }
   }
 }
 
