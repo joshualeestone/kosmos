@@ -6297,12 +6297,21 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
 }
 /* kosmos#5200: on a touch screen every control on the task page is a 44px target. Boxed controls grow to 44; the
-   small text links (Change who, Done/Put back, + Add subtask) keep their look and their line: padding widens the hit
-   area and an equal negative margin takes it back out of the layout. Touch only, as #panel-tasks's rule above. */
-@media (hover: none) {
+   small links in a row (the name, Done) keep their look and their line: padding widens the hit area and an equal
+   negative margin takes it back out of the layout. 14px above and below a 16-17px line makes 44. Sideways, each link grows only AWAY from its
+   neighbour, so two targets never overlap: the name (Change who) to its left, into the avatar's gap, never towards
+   Done; Done to its right. Touch screens, and any coarse pointer (a touch laptop that reports hover). */
+#tk-subadd { margin-top: 10px; }
+@media (hover: none), (pointer: coarse) {
   #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold) { min-height: 44px; }
-  /* 14px above and below a 16-17px line makes 44; 10px each side widens the short ones (Done is 35 wide). */
-  #pj-task-view :is(.tkwho-pick, .tkpart-go, #tk-subadd) { padding: 14px 10px; margin: -14px -10px; }
+  #pj-task-view .tkwho-pick { padding: 14px 0 14px 19px; margin: -14px 0 -14px -19px; min-width: 44px; box-sizing: border-box;
+                              border-bottom: 0; text-decoration: underline dashed transparent; text-underline-offset: 3px; }
+  #pj-task-view .tkwho-pick:is(:hover, :focus-visible) { text-decoration-color: var(--label-2); }
+  #pj-task-view .tkpart-go { padding: 14px 10px 14px 0; margin: -14px -10px -14px 0; }
+  /* These two stand on their own lines, where padding with a negative margin cannot be paid back exactly (the line's
+     strut moves the text 2 to 6px), so they are honest 44px boxes instead: the subtasks block grows a little on a
+     phone, and stacked boxes in normal flow cannot overlap. Sideways the hit area still grows and is taken back. */
+  #pj-task-view :is(#tk-subadd, #tk-subs-close) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; margin: 0 -10px; }
 }
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
@@ -16338,7 +16347,7 @@ window.kosmosMeasureScrollbarWidth();
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
-        <button class="linkish" type="button" id="tk-subadd" style="margin-top:10px;">+ Add subtask</button>
+        <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
 
       <!-- MIDDLE: the task's conversation, the whole point of resembling a project.
