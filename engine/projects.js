@@ -1246,6 +1246,42 @@ function list(roster) {
   return all.map((p) => describe(p, roster, all));
 }
 
+/* #5260: the times files in this project's folder were last changed, for the room's back-and-forth valve (engine/
+   messages.js), at or after `since` and not after `now`, oldest first. A fact-check cycle that edits the work in the
+   folder and talks in the room moved no task, so #4786's allowance gave it nothing and the room was held mid-cycle
+   (daily feedback, 2026-10-04). Each FILE counts once, however often it was rewritten (a newest-first list holds a
+   path once), so the valve's bound (at most one more cap in all, shared with task steps) is unchanged: a loop that
+   also writes files still runs to at most twice the cap. Dot-files, scratch names and dependency or build folders are
+   not counted (listFiles' rules), and no file is opened. Only the newest `limit` files are read: the valve stops
+   adding after ROOM_PROGRESS_STEPS steps, so more could never change its answer. [] when the project, its folder
+   or the list cannot be read (never throws), which is the strict side: no allowance. */
+const FILE_CLOCK_SLACK_MS = 2000;
+const FILE_CREATED_SLACK_MS = 10000;
+function changedFileTimes(projectId, since, now = Date.now(), limit = 8) {
+  try {
+    const found = readAll().find((p) => p && p.id === projectId);
+    if (!found || typeof found.folder !== 'string' || !found.folder) return [];
+    const listed = listFiles(found.folder, limit);
+    if (!listed || !listed.ok || !Array.isArray(listed.files)) return [];
+    /* What making the project wrote (the BRIEF.md stub, a done typed at creation) is not work moving: a room in its
+       first hour would otherwise get a step for being new. A file last changed within FILE_CREATED_SLACK_MS of the
+       project's createdAt does not count. */
+    const born = Date.parse(found.createdAt);
+    const from = Number.isFinite(born) ? Math.max(since, born + FILE_CREATED_SLACK_MS) : since;
+    /* A file written a moment before the post that asks can carry a time a millisecond or so AFTER `now` (the file
+       system's clock and Date.now() are read separately; measured on APFS while building this), and dropping it would
+       miss exactly the case this exists for: an agent saves its batch, then posts. So a time up to FILE_CLOCK_SLACK_MS
+       ahead counts, as now. Anything further ahead is skipped, as #4786 does for a future task row: it would count in
+       every later window. */
+    return listed.files.map((f) => Date.parse(f.modified))
+      .filter((t) => Number.isFinite(t) && t >= from && t <= now + FILE_CLOCK_SLACK_MS)
+      .map((t) => Math.min(t, now))
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
 function get(id, roster) {
   const all = readAll();
   const found = all.find((p) => p.id === id);
@@ -3403,6 +3439,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
+  changedFileTimes,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
