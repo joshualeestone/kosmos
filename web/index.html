@@ -63429,6 +63429,9 @@ async function loadRoom() {
   paintRoom(body);
 }
 
+/* #4653: the ambiguous-mention note last shown under the composer, so the next edit can take away that note
+   and only that one (the input listener below). */
+let PJ_AMBIG_NOTE = '';
 async function pjPostSend(attachment) {
   const pendingIds = attachment ? [attachment] : attachList(ATTACH_ROOM).map((r) => r.id);
   if (PJ_POSTING) return;
@@ -63497,11 +63500,14 @@ async function pjPostSend(attachment) {
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
     if (replying && PJ_REPLY[sentProject] && PJ_REPLY[sentProject].id === replying.id) { delete PJ_REPLY[sentProject]; if (PJ_CURRENT === sentProject) pjReplyPaint(sentProject); }
-    if (PJ_CURRENT === sentProject) msg.textContent = '';
+    /* #4653: an @-word that named two agents reached neither as a request; the engine's sentence
+       stays under the composer (and is announced), so the person can re-send with the exact name. */
+    const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote : '';
+    if (PJ_CURRENT === sentProject) { msg.textContent = ambig; PJ_AMBIG_NOTE = ambig; }
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
-    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p));
+    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p) + (ambig ? ' ' + ambig : ''));
     if (PJ_CURRENT === sentProject) await loadRoom();
   } catch {
     verdict('We could not reach Kosmos to post that.');
@@ -63624,6 +63630,14 @@ function mentionPick(i) {
 }
 
 document.getElementById('pj-post').addEventListener('input', mentionRefresh);
+/* #4653: the ambiguous-mention note is about the post just sent; once the person types the next one it is
+   stale, so the first edit takes it away. Only that note: any other line under the box keeps its own rules.
+   PJ_AMBIG_NOTE is declared above pjPostSend, which sets it. */
+document.getElementById('pj-post').addEventListener('input', () => {
+  const msg = document.getElementById('pj-room-msg');
+  if (PJ_AMBIG_NOTE && msg && msg.textContent === PJ_AMBIG_NOTE) msg.textContent = '';
+  PJ_AMBIG_NOTE = '';
+});
 document.getElementById('pj-post').addEventListener('click', mentionRefresh);
 document.getElementById('pj-post').addEventListener('blur', () => { setTimeout(mentionClose, 150); });
 document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
