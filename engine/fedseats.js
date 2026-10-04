@@ -962,7 +962,8 @@ async function ensureAll() {
     if (!link || link.role !== 'owner') continue;
     try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
   }
-  // #5192: held posts go after this pass's revoke check, so never just before a rotation it makes.
+  // #5192: the pass flushes after its own revoke check (a connect or a pin flushes at once, as a
+  // live post would go at once).
   for (const id of Object.keys(links)) {
     const seat = seats.get(id);
     if (seat && seat.status === 'connected') { try { flushHeld(id, seat); } catch { /* next pass */ } }
@@ -1107,8 +1108,6 @@ function flushHeld(projectId, s) {
   try {
     for (; i < held.length; i++) {
       if (heldStale(held[i])) { stale += 1; continue; }
-      // Held while behind: still behind once the hold ran out, it is not sent under the old key.
-      if (held[i].msg.behindHeld && st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && Date.now() >= s.behind.until) { keyless += 1; continue; }
       if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
         // Pinned members exist and not all came from an invite live when it was written.
         if (pinnedAny(projectId)) { unmeant += 1; continue; }
@@ -1139,7 +1138,9 @@ function flushHeld(projectId, s) {
   const lost = s.lostHeld || 0;
   s.lostHeld = 0;
   if (lost) say(projectId, lost + (lost === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + (lost === 1 ? 'it' : 'they') + ' no longer fit what this room can send, or who it includes could not be read.');
-  if (keyless) say(projectId, keyless + (keyless === 1 ? ' held message was' : ' held messages were') + ' not sent: the new key did not arrive in time, and ' + (keyless === 1 ? 'it was' : 'they were') + ' not sent under the old one.');
+  keyless += s.keylessHeld || 0;
+  s.keylessHeld = 0;
+  if (keyless) say(projectId, keyless + (keyless === 1 ? ' held message was' : ' held messages were') + ' not sent: this computer could not confirm it had the newest key in time, so ' + (keyless === 1 ? 'it was' : 'they were') + ' not sent under the key it has.');
   if (unmeant) say(projectId, unmeant + (unmeant === 1 ? ' held message was' : ' held messages were') + ' not sent: the computer that joined came from an invite made after ' + (unmeant === 1 ? 'it was' : 'they were') + ' written.');
 }
 /** Owner: whether any pinned member was pinned from one of these invites. */
@@ -1193,6 +1194,13 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
   }
   if (sealedRoom) {
     msg.sealedHeld = true;
+    // #5192: a post held while behind, with the hold run out and this member still short of the
+    // epoch that armed it, is never sealed under the key it has (a removed member may hold it).
+    // Here, where the post is sealed, so no read of the record elsewhere can let it through.
+    if (heldAt && msg.behindHeld && hasKey(sealed) && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && Date.now() >= s.behind.until) {
+      s.keylessHeld = (s.keylessHeld || 0) + 1;
+      return false;
+    }
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
       // #5192: marked, so it goes only under the new key: if the hold runs out first it is
       // dropped, never sent under a key a removed member may still hold.
@@ -1224,6 +1232,7 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
     return false;
   }
   // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
+  // Defensive: nothing re-enters post() during a flush today (a room note never federates).
   if (!heldAt && s.flushing) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
   if (!heldAt && s.outbox && s.outbox.length) {
     flushHeld(projectId, s);

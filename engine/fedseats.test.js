@@ -2095,7 +2095,7 @@ test('#5192: when a behind hold runs out with no new key, the post held during i
   assert.strictEqual(fedseats.post('proj-5192-exp', { from: 'B', kind: 'person', text: 'after the hold' }), true);
   const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: k0 }, 'room-5192-exp', f));
   assert.deepStrictEqual(out.map((o) => o && o.m.text), ['after the hold'], 'a post held during the hold went under the old key');
-  assert.ok(h.notes.some((n) => /not sent: the new key did not arrive in time/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /not sent: this computer could not confirm it had the newest key in time/.test(n.text)), JSON.stringify(h.notes));
   void h;
 });
 
@@ -2166,7 +2166,7 @@ test('#5192: a post held for a missing room id goes out when the seat connects w
   const out2 = lines(seat).slice(mid).map((f) => fedseal.open({ 0: k0 }, 'room-5192-room', f)).filter(Boolean);
   // The pass reached it, and it was not sent under the old key a removed member may hold.
   assert.deepStrictEqual(out2, [], 'a post held while behind went out under the old key');
-  assert.ok(h.notes.some((n) => /1 held message was not sent: the new key did not arrive in time/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /1 held message was not sent: this computer could not confirm it had the newest key in time/.test(n.text)), JSON.stringify(h.notes));
 });
 
 test('#5192: an owner seat replaced while a hello was being checked does not flush its held posts through the new seat', async () => {
@@ -2452,7 +2452,7 @@ test('#5192: a post held during a hold a forged epoch armed fails closed: droppe
   await fedseats.ensureAll();
   await settle();
   // It cannot tell a forged epoch from a real one it missed, so it fails closed.
-  assert.ok(h.notes.some((n) => /1 held message was not sent: the new key did not arrive in time/.test(n.text)), JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /1 held message was not sent: this computer could not confirm it had the newest key in time/.test(n.text)), JSON.stringify(h.notes));
   assert.ok(!h.notes.some((n) => /under the key this computer has/.test(n.text)), JSON.stringify(h.notes));
 });
 
