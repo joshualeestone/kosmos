@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: nudgecopy-5211
-diff_hash: 6c08c7ba200a107b6aa684640aa4d8f6f3077e9b9024df511769afd8750d2298
-validation: passed (top of the stack: Mortals full suite at home-5212 25c616eb7, hash 3fcd4963cc4b, 02:21 CDT, which contains this branch; after Renet's #5211 merge both were rebased onto main c2f34b40d, and home-5212's rebased tree equals the clean merge of 25c616eb7 with main (7d4405140), so the run carries (path C rebase rule); focused on this head 2958c996b with every guard: 345/345)
+diff_hash: 307fd251abf8a102ea4b1010f923ed13a3389c425fef1d4b48115ad2c77ce658
+validation: passed (top of the stack: Mortals full suite at home-5212 25c616eb7, hash 3fcd4963cc4b, 02:21 CDT, which contains this branch; after Renet's #5211 merge both were rebased onto main c2f34b40d, and home-5212's rebased tree equals the clean merge of 25c616eb7 with main (7d4405140), so the run carries (path C rebase rule); focused on this head 2958c996b with every guard: 345/345; then Mona Lisa's verbs for every count (wording only, engine/communitynudge.js + its test; D3 focused 345/345 at this head))
 subdir_audit: passed
-timestamp: 2026-10-04T07:23:06Z
+timestamp: 2026-10-04T07:25:16Z
 iterations: 2
 converged: true
 ---
