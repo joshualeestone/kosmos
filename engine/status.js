@@ -1611,6 +1611,18 @@ function isAntigravityCommand(command) {
   return String(command || '').trim() === 'agy';
 }
 
+/* #5187: inspect an Antigravity pane for user-queued messages waiting above the composer.
+   Returns { n, yours: 0 } if queued messages are found, else null. */
+function antigravityQueued(paneText) {
+  if (typeof paneText !== 'string' || !paneText) return null;
+  const tail = paneText.split('\n').slice(-35).join('\n');
+  const hasQueuePrompt = /to edit queued messages/i.test(tail) || /user-queued messages/i.test(tail);
+  const matches = tail.match(/(?:^|\n)\s*▸?\s*\[message from [^\n]+/g);
+  if (!hasQueuePrompt && (!matches || matches.length === 0)) return null;
+  const n = matches ? matches.length : 1;
+  return { n, yours: 0 };
+}
+
 /* #3953: Grok Build, the same strict literal shape. It is a native binary. On a Mac the managed
    install is a `grok` symlink to `pkg/bin/grok-native`, and tmux names the pane after the
    symlink's TARGET, so the pane reads `grok-native` (measured on grok 1.0.41, both through the
@@ -4416,16 +4428,41 @@ function classify(pane, paneText) {
     // refuse honestly rather than assert a state off a look that did not land.
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' };
   }
-  /* #3568: an Antigravity pane. agy is a native binary (its pane command is `agy`, never a
+  /* #3568 / #5187: an Antigravity pane. agy is a native binary (its pane command is `agy`, never a
      Claude version string or node), so the Claude running check below would call a live agy agent
-     stopped. Running-or-not comes from the command; WHAT it is doing is not read yet (no signed-in
-     agy screen or transcript has been captured), so a running one is honestly unknown. The
-     command counts too, as for codex: an agy pane read before its runner tag lands is still agy. */
+     stopped. Running-or-not comes from the command; what it is doing is scraped from prompt and footer
+     markers (esc to cancel for working, ? for shortcuts for idle, and queued messages above composer). */
   if (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) {
     if (!isAntigravityCommand(pane.command)) {
       return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Antigravity is not running for this one' };
     }
-    return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'Kosmos cannot read what Antigravity is doing yet' };
+    if (paneText === null) {
+      return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+    }
+    const tail = paneText.split('\n').slice(-25).join('\n');
+    const waiting = antigravityQueued(paneText);
+    if (/esc to cancel/.test(tail)) {
+      return {
+        state: STATE.WORKING,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'it is mid-task',
+        ...(waiting ? { waiting } : {}),
+      };
+    }
+    if (/\? for shortcuts/.test(tail)) {
+      return {
+        state: STATE.IDLE,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'it is sitting at its prompt',
+        ...(waiting ? { waiting } : {}),
+      };
+    }
+    return {
+      state: STATE.UNKNOWN,
+      confidence: CONFIDENCE.NONE,
+      because: 'Kosmos cannot read what Antigravity is doing yet',
+      ...(waiting ? { waiting } : {}),
+    };
   }
   /* #3939 slice 3c-3a: a Meta Muse pane runs Kosmos's own front (engine/musefront.js) under node, so
      only the runner tag says what it is: `node` alone is also an npm-installed Claude. Without this arm
@@ -7386,7 +7423,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
       return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true,
-        waiting: reported.waiting || null,   // #4569 fix 4: a Muse agent's queue, only while this working report is fresh
+        waiting: reported.waiting || (scraped && scraped.waiting) || null,   // #4569 fix 4: Muse queue; #5187: Antigravity pane queue
         ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
@@ -8822,6 +8859,7 @@ module.exports = {
   isCodexCommand,
   readableModelId, // #4416
   isAntigravityCommand, // #3568
+  antigravityQueued, // #5187
   isGrokCommand, // #3953
   /* #570: exported so the two job gates can be asserted for BOTH platforms from
      either one. They read `create.hasJob`/`create.jobMissing`, which used to be
