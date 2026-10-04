@@ -225,7 +225,7 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
   if (o.status && o.body.reason === 'not-owner') return { status: 200, body: memberView(projectId) };
   /* Slice 1b (Pete's Q-K6): a project shared only with this account's other computers is answered, not refused, so the
      screen can leave out "Invite someone outside" (#4658) rather than fail when it makes a code. */
-  if (o.status && o.body.reason === 'self-shared') return { status: 200, body: { owner: true, self_shared: true, sealed: false, invites: [], checked_at: null } };
+  if (o.status && o.body.reason === 'self-shared') return { status: 200, body: { owner: true, self_shared: true, shared: false, sealed: false, invites: [], checked_at: null } };
   if (o.status) return o;
   let rows;
   try { rows = rowsFor(projectId); } catch (err) { return { status: 500, body: { error: err.message } }; }
