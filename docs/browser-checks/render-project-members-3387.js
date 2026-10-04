@@ -76,8 +76,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // where its label and + sit, so moving the rule cannot quietly move them.
         rule: (() => {
           if (!hdr) return null;
-          const al = document.getElementById('alist').getBoundingClientRect();
-          const inner = { left: al.left + document.getElementById('alist').clientLeft, right: al.left + document.getElementById('alist').clientLeft + document.getElementById('alist').clientWidth };
+          const list = document.getElementById('alist');
+          const al = list.getBoundingClientRect();
+          const inner = { left: al.left + list.clientLeft, right: al.left + list.clientLeft + list.clientWidth };
           const r = hdr.getBoundingClientRect();
           const name = hdr.querySelector('.railname'); const add = hdr.querySelector('.alist-newagent');
           return { left: +(r.left - inner.left).toFixed(1), right: +(inner.right - r.right).toFixed(1),
@@ -101,6 +102,23 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       !!grouped.rule && grouped.rule.border === '1px' && Math.abs(grouped.rule.left) <= 0.5 && Math.abs(grouped.rule.right) <= 0.5, JSON.stringify(grouped.rule));
     ok(t + ' #3129 the label and its + stay where they were (14 px and 10 px in)',
       !!grouped.rule && Math.abs(grouped.rule.name - 14) <= 1 && Math.abs(grouped.rule.add - 10) <= 1, JSON.stringify(grouped.rule));
+    // #3129 review 1: the open rail's -8px margins are taken back in the folded rail (fold-a), whose #alist has no side
+    // padding. Without that reset the rule would spill 8px past each edge, a sideways scroll the hidden scrollbars hide.
+    const folded = await page.evaluate(() => {
+      document.body.classList.add('fold-a');
+      const al = document.getElementById('alist');
+      const hdr = [...al.children].find((k) => k.classList && k.classList.contains('alist-grouphdr')) || null;
+      const box = al.getBoundingClientRect();
+      const innerL = box.left + al.clientLeft;
+      const innerR = innerL + al.clientWidth;
+      const r = hdr ? hdr.getBoundingClientRect() : null;
+      const out = { hdr: !!hdr, left: r ? +(r.left - innerL).toFixed(1) : null, right: r ? +(innerR - r.right).toFixed(1) : null,
+        scroll: al.scrollWidth, client: al.clientWidth };
+      document.body.classList.remove('fold-a');
+      return out;
+    });
+    ok(t + ' #3129 folded, the rule stays inside the rail and the rail cannot scroll sideways',
+      folded.hdr && folded.left >= -0.5 && folded.right >= -0.5 && folded.scroll <= folded.client, JSON.stringify(folded));
 
     // 2) The top + opens the shared add-member modal, scoped to this project, picker populated
     //    with the FREE agents (out-a, out-b), not the members.
