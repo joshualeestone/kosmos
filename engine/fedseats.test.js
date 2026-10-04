@@ -2322,3 +2322,51 @@ test('#5192: posts that age out with no key are reported at the next pass, not o
   await settle();
   assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
 });
+
+test('#5192: a new post waits behind held posts a flush could not finish, so the order holds', async () => {
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-order', { role: 'member', edge_id: 'edge-5192-order' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-order', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192order', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-order');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', expires_at: 9 });   // no room id: posts are held
+  await settle();
+  for (const t of ['1', '2', '3']) fedseats.post('proj-5192-order', { from: 'Ana', kind: 'person', text: t });
+  const realWrite = seat.stdin.write.bind(seat.stdin);
+  let sealedWrites = 0;
+  seat.stdin.write = (chunk, ...rest) => {
+    if (/"ct"/.test(String(chunk))) { sealedWrites += 1; if (sealedWrites === 2 || sealedWrites === 3) throw new Error('EPIPE'); }
+    return realWrite(chunk, ...rest);
+  };
+  say(seat, { event: 'connected', room: 'room-5192-order', expires_at: 10 });   // flush: 1 goes, 2 fails
+  await settle();
+  fedseats.post('proj-5192-order', { from: 'Ana', kind: 'person', text: 'new' });   // flush: 2 fails again
+  await fedseats.ensureAll();   // everything goes now
+  await settle();
+  const out = lines(seat).map((f) => fedseal.open({ 0: k0 }, 'room-5192-order', f)).filter(Boolean);
+  assert.deepStrictEqual(out.map((o) => o.m.text), ['1', '2', '3', 'new'], 'a new post overtook held ones');
+  void h;
+});
+
+test('#5192: a post that meets an unreadable rooms record is held, not dropped, and goes once it reads', async (t) => {
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-liveeio', { role: 'member', edge_id: 'edge-5192-liveeio' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-liveeio', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192le', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-liveeio');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-liveeio', expires_at: 9 });
+  await settle();
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  assert.strictEqual(fedseats.post('proj-5192-liveeio', { from: 'Ana', kind: 'person', text: 'kept' }), false);
+  broken.mock.restore();
+  assert.ok(h.notes.some((n) => /is held on this computer: it cannot read its sealed-rooms record/.test(n.text)), JSON.stringify(h.notes));
+  const before = lines(seat).length;
+  await fedseats.ensureAll();
+  await settle();
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: k0 }, 'room-5192-liveeio', f)).filter(Boolean);
+  assert.deepStrictEqual(out.map((o) => o.m.text), ['kept']);
+});

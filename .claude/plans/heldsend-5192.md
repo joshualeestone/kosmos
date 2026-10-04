@@ -21,6 +21,10 @@ A post held because a member is behind goes, when that hold runs out with no new
 the member has; the hold note says so (the others may not accept it, #5197).
 
 ## Bounds
+A post that meets an unreadable rooms record is held too (it goes once the record reads and says
+whether the room is sealed). A new post that finds held posts a flush could not finish waits behind
+them. Every re-hold goes through holdPost, so the age, count and byte bounds hold for it too. A flush
+that throws keeps everything it had not handled.
 A post that could never go (too long once sealed, measured by sealing it with a throwaway key) is
 refused at once with the too-long note, not held.
 A post re-held during a flush keeps the time it was first held, so passes never reset its hour. A

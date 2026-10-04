@@ -195,7 +195,8 @@ function handleEvent(projectId, line, heldAt) {
       if (!opened) {
         // #5191: an owner refusing an older epoch's post re-sends the current key now (at most
         // once per EDGE_FRESH_MS), so a remaining member that missed a rotation catches up
-        // without waiting for the next pass. The refused post itself is not resent (#5192).
+        // without waiting for the next pass. The refused post itself is not resent (#5192 holds
+        // only posts not yet sent).
         // The epoch is unauthenticated, so a forger can trigger this too: the limit bounds it,
         // and it only re-sends sealed frames, one to each pinned member.
         if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && !isFresh(s.rotatesResentAt, now)) {
@@ -1023,8 +1024,9 @@ function flushHeld(projectId, s) {
   let files = 0;
   let stale = s.staleHeld || 0;
   s.staleHeld = 0;
+  let i = 0;
   try {
-    for (let i = 0; i < held.length; i++) {
+    for (; i < held.length; i++) {
       if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
       if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
       // Held again (it is now at the end of the outbox): everything after it waits too, in
@@ -1035,6 +1037,10 @@ function flushHeld(projectId, s) {
       s.outbox = s.outbox.concat(rest);
       break;
     }
+  } catch (err) {
+    // Whatever was not yet handled stays held, ahead of anything held during this flush.
+    s.outbox = held.slice(i).concat(s.outbox);
+    console.error('#5192: a flush of held posts for ' + JSON.stringify(projectId) + ' stopped: ' + String((err && err.message) || err));
   } finally {
     s.flushing = false;
   }
@@ -1071,9 +1077,9 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
   const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
   if (sealedRoom === undefined) {
     // #5192: a held post meeting a record it cannot read now is held again, not dropped.
-    if (heldAt && s.outbox) { s.outbox.push({ msg, at: heldAt }); return false; }
-    say(projectId, 'That message stayed on this computer: it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed.');
-    return false;
+    // #5192: held, not dropped (a held one met here is held again): it goes once the record
+    // can be read and says whether the room is sealed.
+    return holdPost(projectId, s, msg, 'it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed', 'when it can, if that is within the hour', heldAt);
   }
   if (sealedRoom) {
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
@@ -1110,9 +1116,12 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
     noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
   // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
-  if (!heldAt && s.outbox && s.outbox.length) flushHeld(projectId, s);
+  if (!heldAt && s.outbox && s.outbox.length) {
+    flushHeld(projectId, s);
+    if (s.outbox.length) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
+  }
   try { s.child.stdin.write(line + '\n'); return true; } catch {
-    if (heldAt) s.outbox.push({ msg, at: heldAt });   // a held post whose write threw stays held
+    if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
     return false;
   }
 }
