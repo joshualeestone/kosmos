@@ -39,8 +39,8 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
   && Math.abs(m.bufW / m.bufH - m.cssW / m.cssH) / (m.cssW / m.cssH) <= 0.01;
 
 (async () => {
-  /* kosmos#5189 fixture, with places a real crossing reads (1.005 or 1.0057 before; 0.008, or -0.0012 just outside
-     the top edge, after; span 1.007): a small move.
+  /* kosmos#5189 fixture. Places taken from real crossings (1.005 or 1.0057 before; 0.008, or -0.0012 just outside
+     the top edge, after; span 1.007) are a small move.
      A wide span (a narrow box, 8px of 160) must be used as given: span 1 would read 1.045 -> 0.005 as 0.04. */
   chk(wrapDist(1.005, 0.008, 1.007) < 0.03, 'wrapDist: a dot crossing the edge is a small move (#5189)', String(wrapDist(1.005, 0.008, 1.007)));
   chk(wrapDist(1.045, 0.005, 1.05) < 0.03 && wrapDist(1.045, 0.005, 1) >= 0.03, 'wrapDist: the span is the page\'s, not 1 (#5189)', String([wrapDist(1.045, 0.005, 1.05), wrapDist(1.045, 0.005, 1)]));
@@ -110,7 +110,7 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
          the re-size wrapped on the old box's span; the two differ by 8/old - 8/new, inside the 0.03 margin here. */
       const span = await page.evaluate(() => [(plusSW + 8) / plusSW, (plusSH + 8) / plusSH]);
       const kept = placesBefore.length === 8 && placesBefore.every((p, i) => placesAfter[i] && wrapDist(p[0], placesAfter[i][0], span[0]) < 0.03 && wrapDist(p[1], placesAfter[i][1], span[1]) < 0.03);
-      chk(placesBefore[0] && placesAfter[0] && placesBefore[0][1] > 1 && placesAfter[0][1] < 0.5, `${t} the planted dot crossed the field's edge, so the wrap was exercised (#5189)`, JSON.stringify([placesBefore[0], placesAfter[0]]));
+      chk(placesBefore[0] && placesAfter[0] && placesBefore[0][1] > 1 && Math.abs(placesAfter[0][1]) < 0.05, `${t} the planted dot crossed the field's edge, so the wrap was exercised (#5189)`, JSON.stringify([placesBefore[0], placesAfter[0]]));
       chk(kept, `${t} a re-size keeps each dot in its place (the field is not re-seeded, no jump)`, JSON.stringify({ placesBefore: placesBefore.slice(0, 2), placesAfter: placesAfter.slice(0, 2) }));
       /* Review pass 1: no blank frame when the buffer re-sizes. An observer made AFTER the page's own
          fires after it in the same frame, before paint; the field it sees must already have dots. */
