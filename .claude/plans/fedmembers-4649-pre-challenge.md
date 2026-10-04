@@ -18,3 +18,29 @@ converged: true
 **Every fix has a test that reds when the fix is removed (listed above).**
 
 Per-round detail is in .claude/plans/fedmembers-4649.md ("Review round N" sections).
+
+### Per-Iteration Breakdown
+#### Iteration 1 (opus): 3 B, 3 W, 4 N
+- [BLOCKER] engine/fedmembers.js: new owner link stamped with the invite time; fedseats.stampOf reads it as an earlier project's and forgets it --> FIXED: the project's createdAt; server test asserts fedseats.linkFor accepts it
+- [BLOCKER] engine/fedmembers.js ownerLinkOf: a stale link of an earlier project of the same id reused --> FIXED: forgotten first with its room keys and rows; tested
+- [BLOCKER] engine/fedmembers.js invite: two invites at once mint two refs --> FIXED: per-project chain; tested
+- [WARNING] the seat not started after a new link --> FIXED: fedseats.ensure after a 200
+- [WARNING] a removed project's invite rows survive into a reused id --> FIXED: fedmembers.forget on remove and create; tested
+- [WARNING] Withdraw's 404 match too broad --> FIXED: keyed on the coordinator's own sentences
+- [NIT] Members answers for a removed project --> FIXED: 404; [NIT] a doc comment moved onto the wrong route --> FIXED; [NIT] plan count --> FIXED; [NIT] a test name --> FIXED
+#### Iteration 2 (sonnet): 0 B, 1 W, 3 N
+- [WARNING] a link recorded by another path during the await is overwritten --> FIXED: re-read; 409 'changed'; tested
+- [NIT] project_name fallback to the request's --> FIXED; [NIT] a read can forget a stale link --> STATED in a comment; [NIT] mutations not re-run --> listed in validation
+#### Iteration 3 (opus): 0 B, 2 W, 3 N
+- [WARNING] create-screen joiners invisible and unremovable; my plan premise false --> FIXED: unrecorded connections listed; plan corrected; tested
+- [WARNING] made_at in ms, expires_at in s --> FIXED: seconds everywhere; tested
+- [NIT] room line owner unclear --> FIXED: the board writes it; [NIT] description from the request --> FIXED: from the board; [NIT] refused code's stash --> fixed in round 5
+#### Iteration 4 (sonnet): 0 B, 1 W, 2 N
+- [WARNING] a long board description refuses every invite --> FIXED: cut to the bound; tested
+- [NIT] two sort orders --> FIXED: one; [NIT] unrecorded rows share invite_id --> STATED: key by edge_id
+#### Iteration 5 (opus): 0 B, 2 W, 3 N
+- [WARNING] a refused code's sealing half stays stashed --> FIXED: unstash on every refusal; tested
+- [WARNING] the cut can split an emoji --> FIXED: whole characters within the UTF-16 bound; tested
+- [NIT] unreadable record reads as 'changed' --> FIXED: 500; [NIT] removed project mid-invite --> FIXED: 404; [NIT] read can delete --> STATED
+#### Iteration 6 (sonnet): 0 B, 0 W, 3 N. Converged.
+- [NIT] the 500 path's unstash untested --> FIXED: test; [NIT] cut helper per call --> FIXED: hoisted; [NIT] leftover sealedRefs flag for an unused ref --> STATED: harmless, nothing enumerates it
