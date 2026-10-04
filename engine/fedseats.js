@@ -479,19 +479,19 @@ function linkFor(projectId) {
    kept per seat run; one hour of ids is at most the minute budget times 60. */
 const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
-/* After a rotation, the previous epoch still opens for this long (a message sealed
-   just before it, still in flight), then never again: a revoked member cannot keep
-   posting under the key it was rotated out of. This is a MEMBER's grace: a member is
-   not told why the owner rotated. */
-const EPOCH_GRACE_MS = 10 * 60 * 1000;
-/* #5191: the OWNER's grace after a rotation. An owner rotates only when a member is
+/* #5191: the grace after a rotation, during which the previous epoch still opens (a
+   message sealed just before it, still in flight), then never again. An owner rotates
+   only when a member is
    revoked, and during a grace the revoked member's old-key posts open too (a sealed post
    does not say which member sealed it), so the owner's is short: in-flight posts plus
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
    EDGE_FRESH_MS, about 75 s, and up to one 60 s pass more while Kosmos+ cannot answer
-   (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it. */
+   (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it.
+   #5197: a member uses the same grace. It is not told why the owner rotated, but the
+   owner rotates only on a revoke, so a 10 minute member grace was 10 minutes in which
+   every other member showed the revoked member's old-key posts. */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One
@@ -538,11 +538,11 @@ function acceptedKeys(st, now) {
   return keys;
 }
 /** #5191: how long the previous epoch opens after this room's last rotation. An owner
-    rotates only on a revoke (rotateForRevoked), so every owner rotation gets the revoke
-    grace, read from the rooms file alone. "A member" is a pinned member PEER: when #4658
+    rotates only on a revoke (rotateForRevoked), so every rotation gets the revoke grace,
+    a member's too (#5197), read from the rooms file alone. "A member" is a pinned member PEER: when #4658
     lets the owner's own other computers in, they must count as the owner, never here. */
 function graceAfter(st) {
-  if (st.role !== 'owner') return EPOCH_GRACE_MS;
+  if (st.role !== 'owner') return REVOKE_GRACE_MS;
   return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
 }
 /** The link for the seal decisions: null when there is none, undefined when the record

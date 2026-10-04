@@ -1291,7 +1291,7 @@ test('#5191: a restarted owner board keeps the short grace: it reads it from the
   t.mock.timers.tick(30 * 1000);
   old('inside the grace');
   await settle();
-  t.mock.timers.tick(61 * 1000);   // 91 s after the rotation: inside the member's 10 minutes, past the owner's 90 s
+  t.mock.timers.tick(61 * 1000);   // 91 s after the rotation: past the 90 s grace
   old('after the grace');
   await settle();
   assert.deepStrictEqual(shown(h), ['inside the grace'], 'a restart gave the owner the long grace');
@@ -1738,4 +1738,29 @@ test('#5191: a forged post claiming the previous epoch inside its grace is not c
   await settle();
   assert.ok(!h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
   assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
+});
+
+test('#5197: a remaining member opens a revoked member\'s old key for 90 s after the rotation, not 10 minutes', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T21:00:00Z') });
+  const s = fedseal.randomSecret();
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-m', { role: 'member', edge_id: 'edge-5197' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5197-m', { role: 'member', s, code: 'code-5197', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-m');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197', expires_at: 9 });
+  await settle();
+  const k1 = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, k1, 1, 'room-5197', Date.now()) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('proj-5197-m').epoch, 1, 'fixture: rotated');
+  t.mock.timers.tick(60 * 1000);
+  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'In flight', kind: 'person', text: 'at 60 s' }) });
+  await settle();
+  t.mock.timers.tick(60 * 1000);   // 2 minutes after the rotation: the revoked member is still posting
+  say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-5197', { from: 'Revoked', kind: 'person', text: 'at 2 min' }) });
+  await settle();
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['at 60 s'], 'a member opened the old key past 90 s');
 });
