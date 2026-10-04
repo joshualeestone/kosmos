@@ -19192,8 +19192,10 @@ function windowsCopyTable() {
       + '<li>Double-click <b>Kosmos.exe</b>. Your agents keep running.</li>',
     /* Documents (W-19) and the agent page (W-18). */
     docsOpenFolder: 'Open in File Explorer',
-    terminalTab: 'Live output',
-    terminalBoxTitle: 'Live output',
+    /* #5239: was "Live output", but a Windows agent runs without a window, so the section never showed output.
+       What it holds on Windows is Trust & Restart (Open Terminal is hidden), so it is named for that. */
+    terminalTab: 'Starting this agent',
+    terminalBoxTitle: 'Starting this agent',
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     /* Not signed in (W-24) and the recovery toasts (W-26). Windows says "sign in" (W-23). */
     signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
