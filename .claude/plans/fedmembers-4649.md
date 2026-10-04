@@ -1,7 +1,7 @@
 # #4649 slice 1: the owner's outside invites, Members, Remove, Withdraw (board side)
 
 The build plan is on #4649 (comment 5982094423), and the board API contract is the card's comment 5982467325, corrected in
-5982xxxx: an existing project is invited by its id (`project`), not by a ref the page cannot know. Mona Lisa's design
+5982498731: an existing project is invited by its id (`project`), not by a ref the page cannot know. Mona Lisa's design
 (shots 1 to 11) is the card's comment from 2026-10-04 16:17 UTC. The screens are Pete's; this is the board API they call.
 
 ## Call
