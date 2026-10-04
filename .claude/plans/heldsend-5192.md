@@ -25,7 +25,7 @@ the member has; the hold note says so (the others may not accept it, #5197).
 A post that meets an unreadable rooms record is held too (it goes once the record reads and says
 whether the room is sealed). A new post that finds held posts a flush could not finish waits behind
 them. Every re-hold goes through holdPost, so the age, count and byte bounds hold for it too. A flush
-that throws keeps everything it had not handled.
+that throws keeps everything it had not handled (untested: nothing reachable throws).
 A post that could never go (too long once sealed, measured by sealing it with a throwaway key) is
 refused at once with the too-long note, not held.
 A post re-held during a flush keeps the time it was first held, so passes never reset its hour. A
@@ -56,6 +56,11 @@ is sent to the first computer that joins with its key, if one joins within the h
 
 A seat that ends (member removed) with posts held says how many were not sent. A post held on no edge (an owner's own room, before any guest) still goes when the seat
 moves onto a guest's edge: that is the same room.
+
+An owner's held post also records the invites live when it was written, and goes only to a member
+pinned from one of them (round 12): a post is never sent to someone invited afterwards. A post held
+for a sealed room is never sent in the clear, whatever the record later says.
+A flush that throws keeps what it had not handled (untested: nothing reachable in sendPost throws).
 
 ## Weakest premise
 Held posts live in the seat's memory: a board restart loses them silently (the room's own copy of

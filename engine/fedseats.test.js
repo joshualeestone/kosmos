@@ -2499,3 +2499,40 @@ test('#5192: an owner\'s post held in its own room still goes when the seat move
   const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-own', f)).filter(Boolean);
   assert.deepStrictEqual(posts.map((p) => p.m.text), ['before the guest']);
 });
+
+test('#5192: an owner\'s held post is not sent to a member who joined from an invite made after it was written', async () => {
+  const early = newInvite('5192early');
+  const { h, seat } = await ownerRoom('proj-5192-inv', 'ref-5192-inv', 'room-5192-inv', [early]);
+  fedseats.post('proj-5192-inv', { from: 'Josh', kind: 'person', text: 'for whoever I invited first' });
+  const late = newInvite('5192late');
+  fedseal.stashInvite('ref-5192-inv', late);
+  h.edges = h.edges.concat([{ id: 'edge-inv-5192late', project_ref: 'ref-5192-inv', status: 'active', invite_id: 'inv-5192late' }]);
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(late.s, late.code, member, 'room-5192-inv') });
+  await settle();
+  const frames = lines(seat);
+  const share = frames.find((f) => f.t === 'key-share');
+  assert.ok(share, 'fixture: the late invitee was pinned');
+  const got = fedseal.openShare(late.s, late.code, member, share, 'room-5192-inv');
+  const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-inv', f)).filter(Boolean);
+  assert.deepStrictEqual(posts, [], 'a post reached someone invited after it was written');
+  assert.ok(h.notes.some((n) => /came from an invite made after it was written/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: a post held for a sealed room never leaves in the clear', async (t) => {
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-clear', { role: 'member', edge_id: 'edge-5192-clear' });
+  fedseal.setRoomState('proj-5192-clear', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192cl', peer: owner.pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-clear');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-clear', { from: 'Ana', kind: 'person', text: 'secret words' });
+  const gone = t.mock.method(fedseal, 'roomState', () => null);   // the record no longer has this room
+  say(seat, { event: 'connected', room: 'room-5192-clear', expires_at: 10 });
+  await settle();
+  gone.mock.restore();
+  assert.ok(!seat.written.join('').includes('secret words'), 'a held post left in the clear');
+  void h;
+});

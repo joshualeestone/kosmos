@@ -1014,6 +1014,14 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   // ends, and a post held on an edge that has ended is not sent through another. (Not a list
   // of who may read it: anyone who joins the room while that edge lasts gets it, as the
   // owner's hold note says.)
+  // An owner's post also records the invites live when it was written: it goes only to a
+  // member pinned from one of them, never to someone invited afterwards.
+  if (msg.invites === undefined) {
+    const l = safeLink(projectId);
+    let inv = null;
+    if (l && l.role === 'owner') { try { inv = fedseal.pendingInvites(l.ref).map((p) => p.invite); } catch { inv = []; } }
+    msg = Object.assign({}, msg, { invites: inv });
+  }
   s.outbox.push({ msg, at: heldAt || Date.now(), edge: s.edge });
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
@@ -1042,6 +1050,7 @@ function flushHeld(projectId, s) {
   let stale = s.staleHeld || 0;
   s.staleHeld = 0;
   let moved = 0;
+  let unmeant = 0;
   // A member past a behind hold with no new key sends under the key it has (#5197).
   const st0 = roomSeal(projectId);
   const oldKey = !!(st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && s.behindArmedAt === st0.epoch);
@@ -1052,6 +1061,10 @@ function flushHeld(projectId, s) {
       // Held on no edge (an owner's own room, before any guest): any edge it moves to is still
       // that room. Held on an edge that has since ended: not sent through another.
       if (held[i].edge && held[i].edge !== s.edge) { moved += 1; continue; }
+      if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
+        // Pinned members exist, none from an invite live when it was written: not for them.
+        if (pinnedAny(projectId)) { unmeant += 1; continue; }
+      }
       if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
       // Held again (it is now at the end of the outbox): everything after it waits too, in
       // order. Not held again: refused for good (its own line said why); carry on.
@@ -1074,10 +1087,20 @@ function flushHeld(projectId, s) {
     + (oldKey ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
+  if (unmeant) say(projectId, unmeant + (unmeant === 1 ? ' held message was' : ' held messages were') + ' not sent: the computer that joined came from an invite made after ' + (unmeant === 1 ? 'it was' : 'they were') + ' written.');
   if (moved) say(projectId, moved + (moved === 1 ? ' held message was' : ' held messages were') + ' not sent: the connection ' + (moved === 1 ? 'it was' : 'they were') + ' written for has ended.');
 }
-function sendPost(projectId, { from, kind, text, files }, heldAt) {
-  const msg = { from, kind, text, files: files === true };
+/** Owner: whether any pinned member was pinned from one of these invites. */
+function pinnedFrom(projectId, invites) {
+  const st = roomSeal(projectId);
+  return !!(st && st.peers && Object.values(st.peers).some((p) => p && invites.includes(p.invite)));
+}
+function pinnedAny(projectId) {
+  const st = roomSeal(projectId);
+  return !!(st && st.peers && Object.keys(st.peers).length);
+}
+function sendPost(projectId, { from, kind, text, files, invites }, heldAt) {
+  const msg = { from, kind, text, files: files === true, invites };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has
@@ -1107,6 +1130,11 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
     // #5192: held, not dropped (a held one met here is held again): it goes once the record
     // can be read and says whether the room is sealed.
     return holdPost(projectId, s, msg, 'it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed', 'when it can, if that is within the hour', heldAt);
+  }
+  if (!sealedRoom && heldAt) {
+    // A post held for a sealed room never leaves in the clear, whatever the record says now.
+    say(projectId, 'A held message was not sent: this shared room no longer reads as sealed here.');
+    return false;
   }
   if (sealedRoom) {
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
