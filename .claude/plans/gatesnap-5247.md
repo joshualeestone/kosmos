@@ -5,10 +5,12 @@ written after the board started: only worlds in the start-time snapshot, plus wo
 made, count; a world hidden since start stops counting. Hardening after #4491 / PR #5122 (Ice Cream Kitty's option B).
 
 ## Change (server.js)
-- `snapshotWorlds()` in start(): KNOWN_WORLD_IDS = the registry's world ids now. Before start: null, so only the
+- `snapshotWorlds()` in start(): KNOWN_WORLD_TOKENS = each listed world's id and its board.token AS READ NOW (null if
+  it has none yet), so neither a registry entry nor a token file written later widens acceptance (review round 1). Before start: null, so only the
   active token is accepted (fail-closed, as when the registry is unreadable).
-- `boardTokenOk`: the per-request registry read is kept but filtered to KNOWN_WORLD_IDS (so it can only narrow).
-- the create-world route calls `knowWorld(world.id)` after createWorld.
+- `boardTokenOk`: the per-request registry read is kept (hiding narrows) but tokens come from the snapshot, not disk.
+- the create-world route calls `knowWorld(world.id)`: recorded with no token (it has none until its own board boots,
+  a new process with its own snapshot).
 - A world switch restarts the board (#2346), so the switched-to board snapshots then; #3055's post-switch cookie case
   (the world just left) is in that snapshot.
 

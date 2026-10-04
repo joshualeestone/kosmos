@@ -825,17 +825,27 @@ function boardTokenRefusal(req, tail) {
    `tokenOk` callsites (the /api/team operator path and the report/reply #1968
    guards) have a CLI or agent-token presenter that reads the LIVE booted-world token
    off disk, never a stale cookie, so they stay strictly active-token. */
-/* #5247: the worlds whose tokens the gate may accept besides the active one: the ones this board knew when it
-   started, plus any it creates itself (the create route calls knowWorld). The registry on disk is still read so a
-   world hidden since start stops counting, but a world ADDED to the file by anything else does not widen what the
-   gate accepts. A world switch restarts the board (#2346), so the switched-to board snapshots the worlds then.
+/* #5247: the other worlds' tokens the gate may accept, TAKEN AT START: world id -> its board.token as read when
+   this board started (null when that world has no token yet). A world this board creates is recorded with no token
+   (knowWorld): it has none until its own board boots, and that boot is a new process with its own snapshot. The
+   registry on disk is still read so a world hidden since start stops counting, but no file written after start, a
+   registry entry or a token, widens what the gate accepts. A world switch restarts the board (#2346), so the
+   switched-to board snapshots then, and the world it left (booted, so it has a token) is in it (#3055).
    null until start() takes it: before that the gate accepts the active token only (fail-closed). */
-let KNOWN_WORLD_IDS = null;
+let KNOWN_WORLD_TOKENS = null;
 function snapshotWorlds() {
-  try { KNOWN_WORLD_IDS = new Set(worlds.listWorlds(worldBase()).map((w) => w.id)); }
-  catch { KNOWN_WORLD_IDS = new Set(); }
+  const m = new Map();
+  try {
+    const base = worldBase();
+    for (const w of worlds.listWorlds(base)) {
+      let t = null;
+      try { t = boardauth.readTokenFrom(worlds.worldStoreRoot(base, w)) || null; } catch { t = null; }
+      m.set(w.id, t);
+    }
+  } catch { /* an unreadable registry: the active token only */ }
+  KNOWN_WORLD_TOKENS = m;
 }
-function knowWorld(id) { if (KNOWN_WORLD_IDS && typeof id === 'string') KNOWN_WORLD_IDS.add(id); }
+function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -845,10 +855,10 @@ function boardTokenOk(req) {
   let others;
   try {
     const base = worldBase();
-    const known = KNOWN_WORLD_IDS || new Set();   // #5247: only worlds known at start or created by this board
+    const known = KNOWN_WORLD_TOKENS || new Map();   // #5247: tokens as of start, for worlds still listed (not hidden)
     others = worlds.listWorlds(base)
       .filter((w) => known.has(w.id))
-      .map((w) => boardauth.readTokenFrom(worlds.worldStoreRoot(base, w)))
+      .map((w) => known.get(w.id))
       .filter(Boolean);
   } catch {
     return false; // fail-closed: registry unreadable -> active token only (above) applies
