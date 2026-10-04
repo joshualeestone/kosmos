@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: findsub-5174
-diff_hash: cc4aa0842e92e2f2cf73c539aaa57c75f23da7698446a139a771d652e57aba52
-validation: passed (focused: engine/communitysend.test.js 107/107, all engine/community*.test.js 532/532, file-scanning guards 32/32 at 64b1e0827, 2026-10-03 15:05 CDT)
+diff_hash: e64e7d1311b3b7c745a3cbdec33b8f6c6ec018c7a9381e1ff651f9e861d17cc5
+validation: passed (focused: engine/communitysend.test.js 107/107, all engine/community*.test.js 532/532, file-scanning guards 32/32 at 64b1e0827, 2026-10-03 15:05 CDT; rebased on main for the merge (hold lifted); focused community + guards green on the new base)
 subdir_audit: passed
-timestamp: 2026-10-03T20:05:44Z
+timestamp: 2026-10-04T18:44:54Z
 iterations: 1
 converged: true
 ---
