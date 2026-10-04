@@ -19193,9 +19193,9 @@ function windowsCopyTable() {
     /* Documents (W-19) and the agent page (W-18). */
     docsOpenFolder: 'Open in File Explorer',
     /* #5239: was "Live output", but a Windows agent runs without a window, so the section never showed output.
-       What it holds on Windows is Trust & Restart (Open Terminal is hidden), so it is named for that. */
-    terminalTab: 'Starting this agent',
-    terminalBoxTitle: 'Starting this agent',
+       What it holds on Windows is Trust & Restart (Open Terminal is hidden), so it is named for that (Baron's review: a noun, not "Starting", which read as in progress). */
+    terminalTab: 'Start-up and restart',
+    terminalBoxTitle: 'Start-up and restart',
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     /* Not signed in (W-24) and the recovery toasts (W-26). Windows says "sign in" (W-23). */
     signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
@@ -19255,7 +19255,7 @@ function applyPlatformCopy(root) {
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
   /* An accessible name has to say what the visible label says (the Terminal tab reads
-     "Starting this agent" on Windows (#5239), and its section is named from the same key). */
+     "Start-up and restart" on Windows (#5239), and its section is named from the same key). */
   root.querySelectorAll('[data-win-aria-label]').forEach((el) => { el.setAttribute('aria-label', windowsCopy(el.getAttribute('data-win-aria-label'))); });
 }
 applyPlatformCopy(typeof document === 'undefined' ? null : document);
