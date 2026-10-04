@@ -85,6 +85,12 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   assert.match(s.pjFedMessage({ reason: 'self-join' }), /your own project/i);
   assert.match(s.pjFedMessage({ reason: 'double-join' }), /already on that project/i);
   assert.match(s.pjFedMessage({ reason: 'not-owner' }), /Only the owner of this project can invite people to it\./, 'kosmos#4649: the invite sheet\'s 409 not-owner');
+  // kosmos#4649 slice B: Withdraw's two 409s. `joined` is the board's sentence; `unsupported` is shown as the
+  // board wrote it, with the lapse date the screen adds (Kitty's Q-K2), and as given when there is no date.
+  assert.equal(s.pjFedMessage({ reason: 'joined', error: 'x' }), 'Someone already joined with this code. Remove them instead.', 'kosmos#4649: Withdraw\'s 409 joined');
+  const unsupported = { reason: 'unsupported', error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.' };
+  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK', { lapses: 'Oct 11' }), 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses on Oct 11.', 'kosmos#4649: Withdraw\'s 409 unsupported carries the lapse date');
+  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK'), unsupported.error, 'kosmos#4649: with no date the board\'s sentence is shown as given');
   assert.equal(s.pjFedMessage({ reason: 'weird-internal-thing' }, 'FALLBACK'), 'FALLBACK', 'an unknown reason leaks through instead of the safe fallback');
   assert.equal(s.pjFedMessage(null, 'FALLBACK'), 'FALLBACK');
 });

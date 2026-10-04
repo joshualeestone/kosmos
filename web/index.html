@@ -6536,8 +6536,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    a dashed edge and an External tag, so it is never read as one of your agents. */
 .msg.ext .msg-bd { outline: 1px dashed var(--k-rule); outline-offset: -1px; }
 /* #3851: an outside sender's avatar is outside the local tint space (a local agent's
-   is drawn from its name, and the outside name is only the sender's claim). */
-.msg.ext .msg-av.ext-av, :root .msg.ext .msg-av.ext-av { background: transparent; color: var(--label-2); border: 1px dashed var(--label-2); box-sizing: border-box; }
+   is drawn from its name, and the outside name is only the sender's claim).
+   kosmos#4649 slice B: the same disc on the owner's "From outside" Members rows (.fedout-row),
+   one rule for both, so a Members row and a room message from the same outsider cannot drift.
+   The :root form outranks the dark-theme .msg-av ground (:root[data-theme="dark"] .msg-av). */
+.msg.ext .msg-av.ext-av, :root .msg.ext .msg-av.ext-av, :root .fedout-row .msg-av.ext-av { background: transparent; color: var(--label-2); border: 1px dashed var(--label-2); box-sizing: border-box; }
 /* Nothing to open on an outside sender: no local card behind the disc or the name. */
 .msg.ext:not(.you) .msg-av, .msg.ext:not(.you) .msg-nm { cursor: default; }
 .msg-ext-tag { font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .04em;
@@ -9639,6 +9642,33 @@ html:not([data-fed-ui="show"]) #pjs-own-field { display: none !important; }
    content, so they hide exactly when #pj-invite-panel does. The JS gate (pjAddPlus reads fedShow)
    already skips the menu when not "show"; this rule is the belt-and-suspenders, as above. */
 html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]) #fedinv-modal { display: none !important; }
+/* kosmos#4649 slice B (shots 07, 09, 10): the owner's "From outside" section in Members, in the tab
+   view's Members card (#pj-fed-outside) and in the consolidated rail's grouped members
+   (#alist-fed-outside). Federation content, so it hides with the rest; fedOutsideHtml also draws
+   nothing unless fedShow(). */
+html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #alist-fed-outside { display: none !important; }
+.fedout:empty { display: none; }
+/* Mona's .m-sec heading and .m-mem rows (mock.html) on the app's tokens. */
+.fedout-h { font: 600 .6875rem var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--label-2);
+            margin: 14px 0 4px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
+.fedout-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; min-width: 0; }
+.fedout-row .msg-av { width: 28px; height: 28px; flex: 0 0 28px; font-size: .75rem; }
+/* A pending or expired invite: nobody is in the room yet, so the disc is fainter (mock .m-av.wait). */
+:root .fedout-row .msg-av.ext-av.fedout-wait { color: var(--label-3); border-color: var(--label-3); }
+.fedout-b { flex: 1 1 auto; min-width: 0; }
+.fedout-nm { display: block; font-size: .875rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.fedout-sub { display: block; font-size: .75rem; color: var(--label-2); line-height: 1.3; }
+.fedout-act { flex: none; font: inherit; font-size: .75rem; color: var(--label-2); background: none; border: 0; padding: 4px 0;
+              text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.fedout-act:hover { color: var(--label); }
+.fedout-act:disabled { opacity: .55; cursor: default; }
+.fedout .fhint { margin: 2px 0 4px; }
+.fedout .fmsg { margin-top: 2px; }
+.fedout .fmsg:empty { display: none; }
+#alist-fed-outside { margin: 0 6px 0 8px; }
+/* The shared #761 remove dialog's error line (slice B: a failed outside removal keeps the dialog
+   open and says why). Empty for every other caller, so it takes no room there. */
+#mem-msg:empty { display: none; }
 /* The menu (shot 01): Mona's .m-menu on the app's tokens. Placed by pjAddMenuOpen: right edge on
    the opener's right edge, inside the Members card; at phone width the card's full width. */
 .pj-addmenu { position: fixed; z-index: 45; box-sizing: border-box; width: 250px; max-width: calc(100vw - 32px);
@@ -13218,6 +13248,7 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="mem-title" aria-describedby="mem-small">
     <h2 class="rm-title" id="mem-title"></h2>
     <p class="rm-small" id="mem-small"></p>
+    <p class="fmsg" id="mem-msg" aria-live="polite"></p>
     <div class="rm-acts">
       <button class="btn" id="mem-keep" type="button"></button>
       <button class="btn" id="mem-go" type="button"></button>
@@ -15801,6 +15832,10 @@ window.kosmosMeasureScrollbarWidth();
       <div id="pj-one-notice" role="status" aria-live="polite"></div>
       <div id="pj-one-notice-said" class="vh" role="status" aria-live="polite"></div>
       <div id="pj-one-agents" class="pj-members"></div>
+      <!-- kosmos#4649 slice B (shot 07): the owner's "From outside" section, painted by
+           fedOutsidePaint from GET /api/federation/members. Its own element, not rows inside
+           the agents list above: that list's click opens an agent's page, and an outsider has none. -->
+      <div id="pj-fed-outside" class="fedout"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
            pinned words) is the one control that opens the choosing row. -->
@@ -22712,6 +22747,13 @@ let AM_OPENER = null;
    here, early, because setAgentsGrouped and fedGateStamp read them. */
 let PJ_ADDMENU_OPENER = null;
 let PJ_ADDMENU_AGENT = null;
+/* kosmos#4649 slice B: the owner's "From outside" Members section (fedOutsideHtml, beside the invite
+   sheet). Declared here, early, for the same reason: paintAgentList and fedGateStamp read them. */
+let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
+let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project) is dropped
+let FED_MEMBERS_ASKING = null;   // the project an ask is in flight for (fedGateMembers asks once)
+let FED_MSGS = {};               // row key -> the sentence a Withdraw or Remove left, kept across repaints
+const FED_BUSY = new Set();      // row keys with a Withdraw or Remove in flight
 
 /* #3387: reflect the grouped state onto the TOP rail head. The static HTML keeps
    `railname">Agents` (the layout-picker test asserts that markup); the LABEL is set
@@ -22818,7 +22860,13 @@ function paintAgentList() {
       : (inProj && inProj.size
         ? '<div class="alist-emptymembers">This project’s agents are not on this board right now. Use + above to add one.</div>'
         : '<div class="alist-emptymembers">No agents on this project yet. Use + above to add one.</div>');
+    /* kosmos#4649 slice B: the owner's "From outside" rows sit under the project's own members here,
+       as they do in the tab view's Members card (fedOutsideHtml; typeof-guarded, tests lift this alone).
+       Only when there is something to say: an empty wrapper would shift the list's children, which
+       render-project-members-3387 counts. */
+    const fedOut = typeof fedOutsideHtml === 'function' ? fedOutsideHtml() : '';
     alist.innerHTML = membersHtml
+      + (fedOut ? '<div id="alist-fed-outside" class="fedout">' + fedOut + '</div>' : '')
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
     setAgentsGrouped(true);
@@ -33984,6 +34032,10 @@ function fedGateStamp(data) {
     if (inv && !inv.hidden && typeof fedInviteClose === 'function') fedInviteClose();
   }
   if (typeof pjAddMenuSync === 'function') pjAddMenuSync();
+  /* kosmos#4649 slice B: the "From outside" section. A gate that leaves "show" closes an open outside
+     removal; a gate that reaches "show" with a project open and no members answer for it asks once
+     (a project opened before the first status poll stamped the gate). */
+  if (typeof fedGateMembers === 'function') fedGateMembers(mode === 'show');
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
    no hardcoded domain (Josh's ruling: the Plus section owns where sign-up goes). */
@@ -59414,6 +59466,8 @@ function paintOneProject() {
     : '<p class="fhint">No agents on this project yet.</p>');
 
   paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
+  // kosmos#4649 slice B: the "From outside" section, from the last members answer (typeof: tests lift this alone).
+  if (typeof fedOutsidePaint === 'function') fedOutsidePaint(true);
 }
 
 /**
@@ -61595,6 +61649,8 @@ function openProject(id) {
   }
   pjCloseConfirm();
   paintOneProject();
+  // kosmos#4649 slice B: ask who is in this project from outside (only while the federation gate is "show").
+  if (typeof fedMembersLoad === 'function') fedMembersLoad(id);
   pjView('one');   // #2922: pjView('one') re-engages the live-mention mirror for the restored draft
   refreshEngMode();
   loadThread();
@@ -66342,7 +66398,7 @@ function pjResetFederation() {
 
 // A federation error response carries a distinct reason (already-used / expired / revoked /
 // not-found / self-join / double-join); name what the person can DO, never leak internals.
-function pjFedMessage(body, fallback) {
+function pjFedMessage(body, fallback, opts) {
   // reason || error only -- NOT body.code: `code` is the invite SECRET field on a mint success,
   // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
   // to the caller's safe fallback.
@@ -66351,6 +66407,12 @@ function pjFedMessage(body, fallback) {
   // Kosmos too old, try again). The board picks the sentence (federation.js uncheckedRefusal, which
   // writes every one of them itself), so it is shown as given.
   if (reason === 'unchecked' && typeof body.error === 'string' && body.error) return body.error;
+  /* kosmos#4649 slice B: Withdraw's 409 `unsupported` (a coordinator older than the withdraw route).
+     The board's sentence ends "...stops working on its own when it lapses."; the screen adds the date
+     (Kitty's Q-K2), passed as opts.lapses ("Oct 11"). Shown as given when there is no date. */
+  if (reason === 'unsupported' && typeof body.error === 'string' && body.error) {
+    return (opts && opts.lapses) ? body.error.replace(/\.\s*$/, '') + ' on ' + opts.lapses + '.' : body.error;
+  }
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',
@@ -66361,6 +66423,7 @@ function pjFedMessage(body, fallback) {
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
     'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
     'not-owner': 'Only the owner of this project can invite people to it.',   // kosmos#4649 invite sheet, Kitty's 409
+    'joined': 'Someone already joined with this code. Remove them instead.',   // kosmos#4649 slice B: Withdraw's 409
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
     // kosmos#4699: an own code names the computer that made it, and only this account's computers count.
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
@@ -67026,6 +67089,7 @@ let MEM_PENDING = null;
 function memConfirmClose() {
   document.getElementById('mem-modal').hidden = true;
   const p = MEM_PENDING; MEM_PENDING = null;
+  if (typeof fedRemoveReset === 'function') fedRemoveReset();   // kosmos#4649 slice B: the outside removal's look goes with it
   if (p && p.btn && !p.btn.disabled) p.btn.focus();
 }
 /* #761: the minus asks before it acts. The dialog names the agent and the
@@ -67038,6 +67102,7 @@ function openMemModal(btn, msg) {
   const who = (row && row.querySelector('b')) ? row.querySelector('b').textContent : btn.dataset.drop;
   const p = pjById(PJ_CURRENT);
   const pjName = (p && p.name) || 'this project';
+  if (typeof fedRemoveReset === 'function') fedRemoveReset();   // kosmos#4649 slice B: no danger look or stale error left from an outside removal
   MEM_PENDING = { btn, msg };
   document.getElementById('mem-title').textContent = 'Remove ' + who + ' from ' + pjName + '?';
   document.getElementById('mem-small').textContent = who + ' comes off this project\u2019s list and stops getting its posts. Nothing else changes; you can put ' + who + ' back with the + at the top.';
@@ -67128,7 +67193,10 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('mem-modal').hidden) return;
   memConfirmClose();
 });
+/* kosmos#4649 slice B: an outside member's removal (MEM_PENDING.fed) goes to the board's remove route,
+   and the dialog stays open until it answers (a refusal is said in it, with the member still listed). */
 document.getElementById('mem-go').addEventListener('click', () => {
+  if (MEM_PENDING && MEM_PENDING.fed) { fedRemoveGo(); return; }
   const p = MEM_PENDING;
   document.getElementById('mem-modal').hidden = true;
   MEM_PENDING = null;
@@ -67469,7 +67537,9 @@ let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
 const FEDINV_TITLE = 'Invite someone outside your Kosmos';
-function fedInviteOpen(opener) {
+/* kosmos#4649 slice B: `prefill` ({ label, kind }) is an expired row's "Make a new code" (Mona's Q-M2):
+   the same label and kind filled in, and focus on "Make an invite code", so Enter makes the code. */
+function fedInviteOpen(opener, prefill) {
   if (!fedShow() || !PJ_CURRENT) return;
   FEDINV_OPENER = opener || null;
   FEDINV_PROJECT = PJ_CURRENT;
@@ -67487,8 +67557,11 @@ function fedInviteOpen(opener) {
   document.getElementById('fedinv-until').textContent = '';
   document.getElementById('fedinv-status').textContent = '';
   document.getElementById('fedinv-copy').textContent = 'Copy';
+  if (prefill && typeof prefill.label === 'string' && prefill.label) label.value = prefill.label.slice(0, 80);
+  if (prefill && prefill.kind === 'agent') document.getElementById('fedinv-kind-agent').checked = true;
   document.getElementById('fedinv-modal').hidden = false;
-  label.focus();
+  if (label.value) document.getElementById('fedinv-make').focus();
+  else label.focus();
 }
 function fedInviteClose() {
   FEDINV_SEQ++;
@@ -67534,6 +67607,9 @@ async function fedInviteMake() {
     const until = fedInviteLongDate(body.expires_at);
     document.getElementById('fedinv-until').textContent = until ? 'It works once, until ' + until + '.' : 'It works once.';
     document.getElementById('fedinv-copy').focus();
+    // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
+    // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
+    fedMembersLoad(FEDINV_PROJECT);
   } catch {
     if (seq === FEDINV_SEQ) msg.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
   } finally {
@@ -67568,6 +67644,266 @@ document.getElementById('fedinv-modal').addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || document.getElementById('fedinv-modal').hidden) return;
   fedInviteClose();
+});
+/* kosmos#4649 slice B (Mona's shots 07, 09, 10): the owner's "From outside" section in Members, with
+   Remove (a joined member, confirmed in the shared #761 dialog) and Withdraw (an unused code). Built
+   from Kitty's GET /api/federation/members: { owner, self_shared?, sealed, invites: [ { invite_id, label,
+   kind, made_at, expires_at, state, edge_id, joined_at } ], checked_at }, times in unix SECONDS.
+   - joined: the label, "<Kind> · joined <Oct 4>", Remove. No label (a code from the create screen):
+     "Someone you invited" on an empty dashed disc (Mona's Q-M3).
+   - pending: a fainter disc, the label (or "Invited <Oct 4>" from made_at), "Invited · until <Oct 11>", Withdraw.
+   - expired: the same disc, "Expired <Oct 11>" (Mona's Q-M2), "Make a new code" (the invite sheet,
+     label and kind filled in). It goes once a newer code with the same label is pending or joined.
+   - withdrawn and removed: not shown (shot 10). `invites: []`: no heading at all.
+   - checked_at null with rows: one plain .fhint line (Mona's Q-M6), rows and Remove kept.
+   - the GET failing: no rows, the same line (the tab view's own agents are painted as ever).
+   - owner:false (a project this board joined) and self_shared: nothing here (slice F is the member side).
+   Discs are the room's outside disc (.msg-av.ext-av, dashed and untinted), never tinted from the label,
+   which is only the owner's own word for them and may equal a local agent's name (#3851).
+   Errors: `error` shown as given, branching only on `reason`, through pjFedMessage. */
+/* The section's state (FED_MEMBERS, FED_MEMBERS_SEQ, FED_MEMBERS_ASKING, FED_MSGS, FED_BUSY) is declared
+   beside AGENTS_GROUPED, above: paintAgentList and fedGateStamp read it, and a `let` read before its
+   line runs throws. */
+const FED_NOT_CHECKED = 'Kosmos could not check who has joined just now. This list may be out of date.';
+const FED_UNREACHABLE = 'Kosmos could not reach the connection service. Try again in a moment.';
+// "Oct 11" (shot 07's rows) from unix seconds; '' when there is no usable time.
+function fedShortDate(sec) {
+  if (typeof sec !== 'number' || !Number.isFinite(sec) || sec <= 0) return '';
+  try { return new Date(sec * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; }
+}
+// "Dana Ruiz" -> "DR": letters only, never a colour (#3851).
+function fedDiscLetters(label) {
+  const words = String(label || '').trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((w) => Array.from(w)[0] || '').join('').toUpperCase();
+}
+// One key per row: a joined row by its connection (several rows can share a create-screen invite id,
+// Kitty's round 4), any other by its invite.
+function fedRowKey(r) { return r.edge_id ? 'e:' + r.edge_id : 'i:' + r.invite_id; }
+function fedOutsideRows(body) {
+  const all = (body && Array.isArray(body.invites)) ? body.invites.filter((r) => r && typeof r === 'object') : [];
+  const live = new Set(all.filter((r) => (r.state === 'pending' || r.state === 'joined') && r.label).map((r) => r.label));
+  return all.filter((r) => r.state === 'joined' || r.state === 'pending'
+    || (r.state === 'expired' && !(r.label && live.has(r.label))));
+}
+function fedRowByKey(key) {
+  const fm = FED_MEMBERS;
+  if (!fm || !fm.ok || fm.project !== PJ_CURRENT) return null;
+  return fedOutsideRows(fm.body).find((r) => fedRowKey(r) === key) || null;
+}
+function fedOutsideRowHtml(r) {
+  const key = fedRowKey(r);
+  const kindWord = r.kind === 'agent' ? 'Agent' : (r.kind === 'person' ? 'Person' : '');
+  const made = fedShortDate(r.made_at);
+  const until = fedShortDate(r.expires_at);
+  const unnamed = made ? 'Invited ' + made : 'Someone you invited';
+  let name, sub, act = '', label = '';
+  if (r.state === 'joined') {
+    name = r.label || 'Someone you invited';
+    const on = fedShortDate(r.joined_at);
+    sub = kindWord ? (on ? kindWord + ' · joined ' + on : kindWord) : (on ? 'Joined ' + on : 'Joined');
+    if (r.edge_id) { act = 'remove'; label = 'Remove'; }
+  } else if (r.state === 'pending') {
+    name = r.label || unnamed;
+    sub = until ? 'Invited · until ' + until : 'Invited';
+    if (r.invite_id) { act = 'withdraw'; label = 'Withdraw'; }
+  } else {
+    name = r.label || unnamed;
+    sub = until ? 'Expired ' + until : 'Expired';
+    act = 'renew'; label = 'Make a new code';
+  }
+  const wait = r.state === 'joined' ? '' : ' fedout-wait';
+  const btn = act
+    ? '<button class="fedout-act" type="button" data-fed-act="' + act + '" data-fed-key="' + esc(key) + '"'
+      + (FED_BUSY.has(key) ? ' disabled' : '') + '>' + label + '</button>'
+    : '';
+  const said = FED_MSGS[key];
+  return '<div class="fedout-row" data-fed-key="' + esc(key) + '" data-fed-state="' + esc(r.state) + '">'
+    + '<span class="msg-av ext-av' + wait + '" aria-hidden="true">' + esc(r.label ? fedDiscLetters(r.label) : '') + '</span>'
+    + '<span class="fedout-b"><b class="fedout-nm">' + esc(name) + '</b><span class="fedout-sub">' + esc(sub) + '</span></span>'
+    + btn + '</div>'
+    + (said ? '<p class="fmsg fedout-rowmsg" aria-live="polite">' + esc(said) + '</p>' : '');
+}
+function fedOutsideHtml() {
+  const fm = FED_MEMBERS;
+  if (!fm || fm.project !== PJ_CURRENT || !PJ_CURRENT || !fedShow()) return '';
+  const body = fm.body || {};
+  if (fm.ok && (body.owner !== true || body.self_shared === true)) return '';
+  const rows = fm.ok ? fedOutsideRows(body) : [];
+  // Not checked: the GET failed, or the board could not ask the coordinator about invites it HAS (a project
+  // that never invited anyone answers checked_at null too, and has nothing to be out of date about).
+  const note = !fm.ok || (typeof body.checked_at !== 'number' && Array.isArray(body.invites) && body.invites.length > 0);
+  const keys = new Set(rows.map(fedRowKey));
+  // A sentence whose row is gone (Remove's 404, Withdraw's 409 joined after the refetch) is said under the list.
+  const loose = Object.keys(FED_MSGS).filter((k) => !keys.has(k) && FED_MSGS[k]).map((k) => FED_MSGS[k]);
+  let h = '';
+  if (rows.length || note) {
+    h += '<h4 class="fedout-h">From outside</h4>';
+    if (note) h += '<p class="fhint fedout-note">' + esc(FED_NOT_CHECKED) + '</p>';
+    h += rows.map(fedOutsideRowHtml).join('');
+  }
+  if (loose.length) h += '<p class="fmsg fedout-msg" aria-live="polite">' + esc(loose.join(' ')) + '</p>';
+  return h;
+}
+// tabOnly: paintOneProject's call (the consolidated rail repaints itself on its own paint).
+function fedOutsidePaint(tabOnly) {
+  const html = fedOutsideHtml();
+  const el = document.getElementById('pj-fed-outside');
+  if (el && el.__fedHtml !== html) { el.__fedHtml = html; el.innerHTML = html; }
+  if (tabOnly) return;
+  // The consolidated rail draws the section inside its own list, so it repaints that list while it groups.
+  if (AGENTS_GROUPED && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function') paintAgentList();
+}
+async function fedMembersLoad(project) {
+  if (!project || !fedShow()) return;
+  if (!FED_MEMBERS || FED_MEMBERS.project !== project) { FED_MEMBERS = null; FED_MSGS = {}; }
+  const seq = ++FED_MEMBERS_SEQ;
+  FED_MEMBERS_ASKING = project;
+  let entry;
+  try {
+    const res = await fetch('/api/federation/members?project=' + encodeURIComponent(project), { cache: 'no-store' });
+    const body = await res.json().catch(() => null);
+    entry = { project, ok: res.ok && !!body && typeof body === 'object', body: (body && typeof body === 'object') ? body : {} };
+  } catch {
+    entry = { project, ok: false, body: {} };
+  }
+  if (seq !== FED_MEMBERS_SEQ) return;
+  FED_MEMBERS_ASKING = null;
+  FED_MEMBERS = entry;
+  fedOutsidePaint(false);
+}
+// Called by fedGateStamp on every gate stamp.
+function fedGateMembers(show) {
+  if (!show) {
+    if (MEM_PENDING && MEM_PENDING.fed) memConfirmClose();
+    fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
+    return;
+  }
+  if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
+}
+// The shared dialog back to its #761 self: no danger look, no error, both buttons live.
+function fedRemoveReset() {
+  const go = document.getElementById('mem-go');
+  const msg = document.getElementById('mem-msg');
+  if (go) { go.classList.remove('danger-btn'); go.disabled = false; }
+  if (msg) msg.textContent = '';
+}
+/* Shot 09, in the #761 dialog (Josh's rule: removing a member asks first). Without slice 3's sender stamp
+   there are no outside agents to name, so the body is Mona's fallback without ", and Scout with them,"
+   (spec G2). The first word of the label stands for the person, as in shot 09's "Dana's computer". */
+function fedRemoveOpen(btn, r) {
+  const p = pjById(PJ_CURRENT);
+  const pjName = (p && p.name) || 'this project';
+  const who = r.label || '';
+  const first = who ? who.split(/\s+/)[0] : '';
+  fedRemoveReset();
+  MEM_PENDING = { btn, fed: { project: PJ_CURRENT, edge_id: r.edge_id, key: fedRowKey(r) } };
+  document.getElementById('mem-title').textContent = who
+    ? 'Remove ' + who + ' from this project?' : 'Remove someone you invited from this project?';
+  document.getElementById('mem-small').textContent = who
+    ? 'Confirm that you want to remove ' + who + ' from ' + pjName + '. ' + first + "'s computer stops getting new messages from this room. What " + first + " already received stays on " + first + "'s computer."
+    : 'Confirm that you want to remove them from ' + pjName + '. Their computer stops getting new messages from this room. What they already received stays on their computer.';
+  document.getElementById('mem-keep').textContent = 'Cancel';
+  const go = document.getElementById('mem-go');
+  go.textContent = who ? 'Remove ' + who : 'Remove them';
+  go.classList.add('danger-btn');
+  document.getElementById('mem-modal').hidden = false;
+  document.getElementById('mem-keep').focus();
+}
+// The dialog closes on an answer that ends the row: focus goes to the Members "+", not to the Remove
+// that the refetch is about to take away.
+function fedRemoveDone() {
+  document.getElementById('mem-modal').hidden = true;
+  MEM_PENDING = null;
+  fedRemoveReset();
+  const back = ['pj-add-member', 'rail-agents-new'].map((id) => document.getElementById(id)).find((b) => b && b.getClientRects().length);
+  if (back) back.focus();
+}
+async function fedRemoveGo() {
+  const p = MEM_PENDING;
+  if (!p || !p.fed) return;
+  const f = p.fed;
+  const go = document.getElementById('mem-go');
+  const msg = document.getElementById('mem-msg');
+  const fallback = 'Kosmos could not remove them just now. Try again in a moment.';
+  go.disabled = true;
+  msg.textContent = 'Removing…';
+  FED_BUSY.add(f.key);
+  let res = null;
+  let body = null;
+  let said = '';
+  try {
+    res = await fetch('/api/federation/remove', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: f.project, edge_id: f.edge_id }),
+    });
+    body = await res.json().catch(() => null);
+  } catch {
+    said = FED_UNREACHABLE;
+  }
+  FED_BUSY.delete(f.key);
+  const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
+  if (still) go.disabled = false;
+  if (!said && res.ok) {
+    delete FED_MSGS[f.key];
+    if (still) fedRemoveDone();
+    fedMembersLoad(f.project);
+    return;
+  }
+  // A 403 means the request did not read as from this screen: nothing the person can act on.
+  if (!said) said = res.status === 403 ? fallback : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
+  if (!(res && res.status === 404) && still) { msg.textContent = said; return; }
+  // 404 (not a connection of this project any more): said beside the list, which is asked again; or the
+  // dialog was closed meanwhile, so the refusal is said on the row instead.
+  FED_MSGS[f.key] = said;
+  if (res && res.status === 404) {
+    if (still) fedRemoveDone();
+    fedMembersLoad(f.project);
+  } else {
+    fedOutsidePaint(false);
+  }
+}
+async function fedWithdraw(r) {
+  const key = fedRowKey(r);
+  const project = PJ_CURRENT;
+  if (!project || FED_BUSY.has(key)) return;
+  const fallback = 'Kosmos could not withdraw this code just now. Try again in a moment.';
+  FED_BUSY.add(key);
+  delete FED_MSGS[key];
+  fedOutsidePaint(false);
+  let res = null;
+  let body = null;
+  let said = '';
+  try {
+    res = await fetch('/api/federation/withdraw', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project, invite_id: r.invite_id }),
+    });
+    body = await res.json().catch(() => null);
+  } catch {
+    said = FED_UNREACHABLE;
+  }
+  FED_BUSY.delete(key);
+  if (PJ_CURRENT !== project) return;
+  if (!said && res.ok) { fedMembersLoad(project); return; }
+  if (!said) {
+    said = res.status === 403 ? fallback
+      : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { lapses: fedShortDate(r.expires_at) });
+  }
+  FED_MSGS[key] = said;
+  fedOutsidePaint(false);
+  // 409 joined: someone used the code meanwhile, so the row is now a joined one; ask again to show it.
+  if (res && res.status === 409 && body && body.reason === 'joined') fedMembersLoad(project);
+}
+// The rows' actions, delegated: both lists are rebuilt from markup on every paint.
+document.addEventListener('click', (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('.fedout .fedout-act[data-fed-key]') : null;
+  if (!btn || btn.disabled || !fedShow()) return;
+  const r = fedRowByKey(btn.dataset.fedKey);
+  if (!r) return;
+  const act = btn.dataset.fedAct;
+  if (act === 'remove') fedRemoveOpen(btn, r);
+  else if (act === 'withdraw') fedWithdraw(r);
+  else if (act === 'renew') fedInviteOpen(btn, { label: r.label || '', kind: r.kind });
 });
 /* The ways out, per #1316: the corner X (0.6.45, was a Cancel button) that is not
    the action, and Escape, because somebody who opened this from the keyboard is
