@@ -39,8 +39,10 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
   && Math.abs(m.bufW / m.bufH - m.cssW / m.cssH) / (m.cssW / m.cssH) <= 0.01;
 
 (async () => {
-  /* kosmos#5189 fixture: a dot crossing the edge (0.999 -> 0.001) is a small move; a real jump (0.2 -> 0.7) is not. */
-  chk(wrapDist(0.999, 0.001, 1.008) < 0.03, 'wrapDist: a dot crossing the edge is a small move (#5189)', String(wrapDist(0.999, 0.001, 1.008)));
+  /* kosmos#5189 fixture, with the places a real crossing reads (1.005 before, 0.008 after, span 1.007): a small move.
+     A wide span (a narrow box, 8px of 160) must be used as given: span 1 would read 1.045 -> 0.005 as 0.04. */
+  chk(wrapDist(1.005, 0.008, 1.007) < 0.03, 'wrapDist: a dot crossing the edge is a small move (#5189)', String(wrapDist(1.005, 0.008, 1.007)));
+  chk(wrapDist(1.045, 0.005, 1.05) < 0.03 && wrapDist(1.045, 0.005, 1) >= 0.03, 'wrapDist: the span is the page\'s, not 1 (#5189)', String([wrapDist(1.045, 0.005, 1.05), wrapDist(1.045, 0.005, 1)]));
   chk(wrapDist(0.2, 0.7, 1.008) >= 0.03, 'wrapDist: a real jump is still a jump (#5189)', String(wrapDist(0.2, 0.7, 1.008)));
   let browser;
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
@@ -85,17 +87,22 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
       /* Review pass 2: the first few dots' places, as fractions of the box, so a re-size that re-seeds
          the field (every dot jumping) is told apart from one that keeps it. */
       const places = () => page.evaluate(() => plusParts.slice(0, 8).map((q) => [q.x / plusSW, q.y / plusSH]));
-      /* kosmos#5189: the field wraps a dot 4px outside each edge (web/index.html plusStarsStep), so a dot drifting across
-         an edge reads as a jump of about the whole box though it moved a few px. Plant dot 0 crossing the bottom edge on
-         every run, so the wrap is exercised every time rather than by chance, and compare the short way round. */
-      await page.evaluate(() => { const q = plusParts[0]; q.y = plusSH + 3.5; q.vy = 0.5; });
-      const placesBefore = await places();
+      /* kosmos#5189: the field wraps a dot 4px outside each edge (web/index.html plusStarsDraw), so a dot drifting across
+         an edge reads as a jump of about the whole box though it moved a few px. Plant dot 0 just inside the wrap at a
+         real dot's top speed (0.11px a frame; review 1: a faster plant spent the margin by itself on a slow run), in the
+         same evaluate as the read, so the wrap is exercised on every run, and compare the short way round. It crosses
+         at the re-size (y *= fy pushes it past the edge) or within a frame or two after. */
+      const placesBefore = await page.evaluate(() => {
+        const q = plusParts[0]; q.y = plusSH + 3.95; q.vy = 0.11;
+        return plusParts.slice(0, 8).map((d) => [d.x / plusSW, d.y / plusSH]);
+      });
       await page.evaluate(() => { const d = document.createElement('div'); d.dataset.check3778 = 'grow'; d.style.height = '420px'; document.getElementById('s-sec-plus').appendChild(d); });
       await page.waitForTimeout(300);
       const grown = await read();
       chk(same(grown) && grown.cssH > settled.cssH, `${t} after the section grows, the buffer follows (not only on a window resize)`, JSON.stringify({ settled, grown }));
-      /* A dot drifts at most about 0.14px a frame, so in ~20 frames it moves a few px: well under 3% of the
-         box. A re-seed puts it anywhere. Eight dots all within 3% by chance is not a real risk. */
+      /* A dot drifts at most about 0.14px a frame (dot 0, planted above, at 0.11), so in the ~30 frames between the
+         reads it moves a few px: well under 3% of the box. A re-seed puts it anywhere. Eight dots all within 3% by
+         chance is not a real risk. */
       const placesAfter = await places();
       /* The wrap span as a fraction of the box: (size + 8) / size, read from the page after the re-size. */
       const span = await page.evaluate(() => [(plusSW + 8) / plusSW, (plusSH + 8) / plusSH]);
