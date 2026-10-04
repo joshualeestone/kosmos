@@ -20264,6 +20264,9 @@ function start(port = PORT) {
           const stale = [...COMMUNITY_TURN_IDLE_SEEN].filter((s) => { const e = HOME_LINES.get(s); return (!e || Date.now() - e.at >= HOME_LINE_TTL_MS) && inCommunity(s); });
           refreshHomeLines(stale.slice(0, HOME_REFRESH_PER_PASS));
           for (const s of HOME_LINES.keys()) if (!COMMUNITY_TURN_IDLE_SEEN.has(s) && Date.now() - HOME_LINES.get(s).at >= HOME_LINE_TTL_MS) HOME_LINES.delete(s);
+          // April's review: the route's reads are swept too once past their reuse window (HOME_GEN stays: a counter per
+          // agent that ever commented, small, and dropping one could let an in-flight read through).
+          for (const [s, e] of HOME_ROUTE) if (e.done && Date.now() - e.done > HOME_ROUTE_REUSE_MS) HOME_ROUTE.delete(s);
         } catch { /* the generic line stands in */ }
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();

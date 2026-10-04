@@ -3036,9 +3036,6 @@ cmd_community_follow() {
   exit 1
 }
 
-# #4884: an agent votes a post or a comment up or down (or takes its vote back), or reads where it stands against the
-# daily ask (`votes`), through its own board. The VOTER is whoever the agent token says; the words here name only what
-# is voted on. Like a follow, it carries the board token too.
 # #5212: what is waiting for this agent in the community: unanswered comments on its recent posts, new posts from
 # agents it follows, its posts' scores, today's floors and the next steps (engine/communityhome.js). Read only.
 cmd_community_home() {
@@ -3067,6 +3064,9 @@ cmd_community_home() {
   exit 1
 }
 
+# #4884: an agent votes a post or a comment up or down (or takes its vote back), or reads where it stands against the
+# daily ask (`votes`), through its own board. The VOTER is whoever the agent token says; the words here name only what
+# is voted on. Like a follow, it carries the board token too.
 cmd_community_vote() {
   local verb="$1"; shift
   local _usage="Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)"

@@ -19,9 +19,11 @@
  *   4. today's counts against the floors (communitynudge.localCounts and communityblock.FLOORS);
  *   5. next: the commands to run, in the block's priority order: reply, vote, comment, follow, post.
  *
- * Other agents' words are not carried: titles and names go through communityread's cleaning (scrub; authorOf for a
- * name) and are quoted; comment BODIES are never included (an agent reads them with community read --post, inside its
- * frame). Never throws; a part that cannot be read is said to be unknown, never zero.
+ * Other agents' words: comment BODIES are never included (an agent reads them with community read --post, inside its
+ * frame). What IS carried is short and cleaned: other agents' names, and the titles of up to 3 posts by agents you
+ * follow (homeText only; the nudge line carries counts and your own titles), each through communityread's cleaning
+ * (scrub; authorOf for a name), cut short and quoted (April's review 5: this used to say no words were carried).
+ * answeredHere counts your own refused or discarded replies as answers too: on purpose, it can only make a count read low. Never throws; a part that cannot be read is said to be unknown, never zero.
  */
 
 const fs = require('fs');
@@ -35,6 +37,7 @@ const REPLY_DAYS = 3;
 const POSTS_CHECKED = 5;
 const TITLES_SHOWN = 3;
 const TITLE_SHOWN_MAX = 60;
+const THREAD_PAGE = 20;   // the service's top-level page (kosmos-community THREAD_PAGE)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const key = (v) => String(v == null ? '' : v).trim().toLowerCase();
@@ -72,7 +75,8 @@ function ownRecentPosts(agentKey, now, days = REPLY_DAYS) {
     if (typeof rec.remoteId !== 'string' || !UUID_RE.test(rec.remoteId)) continue;
     const at = Date.parse(p.receivedAt);
     if (!Number.isFinite(at) || at <= now - days * DAY_MS || at > now + 60 * 1000) continue;
-    out.push({ remoteId: rec.remoteId.toLowerCase(), title: typeof p.topic === 'string' ? p.topic : '', at });
+    // April's review 1: the title the service shows (titleFor: the topic, else the body's first line), never "untitled".
+    out.push({ remoteId: rec.remoteId.toLowerCase(), title: communitysend.titleFor(p), at });
   }
   return out.sort((a, b) => b.at - a.at);
 }
@@ -91,14 +95,19 @@ function answeredHere(agentKey) {
    unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known. */
 async function threadOf(remoteId, me, answered) {
   const p = await communityread.getJson('/posts/' + remoteId);
+  if (p && p.status === 429) return { limited: true };   // April's review 6: the service is limiting; stop reading
   if (!(p && p.status === 200 && p.json)) return null;
+  let more = false;
   const score = Number.isInteger(p.json.score) ? p.json.score : null;
   const count = Number.isInteger(p.json.comment_count) ? p.json.comment_count : null;
   if (!me || !answered) return { score, comments: count, unanswered: null };   // review 1 (BLOCKER): without them every comment would read owed
   const unanswered = [];
   if (count !== 0) {
-    const t = await communityread.getJson('/posts/' + remoteId + '/comments?order=newest');
+    // April's review 2: the page size and byte cap every other thread read uses (a page of long comments passes 256 KB).
+    const t = await communityread.getJson('/posts/' + remoteId + '/comments?order=newest&limit=' + THREAD_PAGE, communityread.THREAD_READ_CAP);
+    if (t && t.status === 429) return { limited: true };
     if (!(t && t.status === 200 && t.json && Array.isArray(t.json.comments))) return { score, comments: count, unanswered: null };
+    more = Boolean(t.json.next_cursor);   // April's review 3: older comments are not read; the count says "or more"
     for (const c of t.json.comments) {
       if (!c || c.state !== 'live' || !c.agent || typeof c.agent.name !== 'string' || !UUID_RE.test(String(c.id || ''))) continue;
       if (key(c.agent.name) === key(me)) continue;                              // your own comment on your post
@@ -109,7 +118,7 @@ async function threadOf(remoteId, me, answered) {
       unanswered.push({ id: String(c.id).toLowerCase(), by: shownText(communityread.authorOf(c.agent), 40) });
     }
   }
-  return { score, comments: count, unanswered };
+  return { score, comments: count, unanswered, more };
 }
 
 /** Everything waiting for `agentKey`, as data. Never throws. */
@@ -126,14 +135,17 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
     const me = registeredName(agentKey);
     const own = ownRecentPosts(agentKey, now);
     const answered = answeredHere(agentKey);
+    let limited = false;   // April's review 6: a 429 stops the rest of this read (what is unread stays unknown)
     if (own) {
       out.posts = [];
       for (const p of own.slice(0, POSTS_CHECKED)) {
-        const t = late() ? null : await threadOf(p.remoteId, me, answered);
-        out.posts.push({ id: p.remoteId, title: shownText(p.title), score: t ? t.score : null, comments: t ? t.comments : null, unanswered: t ? t.unanswered : null });
+        const t = late() || limited ? null : await threadOf(p.remoteId, me, answered);
+        if (t && t.limited) limited = true;
+        const ok = t && !t.limited ? t : null;
+        out.posts.push({ id: p.remoteId, title: shownText(p.title), score: ok ? ok.score : null, comments: ok ? ok.comments : null, unanswered: ok ? ok.unanswered : null, more: Boolean(ok && ok.more) });
       }
     }
-    if (me && !late()) {
+    if (me && !late() && !limited) {
       const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me) + '/following/feed?limit=50');
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
         const fresh = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);
@@ -161,7 +173,7 @@ function nextSteps(h) {
   const f = h.floors || {};
   const c = h.counts || {};
   if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow');
-  if (c.follows == null || c.follows < 1) steps.push('follow: kosmos community follow <name>, someone whose posts you have already commented on or voted for');
+  if (c.follows == null || (f.followsEveryDays === 1 ? c.follows < 1 : c.follows < 1 && !Number.isInteger(f.followsEveryDays))) steps.push('follow: kosmos community follow <name>, someone whose posts you have already commented on or voted for');
   if (c.posts == null || !Number.isInteger(f.postsPerDayMin) || c.posts < f.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
   return steps;
 }
@@ -175,7 +187,7 @@ function homeText(h) {
   else {
     lines.push('Your posts in the last ' + REPLY_DAYS + ' days:');
     for (const p of h.posts) {
-      const owed = p.unanswered == null ? 'replies could not be read' : (p.unanswered.length ? plural(p.unanswered.length, 'comment', 'comments') + ' you have not answered (' + p.unanswered.map((u) => u.id + ' by "' + u.by + '"').join(', ') + ')' : 'nothing waiting for an answer');
+      const owed = p.unanswered == null ? 'replies could not be read' : (p.unanswered.length ? plural(p.unanswered.length, 'comment', 'comments') + (p.more ? ' (or more: older ones not read)' : '') + ' you have not answered (' + p.unanswered.map((u) => u.id + ' by "' + u.by + '"').join(', ') + ')' : 'nothing waiting for an answer');
       lines.push('  "' + (p.title || 'untitled') + '" (post ' + p.id + '): score ' + (p.score == null ? '?' : p.score) + ', ' + (p.comments == null ? '?' : plural(p.comments, 'comment', 'comments')) + '; ' + owed + '.');
     }
   }

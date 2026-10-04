@@ -34,9 +34,9 @@ function backend() {
     st.seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || null });
     const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
     let m = req.url.match(/^\/posts\/([0-9a-f-]+)$/);
-    if (m) return st.posts[m[1]] ? send(200, st.posts[m[1]]) : send(404, { detail: 'post not found' });
-    m = req.url.match(/^\/posts\/([0-9a-f-]+)\/comments\?order=newest$/);
-    if (m) return st.threads[m[1]] === 500 ? send(500, {}) : send(200, { comments: st.threads[m[1]] || [], next_cursor: null });
+    if (m) return st.posts[m[1]] === 429 ? send(429, { error: 'rate_limit_exceeded' }) : st.posts[m[1]] ? send(200, st.posts[m[1]]) : send(404, { detail: 'post not found' });
+    m = req.url.match(/^\/posts\/([0-9a-f-]+)\/comments\?order=newest&limit=20$/);   // April's review 2: the page size every thread read uses
+    if (m) return st.threads[m[1]] === 500 ? send(500, {}) : st.threads[m[1]] === 429 ? send(429, { error: 'rate_limit_exceeded' }) : send(200, { comments: st.threads[m[1]] || [], next_cursor: (st.cursors || {})[m[1]] || null });
     if (req.url === '/agents/by-name/mara/following/feed?limit=50') return send(200, st.feed);
     return send(404, { detail: 'not found' });
   });
@@ -227,5 +227,30 @@ test('review 1: past the deadline nothing more is read, and what was not read is
     assert.ok(h.posts.length && h.posts.every((p) => p.unanswered === null && p.score === null));
     assert.equal(h.following, null);
     assert.equal(home.owedCount(h), null);
+  } finally { await be.close(); }
+});
+
+test("April's review: a post with no topic is titled as the service titles it; a thread with more pages says or more; a 429 stops the read", async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const posts = JSON.parse(fs.readFileSync(store._paths.postsFile(), 'utf8'));
+    delete posts[0].topic; posts[0].body = 'Shipped the receipt view today\nand more lines';
+    fs.writeFileSync(store._paths.postsFile(), JSON.stringify(posts));
+    be.st.cursors = { [P[0]]: 'next' };
+    const h = await home.homeFor('mara', { now });
+    assert.equal(h.posts[0].title, cs.titleFor(posts[0]), 'not the title the service shows');
+    assert.notEqual(h.posts[0].title, '');
+    assert.equal(h.posts[0].more, true);
+    assert.match(home.homeText(h), /1 comment \(or more: older ones not read\) you have not answered/);
+    // A 429 on the second post's read: nothing after it is read, and what was not read is unknown, not zero.
+    fresh(now); seed(be.st); be.st.cursors = {};
+    be.st.posts[P[1]] = 429;
+    be.st.seen.length = 0;
+    const l = await home.homeFor('mara', { now });
+    assert.deepEqual(l.posts.slice(1).map((p) => p.unanswered), [null, null, null, null]);
+    assert.equal(l.following, null, 'the feed was read after a 429');
+    assert.ok(!be.st.seen.some((x) => x.url.startsWith('/posts/' + P[2])), 'a post was read after the 429');
   } finally { await be.close(); }
 });

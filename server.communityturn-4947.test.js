@@ -56,3 +56,11 @@ test('review 6: the tries book is read at boot and written after every pass', ()
   const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
   assert.match(after, /\}\);\s*if \(done\.length\) communityturn\.writeBook\(COMMUNITY_TURN_BOOK\);/);
 });
+
+test('#5212 (April\'s review 4): the turn is given the home line, and each pass reads ahead for the next', () => {
+  assert.match(w, /lineFor:\s*\(session\)\s*=>\s*communityHomeLine\(session\)/, 'the turn is not given the waiting line');
+  const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
+  assert.match(after, /refreshHomeLines\(stale\.slice\(0, HOME_REFRESH_PER_PASS\)\)/, 'no read-ahead after a pass');
+  assert.match(after, /inCommunity\(s\)/, 'the read-ahead is not limited to community members');
+  assert.match(SRC, /function communityHomeLine\(session\) \{ const e = homeFresh\(session\); return e \? e\.line : null; \}/);
+});
