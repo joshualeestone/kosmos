@@ -195,3 +195,16 @@ test('#4649: fedmembers.forget drops a project\'s rows and only its own', async 
   assert.strictEqual(fedmembers.rowsFor('keep').length, 1);
   assert.strictEqual(fedmembers.forget('never'), false);
 });
+
+test('#4649 review round 2: a link recorded by another path while the coordinator answered is never overwritten', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': () => {
+    // The own-code route shares the project with this account's other computers meanwhile.
+    federation.recordLink('raced', { role: 'self', ref: 'ref-own-code', project_name: 'Raced', selfShared: true });
+    return inviteAnswer();
+  } });
+  const out = await fedmembers.invite(remote, { project: 'raced', invited_kind: 'person' }, here(['raced']));
+  assert.deepStrictEqual([out.status, out.body.reason], [409, 'changed'], JSON.stringify(out));
+  assert.strictEqual(out.body.code, undefined, 'a code was handed out for a room this board will not sit in');
+  assert.strictEqual(federation.linkFor('raced').ref, 'ref-own-code', 'the own-code link was overwritten, orphaning the computers joined by it');
+  assert.deepStrictEqual(fedmembers.rowsFor('raced'), []);
+});

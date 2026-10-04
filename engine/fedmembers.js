@@ -152,7 +152,8 @@ async function inviteNow(remote, body, { projectExists, projectName, projectCrea
       if (typeof born === 'string' && born) linkToRecord.project_created = born;
       try { require('./fedseal').forgetRoom(projectId); } catch { /* an unreadable record keeps every post here */ }
     }
-    req = Object.assign({}, body, { project_ref: ref, project_name: (projectName && projectName(projectId)) || body.project_name });
+    // The project's name on this board, never one the request supplied (the coordinator shows it to the invitee).
+    req = Object.assign({}, body, { project_ref: ref, project_name: (projectName && projectName(projectId)) || projectId });
     delete req.project;
   }
   const out = await federation.invite(remote, req);
@@ -161,6 +162,15 @@ async function inviteNow(remote, body, { projectExists, projectName, projectCrea
      project exactly as it was. A link that cannot be written means the code would open a room this board never
      seats: no code is handed out. */
   if (linkToRecord) {
+    /* Review round 2: another path can record a link for this project while the coordinator answered (the own-code
+       route sharing it with this account's other computers is synchronous and not in the invite chain). Writing ours
+       over it would orphan the computers already joined by that code, so this invite hands out no code instead; the
+       coordinator's invite lapses unused. */
+    let now2 = null;
+    try { now2 = federation.linkFor(projectId); } catch { now2 = undefined; }
+    if (now2 !== null) {
+      return { status: 409, body: { reason: 'changed', error: 'This project\'s sharing changed while the code was being made, so no code was made. Try again.' } };
+    }
     try { federation.recordLink(projectId, linkToRecord); } catch (err) {
       return { status: 500, body: { error: 'We could not record this shared project on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
     }
@@ -178,6 +188,8 @@ async function inviteNow(remote, body, { projectExists, projectName, projectCrea
 }
 
 /** The project's Members rows from outside, newest first (the contract's GET /api/federation/members). */
+/* Note: ownerLinkOf can forget a STALE link (an earlier project's, #3851) on this read, after which the list reads as
+   a project that invited nobody yet. That is the truth for this project: the stale rows were the earlier one's. */
 async function members(remote, projectId, now = Date.now(), { projectExists } = {}) {
   if (projectExists && !projectExists(projectId)) return { status: 404, body: { error: 'That project is not on this computer.' } };
   const o = ownerLinkOf(projectId);

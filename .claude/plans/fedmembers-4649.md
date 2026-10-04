@@ -51,6 +51,6 @@ The build plan is on #4649 (comment 5982094423), and the board API contract is t
 
 ## Tests
 engine/fedmembers.test.js (10), server.fedmembers-4649.test.js (4), engine/federation.test.js and
-server.federation-3311.test.js: 59/59. Mutations, each red on its own test: Remove without the project check; the
+server.federation-3311.test.js: 60/60. Mutations, each red on its own test: Remove without the project check; the
 label sent to the coordinator; Members without the screen gate; the invite-time stamp; no stale-link forget; no
 per-project serialization; no forget on project removal.
