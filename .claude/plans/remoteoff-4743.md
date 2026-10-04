@@ -1,0 +1,189 @@
+# remoteoff-4743: a computer with remote access off says so when it checks in (kosmos#4743)
+
+## Defect
+Since #4731 an enrolled computer with remote access OFF still asks its standing about twice a day, with an
+EMPTY body, so the coordinator does not take it for gone. The coordinator refreshes `last_seen` for it, and
+the account page says "Answering now" for about two minutes after each question, although nobody can reach
+that computer (Renet Tilley's card).
+
+## Change, board half (this branch)
+`engine/mac-standing.js`: with remote access off the body is `{"remote":{"on":false}}` instead of `{}`.
+One bit; no other report fields go out while off (#4731 chose to send no report in that state). With the
+switch on: the full report as before, or `{"remote":{"on":true}}` when no report can be built (so a computer
+the coordinator marked off is cleared).
+`engine/remote.js` `setOn`: every saved REAL flip (the value changed) asks the standing at once; a flip made
+while a refresh is already out is told when that refresh ends (review 3) (off: the stamp is set back past the
+off cadence so it is due). Without this the coordinator heard about an OFF flip up to 12 hours later, and the
+account page said "Answering now" all that time for a computer just switched off (review 2).
+Also in `engine/remote.js` (reviews 7-15): `flipPending` (a flip not told yet makes the next standing poll due
+at once); `turnOnAfterSignin` and `cancelledAfter` mark it without asking (inside the sign-in); `cancelledAfter`
+sets the stamp back after `fedSetStanding`; `forgetNow` clears it; test-only exports `turnOnAfterSigninForTests`,
+`cancelledAfterForTests`, `standingQuietForTests`, `standingOutForTests`. `engine/updating.js`: a comment names the
+off check-in as the one signed call that still goes out while off.
+
+## Coordinator half (kosmos-relay branch remoteoff-4743)
+The account page reads a computer whose latest check-in said `on: false` as "Remote access off, last
+heard from <when>". With that half the off bit is kept apart and never replaces the stored diagnosis. A coordinator
+WITHOUT it stores the one-bit body as a report, replacing the last diagnosis (review 1 of the relay half), so
+this board half should reach users only after the coordinator half is deployed.
+
+## Tests
+- `#4743: a flip while a refresh is already out is told when that refresh ends`, and `saving the switch at the
+  value it already has sends nothing`: each red with its guard removed.
+- `#4743: switching remote access off tells the coordinator at once, not at the next cadence (up to 12 h)`:
+  after `setOn(false)` on a fresh stamp, exactly one standing question with the off body arrives.
+- `#4743: a flip whose first ask was stopped is told by the next refresh`: a flip made while not enrolled (as
+  during a sign-in) is told by the next refresh even after another writer stamped the standing fresh; red
+  without the fix.
+`engine/mac-standing.test.js`: the #4731 off-arm test now asserts the body is exactly
+`{"remote":{"on":false}}`, and its control asserts the switch-on body is not that. Each new test is red with the guard it names
+removed. The related suites (remote, remote-report, remote-standing-refresh,
+remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
+
+## Review 4 (opus, blind): 0 blockers, 3 warnings, 4 nits
+- W, taken: a flip whose own ask was stopped (busy() during a sign-in) stayed untold for up to 12 h, because
+  the sign-in's own write stamped the standing fresh. A pending flip is now due at once, whatever stamp
+  another writer left. A save over an unreadable settings file counts as a flip.
+- W, taken: sentences here that named the page wording and a test wrongly are corrected.
+- Stated, not built: a board that was already OFF when it upgrades to this keeps its off-cadence stamp, so
+  its first off check-in can come up to 12 h after the upgrade; meanwhile other signed contact can still make
+  the page say "Answering now". Once, and it fixes itself.
+
+## Review 5 (fable, blind): 0 blockers, 1 warning, 4 nits
+- W, taken: when a refresh that was out ended, it cleared the pending flip BEFORE its re-ask had passed the
+  early returns, so a flip told to a board that could not ask yet (a sign-in in flight) was dropped. The flag
+  is now cleared only by an ask that proceeds. New test: the flip survives that sequence (red without it).
+- N, taken in the relay half: `{"remote":{"on":true}}` alone (a report that could not be built) clears the
+  mark but is not stored over the last diagnosis.
+
+## Review 6 (opus, blind): 0 blockers, 2 warnings (comments, taken), 3 nits
+- Two comments were false (the body shape; what makes a pending flip due); corrected.
+- Stated, not built: a sign-in that switches the switch ON itself (turnOnAfterSignin, not setOn) is told at
+  the next on-cadence refresh (60 s with the page open, up to 10 min), not at once. Tried a hook there; it
+  broke remote.test.js's Forget-during-retire test, so it was backed out rather than forced.
+
+## Review 7 (sonnet, blind, after a restart; ledger of reviews 1-6 is in this file only): 0 blockers, 3 warnings, 5 nits
+- W, taken: resetForTests did not clear flipPending or standingRefreshInFlight, and the two slow-fetcher tests
+  could leave a refresh out on a failed assertion. Both cleared in resetForTests; both tests release in finally.
+- W, taken (stated): with the switch ON and no report, the board sends `{"remote":{"on":true}}`, which an OLDER
+  coordinator stores over the last diagnosis (before this, that case sent `{}` and stored nothing). Order of
+  shipping, required: the coordinator half (kosmos-relay `remoteoff-4743`) is deployed before any cut carries
+  this board half. Both halves are mine; the coordinator deploys from the relay repo independently of a cut.
+- W, taken (replaces review 6's "stated, not built"): a sign-in that switches the switch on (turnOnAfterSignin)
+  now marks the flip pending, so the NEXT standing poll is due at once whatever its stamp. It does not ask
+  inside the sign-in: an immediate ask there is a signed call in flight, and Forget waits for those before it
+  switches off (remote.test.js "Forget switches off before it waits on the retire" goes red with it: measured
+  again tonight, as in review 6). New test, with a control (already on: the poll stays on its cadence); red
+  without the flag.
+- Nits taken: the off stamp is set back one millisecond past the cadence (no equality edge); the comment on
+  clearing the pending flip says what holds (cleared when an ask starts; one that stops early falls back to
+  the 30-minute off retry), which is narrower than review 5's sentence above.
+- Run: engine/mac-standing.test.js 24/24, engine/remote.test.js 120/120, engine/remote-standing-refresh.test.js
+  12/12.
+
+## Review 8 (opus, blind): 0 blockers, 3 warnings, 1 convention, 5 nits
+- W (process, held): nothing in code enforces the shipping order. Held by sequencing: this board PR is opened
+  only after the coordinator half is merged AND deployed, with a probe of the live coordinator recorded on the
+  card (an `{"remote":{"on":false}}` standing from a test computer sets the mark on the account page's row).
+- W, taken: rebased on main (#4767 / kosmos#4756 touched resetForTests and the lines after
+  turnOnAfterSignin); resetForTests keeps main's addressesInFlight and this branch's two flags.
+- W, taken: the "on, no report" body had no test; new test (report build throws, switch on: body is exactly
+  `{"remote":{"on":true}}`), red when that case sends `{}`.
+- C, taken: the comment on an ask that stops early now says what each case leaves (not enrolled: no stamp;
+  unreadable: the last known state's stamp), not "the off retry".
+- Nits taken: the early-stop list names its real cases; cancelledAfter's off write marks the flip too;
+  turnOnAfterSignin is exported only as turnOnAfterSigninForTests; setOn says why it may ask at once (the
+  person's own toggle; a Forget after it waits at most one signed call, 20 s) while the sign-in does not.
+  Left: a reset at the start of each #4743 test (a leak would fail loudly, not pass).
+- Run (then): engine/mac-standing.test.js 25/25, engine/remote.test.js 130/130 (main added tests),
+  engine/remote-standing-refresh.test.js 12/12.
+
+## Review 9 (sonnet, blind): 0 blockers, 4 warnings, 4 nits
+- W, stated: a cancelled sign-in's off write (cancelledAfter) is told at the next standing poll (60 s with the
+  page open, up to 10 min without), not at once: it runs inside the sign-in, where an ask would hold up a
+  Forget, as for turnOnAfterSignin. No test drives cancelledAfter's flip itself (the flag's effect is the one
+  the sign-in test pins).
+- W, duplicate: the stale "Remote access off" window after a sign-in (review 7 decided it; accepted).
+- W, duplicate: the older-coordinator body (review 8: held by sequencing).
+- W, taken: the comment on a due flip no longer promises a flip is always told at once; one whose ask starts
+  and then fails is retried on the ordinary cadence.
+- Nit taken: the flag's own comment names every writer. Left: two stamp writes in one flow (correct);
+  the off-at-once test also passes through the set-back stamp (the flag has its own red tests).
+
+## Review 10 (opus, blind): 0 blockers, 1 warning (duplicate: the shipping order, held by sequencing), 5 nits
+- Nits taken: a test for switching ON at once (red if askAfterFlip stops asking with ttl 0); every #4743 test
+  starts with resetForTests; cancelledAfter's always-set flag is stated as deliberate; rebased on main
+  (#4640, a new tunnel state; no overlap).
+- Stated: switching on asks at once, right after ensure() starts the tunnel, so the report then says
+  "starting" and replaces the diagnosis the coordinator kept while the switch was off; the next on-cadence
+  report (60 s to 10 min) replaces it.
+
+## Review 11 (sonnet, blind): 0 blockers, 4 warnings, 4 nits
+- W, taken: review 10's new ON test was flaky (1 in 3): its clean-up could finish while its own ask was still
+  out, and that ask's re-ask landed in the next test. The clean-up now waits until no refresh is out and no
+  flip is pending (standingQuietForTests). Run 10 times after: 10 of 10 green.
+- W, taken: forgetNow clears a pending flip (it belonged to the identity being forgotten).
+- W, taken: the sign-in comment states the one window it does not close (a refresh already out re-asks when
+  it ends, after the register).
+- W, duplicate: the shipping order (held by sequencing).
+- Nits: the plan's earlier run counts are marked as of then. Left: cancelledAfter's flag after a failed write
+  (one spare check-in); no test drives cancelledAfter's flag or a Forget-then-enrol flag (stated).
+
+## Review 12 (opus, blind): 0 blockers, 2 warnings, 3 nits
+- W, taken as a class: any #4743 test could leave an ask out that nothing awaits (a flip's ask, a re-ask when
+  a refresh ends), and the next test's reset forgot it was out. Every #4743 test now starts by waiting until
+  no refresh is out (settleStanding, asserted), then resets. The ON test's clean-up asserts it settled.
+- W, duplicate (review 11, stated): no test drives forgetNow's clear or cancelledAfter's mark.
+- Nits taken: a comment that sat on the wrong export line; askAfterFlip's comment covers the unenrolled case.
+
+## Review 13 (sonnet, blind): 0 blockers, 4 warnings (3 duplicates), 4 nits
+- W, taken: flipPending lives in memory, so a board restarted before a cancelled sign-in's off was told
+  would have waited for the 12 h off cadence. cancelledAfter now sets the standing stamp back in the same
+  write as the off, so the next poll after a restart asks too. (The sign-in's ON needs nothing: after a
+  restart the first poll asks at once.) No test drives cancelledAfter (stated since review 9).
+- Duplicates: the shipping order; cancelledAfter's flag after a failed write; the untested forgetNow /
+  cancelledAfter lines.
+- Nit taken: the flag's comment says setOn sets it only when the value changes.
+
+## Review 14 (opus, blind): 0 blockers, 2 warnings (1 duplicate: shipping order), 4 nits
+- W, taken: review 13's restart fix never held: cancelledAfter set the stamp back, then fedSetStanding('')
+  (same branch, a new identity) stamped it fresh. The set-back now comes AFTER fedSetStanding. New test drives
+  cancelledAfter (exported cancelledAfterForTests): switch off and stamp past the off cadence; red with the
+  set-back moved back before fedSetStanding.
+- Nits taken: askAfterFlip's comment names the real re-ask mechanism for a new identity; the early-stop comment
+  says it writes no stamp. Left: switching off then Forget can now wait up to 20 s for the flip's ask (stated
+  in setOn's comment; recorded on the card with the PR); the off-at-once test is not the flag's guard (others are).
+
+## Review 15 (sonnet, blind): 0 blockers, 3 warnings (2 duplicates), 3 nits
+- W, taken: the cancelledAfter test now also pins the flag (fresh stamp, ordinary TTL: the next poll still
+  asks, and says off; red without the flag). forgetNow's clear is still untested (it needs a full Forget).
+- Duplicates: switching on asks at once and its "starting" report replaces the kept diagnosis (review 10,
+  stated; a bare-on body for that ask was considered and left: the next on report replaces it within minutes);
+  the shipping order.
+- Nits taken: a doubled comment on an export; the retry stamp's comment says s.on is the pre-ask value and a
+  flip meanwhile re-asks.
+
+## Review 16 (opus, blind): 0 blockers, 3 warnings (2 duplicates), 4 nits
+- W, taken: the off stamp askAfterFlip sets back had no test (deleting it left 27 green). New test: an off flip
+  whose ask could not go out, then a restart (flags cleared), then an ordinary poll: it asks, off. Red without.
+- Duplicates: shipping order; forgetNow's clear untested (needs a full Forget in remote.test.js).
+- Nits taken: mac-standing's header no longer says switched-off returns null; updating.js names the off
+  check-in exception; a test comment no longer overstates; the Change section lists everything touched.
+
+## Weakest premise
+That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
+remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner
+sees on their own account page.
+
+## Shipping order: SATISFIED 2026-10-02 15:56 CDT
+The coordinator half (kosmos-relay #261, a798dbd1) is merged and DEPLOYED (live /v1/meta build a798dbd1; macs has
+remote_off_since and remote_switch_ts). The ship-order warnings in earlier rounds are satisfied.
+
+## Review 17 (sonnet, blind, 2026-10-02 21:08, against the live coordinator code): CONVERGED
+Off / on-without-report / on-with-report / out-of-order check-ins all match the coordinator's semantics (remote_switch_ts
+ordering; the stored diagnosis kept on an off check-in); no lost flip found; tests pinned with deepEqual on the exact
+JSON; no stale coordinator-unmerged wording. LEFT NITs: the mac-standing.js header does not name the unreadable-settings
+null (#4308).
+
+## Validation (729115ac8, 2026-10-02 22:26)
+Full validation PASSED: node 14348 tests, 14125 pass, 0 fail; test:shell; build; subdir audit rc 0. No leak.

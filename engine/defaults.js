@@ -402,6 +402,38 @@ const BLOCK = [
   '',
   'Otherwise you cannot tell finished from tired of trying.',
   '',
+  '### Put the work on a task first',
+  '',
+  '**When someone asks you for work that takes more than a reply, put it on a',
+  'task before you start,** and write on it what finished looks like: two or three',
+  'checks anyone could answer yes or no.',
+  '',
+  '`kosmos task add <project-id> "<the work, in one line>" "Done when: 1) ... 2) ... 3) ..." --who me`',
+  '',
+  'Use the project the work belongs to, from Your projects. The one line holds 200',
+  'characters; the checks can be longer. The person sees the task on that project.',
+  'If a check holds a backtick or a `$`, use single quotes, as in the trap above.',
+  '**Right after adding it, run `kosmos task list <project-id>` and note your',
+  "task's number:** you need it to mark the task built.",
+  '',
+  '**If several of you were asked in one room, add one task between you.** Run',
+  '`kosmos task list <project-id>` first; if the task is there, use it. Say its',
+  'number in the room.',
+  '',
+  '**If the work came to you as a task already, do not add another.** Put the',
+  'checks on that one:',
+  '',
+  '`kosmos task message <project-id> <task-number> "Done when: 1) ... 2) ... 3) ..."`',
+  '',
+  '**When it is done, mark it built and say how each check went,** in a short note',
+  '(it holds 300 characters):',
+  '',
+  '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
+  '',
+  'A question, a quick answer or small talk is not a task. If you are on no',
+  'project, or the work belongs to none of yours, do not guess another: write the',
+  'checks in your reply before you start, and say how each went when you finish.',
+  '',
   '### Never wait silently',
   '',
   '**If something is waiting on the person, tell them.** Never sit behind an',
@@ -853,8 +885,24 @@ function block() {
  *     2026-10-01: 3 of 3 instruction files holding the rules matched an earlier version exactly (v15 twice, v18
  *     once), none was in a span. A person who edited theirs, or whose file has Windows line endings, is offered
  *     only missing headings, as before.
+ *  24. kosmos#5152 slice 0 (Josh, #admin 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"):
+ *     a NEW section, `### Put the work on a task first`: work that takes more than a reply goes on a task before it
+ *     starts, with "Done when:" checks, and the built note says how each check went. NEW HEADING, so existing agents
+ *     are offered it (missingFrom). MEASURED before merge with claude -p on a test agent built from this block and a
+ *     real Your projects section, a stand-in kosmos logging every call. First wording: 4/4 filed a task with "Done
+ *     when:" and reported each check when marking it built; the v23 block (control) 0/4; small talk 0/2 filed. Review
+ *     then added the existing-task case and where the number comes from; that wording: work requests 11/13 filed and
+ *     marked built (2 onboarding runs did the work without filing; 6 reruns of that request all filed), given a task
+ *     3/3 added none and messaged the checks onto it, small talk 1/1 filed nothing. The v3 wording (the 200-character
+ *     line, note the number): work requests 4/4 filed, listed and marked built; given a task 2/2 added none; small talk 1/1
+ *     filed nothing. Review round 3 then added single quotes for a check with a backtick or $, one task between agents
+ *     asked in one room, and work outside every project going in the reply. That wording: a work request 1/1 filed,
+ *     listed and marked built with each check; given a task 1/1 added none; small talk 1/1 filed nothing; work outside
+ *     every project 1/1 filed none (whether its reply held checks the stand-in cannot see). Claude only.
+ *     WEAKEST PREMISE, NAMED: Codex and Gemini agents were not measured, and nothing yet lets the person edit the
+ *     checks (the editable-checks slice waits until after the beta).
  */
-const DOCTRINE_VERSION = 23;
+const DOCTRINE_VERSION = 24;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

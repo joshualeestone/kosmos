@@ -193,6 +193,20 @@ async function joinWaiting(page) {
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
+  /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
+     given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
+  { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
+      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+    await page.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
@@ -355,6 +369,12 @@ const SCREENS = [
     await at(page, '?tab=settings');
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
   } },
+  /* #5206: Settings > Advanced, where every row is an on/off switch whose 44px target is a ::after past its 42x24
+     box: the tap audit must count it as the finger reaches it. */
+  { name: 'settings-advanced', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#look-toggle', { state: 'visible', timeout: 8000 });
+  } },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
@@ -420,7 +440,21 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: Create an agent in the new look, for the side by side with 'create-single'. */
+  { name: 'nl-create-single', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'create-team', owner: 'Angel', go: async (page) => {
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Create a Team in the new look, for the side by side with 'create-team'. */
+  { name: 'nl-create-team', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
     await page.click('#new-agent', { timeout: 5000 });
     await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
@@ -489,6 +523,40 @@ const SCREENS = [
     await newLook(page);
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470, the Projects list in the new look: its grid (the default) and its roadmap, and the roadmap with the look off
+     to set beside it. */
+  { name: 'nl-projects', owner: 'Mona Lisa', go: async (page) => { await newLook(page); await openTab(page, 'projects'); } },
+  { name: 'projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  { name: 'nl-projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  /* #4470, a project's Documents screen (opened from the project page's Files), with the look off and on. */
+  { name: 'project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* Shown by hand, as in nl-project-docs, so the pair compares the switch like for like. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+  } },
+  { name: 'nl-project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* The sample room has no files, so the folder / conversation switch is hidden; shown by hand for the shot. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
   } },
   /* #4470: an agent's page in the new look, for the side by side with 'agent-chat' and 'agent-profile'. */
   { name: 'nl-agent-chat', owner: 'Mona Lisa', go: async (page, data) => {
@@ -1024,7 +1092,11 @@ async function overflowOf(page) {
    px either way is Apple's floor. A checkbox or radio is judged by its label
    when it has one, since that is what the finger lands on. A link inside a
    sentence is exempt (WCAG 2.5.8's inline exception). A typing field under
-   16px makes iOS Safari zoom the page on focus. */
+   16px makes iOS Safari zoom the page on focus.
+   #5206: a control whose BOX is under 44 can still be a 44 target, the standard way: a ::after (or ::before) laid
+   past it, or padding taken back by a negative margin. What counts is where a finger lands, so a small box is probed:
+   scrolled into view, each edge of a 44x44 square centred on it must hit the control (document.elementFromPoint).
+   Only a control every probe reaches passes; a probe that hits something else, or an off-screen point, fails it. */
 const MIN_TAP_PX = 44;
 const MIN_FIELD_FONT_PX = 16;
 async function fitOf(page) {
@@ -1043,6 +1115,28 @@ async function fitOf(page) {
     };
     const taps = [];
     const seen = new Set();
+    const sx = window.scrollX, sy = window.scrollY;
+    // scrollIntoView moves every scrollable ancestor, not only the window: each one's place is kept and put back, so
+    // nothing after the audit (a screen's verify, its after-step) sees a moved page.
+    const moved = new Map();
+    const remember = (el) => { for (let a = el.parentElement; a; a = a.parentElement) if (!moved.has(a) && (a.scrollTop || a.scrollLeft || a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth)) moved.set(a, [a.scrollLeft, a.scrollTop]); };
+    /* Probes sit on the four edge midpoints of the 44x44 square, half a pixel in. Corners are not probed: a rounded
+       hit area (border-radius clips hit-testing) would fail a corner a finger never needs. The far edges are
+       half-open, so a 43px reach fails rather than passes. */
+    const reaches = (target) => {
+      remember(target);
+      target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const r = target.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, h = minTap / 2 - 0.5;
+      const pts = [];
+      if (r.height < minTap - 0.5) pts.push([cx, cy - h], [cx, cy + h]);
+      if (r.width < minTap - 0.5) pts.push([cx - h, cy], [cx + h, cy]);
+      return pts.every(([x, y]) => {
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        const hit = document.elementFromPoint(x, y);
+        return !!hit && (hit === target || target.contains(hit));
+      });
+    };
     for (const el of document.querySelectorAll('button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea')) {
       if (el.disabled || !shown(el) || inSentence(el)) continue;
       let target = el;
@@ -1051,8 +1145,10 @@ async function fitOf(page) {
       seen.add(target);
       const r = target.getBoundingClientRect();
       if (!onPage(r)) continue;
-      if (r.width < minTap - 0.5 || r.height < minTap - 0.5) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+      if ((r.width < minTap - 0.5 || r.height < minTap - 0.5) && !reaches(target)) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
     }
+    for (const [a, [l, t]] of moved) a.scrollTo({ left: l, top: t, behavior: 'instant' });   // instant: a smooth box would still be moving
+    window.scrollTo({ left: sx, top: sy, behavior: 'instant' });
     const fields = [];
     for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
       if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;

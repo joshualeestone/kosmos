@@ -1,0 +1,54 @@
+# emptynew-5140: on a new user's empty board on a phone, a floating notice no longer clips New agent
+
+Card: kosmos#5140 (day-one, Splinter 2026-10-03 06:57). Rides 0.7.22.
+
+## What finished looks like
+On an empty board (no agents) at phone width, with a floating notice showing (the update notice, the one an empty
+board can really get), New agent is fully clear of the notice and takes the click. On a board that shows agents, at
+desktop width, or with no notice, nothing moves (a sign-in / offline / cannot-read box also counts as empty: the row
+moves only above that one box).
+
+## Measured before the fix (main bfe941d2f, headless, the update check's own empty board, welcome completed)
+New agent [24,113,94,58], update notice [65,86,245,32]: they overlap (the notice's bottom 118 is below New agent's top
+113). New agent still took the click at its centre. A taller notice (the offline notice, two lines) covers more.
+The existing "toast overlaps newagent" test at 375 compared against null: it runs with the welcome dismissed by Escape,
+where New agent is not shown, so it could not fail.
+
+## Change
+- web/index.html: at max-width 720px, on an empty board (`#grid > .pj-empty`) with the Allow card and the
+  Claude-unreachable line hidden, `#boardbar` takes margin-top `--topnotes-clear` (#5116's clearance: the stack's height
+  + 16px, 0 with no notice).
+- docs/browser-checks/render-update-toast.js: a new arm on the agents board at 375, welcome completed, update notice up:
+  CONTROL that the board, New agent and the notice render; New agent not covered and takes the click.
+
+## Decisions
+- Only the empty board, only phones. Josh's #5018 ruling: notices float and never push the page. An empty board has
+  nothing below New agent for the move to push, so the ruling holds; on a populated board the row stays.
+- Rejected: moving the stack (right-aligned on phones). The login notice is ~327px wide at 375, so it cannot avoid a
+  left button; and it would change Josh's ruled placement.
+- Weakest premise: that `#grid > .pj-empty` is the empty-board signal in every empty state. boardEmpty() also returns
+  signed-out / offline / cannot-read blocks; whether each uses .pj-empty is not checked here (if one does not, that
+  state keeps today's behaviour, not a worse one).
+
+## Review 1 (opus, CLEAN) NITs taken
+- The Kosmos+ phone's own 16px is kept as the floor (`max(16px, --topnotes-clear)`), so no move there without a notice.
+- The arm's CONTROL also requires the empty state (`#grid > .pj-empty`), and it measures once `--topnotes-clear` is set.
+- Plan wording: the failure boxes count as empty.
+
+## Review 2 (sonnet) WARNING taken
+- The Kosmos+ 16px floor sat under the 720px block, but that layout's own 16px applies only at 40rem and below (or a
+  landscape phone), so a Kosmos+ window of 641 to 720px would have moved 16px with no notice. FIXED: the floor rule is
+  scoped with exactly the media condition of `html.kremote #boardbar`.
+- NIT not taken: no browser-check arm for the Kosmos+ (kremote) variant.
+
+## Review 3 (sonnet) CLEAN; Renet Tilley's review (08:14)
+- [WARNING] width: the arm measured only 375. TAKEN: it now loops 320, 375, 414, 768, 834, 1024, 1280.
+  Measured (headless, branch 529223bc2): at 320-414 New agent sits at y 145, below the update notice (bottom 118);
+  at 768 and wider the centred notice starts at x 261 or more and New agent ends at x 151, so it is clear without
+  moving (y 99 / 67 unchanged). So the 720px gate is where the overlap ends, measured, for the update notice.
+- [NIT] a pass at clearance 0 is now visible (clearSet recorded per width).
+- [NIT] not taken: the offline notice is not asserted (same stack; its width is not measured here).
+
+## Validation
+- The new arm: RED on main (overlap true), GREEN with the fix (New agent at y 145, clear of the notice's bottom 118).
+- Width sweep: all seven widths pass, render-update-toast exit 0 (08:38).

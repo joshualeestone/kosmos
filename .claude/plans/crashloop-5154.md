@@ -1,0 +1,113 @@
+# crashloop-5154: a crash loop is told, not hidden (bounded retries, slice A)
+
+Card: joshualeestone/kosmos#5154. LOE posted 10:5x; Splinter 10:46: go on slice A, build today; ships in 0.7.22
+only if it clears review, full validation and the browser checks before Baron pins.
+
+## What I found first (it changed the slice)
+- The connection self-heal giving up is ALREADY surfaced: `needsPerson` counts `reconnect.phase === 'gave_up'`, the
+  board's Issue tile and filter include it, and the card says "Kosmos tried a few times and stopped". So slice A is the
+  crash loop alone. My LOE comment listed both; corrected on the card.
+- The supervisor (bin/agent-supervisor.sh) waits on the agent's tmux session and exits when it ends; launchd
+  (KeepAlive, ThrottleInterval 30 s) relaunches it. A crash loop is a run of short-lived sessions, uncounted, and
+  between crashes the card can read working or idle.
+
+## Change
+- **bin/agent-supervisor.sh `record_run`:** "start <epoch>" just before the watch loop when this run launched the
+  session (not an adopt), and "end <epoch>" in the confirmed-gone branch. Written to `<store root>/runs/<safeKey>.log`:
+  `$AGENT_WORKFORCE_DATA/Kosmos/runs` when the env is set, else this install's folder (which is the store's default
+  root). Kept to 40 lines. Best-effort; set -u safe.
+- **engine/crashloop.js:** `assess(runs, now, deliberateAt)` is pure. A loop is LOOP_RUNS (3) runs, each ENDED within
+  SHORT_RUN_MS (2 min) of starting, all ending inside WINDOW_MS (30 min), and the newest run not long-lived. A run a
+  deliberate Kosmos restart ended (engine/disruption.js startedAt inside the run, plus 10 s) is not counted. `read()`
+  never throws.
+- **server.js:** `/api/status` rows (named ours) and the offline rows carry `crashLoop`; so does `safeRoster`, so the
+  project routes agree. A 60 s tick sends ONE needs_you phone push per loop episode (told when it starts looping,
+  forgotten when it stops; phonenotify's own cooldown is a second guard), and logs "crash-loop: ..." each time.
+- **engine/status.js:** `needsPerson` counts a loop. `snapshot()` states `crashLoop: null` on every row (it cannot know
+  runs), so strict fixtures see a field every producer emits.
+- **web/index.html:**
+  - `agentNeedsAttention` (the page's copy of needsPerson) counts it;
+  - `cardStOf` gives it the needs-you look;
+  - `stateCopyOf` names it "Keeps stopping";
+  - `stateReason` says "Kosmos has restarted it N times in the last half hour, and each time it stopped within a
+    couple of minutes. Open it to see what it last showed, or stop it until you can look."
+  All placed first, since the momentary state is what hid the loop.
+
+## The threshold, and why (Splinter: "the threshold has to be right")
+3 runs, each ending on its own within 2 minutes, inside 30 minutes. With launchd's 30 s throttle, a hard crash loop
+trips it in about 2 to 3 minutes. Not counted: a person stopping a working agent (its run lived past 2 minutes), an
+update or restart Kosmos made (the disruption record), anything older than 30 minutes. It clears once a run lives past
+2 minutes.
+UNMEASURED: no supervisor history survived to tune against (its log is trimmed at every start, on Agent1s and
+Mortals alike). Hence the log line on every detection: the first real boards give the numbers.
+Known edge that can still false-alarm: a person restarting the same agent 3 times within 30 minutes, each time within
+2 minutes of the last start, if the restarts did not go through Kosmos's own restart path (which writes the disruption
+record). Rare; it shows on the card and pushes once.
+
+## Rejected
+- A push for every detection (the 60 s tick would repeat): one per episode.
+- Changing the card's STATE to needs_you: chat delivery refuses to type into a needs_you pane (it might answer a
+  question), and a person must still be able to type to a looping agent. A separate field changes no state semantics.
+- Windows: the supervisor is the Mac's. A Windows crash loop needs its own spec for Homer (said on the card).
+
+## Weakest premise
+That the 3-in-30 / 2-minute numbers separate a real loop from a healthy agent on real boards. Measured nowhere yet.
+
+## Tests
+engine/crashloop-5154.test.js (11):
+- the rule's positive arm;
+- each false-alarm shape;
+- the deliberate-restart exclusion (with a control);
+- parse;
+- read from the store;
+- the supervisor's real `record_run` run by bash (key rule matches store.safeKey, kept to 40);
+- END TO END, the real writer's file read by the engine;
+- the start/end hook placement;
+- needsPerson and agentNeedsAttention agree on a table;
+- the card sentence placement.
+Mutations, each red: root without /Kosmos (2), no deliberate exclusion (1), needsPerson ignores it (1), recovered run
+ignored (1).
+Caught by existing tests on the way: web.not-running's strict proxy (offline rows lacked the field), web.pill-remembered
+(snapshot rows lacked it), render-talk-goldencard (the snapshot's key set changed: re-captured with the tool).
+97 related test files 2197 pass, then 73 files 1961 pass after the look and label change.
+Browser: render-connlost-reconnect-3410 gains a crash-loop phase (the word, the look, the sentence, the members list).
+
+## Review 1 (blind, opus, 11:1x): 2 BLOCKERs, 3 WARNINGs, 3 NITs
+- [BLOCKER] The phone tick read safeRoster(), which holds only agents with a live session: a looping agent is missing
+  most minutes, so the first push was late and later sightings re-pushed (every phonenotify cooldown), and it cost a
+  snapshot a minute. FIXED: crashloop.tellLoops (pure) over the run files (crashloop.keys); a key is forgotten only
+  when its OWN read says not looping. Test: told once, not again while looping, a missing pass not forgotten, told
+  again after it ends.
+- [BLOCKER] cardStOf returned CARD_ST.needs_you (pres on) whatever the presence: an offline looping agent drew a
+  live dot and present tense, and Start (its one recovery control) hid. FIXED: { st: 'attn', pres: <its state's> },
+  as #4006's failed restart. Test: a stopped looping row keeps stopped's pres; CONTROL no loop unchanged.
+- [WARNING] The deliberate exclusion read the disruption record, which status.js clears on the first live reading
+  and which holds only the latest. FIXED: disruption.begin (the one door) writes a "kosmos <epoch>" line into the
+  run file, which nothing clears; every mark excludes the run it falls in. Test through read() after clear().
+- [WARNING] A launch that fails before the watch loop (a missing runner: the likeliest day-one loop) wrote nothing.
+  FIXED: record_run start opens the launch block (before any `|| exit 1`); a start whose end never came ends at the
+  next start (about launchd's 30 s throttle: short), so a fast-failing launch counts, a TERM'd deliberate restart's
+  mark falls inside its span, and a reboot reads long. Test: four start-only lines read as a loop.
+- [WARNING] A removed then re-created agent inherited the old run file. FIXED: remove.js (with its disruption clear),
+  delete-leftover.js and create.js call crashloop.forget. Test: forget removes it.
+- [NIT] An open run under 2 min keeps looping:true after a fix, for up to 2 min. KEPT: during a loop the open run IS
+  the next attempt; clearing at 30 s would flap the card every retry.
+- [NIT] "Open it to see what it shows" for an offline row: covered now that Start shows (B2).
+- [NIT] Windows writes no run files: said on the card (Mac-first beta).
+Re-mutated after the fixes: see the commit; 168 related test files 3620/0, the new file 16/16.
+Review-1 fixes mutation-checked, each red: tick forgets a missing key (1), presence forced on (1), no kosmos mark
+from disruption.begin (1), orphan start dropped (2), forget a no-op (1).
+
+## Review 2 (blind, sonnet, 11:1x): 0 BLOCKERs, 2 WARNINGs, 2 NITs
+- [WARNING] Review 1's "a start with no end ends at the next start" also made a BOUNCED live agent (a person or an
+  update stopping and starting it 4 times in 8 minutes, by a path that is not disruption.begin) read as a loop: a
+  false alarm. FIXED: such a run is an ORPHAN and is never counted; a launch that FAILS gets a real end line from the
+  supervisor's EXIT trap (cleanup_launch_secrets, when RUN_STARTED != 1; no exit in the launch block precedes the
+  trap's install, checked). Tests: a failed launch (start + trap end) counts; four start-only lines do not; the trap
+  writes the end. Mutations, each red: orphans counted (1), no trap end (1).
+- [WARNING] Restart pressed on a card already looping excludes one run, so the card can flap off and back on.
+  ACCEPTED (the reviewer's own call): harmless to the push (told is cleared only by a not-looping read).
+- [NIT] CRASHLOOP_TOLD is in memory: a board restart during a loop re-pushes once. ACCEPTED (phonenotify's cooldown,
+  and a board restart mid-loop is rare).
+- [NIT] safeRoster now reads one small file per agent per call. ACCEPTED for now; a memo if it ever shows.
+After: the new file 17/17; 168 related files 3621/0.

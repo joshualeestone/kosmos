@@ -29,11 +29,13 @@ test('#4356: the instrument is reading the app', () => {
   assert.ok(SRC.length > 40000, 'main.swift read back only ' + SRC.length + ' bytes');
 });
 
-test('#4356: the release switch (KOSMOS_FIRSTRUN_CHOICE) is OFF on main, and off means first run as before', () => {
-  // Liu Kang m2647: Connect must not reach any release until a connect Mac can update (#4382), whose
-  // PR turns this on. Off, the app treats every Mac as run: no ?mode= (so no first screen), no choice
-  // heard (pageChoseMode needs unset/unreadable), no connect.
-  assert.match(SRC, /\nlet kosmosFirstRunChoice = false\n/, 'the first-run choice is switched on in this build');
+test('#4356: the release switch (KOSMOS_FIRSTRUN_CHOICE) is ON, and only with a connect Mac able to update (#4382)', () => {
+  // Liu Kang m2647: Connect must not reach any release until a connect Mac can update; #4382 is that, and turns
+  // this on. So the switch is on only beside the update look a connect computer runs with no board.
+  assert.match(SRC, /\nlet kosmosFirstRunChoice = true\n/, 'the first-run choice is switched off in this build');
+  assert.match(SRC, /\nfunc runKosmosUpdate\(kosmosHome: String, port: Int\?, install: Bool\) -> UpdateAnswer \{/,
+    'the first-run choice is on, but a connect Mac has no way to update itself (#4382)');
+  // Off still means first run as before: the switch is the first thing the launch-time read checks.
   assert.match(body('private func readLaunchComputerMode()'), /^[^\n]*\n[^\n]*\n\s+guard kosmosFirstRunChoice else \{ computerMode = \.run; return \}/,
     'the switch is not the first thing the launch-time read checks');
   assert.equal((SRC.match(/kosmosFirstRunChoice/g) || []).length, 2, 'the switch is read in more than one place, so off may not mean off everywhere');
@@ -194,7 +196,7 @@ test('#4356: Settings (the other computer\'s, on a connect computer) is hidden w
 test('#4356: Run agents refuses until every stop of ours has finished; a count, so overlapping stops cannot clear each other', () => {
   assert.match(SRC, /private var stopsInFlight = 0/);
   assert.equal((SRC.match(/stopsInFlight \+= 1/g) || []).length, (SRC.match(/stopsInFlight -= 1/g) || []).length, 'a stop that raises the count and never lowers it (or the reverse)');
-  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0 else \{/);
+  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0(, !installing)? else \{/);   // #4382 adds an install under way
   const relaunch = body('private func stopBoardIfRunning()');
   assert.match(relaunch, /stopsInFlight \+= 1/, 'the launch-time stop can race Run agents');
   assert.match(relaunch, /self\?\.stopsInFlight -= 1/);

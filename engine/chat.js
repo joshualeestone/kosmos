@@ -1105,6 +1105,16 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   }
 }
 
+/* #5223: what viewport() says for a Windows agent, which has no window. Exported so tests share one copy. */
+const NO_WINDOW_BECAUSE = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
+
+/* #5223: one sentence for every keysAllowed caller (Stop now, stop helpers, the Gemini quota Stop). It says
+   the outcome, true for all three: it was not stopped (for the Gemini quota, its Stop was not chosen). A
+   Windows agent has no window to go to, and Restart (stop and start, under AI Settings) works on Windows
+   (#3431), so that is where it points, with its cost in the page's own words (the Restart dialog's): heavier
+   than the key the person asked for, so said. */
+const WIN32_NO_KEYS_SENTENCE = 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; Restart under its AI Settings ends what it is doing, and it comes back with nothing in its memory';
+
 /**
  * #3564: the gate for Stop now's keystrokes. deliver's own checks for a key that is not a
  * message: exact name, ours, an agent pane (`addressable`); NOT on Claude Code's trust
@@ -1118,7 +1128,7 @@ function keysAllowed(sessionName, roster) {
     return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
   }
   if (allowed.card.reachedByChannel === true) {
-    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
+    return { ok: false, because: WIN32_NO_KEYS_SENTENCE };
   }
   /* #4589 round 2: Stop now's keys obey the same Codex rule as a message (Escape and C-x C-k are keys too, and
      C-x C-k on Codex's hook dialog is unmeasured). */
@@ -1256,7 +1266,7 @@ const CODEX_HOOK_STEPS = {
 };
 async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card, seen) {
   if (card.runner !== 'codex') return no('that is not a Codex agent');
-  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
+  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet, and a Windows agent has no window to answer it in');
   const t = paneTarget(card);
   const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
   const look = () => {
@@ -1293,45 +1303,45 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   let first = true;
   for (let n = 0; n < 4; n += 1) {
     const step = steps[now.screen];
-    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
+    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
     /* Read again immediately before the key: it must still be this screen, and on the FIRST key it must be the dialog
        the person was shown (review round 4, checked on this same read, round 5). */
     const before = look();
-    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; open its Terminal tab to see it');
+    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
     if (first && !sameCodexHooks(seen, status.codexHookSummary(before.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
     /* The table and one hook's page must have their exact measured shape before any key (review round 10: a bare
        table footer printed by an agent read as the table, and Trust pressed "t" there). */
     if ((now.screen === 'table' || now.screen === 'hook') && !status.codexHookScreenExact(before.text, now.screen)) {
-      return no('the hook question on its screen is not the one we know, so nothing was pressed; open its Terminal tab to see it');
+      return no('the hook question on its screen is not the one we know, so nothing was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
     }
     let key = step[0];
     if (key === 'digit') {
       const mk = status.codexHookMenuKeys(before.text);
       key = choice === 'trust' ? mk.trust : mk.skip;
-      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; open its Terminal tab to see it');
+      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
     }
-    if (!press(key)) return noAfter('we could not press the key; open its Terminal tab to see it');
+    if (!press(key)) return noAfter('we could not press the key; look at This agent\u2019s Terminal under AI Settings on this page');
     if (choice === 'trust' && (key === 't' || now.screen === 'menu')) trustPressed = true;
     first = false;
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
-    if (after.unseen) return noAfter('we answered, and then could not see its screen to check it; open its Terminal tab to see it');
-    if (after.screen === 'blank') return noAfter('we answered, and its screen was blank when we checked; open its Terminal tab to see it');
+    if (after.unseen) return noAfter('we answered, and then could not see its screen to check it; look at This agent\u2019s Terminal under AI Settings on this page');
+    if (after.screen === 'blank') return noAfter('we answered, and its screen was blank when we checked; look at This agent\u2019s Terminal under AI Settings on this page');
     if (after.screen !== step[1]) {
       if (after.screen === now.screen) {
         /* A slow redraw is not proof the key failed (review round 11): after a Trust key it may still have landed. */
         if (trustPressed && now.screen === 'trusted') return noAfter('its hooks are trusted and their list is still open; close the list');
         if (trustPressed) return Object.assign(no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment'), { screen: readFirst });
-        return noAfter('its screen did not change after we answered; open its Terminal tab to see it');
+        return noAfter('its screen did not change after we answered; look at This agent\u2019s Terminal under AI Settings on this page');
       }
-      return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
+      return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
     }
     if (after.screen === 'gone') return { ok: true, choice, keys, screen: readFirst };
     /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
     if (choice === 'list') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true, screen: readFirst };
     now = after;
   }
-  return noAfter('its screen is still asking after four keys, so we stopped; open its Terminal tab to see it');
+  return noAfter('its screen is still asking after four keys, so we stopped; look at This agent\u2019s Terminal under AI Settings on this page');
 }
 
 /* #3564: what a paused swarm still accepts. */
@@ -1864,6 +1874,16 @@ function viewport(sessionName, roster) {
   if (card.isNamedOurs !== true) {
     return { text: null, because: 'something is running under this name, but we cannot tell that it is this agent, so we are not showing you its screen' };
   }
+  /* #5223: a Windows agent has NO window. It runs headless (`claude -p`, stream-json) under its
+     supervisor, the same fact `send` branches on above, read off the same card mark. The tmux
+     capture below could only fail, and its sentence ("could not reach the agents on this computer")
+     told every Windows user, on every agent page, that a working agent was unreachable. Said as
+     the fact it is, before tmux is asked, so nothing is spawned for an answer that is known.
+     `noWindow` lets a caller that words its own sentence off a null `text` (the routes' question
+     clause) tell "there is no window" from "we could not read it" without matching this wording. */
+  if (card.reachedByChannel === true) {
+    return { text: null, noWindow: true, because: NO_WINDOW_BECAUSE };
+  }
   if (!card.target) {
     return { text: null, because: 'we cannot tell where this agent is running' };
   }
@@ -1945,6 +1965,17 @@ function questionIn(text, runner) {
        drew the pane (only the Gemini box above does), and a Codex question
        must be findable too. */
     if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
+  }
+  /* #5051: Claude Code's safeguards model-switch menu matches none of the markers (its question is wrapped prose in a
+     frame), so it was invisible here while the board named it (#5039, the same live-menu rule). When it is the live
+     menu, the region starts at its "Model switch" title and runs to the end of the screen, so the person reads the
+     question and both choices (and any line below it). No "below a marker" condition: a non-numbered marker line under
+     the menu would otherwise start the region mid-menu (review round 1). optionsIn refuses it, so no buttons. */
+  const sg = status.safeguardsMenuAt(whole);
+  if (sg) {
+    let title = -1;
+    for (let i = sg.at - 1; i >= Math.max(0, sg.at - 16); i -= 1) if (/Model switch\s*$/.test(lines[i])) { title = i; break; }
+    return { text: lines.slice(title >= 0 ? title : Math.max(0, sg.at - 10)).join('\n').replace(/\s+$/, '') };
   }
   if (at < 0) return null;
   // A few lines of run-up, because a Claude permission prompt states what it is
@@ -2123,6 +2154,9 @@ function questionAbove(questionText) {
 }
 
 function optionsIn(questionText) {
+  /* #5051: never buttons for Claude Code's safeguards model-switch menu. Option 1 switches models and saves that choice
+     in the agent's Claude settings; the person types it. Enforced here, not left to that menu's layout (review round 1). */
+  if (status.safeguardsMenuAt(String(questionText == null ? '' : questionText))) return null;
   const whole = String(questionText == null ? '' : questionText);
   if (!whole.trim()) return null;
   const found = [];
@@ -3451,7 +3485,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

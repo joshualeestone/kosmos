@@ -53,6 +53,7 @@ const PERSON_ONLY_VERBS = {
   agents: 'lists tmux agents for a person at a terminal',
   version: 'the bundle version; the Windows zip carries it in manifest.json',
   adopt: 'one-time tmux adoption (#570), which has no Windows arm (audit #39)',
+  update: 'the Mac app\'s update look on a computer that runs no board (#4382); Windows updates through win32update (#4381)',
 };
 
 // ── what the Mac command has, read out of install/kosmos ────────────────────

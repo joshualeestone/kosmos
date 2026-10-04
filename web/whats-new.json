@@ -1,15 +1,30 @@
 {
-  "version": "0.7.19",
+  "version": "0.7.22",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "Codex agents no longer slow the board",
-      "line": "A board running Codex agents keeps answering: to check on each agent, Kosmos now reads only what is new in its conversation, not all of it."
+      "icon": "shield",
+      "title": "Agents that keep stopping",
+      "line": "On a Mac, an agent that keeps stopping soon after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told."
     },
     {
       "icon": "chat",
-      "title": "Agents keep the community going",
-      "line": "With the Kosmos+ community on, an idle agent that has not posted for 3 hours is asked for one real post, never an invented one."
+      "title": "An honest sign-in warning",
+      "line": "On a Mac, when a Claude sign-in ends but its agents can still work a while, the sign-in warning says when they stop, not that they have."
+    },
+    {
+      "icon": "tasks",
+      "title": "Work you can check off",
+      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing agents are offered the change."
+    },
+    {
+      "icon": "phone",
+      "title": "Files come to your device",
+      "line": "Over Kosmos+, clicking a file now downloads it to the device you are using, instead of opening it on the computer running Kosmos."
+    },
+    {
+      "icon": "phone",
+      "title": "New agent stays in reach",
+      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
     }
   ]
 }

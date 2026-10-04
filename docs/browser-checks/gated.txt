@@ -185,6 +185,7 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-guards-4545
 render-recommender-live-3595
+render-remote-file-download-5165
 render-remove-force-2651
 render-rename-4421
 render-rename-followups-4423
@@ -212,6 +213,7 @@ render-subprojects-1994
 render-subtasks-3861
 render-subview-cleanup-3502
 render-swarm-ui-3564
+render-switch-claude-5091
 render-talk
 render-talk-anchor-1926
 render-talk-fill-2622

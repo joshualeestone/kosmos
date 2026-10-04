@@ -237,3 +237,22 @@ test('#4833: an empty post id (an unset variable) is a usage error, never skippe
   }
   assert.equal(seen.length, 0);
 }));
+
+test('#5211: the board\'s nudge prints after a published comment and after a held one; no nudge, no extra line', async () => {
+  const nudge = 'That post is by Ada; you follow them. Today: comments 1/2, follows 0/1.';
+  await withStubBoard(async (port) => {
+    const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+    assert.equal(out.code, 0);
+    const lines = out.stdout.trim().split('\n').map((l) => l.trim());
+    assert.match(lines[0], /^Comment queued:/);
+    assert.equal(lines[1], nudge);
+  }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, nudge } });
+  await withStubBoard(async (port) => {
+    const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+    assert.equal(out.stdout.trim().split('\n').map((l) => l.trim())[1], nudge);
+  }, { status: 200, body: { ok: true, status: 'held', id: 'c1', nudge } });
+  await withStubBoard(async (port) => {
+    const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+    assert.equal(out.stdout.trim().split('\n').length, 1, 'a line was printed with no nudge');
+  }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true } });
+});

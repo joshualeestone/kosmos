@@ -81,17 +81,30 @@ function readCredAsync(service) {
   });
 }
 
-/* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for an agent's CCD env value, or
- * null. The credential body is parsed and dropped here; only the number leaves this function. */
-function refreshExpiryFor(ccd, { readCred = readCredDefault } = {}) {
+/* #5164: both dates from an agent's credential, as epoch ms (or null each): `refreshExpiresAt`, when the LOGIN ends,
+ * and `accessExpiresAt`, when the access token Claude Code is using right now runs out. The body is parsed and dropped
+ * here; only the two numbers leave this function.
+ * WHY BOTH (measured 2026-10-03 on account-e): the login ended at 06:58, yet its agents kept working until the access
+ * token they already held ran out at 13:18, and then failed with "OAuth session expired and could not be refreshed"
+ * (13:25). So a login past its date is not yet a stopped agent: it stops when the access token runs out, which can
+ * be hours later. A notice that said "expired" at 06:58 was right about the login and wrong about the agents. */
+function loginTimesFor(ccd, { readCred = readCredDefault } = {}) {
+  const none = { refreshExpiresAt: null, accessExpiresAt: null };
   const service = serviceNameFor(ccd);
   let raw;
-  try { raw = readCred(service); } catch { return null; }
-  if (!raw) return null;
+  try { raw = readCred(service); } catch { return none; }
+  if (!raw) return none;
   let obj;
-  try { obj = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
-  const ms = obj && obj.claudeAiOauth && obj.claudeAiOauth.refreshTokenExpiresAt;
-  return (typeof ms === 'number' && Number.isFinite(ms)) ? ms : null;
+  try { obj = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return none; }
+  const o = obj && obj.claudeAiOauth;
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+  return { refreshExpiresAt: num(o && o.refreshTokenExpiresAt), accessExpiresAt: num(o && o.expiresAt) };
+}
+
+/* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for an agent's CCD env value, or null: the login's own date,
+ * which connect.js watches move when a sign-in completes. */
+function refreshExpiryFor(ccd, opts = {}) {
+  return loginTimesFor(ccd, opts).refreshExpiresAt;
 }
 
 /* Extract CLAUDE_CONFIG_DIR from a `ps eww <pid>` line (macOS appends the process env after
@@ -129,10 +142,12 @@ function severityFor(daysLeft) {
 function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_WITHIN_DAYS, readCred } = {}) {
   const out = [];
   for (const acct of accounts) {
-    const expiresAt = refreshExpiryFor(acct.ccd, { readCred });
+    const times = loginTimesFor(acct.ccd, { readCred });
+    const expiresAt = times.refreshExpiresAt;
     if (expiresAt == null) continue;
     const daysLeft = Math.floor((expiresAt - now) / DAY_MS);
     if (daysLeft > warnWithinDays) continue;
+    const expired = daysLeft < 0;
     out.push({
       ccd: acct.ccd == null ? null : String(acct.ccd),
       account: acct.account || null,
@@ -140,7 +155,10 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_
       service: serviceNameFor(acct.ccd),
       expiresAt,
       daysLeft,
-      expired: daysLeft < 0,
+      expired,
+      /* #5164: the login has ended but the agents still hold a working access token: they stop when it runs out, at
+         this time (epoch ms), not before. null otherwise (not ended yet, or already stopped, or not readable). */
+      worksUntil: expired && times.accessExpiresAt != null && times.accessExpiresAt > now ? times.accessExpiresAt : null,
       severity: severityFor(daysLeft),
     });
   }
@@ -171,18 +189,29 @@ function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, war
  * the caller owns and this MUTATES. Within the window it returns cache.value. Otherwise it calls
  * compute() and stores the result. 🛑 On a compute() THROW it returns the last-good value WITHOUT
  * advancing `at`, so a transient failure is retried on the very next call instead of being pinned
- * for the whole TTL. Pure and injectable (pass a fake now/compute) so the cache behaviour is
- * tested without standing up a board. */
+ * for the whole TTL. Injectable (pass a fake now/compute) so the cache behaviour is tested without
+ * standing up a board; it also reads this module's login generation (below), and a cache with no `gen` (or an
+ * older one) is stale. */
 function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
-  if (cache && cache.at && (now - cache.at) < ttlMs) return cache.value;
+  if (cache && cache.at && (now - cache.at) < ttlMs && cache.gen === loginGen) return cache.value;
+  const gen = loginGen;
   let value;
   try { value = compute(); }
   catch { return cache ? cache.value : []; }  // keep last-good, do NOT advance `at` -> retry next tick
-  if (cache) { cache.at = now; cache.value = value; }
+  if (cache) { cache.at = now; cache.value = value; cache.gen = gen; }
   return value;
 }
 
+/* #5018 (Josh: "i relogged in ... it didnt clear the message out", cleared only by closing the app): a sign-in
+ * that completes moves the login's date, and every cache of that date must be read again at once, not after its
+ * TTL. A sign-in calls loginChanged(); each cache (cachedAdvisories above, claudeloginlive's per-account dates)
+ * stores the generation it was read under and treats any other as stale. A counter, not a listener list, so no
+ * module has to require another to be told. */
+let loginGen = 0;
+function loginChanged() { loginGen += 1; }
+function loginGeneration() { return loginGen; }
+
 module.exports = {
-  serviceNameFor, refreshExpiryFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
-  cachedAdvisories, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
+  serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
+  cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
 };

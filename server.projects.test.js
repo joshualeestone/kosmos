@@ -1163,6 +1163,37 @@ test('a card that says "Needs you" over a screen we cannot read SAYS so, rather 
   } finally { restoreEng(); }
 });
 
+/* #5223: the fixture cannot build a REPORTED needs_you (how a Windows agent asks), so the engine's Windows
+   answer stands in for chat.viewport; engine/chat.test.js pins where that answer comes from (the
+   reachedByChannel card). These pin that each route honours the flag rather than falling through to the
+   could-not-read clause on a null text. The two routes compose the clause separately, so both are pinned. */
+async function withNoWindowViewport(path, fn) {
+  const restoreEng = withEngMode(true);
+  reset();
+  const real = chat.viewport;
+  chat.viewport = () => ({ text: null, noWindow: true, because: chat.NO_WINDOW_BECAUSE });
+  try {
+    await withThread(fleet.agent('zeta', { state: 'needs_you' }),
+      [{ ran: true, status: 1, out: '', err: 'no server running' }],
+      async ({ project }) => fn(json(await req(path(project)))));
+  } finally { chat.viewport = real; restoreEng(); }
+}
+function assertNoWindowClause(body) {
+  assert.equal(body.asking, true);
+  assert.equal(body.question, null);
+  assert.match(body.questionBecause, /on Windows there is no screen to read the question from/);
+  assert.doesNotMatch(body.questionBecause, /could not read/);
+}
+
+test('#5223: on the project thread, a Windows agent asking with no words says there is no screen, never could-not-read', () =>
+  withNoWindowViewport((project) => `/api/project/${project.id}/thread/zeta`, (body) => {
+    assertNoWindowClause(body);
+    assert.equal(body.viewport.noWindow, true, 'the page reads the flag to drop its "right now" lead');
+  }));
+
+test('#5223: on the agent thread, a Windows agent asking with no words says there is no screen, never could-not-read', () =>
+  withNoWindowViewport(() => '/api/agent/zeta/thread', assertNoWindowClause));
+
 test('a "Needs you" card over a READABLE screen missing the markers says that, not could-not-read', async () => {
   const restoreEng = withEngMode(true);
   reset();
@@ -2528,6 +2559,27 @@ test('the raw window is NOT served from this route, so engineering mode has noth
   } finally {
     restoreEng();
   }
+});
+
+test('#5051: a button press that lands on the safeguards model-switch menu is refused; a typed answer is not', async () => {
+  reset();
+  /* The menu's rows as captured on Angel's pane (2026-10-02 ~11:07). Option 1 switches models and saves that in the
+     agent's Claude settings, so a stale button's "1" must never reach it. */
+  const SG = ' ☐ Model switch\n\n│ Opus 5.5\'s safeguards flagged this session. Switch to Opus 4.8 and keep going?\n\n'
+    + '❯ 1. Switch automatically\n     Continue on Opus 4.8 now, and switch without asking from now on\n'
+    + '  2. Stay on Opus 5.5\n     Stop here without switching, and ask me each time a message is flagged\n';
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(SG), said(), said()], async ({ calls }) => {
+    const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes' });
+    assert.equal(res.status, 409, 'a stale button press reached the safeguards menu: ' + res.body);
+    assert.match(json(res).error, /changed on its screen/);
+    assert.equal(calls.sends().length, 0, 'and nothing was typed into the pane');
+  });
+  reset();
+  // The control: the person typing their own answer (no button) is not refused.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(SG), said(), said()], async () => {
+    const res = await post('/api/agent/zeta/thread', { text: '2' });
+    assert.notEqual(res.status, 409, 'a typed answer to the safeguards menu was refused: ' + res.body);
+  });
 });
 
 test('a button the visible screen contradicts is refused, and nothing is typed', async () => {

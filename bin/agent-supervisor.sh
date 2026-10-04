@@ -182,6 +182,28 @@ say() {
   echo "$(date): $*" >&2
 }
 
+# #5154 (bounded retries, slice A): one line per run of this agent, so the board can tell a crash LOOP (runs that end
+# on their own within minutes, again and again) from a healthy agent. The log above is trimmed at every start, so it
+# cannot carry this. Lines: "start <epoch>" when this supervisor launches a session, "end <epoch>" when that session
+# is confirmed gone. Kept to the last 40 lines. engine/crashloop.js reads it (same root and the same key rule as
+# store.safeKey). Best-effort: a write that fails changes nothing about the run.
+record_run() {
+  local _key _dir _f
+  _key="$(printf '%s' "$SESSION" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
+  [ -n "$_key" ] || return 0
+  # The store's root (engine/store.js dataRootFor): $AGENT_WORKFORCE_DATA/Kosmos when set, else this install's own
+  # folder (the installed supervisor lives in <store root>/bin). Caught by the test: the env case is one level deeper.
+  if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _dir="$AGENT_WORKFORCE_DATA/Kosmos/runs"
+  else _dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/runs"; fi
+  _f="$_dir/$_key.log"
+  mkdir -p "$_dir" 2>/dev/null || return 0
+  { printf '%s %s\n' "$1" "$(date +%s)" >> "$_f"; } 2>/dev/null || return 0
+  if [ "$(wc -l < "$_f" 2>/dev/null | tr -d ' ')" -gt 40 ] 2>/dev/null; then
+    { tail -n 40 "$_f" > "$_f.tmp" && mv -f "$_f.tmp" "$_f"; } 2>/dev/null || rm -f "$_f.tmp" 2>/dev/null
+  fi
+  return 0
+}
+
 # launchd appends to that log forever, and a persistently failing start writes a
 # line every 30 seconds for as long as the machine is on. Keep it bounded.
 # ⚠️ The size is defaulted to 0 rather than used raw: an unreadable file makes
@@ -434,6 +456,10 @@ session_id_exact() {
 # stamping @kosmos_agent onto somebody else's session would make the NEXT run of
 # this script recognise it as ours and kill it.
 if [ -z "$adopt" ]; then
+  # #5154: this supervisor is about to LAUNCH (not adopt), so the attempt is a run to count. Written first, before any
+  # `exit 1` below (review 1: a launch that fails early, a missing runner say, is the likeliest day-one loop, and it
+  # never reached the watch loop). A run whose end line never comes ends at the next start (engine/crashloop.js).
+  record_run start
   # ⚠️ The model flag is appended ONLY when a model was chosen, as two more
   # quoted arguments -- never interpolated into a string this file's header
   # forbids. An empty MODEL adds nothing and the runner picks its own default.
@@ -632,7 +658,13 @@ if [ -z "$adopt" ]; then
     # ⚠️ RUN_STARTED is set by EVERY path that creates the session: launch_pane, and the
     # Antigravity arm, which calls new-session itself. A new such path must set it too, or
     # its live run loses its token here (supervisor.retire-token-4530 runs both).
-    if [ "${RUN_STARTED:-0}" != 1 ]; then retire_run_token; fi
+    if [ "${RUN_STARTED:-0}" != 1 ]; then
+      retire_run_token
+      # #5154 review 2: a launch that never made its session FAILED, so its run gets a real end line here (every
+      # `|| exit 1` of the launch block reaches this trap). A start with NO end line (a TERM or bootout of a live run)
+      # is not counted as a crash (engine/crashloop.js), so this line is what makes a failing launch count.
+      record_run end
+    fi
   }
   trap cleanup_launch_secrets EXIT
   trap 'exit 129' HUP
@@ -1339,6 +1371,7 @@ if [ "$_rc" = 1 ]; then
   [ "$_rc" = 1 ] && _gone=1
 fi
 if [ "$_gone" = 1 ]; then
+  [ -z "${adopt:-}" ] && record_run end   # #5154: the run this supervisor started is over
   retire_run_token
 elif [ -n "${RUN_INSTANCE:-}" ]; then
   say "$SESSION: the session was not confirmed gone (has-session answered $_rc), so its run's sender token is kept; the next launch retires it"

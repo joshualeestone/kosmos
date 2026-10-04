@@ -1474,11 +1474,12 @@ function _roomMembers(members) {
 }
 
 /* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery),
-   and the @-words that named more than one member and so addressed none (`ambiguous`, logged on the post
-   so a dropped request can be found). Display names come from the roster card's `name`, the same
-   safeRoster() card that /api/projects hands the page (engine/projects.js), so the page's blue and this
-   agree on who a display name is. Exported so web.mention-parity-4642.test.js can hold the page's
-   pjMentionResolve to it. */
+   and the @-words that named more than one member and so addressed none (`ambiguous`: normalised name ->
+   { word as typed less trailing . _ -, the members it could mean }; logged on the post, and told to the
+   sender by ambiguousNote, #4653), and each member's display name (`shown`). Display names come from
+   the roster card's `name`, the same safeRoster() card that /api/projects hands the page
+   (engine/projects.js), so the page's blue and this agree on who a display name is. Exported so
+   web.mention-parity-4642.test.js can hold the page's pjMentionResolve to it. */
 function mentionedMembers(cleaned, recipients, roster) {
   const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
   const byKey = new Map();   // normalised name -> the members it could mean
@@ -1489,21 +1490,66 @@ function mentionedMembers(cleaned, recipients, roster) {
     byKey.get(key).add(member);
   };
   for (const member of recipients) alias(member, member);
+  const shown = new Map();
   for (const card of Array.isArray(roster) ? roster : []) {
-    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(card.name, card.sessionName);
+    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') {
+      alias(card.name, card.sessionName);
+      if (!shown.has(card.sessionName)) shown.set(card.sessionName, card.name);
+    }
   }
   const mentioned = new Set();
-  const ambiguous = new Set();
+  const ambiguous = new Map();
+  const ambiguousWords = new Set();   // every spelling, for the log row; the note groups them by name
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
     const token = m[2];
     if (recipients.includes(token)) { mentioned.add(token); continue; }
     const stripped = token.replace(/[._-]+$/, '');
     if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
-    const hit = byKey.get(mentionKey(token));
+    const key = mentionKey(token);
+    const hit = byKey.get(key);
     if (hit && hit.size === 1) mentioned.add([...hit][0]);
-    else if (hit) ambiguous.add(token);
+    else if (hit) {
+      ambiguousWords.add(stripped || token);
+      if (!ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
+    }
   }
-  return { mentioned, ambiguous };
+  return { mentioned, ambiguous, ambiguousWords, shown };
+}
+
+/* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
+   (or, when the post also named one exactly, not the others). One sentence per word, built here so the
+   CLI and the page say the same thing. A member is shown as its display name with its exact handle
+   ("Sub Zero (@frost)"), since the page shows display names and the handle is what to type. The CLI
+   reads the sentence out of JSON with sed, so a display name loses any quote, backslash or control
+   character here. The @-word is [A-Za-z0-9._-] by the tokenizer; handles are session names, held to
+   NAME_RE (engine/create.js) for agents Kosmos made, and cleaned the same way in case an adopted one is
+   not. '' when there is nothing to say. */
+function ambiguousNote(ambiguous, mentioned, shown) {
+  /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths and joiners, line and
+     paragraph separators, bidi controls, the BOM and lone surrogates: the name is printed straight to an
+     agent's terminal. */
+  const clean = (s) => String(s == null ? '' : s)
+    .replace(/["\\\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
+  /* A handle is offered only if it is typeable as it stands (the tokenizer's charset): an adopted session
+     name outside it would be a name that reaches nobody, so that agent is shown by display name alone. */
+  const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(String(m)) ? String(m) : '');
+  const who = (m) => {
+    const n = clean(shown && shown.get(m)); const h = handle(m);
+    if (!h) return n || 'an agent with no printable name';
+    return n && n !== h ? n + ' (@' + h + ')' : '@' + h;
+  };
+  const tryName = (xs) => { const h = xs.map(handle).find(Boolean); return h ? ', like @' + h + '.' : '.'; };
+  const list = (xs) => (xs.length === 1 ? xs[0] : xs.length === 2 ? xs.join(' or ') : xs.slice(0, -1).join(', ') + ' or ' + xs[xs.length - 1]);
+  const out = [];
+  for (const { word, members } of ambiguous.values()) {
+    const left = members.filter((m) => !(mentioned && mentioned.has(m)));
+    if (!left.length) continue;   // every candidate was named on its own too: nothing was lost
+    const could = '@' + word + ' could mean ' + list(members.map(who)) + ', so ';
+    out.push(left.length === members.length
+      ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name' + tryName(left)
+      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'that one' : 'one of them') + ', use the exact name' + tryName(left));
+  }
+  return out.join(' ');
 }
 
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
@@ -1821,7 +1867,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous } = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous, ambiguousWords, shown } = mentionedMembers(cleaned, recipients, roster);
+  const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -2157,7 +2204,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
          one. */
       ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
-      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
+      ...(ambiguousWords.size ? { ambiguousMentions: [...ambiguousWords] } : {}),
       ...(operator === true ? { operator: true } : {}),
       /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
          "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
@@ -2189,7 +2236,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. It stays
+         the LAST key: kosmos post reads it anchored on the end of the answer. */
+      ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
 
   if (asynchronousDelivery) {
@@ -2876,5 +2926,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests, mentionedMembers,
+  setRunner, resetForTests, mentionedMembers, ambiguousNote,
 };

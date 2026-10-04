@@ -208,8 +208,9 @@ _tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}
 # cert, and a silent ad-hoc fallback would build fine and fail notarisation
 # later -- the same defect one layer down.
 . "$REPO/tools/lib/signing-identity.sh"   # the one place the signing team is named (#3643)
+. "$REPO/tools/lib/codesign-retry.sh"      # kosmos#5149: a timestamp-service blip is retried, nothing else
 _codesign_id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_APP_DEFAULT}"
-codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
+codesign_ts_retry --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" || {
   printf '%s\n' "could not Developer ID sign the Plus connector as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }
 # ⚠️ RUN IT, not just verify the signature. Under hardened runtime a binary can
@@ -266,7 +267,7 @@ swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/nat
 # com.apple.security.device.audio-input, and a signature without it fails silently: the mic button
 # shows, the person presses it, and nothing is ever heard. Read back from the SIGNATURE below, because
 # the file existing proves nothing about what was signed.
-codesign --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || {
+codesign_ts_retry --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" || {
   printf '%s\n' "could not Developer ID sign the native app as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || { echo "the native app's signature did not verify after signing" >&2; exit 1; }
 _app_ents="$(codesign -d --entitlements - --xml "$STAGE/app/bin/kosmos-app" 2>/dev/null)" || _app_ents=""
@@ -357,6 +358,7 @@ _menu_table_expected='menu:Kosmos
   sep
   item:Settings…	shortcut:cmd+,	action:openSettings:	target:set
   item:Run agents on this computer	shortcut:-	action:runAgentsHere:	target:set
+  item:Update Kosmos	shortcut:-	action:updateKosmosNow:	target:set
   sep
   item:Services	shortcut:-	action:submenuAction:	target:set
   sep
@@ -629,6 +631,29 @@ case "$_mode_out" in
 esac
 echo "==> native app: it reads this computer's mode, and a connect computer keeps to Kosmos Plus (#4356)"
 
+# ---- a connect computer's update look (kosmos#4382) ---------------------------
+# A connect computer runs no board, so the app runs `kosmos update --if-newer` and reads its last
+# line. The reading is pure, with its own rows: an answer it cannot read is unknown, never current.
+_upd_rc=0
+_upd_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-update-selftest 2>&1)" || _upd_rc=$?
+if [ "$_upd_rc" -ne 0 ]; then
+  case "$_upd_out" in
+    *"update-check: only "*)
+      printf '%s\n' "the #4382 selftest is no longer testing anything, so it cannot vouch for the update look:" "$_upd_out" >&2 ;;
+    *"update-check:"*)
+      printf '%s\n' "the native app reads the CLI's update answer wrong (#4382). Its own rows:" "$_upd_out" >&2 ;;
+    *)
+      printf '%s\n' "the #4382 gate did not finish (exit $_upd_rc): a timeout, a missing binary, or something that is not the update look. It could not judge it either way." "$_upd_out" >&2 ;;
+  esac
+  exit 1
+fi
+printf '%s\n' "$_upd_out" | sed 's/^/    /'
+case "$_upd_out" in
+  *"update-check: all good"*) ;;
+  *) echo "the #4382 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
+esac
+echo "==> native app: a connect computer reads its update look right (#4382)"
+
 # ---- dictation's decisions (kosmos#4409) --------------------------------------
 # Which language the mic listens in (on-device only: no model means a refusal, never a network
 # recognizer), and the refusal that replaces a crash when a usage string is missing. The microphone
@@ -811,6 +836,7 @@ PORT=0 AGENT_WORKFORCE_DATA="$SMOKE_ROOTS/data" \
   AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created \
   AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback \
   AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/ \
+  AGENT_WORKFORCE_PERSON_LOCALE=en \
   "$STAGE/runtime/bin/node" "$STAGE/app/server.js" > "$SMOKE_LOG" 2>&1 &
 SMOKE_PID=$!
 SMOKE_URL=""

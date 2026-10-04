@@ -85,6 +85,7 @@ export KOSMOS_AGENT_BROWSER=off
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }
@@ -1074,12 +1075,22 @@ run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/
 # an address planted in an agent's role by the page scan ("this screen shows
 # real data"). Exit 3 alone is not enough: the preflight firing first would
 # pass the page arm without the page scan ever running.
+# kosmos#5135: when an arm passes, the one FAIL line its guard was planted to
+# produce prints as "CONTROL (expected): ", so a person scanning the cut log for
+# reds is not sent after it. Any other FAIL line, and all output of an arm that
+# does not pass, prints untouched. The cover arms below do the same for their
+# single summary line. tools.control-arms-expected-5135.test.js runs these bodies.
 for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
   run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
-      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      3:*"$2"*) echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
+      3:*"$2"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: LEAK GUARD: "*"$2"*) printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
+        echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
@@ -1095,10 +1106,15 @@ done
 for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
-      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      2:*"$3"*) echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
+      2:*"$3"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: "[0-9]*" shot(s) could not be taken; see the ERROR lines above") printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
+        echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_rest%%:*}" "${_rest#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done

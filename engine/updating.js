@@ -150,7 +150,9 @@ function announce(v) {
        anything live to say here" question on the switch as well: pendingDevices()
        is `!settings.on || !enrolled()`, ensure()'s `wanted` is
        `read().on && enrolled() && ...`, and status() answers 'the switch is off'.
-       This line is that same shape, deliberately.
+       This line is that same shape, deliberately. (One deliberate exception elsewhere: the signed
+       STANDING check-in still goes out while off, twice a day and on a flip, so the coordinator can
+       tell an unused computer from a gone one: #4731, #4743. It says only that the switch is off.)
        read() never throws and returns {on:false} on every error path (ENOENT,
        unreadable, unparseable, non-object), so a damaged settings file fails
        CLOSED here, which is the safe direction for a paid route. */

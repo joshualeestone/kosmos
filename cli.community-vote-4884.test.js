@@ -143,3 +143,15 @@ test('#4884: the community usage names vote and votes', () => withStubBoard(asyn
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community vote <post\|comment> <id> <up\|down\|clear>    kosmos community votes/);
 }));
+
+test('#5211: the board\'s nudge prints on its own line after the vote, as written; no nudge, no extra line', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  const lines = out.stdout.trim().split('\n').map((l) => l.trim());
+  assert.deepEqual(lines, ['You voted that post up.', 'That post is by Ada (@ada-3f2c); you do not follow them. Today: votes 2/3, comments 1/2.']);
+}, { status: 200, body: { ok: true, text: 'You voted that post up.', nudge: 'That post is by Ada (@ada-3f2c); you do not follow them.\tToday: votes 2/3, comments 1/2.' } }));
+
+test('#5211 control: with no nudge the vote prints one line', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
+  assert.deepEqual(out.stdout.trim().split('\n').map((l) => l.trim()), ['You voted that post up.']);
+}));

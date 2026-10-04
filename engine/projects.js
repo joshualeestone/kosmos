@@ -239,6 +239,9 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
 /* #4289: the Kosmos community block (engine/communityblock.js), written at birth and at restart. */
 const COMMUNITY_START = '<!-- kosmos:community:start -->';
 const COMMUNITY_END = '<!-- kosmos:community:end -->';
+/* #5050: the person's language (engine/personlanguage.js), from this computer's language setting; absent in English. */
+const LANGUAGE_START = '<!-- kosmos:language:start -->';
+const LANGUAGE_END = '<!-- kosmos:language:end -->';
 // #4557: a seeded team member's own brief, layered INTO its role's standard instructions at birth
 // (Josh: never written raw in place of them). Defined beside the others for the same reason.
 const TEAM_START = '<!-- kosmos:team:start -->';
@@ -277,7 +280,7 @@ function teamBlockState(text) {
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, mm.START, mm.END];
 }
 
 /**
@@ -956,6 +959,7 @@ function describe(project, roster, all) {
          roster by the server's safeRoster), so a connection Kosmos has given up on counts as needing
          the person here as it does on the board. Same tied gate as `state`. */
       reconnect: (card && card.isNamedOurs && 'reconnect' in card && card.reconnect) ? card.reconnect : null,   // `in`: a raw snapshot() roster has no reconnect field
+      crashLoop: (card && card.isNamedOurs && 'crashLoop' in card && card.crashLoop) ? card.crashLoop : null,   // #5154: as reconnect (safeRoster carries it; `in` for a raw snapshot roster)
       /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
          as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
          agent question here just as it does on the home card / list row / org node. WITHOUT this,
@@ -1573,13 +1577,10 @@ function listFiles(folder, limit, opts) {
 }
 
 /**
- * Open ONE file from a project's folder with the system opener.
- *
- * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE and it is written to
- * refuse rather than to sanitise, the same rule `folderNameFor` follows and for
- * the same reason: this string becomes a path, and a path quietly changed into
- * a different path opens something nobody asked for. `open` will happily launch
- * an application or a script.
+ * #5165: the gates a named file in a folder must pass before Kosmos hands it to anyone: `openFile` (open it
+ * on this computer) and the download routes (stream it to the device the person is on, over Kosmos+). One
+ * copy, so the two can never disagree about what is inside the folder. Refuses rather than sanitises: this
+ * string becomes a path, and a path quietly changed into a different path hands out something nobody asked for.
  *
  * Three independent gates, and the third is the one a name check cannot do:
  *
@@ -1590,16 +1591,19 @@ function listFiles(folder, limit, opts) {
  *      (isScratchName: a dot-name, an Office `~$` file and the like, #3965), because the
  *      list never shows a hidden entry, so a caller never legitimately has one.
  *      This gate only narrows the string. It is NOT what stops an escape: gate 3 is.
- *   2. The project's folder must be READABLE, by the same folderState every
+ *   2. The folder must be READABLE, by the same folderState every
  *      other folder-touching route already goes through.
  *   3. The RESOLVED target must still sit inside the RESOLVED folder, and must
  *      be a regular file. A symlink planted inside the folder passes gate 1
  *      untouched and points wherever it likes; only resolving both sides and
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
+ *
+ * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project), and `act` the verb
+ * (open, or download for the download routes, so a refusal under a download never talks about opening).
+ * Returns { ok: true, target, st, given } or { ok: false, because }.
  */
-/* `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project). */
-function openFile(folder, name, where = 'this project') {
+function fileInFolder(folder, name, where = 'this project', act = 'open') {
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
@@ -1609,7 +1613,7 @@ function openFile(folder, name, where = 'this project') {
   }
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
-    return { ok: false, because: (state && state.because) || 'we cannot find that folder right now, so there is nothing to open' };
+    return { ok: false, because: (state && state.because) || 'we cannot find that folder right now, so there is nothing to ' + act };
   }
   let target;
   try {
@@ -1619,12 +1623,46 @@ function openFile(folder, name, where = 'this project') {
   }
   const root = state.real.endsWith(path.sep) ? state.real : state.real + path.sep;
   if (!target.startsWith(root)) {
-    return { ok: false, because: 'that file lives outside ' + where + ', so we will not open it' };
+    return { ok: false, because: 'that file lives outside ' + where + ', so we will not ' + act + ' it' };
   }
   let st;
   try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
-  if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
-  /* The three gates above are platform-free; only the hand-off differs. Explorer
+  if (!st.isFile()) return { ok: false, because: 'that is not a file we can ' + act };
+  return { ok: true, target, st, given };
+}
+
+/**
+ * #5165: is the file a download just OPENED (`opened`, from fstat on the descriptor) the one `fileInFolder` passed
+ * (`gated`, from its stat)? What stops a file swapped in between the gates and the open, so it must hold where a
+ * file system reports no inode: Windows FAT and exFAT, and some network drives, answer 0.
+ *   - both inodes reported: the same inode, and off Windows the same device (Windows answers the device from the
+ *     volume, which a mapped drive can report differently through a path and through a handle; unmeasured);
+ *   - an inode missing on either side: the same size and the same modification time, and the same creation time
+ *     when both report one. Weaker than an inode (a same-size file written in the same tick passes), so the
+ *     download route also resolves the name again after opening it.
+ */
+function sameOpenedFile(gated, opened, platform = process.platform) {
+  if (!gated || !opened || typeof opened.isFile !== 'function' || !opened.isFile()) return false;
+  if (Number(gated.ino) !== 0 && Number(opened.ino) !== 0) {
+    if (gated.ino !== opened.ino) return false;
+    return platform === 'win32' || gated.dev === opened.dev;
+  }
+  if (gated.size !== opened.size || gated.mtimeMs !== opened.mtimeMs) return false;
+  if (gated.birthtimeMs && opened.birthtimeMs && gated.birthtimeMs !== opened.birthtimeMs) return false;
+  return true;
+}
+
+/**
+ * Open ONE file from a folder with the system opener, once it passes `fileInFolder`.
+ *
+ * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE: `open` will happily launch an
+ * application or a script, which is why every name goes through fileInFolder's gates first.
+ */
+function openFile(folder, name, where = 'this project') {
+  const found = fileInFolder(folder, name, where);
+  if (!found.ok) return found;
+  const { target, given } = found;
+  /* The three gates in fileInFolder are platform-free; only the hand-off differs. Explorer
      opens a file with whatever Windows opens that kind of file with. It judges the
      file's TYPE on the resolved target and applies the drive-letter rule to the path
      the project record names (review round 2), so a mapped Z:\ project opens its
@@ -3366,7 +3404,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
@@ -3374,6 +3412,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, fileInFolder, sameOpenedFile,
   isUnderTmpDir, tmpFolderRefused,
 };

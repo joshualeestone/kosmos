@@ -1508,6 +1508,94 @@ cmd_version() {
   fi
 }
 
+# ---- kosmos update --if-newer [--install] ------------------------------------------------
+# #4382: a Mac set to connect to agents on another computer (#4356) runs no board, and the board is
+# what looks for updates, so without this it would stay on the version it was installed with. The
+# Mac app runs this at launch and once a day on such a computer. It is the board's own look
+# (engine/update-ifnewer.js runs engine/update.js and engine/autoupdate.js, so the channel, the
+# pointer, newer() and the consent are the board's rules, not a copy), and the board's own install:
+# the same `curl <setup> | sh` beginInstall runs, with the same three variables, writing
+# install.started and install.status the same way, so a board started later reads how it went.
+#   consent on (the Updates switch; no file is on):   installs.
+#   consent off, or a file that cannot be read:       says it is there and installs nothing,
+#                                                     unless --install (the person chose it).
+# The last line on stdout is the answer, for the app:
+#   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why> | refused <why>
+# Exit 0 for current, newer, updated and board; 1 for failed and unknown; 2 for a wrong call; 3 for refused.
+# Refused: an agent asked, or this computer is not set to connect elsewhere (the mode file does not
+# read exactly "connect"). Such a computer runs its own board, which looks for itself; an install from
+# here would restart a board its person may have stopped, and an agent must not replace the Kosmos it
+# runs under. Also refused while another install here is under way (logs/install.started younger than
+# 30 minutes): the app that started it may have quit, and its installer runs on. An interrupted install
+# leaves the marker behind (update.js reads it), so an older one is not in the way.
+# The installer's own output goes to logs/install.log, as an update the board starts does.
+cmd_update() {
+  local _install=0 _node _said _rc=0 _mode kind v consent setup base pointer channel started code
+  [ "${1:-}" = "--if-newer" ] || { say "Usage: kosmos update --if-newer [--install]   (install a newer Kosmos when updates are on; --install installs it even when they are off)"; exit 2; }
+  case "${2:-}" in
+    '') ;;
+    --install) _install=1 ;;
+    *) say "Usage: kosmos update --if-newer [--install]"; exit 2 ;;
+  esac
+  if _invoked_by_agent; then
+    printf 'refused\tan agent may not update Kosmos; the person who runs this computer does\n'
+    exit 3
+  fi
+  _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""
+  if [ "$_mode" != connect ]; then
+    printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
+    exit 3
+  fi
+  # -mmin -30 is under 1800 seconds on macOS find (measured at 1799s and 1801s), as the app's installUnderWay.
+  if [ -n "$(find "$LOG_DIR/install.started" -mmin -30 2>/dev/null)" ]; then
+    printf 'refused\tan update is already being installed on this computer\n'
+    exit 3
+  fi
+  # A running board looks for itself, every fifteen minutes, and two installers must never race.
+  if running_pid >/dev/null 2>&1; then
+    printf 'board\n'
+    exit 0
+  fi
+  _node="$(kosmos_engine_node)" || { printf 'unknown\tKosmos could not find its own runtime\n'; exit 1; }
+  _said="$("$_node" "$(kosmos_engine_module update-ifnewer).js" 2>/dev/null)" || _rc=$?
+  # Tab is whitespace to read, so empty fields collapse and shift the rest: no field may be empty.
+  # Today none can be (a version, on|off|unreadable, a URL, a base, and two channel words).
+  IFS="$(printf '\t')" read -r kind v consent setup base pointer channel <<EOF
+$_said
+EOF
+  case "$kind" in
+    current) printf 'current %s\n' "$v"; exit 0 ;;
+    newer) ;;
+    source) printf 'unknown\tthis is not an installed copy of Kosmos\n'; exit 1 ;;
+    unknown) printf 'unknown\t%s\n' "$v"; exit 1 ;;
+    *) printf 'unknown\tthe update check gave no answer (exit %s)\n' "$_rc"; exit 1 ;;
+  esac
+  if [ "$consent" != on ] && [ "$_install" != 1 ]; then
+    printf 'newer %s\n' "$v"
+    exit 0
+  fi
+  mkdir -p "$LOG_DIR"
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '%s\n' "$started" > "$LOG_DIR/install.started" 2>/dev/null || true
+  # The URL is a value, never part of the command text, as in beginInstall. pipefail is on, so a
+  # download that fails is a failure here even when sh, given nothing, exits 0.
+  # Bounded, so a stalled download ends the run (and the app's wait) rather than holding them for good;
+  # a slow one that keeps moving is not cut off. The installer's own downloads are its own business.
+  if curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 "$setup" 2>>"$LOG_DIR/install.log" \
+     | KOSMOS_RELEASE_BASE="$base" KOSMOS_UPDATE_CHANNEL="$pointer" KOSMOS_SOURCE_CHANNEL="$channel" sh >>"$LOG_DIR/install.log" 2>&1; then
+    code=0
+  else
+    code=$?
+  fi
+  printf '%s %s\n' "$code" "$started" > "$LOG_DIR/install.status" 2>/dev/null || true
+  rm -f "$LOG_DIR/install.started"
+  # The installer may have replaced this file while it ran; exit here, in this function, so bash
+  # reads nothing more of it.
+  if [ "$code" = 0 ]; then printf 'updated %s\n' "$v"; exit 0; fi
+  printf 'failed %s\n' "$v"
+  exit 1
+}
+
 # ---- kosmos msg [--stdin] <agent> <text…> ---------------------------------------------
 # An agent messages a colleague. The SENDER IS NOT AN ARGUMENT: the server
 # derives it from the tmux pane this command runs inside ($TMUX_PANE), so an
@@ -2095,15 +2183,28 @@ cmd_post() {
   # Three states, the same contract as msg -- but a post's placed means
   # EVERY member got it; unconfirmed means the room is partly reached
   # (the outcomes live in the record for the screens to draw).
+  # #4653: an @-word that named two members reached neither as a request; the board says so in
+  # ambiguousNote, printed after the verdict. The engine strips quotes, backslashes and control characters
+  # from the display names in it (engine/messages.js ambiguousNote), so no quote can cut the sed read short.
+  # `if`, never `[ ] && say`: as a branch's last command a false test would become the post's exit status.
+  # Anchored on the END of the answer ("}} closes delivery and the body): the engine puts the note last, so
+  # an `outcomes` key or words inside the post can never be read as the note. A reordered answer reads as
+  # no note (silence), never as a wrong one; engine/messages.mention-4642.test.js pins the order.
+  local _ambig
+  # `|| true`: under set -e a failing sed would abort here, after the post has landed, and invite a re-post.
+  _ambig=$(printf '%s' "$body" | sed -n 's/.*"ambiguousNote":"\([^"]*\)"}}$/\1/p') || true
   case "$body" in
     '{"delivery":{"state":"placed"'*)
       case "$body" in
         *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
         *) say "Posted to $project. Everyone on it has it waiting." ;;
-      esac ;;
+      esac
+      if [ -n "$_ambig" ]; then say "$_ambig"; fi
+      ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."
+      if [ -n "$_ambig" ]; then say "$_ambig"; fi
       exit 3
       ;;
     *)
@@ -2589,7 +2690,7 @@ cmd_community() {
   if [ "$sub" = "vote" ] || [ "$sub" = "votes" ]; then cmd_community_vote "$sub" "$@"; return; fi
   if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
-    say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
+    say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
@@ -2598,16 +2699,20 @@ cmd_community() {
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
     exit 2
   fi
-  local topic="" text
+  local topic="" text bug="" channel="" _chset=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
-      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
+      --kosmos-bug) bug=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel
+      # kosmos#5171: the channel the post fits (the board checks it against the site's list and names the choices).
+      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like engineering or marketing."; exit 2; }; _opt_value "community post" --channel "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="$2"; _chset=1; shift 2 ;;
+      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;
+      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
+      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
       *) break ;;
     esac
   done
   if [ $# -gt 0 ]; then
-    _text_args "community post" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+    _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
   if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
@@ -2626,8 +2731,10 @@ cmd_community() {
   esac
   local _bt; _bt="$(board_token || true)"
   local payload
-  payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+  payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" KC_BUG="$bug" KC_CHANNEL="$channel" KC_CHSET="$_chset" "$_node" -e '
     const o = { kind: "community_post", body: process.env.KC_TEXT, at: new Date().toISOString() };
+    if (process.env.KC_BUG === "1") o.kosmos_bug = true;   // kosmos#5062
+    if (process.env.KC_CHSET === "1") o.channel = process.env.KC_CHANNEL;   // kosmos#5171: the board checks it
     const topic = String(process.env.KC_TOPIC || "").trim();
     if (topic) o.topic = topic;   // a blank topic is no topic, as a blank post is no post
     if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
@@ -2746,12 +2853,14 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on")].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
+  local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, today's floors
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status"
+    [ -n "$nudge" ] && say "$nudge"
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
@@ -2762,6 +2871,7 @@ cmd_community_comment() {
     else
       say "Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status"
     fi
+    [ -n "$nudge" ] && say "$nudge"
     exit 0
   fi
   # A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
@@ -2935,7 +3045,7 @@ cmd_community_vote() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local out _jrc=0
-  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(one(j.text));process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(one(j.text)+(typeof j.nudge==="string"&&j.nudge?"\n"+one(j.nudge):""));process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
   if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then
     say "$out"
     exit 0
@@ -3307,6 +3417,7 @@ kosmos_command_list() {
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
   printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
   printf '  kosmos reply         answer the person in your conversation with them\n'
@@ -3351,7 +3462,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -3729,7 +3840,14 @@ cmd_task() {
           if [ "$_rest" != "$body" ]; then
             case "$_rest" in '"'*) _for="${_rest#\"}"; _for="${_for%%\"*}"; case "$_for" in *\\*) _for="" ;; esac ;; esac
           fi
-          say "Task added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}" ;;
+          # #5175: the new task's number, from the board's answer. It is the task's FIRST key (engine/tasks.js
+          # made = { number, ... }), so it is read only from that fixed position, digits only; any other answer
+          # keeps the sentence without a number rather than guess one.
+          local _num=""
+          case "$body" in '{"task":{"number":'[1-9]*) _num="${body#\{\"task\":\{\"number\":}"; _num="${_num%%[!0-9]*}"
+            # only a whole number: the digits must end the value (1.5 or 12e3 would otherwise read as 1 or 12)
+            case "${body#\{\"task\":\{\"number\":$_num}" in ,*|\}*) ;; *) _num="" ;; esac ;; esac
+          say "Task${_num:+ $_num} added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that task: ${because:-it did not say why}."; exit 1 ;;
@@ -4133,7 +4251,7 @@ cmd_agent() {
       true
       ;;
     create)
-      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because label="" from="" data
+      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because label="" from="" data end
       name="$1"; role="$2"; why="${3:-the person asked for it}"
       if [ "$role" = "--new-role" ]; then role="own"; label="$3"; from="$5"; why="${6:-the person asked for it}"; fi
       case "${KOSMOS_AGENT_TOKEN:-}" in
@@ -4178,7 +4296,13 @@ cmd_agent() {
       because=$(printf '%s' "$parsed" | cut -f3)
       case "$outcome" in
         created) say "Made \"${made:-$name}\". It's on your board now: $URL/" ;;
-        error|refused) say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
+        # #5127: the reason's own trailing stops and spaces go, and the line ends once: never '..', and no '.' after
+        # a '?' or '!'. A reason that was only stops says it did not say why. The Windows CLI does the same.
+        error|refused)
+          while [[ "$because" == *[.[:space:]] ]]; do because="${because%?}"; done
+          because="${because:-it did not say why}"
+          case "$because" in *[?!]) end="" ;; *) end="." ;; esac
+          say "Kosmos did not make that agent: ${because}${end}"; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when making that agent."; exit 1 ;;
       esac
       ;;
@@ -4202,6 +4326,7 @@ case "${1:-}" in
   agents)  cmd_agents ;;
   adopt)   shift; cmd_adopt "$@" ;;
   version) cmd_version ;;
+  update)  shift; cmd_update "$@" ;;   # #4382: the Mac app's update look on a computer with no board
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;

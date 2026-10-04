@@ -19,6 +19,13 @@
  *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
  *  - with it off: every placement back where today has it, no state word, today's underline,
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
+ *  - the Projects list in the new look (projectsLook): tiles without a box (the Issue tile keeps its red), Add Project a
+ *    round grey button, plain cards without border or shadow (24px corners) that show today's hover border and lift and
+ *    today's keyboard focus ring, a needs-you card's red edge, the current view's gold and a plain roadmap row unchanged;
+ *    on a touch phone at 320, 360, 390, 480 and 520, Add Project clear of the sort and the toggle (#718); with the look off, today's
+ *    card, tile and dashed tile (the control),
+ *  - a project's Documents in the new look (docsLook): back is the round chevron, the text link hidden, and it returns
+ *    to the project; the switch is a grey pill with today's gold choice; with the look off, today's link and switch,
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
  *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
@@ -281,6 +288,29 @@ const PHONE_LOOK = `(() => {
   }
   return out;
 })()`;
+/* #4470, Create an agent in the new look: a resting option card's edge, a chosen card's edge (one radio checked for
+   the read, then put back), and Continue's corners. Read with the panel and its role step shown, then put back. */
+const CREATE_LOOK = `(() => {
+  const panel = document.getElementById('panel-create'), step = document.getElementById('cstep-role'), go = document.getElementById('role-next');
+  const cards = panel ? [...panel.querySelectorAll('#cstep-role .pick2')] : [];
+  if (!panel || !step || !go || cards.length < 2) return { found: false, cards: cards.length };
+  const ph = panel.hidden, sh = step.hidden; panel.hidden = false; step.hidden = false;
+  const hid = cards.map((c) => c.hidden); cards.forEach((c) => { c.hidden = false; });
+  const radios = cards.map((c) => c.querySelector('input')), was = radios.map((r) => r && r.checked);
+  try {
+    radios.forEach((r) => { if (r) r.checked = false; }); if (radios[0]) radios[0].checked = true;
+    const kind = document.querySelector('#cstep-kind .nak-btn'), team = document.getElementById('team-seeded-go'), create = document.getElementById('create-go');
+    return { found: true, chosenEdge: getComputedStyle(cards[0]).borderTopColor, restEdge: getComputedStyle(cards[1]).borderTopColor,
+      restHovered: cards[1].matches(':hover'), continueRadius: getComputedStyle(go).borderTopLeftRadius,
+      /* Round 1: the kind picker's cards, and Team's and Create's main buttons (Team matches Single, #4935). */
+      kindEdge: kind ? getComputedStyle(kind).borderTopColor : 'absent', teamRadius: team ? getComputedStyle(team).borderTopLeftRadius : 'absent',
+      createRadius: create ? getComputedStyle(create).borderTopLeftRadius : 'absent',
+      /* Round 2: a small inline gold button takes the pill too (every button in the look is one). */
+      inlineRadius: (() => { const b = document.getElementById('orgchart-preview'); return b ? getComputedStyle(b).borderTopLeftRadius : 'absent'; })(),
+      /* Round 3: a plain button beside a gold one takes the same pill (one shape per row). */
+      plainRadius: (() => { const b = document.getElementById('orgchart-edit'); return b ? getComputedStyle(b).borderTopLeftRadius : 'absent'; })() };
+  } finally { radios.forEach((r, i) => { if (r) r.checked = was[i]; }); cards.forEach((c, i) => { c.hidden = hid[i]; }); step.hidden = sh; panel.hidden = ph; }
+})()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
    (content none) and no animation. A pulse the box itself does not carry is still a pulse on screen. */
@@ -381,6 +411,139 @@ async function tasksLook(page) {
   await page.evaluate(() => showTab('agents'));
   await page.waitForTimeout(300);
   return out;
+}
+/* #4470, the Projects list in the new look (the Agents page's language): the count tiles lose their box, Add Project
+   is a 40px round grey button, a plain project card loses its border and shadow and takes 24px corners, and keeps
+   today's border under the pointer; a needs-you card keeps its red edge (drawn by hand, since the fixture's project
+   has no issue, then removed); the current view's fill. Reads on the grid, then returns to the Agents tab. */
+async function projectsLook(page) {
+  await page.mouse.move(1, 1);
+  await page.evaluate(() => { showTab('projects'); pjView('list'); });
+  // A timeout is swallowed on purpose: the read below then returns found: false, which reds every Projects arm.
+  await page.waitForSelector('#pj-list .pj-row', { state: 'visible', timeout: 8000 }).catch(() => {});
+  await page.evaluate(() => { const g = document.querySelector('#pj-list-view .vt[data-layout="grid"]'); if (g && g.getAttribute('aria-pressed') !== 'true') g.click(); });
+  await page.waitForTimeout(400);
+  const out = await page.evaluate(() => {
+    const card = document.querySelector('#pj-list.asgrid .pj-row:not(.attn)');
+    const tile = document.getElementById('st-pj') && document.getElementById('st-pj').closest('.stat');
+    const plus = document.querySelector('#pj-new .plus'), on = document.querySelector('#pj-list-view .vt.on');
+    if (!card || !tile || !plus) return { found: false, card: !!card, tile: !!tile, plus: !!plus };
+    const cs = getComputedStyle(card), ps = getComputedStyle(plus), ts = getComputedStyle(tile);
+    const r = { found: true, card: cs.borderTopColor, shadow: cs.boxShadow, radius: cs.borderTopLeftRadius,
+      tile: ts.borderTopColor, tileBg: ts.backgroundColor, newBorder: getComputedStyle(document.getElementById('pj-new')).borderTopStyle,
+      plus: { w: Math.round(plus.getBoundingClientRect().width), round: ps.borderRadius, bg: ps.backgroundColor },
+      seg: on ? getComputedStyle(on).backgroundColor : 'absent' };
+    /* The Issue and Messages tiles are hidden on this fixture: shown for the read, then hidden again. */
+    const shown = (id) => { const t = document.getElementById(id); if (!t) return null; const was = t.hidden; t.hidden = false;
+      try { const c = getComputedStyle(t); return { border: c.borderTopColor, bg: c.backgroundColor }; } finally { t.hidden = was; } };
+    r.issueTile = shown('st-pjattn-tile'); r.msgTile = shown('st-pjdm-tile');
+    const a = card.cloneNode(true); a.classList.add('attn'); a.removeAttribute('data-project'); card.after(a);
+    r.attn = getComputedStyle(a).borderTopColor; a.remove();
+    return r;
+  });
+  if (out.found) {
+    await page.hover('#pj-list.asgrid .pj-row:not(.attn)'); await page.waitForTimeout(200);
+    out.hover = await page.evaluate(() => { const h = document.querySelector('#pj-list.asgrid .pj-row:not(.attn):hover'); return h ? getComputedStyle(h).borderTopColor + ' | ' + getComputedStyle(h).boxShadow : 'missed'; });
+    await page.mouse.move(1, 1);
+    /* A card reached from the keyboard keeps a visible focus ring (the browser's own; nothing here removes it), since
+       at rest the plain card has no edge. A key press first, so the focus that follows counts as keyboard focus. */
+    await page.keyboard.press('Shift');
+    out.focus = await page.evaluate(() => { const c = document.querySelector('#pj-list.asgrid .pj-row:not(.attn)'); if (!c) return null;
+      c.focus(); const cs = getComputedStyle(c);
+      const v = { visible: c.matches(':focus-visible'), style: cs.outlineStyle, width: cs.outlineWidth }; c.blur(); return v; });
+    /* The roadmap rows, read on the roadmap and compared with the look off by the caller; then back to the grid. */
+    await page.evaluate(() => { const r = document.querySelector('#pj-list-view .vt[data-layout="roadmap"]'); if (r) r.click(); });
+    await page.waitForTimeout(400);
+    out.roadmap = await page.evaluate(() => { const row = document.querySelector('#pj-list:not(.asgrid) .pj-row');
+      if (!row) return null; const c = getComputedStyle(row);
+      return { border: c.borderTopWidth + ' ' + c.borderTopStyle, shadow: c.boxShadow, radius: c.borderTopLeftRadius, padding: c.padding }; });
+    await page.evaluate(() => { const g = document.querySelector('#pj-list-view .vt[data-layout="grid"]'); if (g) g.click(); });
+    await page.waitForTimeout(300);
+  }
+  await page.evaluate(() => showTab('agents'));
+  await page.waitForTimeout(300);
+  return out;
+}
+/* #4470, a project's Documents screen in the new look: back is the round chevron (the text link hidden) and it
+   returns to the project; the folder / conversation switch is a grey pill (shown by hand: the fixture's room has
+   no files) whose chosen segment keeps today's gold. Reads, then returns to the Agents tab. */
+async function docsLook(page, projectId) {
+  await page.mouse.move(1, 1);
+  await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, projectId);
+  await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 }).catch(() => {});
+  // View All appears once the folder has been read; wait for it, as a person would, then press it.
+  await page.waitForSelector('#pj-docs-all', { state: 'visible', timeout: 8000 }).catch(() => {});
+  if (await page.isVisible('#pj-docs-all')) await page.click('#pj-docs-all');
+  await page.waitForSelector('#pj-docs-view:not([hidden])', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const out = await page.evaluate(() => {
+    const back = document.getElementById('docs-back'), chev = document.getElementById('docs-chev'), sw = document.getElementById('docs-seg');
+    if (!back || !chev || !sw || document.getElementById('pj-docs-view').hidden) return { found: false };
+    const was = sw.hidden; sw.hidden = false;
+    try {
+      const cs = getComputedStyle(sw), on = sw.querySelector('[aria-checked="true"]');
+      return { found: true, backShown: getComputedStyle(back).display !== 'none', chevShown: getComputedStyle(chev).display !== 'none', chevSize: Math.round(chev.getBoundingClientRect().width), chevGap: getComputedStyle(chev).marginRight,
+        segRadius: cs.borderTopLeftRadius, segEdge: cs.borderTopColor, segBg: cs.backgroundColor,
+        divider: sw.children[1] ? getComputedStyle(sw.children[1]).borderLeftColor : 'absent', endRadius: sw.children[0] ? getComputedStyle(sw.children[0]).borderTopLeftRadius : 'absent', chosen: on ? getComputedStyle(on).backgroundColor : 'absent' };
+    } finally { sw.hidden = was; }
+  });
+  if (out.found && out.chevShown) {
+    await page.click('#docs-chev');
+    await page.waitForTimeout(400);
+    out.chevBack = await page.evaluate(() => !document.getElementById('pj-one-view').hidden && document.getElementById('pj-docs-view').hidden);
+  }
+  await page.evaluate(() => showTab('agents'));
+  await page.waitForTimeout(300);
+  return out;
+}
+/* #4470, Documents on a touch phone with the look on: under 400px the switch's segments share the row and may wrap
+   (#4937), so the pill becomes taller; each segment's words must fit inside it, nothing clipped. Shown by hand. */
+async function docsPhoneSeg(browser, url, width, projectId) {
+  const ctx = await browser.newContext({ viewport: { width, height: 800 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await ctx.newPage();
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch {} });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, projectId);
+    await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 });
+    await page.waitForSelector('#pj-docs-all', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+    // NL_SHOTS=<dir> keeps a picture of the switch for a person to look at (the corners are judged by eye).
+    if (process.env.NL_SHOTS) await page.locator('#docs-seg').screenshot({ path: require('node:path').join(process.env.NL_SHOTS, 'docs-seg-' + width + '.png') }).catch(() => {});
+    return await page.evaluate(() => {
+      const sw = document.getElementById('docs-seg'); if (!sw) return { found: false };
+      const segs = [...sw.querySelectorAll('button')].map((b) => ({ text: b.textContent.trim(), w: b.clientWidth, sw: b.scrollWidth, h: b.clientHeight, sh: b.scrollHeight }));
+      const r = sw.getBoundingClientRect();
+      return { found: true, look: document.documentElement.getAttribute('data-look'), radius: getComputedStyle(sw).borderTopLeftRadius, h: Math.round(r.height),
+        segs, clipped: segs.some((x) => x.sw > x.w + 1 || x.sh > x.h + 1), wide: document.documentElement.scrollWidth > innerWidth + 1 };
+    });
+  } finally { await ctx.close(); }
+}
+/* #4470 (#718's phone row): with the look on, Add Project must not run under the sort or the view toggle on a phone.
+   A touch phone context of its own (so the page takes its touch sizes, the sort at 16px), the look stored before
+   load; reads the boxes of Add Project, the sort and the toggle and reports any horizontal overlap on a shared line. */
+async function projectsPhoneRow(browser, url, width) {
+  const ctx = await browser.newContext({ viewport: { width, height: 800 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await ctx.newPage();
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch {} });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(() => { showTab('projects'); pjView('list'); });
+    await page.waitForSelector('#pj-new', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(300);
+    return await page.evaluate(() => {
+      // A hidden control has a zero box and could not collide, so it reads as missing (the arm fails, not passes).
+      const box = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { l: r.left, r: r.right, t: r.top, b: r.bottom } : null; };
+      const a = box('#pj-new'), s = box('#pj-list-view .sortctl'), v = box('#pj-list-view .viewtoggle');
+      const hit = (x, y) => !!x && !!y && x.l < y.r - 0.5 && y.l < x.r - 0.5 && x.t < y.b - 0.5 && y.t < x.b - 0.5;
+      return { look: document.documentElement.getAttribute('data-look'), add: a, sort: s, toggle: v,
+        overlap: hit(a, s) || hit(a, v), wide: document.documentElement.scrollWidth > innerWidth + 1 };
+    });
+  } finally { await ctx.close(); }
 }
 /* The list view (#4470's next page): switch the Agents board to the list, read the plain idle row (and the same
    row under the pointer), then switch back to the grid so the later arms read the cards. */
@@ -497,6 +660,8 @@ const AGENTS_LOOK = `(() => {
       const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
       const setBefore = await page.evaluate(SETTINGS_LOOK);   // and today's Settings
       const ctlBefore = await page.evaluate(CTRL_LOOK);   // and today's buttons
+      await page.mouse.move(0, 0);
+      const crBefore = await page.evaluate(CREATE_LOOK);   // and today's create step
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -573,6 +738,31 @@ const AGENTS_LOOK = `(() => {
       chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
       const ctlOn = await page.evaluate(CTRL_LOOK);
+      await page.mouse.move(0, 0);   // round 1: no card under a leftover pointer for the resting read
+      const crOn = await page.evaluate(CREATE_LOOK);
+      chk(crOn.found && !crOn.restHovered && crOn.restEdge === CLEAR && crOn.kindEdge === CLEAR && crOn.chosenEdge !== CLEAR
+        && crOn.continueRadius === '999px' && crOn.teamRadius === '999px' && crOn.createRadius === '999px' && crOn.inlineRadius === '999px' && crOn.plainRadius === '999px',
+        `${tag} On, Create an agent: resting option cards (kind and role) have no edge, the chosen one keeps its outline, every main button is a pill (Team's too)`, JSON.stringify(crOn));
+      /* Round 1: a card under the pointer keeps today's edge (a real hover on the shown step). Round 3: the scroll, the
+         panels and the probe id are saved in the page and ALWAYS put back, and a missing card is a failure, not a skip. */
+      if (width > 640) {
+        const saved = await page.evaluate(() => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role');
+          const c = st && [...st.querySelectorAll('.pick2')].find((x) => !x.querySelector('input:checked'));
+          if (!p || !st || !c) return null; const had = c.id; c.id = c.id || 'cr-hover-probe';
+          const sv = { px: scrollX, py: scrollY, p: p.hidden, st: st.hidden, c: c.hidden, had, sel: '#' + c.id }; p.hidden = false; st.hidden = false; c.hidden = false;
+          p.dataset.crSaved = JSON.stringify(sv); return sv.sel; });
+        let hv = null;
+        try {
+          if (saved) { await page.hover(saved, { timeout: 3000 }); hv = await page.evaluate((sel) => { const c = document.querySelector(sel); return { hovered: c.matches(':hover'), edge: getComputedStyle(c).borderTopColor }; }, saved); }
+        } catch (e) { hv = { error: String(e && e.message || e).slice(0, 120) }; }
+        finally {
+          await page.mouse.move(0, 0);
+          await page.evaluate(() => { const p = document.getElementById('panel-create'); if (!p || !p.dataset.crSaved) return; const sv = JSON.parse(p.dataset.crSaved); delete p.dataset.crSaved;
+            const st = document.getElementById('cstep-role'), c = document.querySelector(sv.sel);
+            if (c) { c.hidden = sv.c; if (!sv.had) c.removeAttribute('id'); } if (st) st.hidden = sv.st; p.hidden = sv.p; scrollTo(sv.px, sv.py); });
+        }
+        chk(!!saved && !!hv && hv.hovered && hv.edge !== CLEAR, `${tag} On, Create an agent: a card under the pointer keeps its edge`, JSON.stringify({ saved, hv }));
+      }
       /* Round 3: a button's fill is above the box in both schemes (white in light; a step lighter than the box in dark,
          where the field is black), never the field's. */
       const RAISE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(58, 58, 60)' };
@@ -791,6 +981,34 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Tasks: Needs Your Decision holding tasks keeps its red edge, a filtering tile its gold`, JSON.stringify(tkOn));
       chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
+      if (width < 600) {
+        for (const w of [320, 360, 390, 480, 520]) {   // 480 is the 30rem edge; 520 is past it (the one-line label)
+          const row = await projectsPhoneRow(browser, URL, w);
+          chk(row.look === 'new' && row.add && row.sort && row.toggle && !row.overlap && !row.wide,
+            `${tag} On, Projects at ${w} on a touch phone: Add Project does not run under the sort or the view toggle (#718)`, JSON.stringify(row));
+        }
+      }
+      const dcOn = await docsLook(page, proj.id);
+      if (width < 600) {
+        for (const w of [320, 360]) {
+          const ds = await docsPhoneSeg(browser, URL, w, proj.id);
+          chk(ds.found && ds.look === 'new' && ds.radius === '999px' && ds.segs.length === 2 && !ds.clipped && !ds.wide,
+            `${tag} On, Documents at ${w} on a touch phone: the switch's words fit each segment (the round corners are judged by eye: NL_SHOTS)`, JSON.stringify(ds));
+        }
+      }
+      chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevGap === '14px' && dcOn.chevBack === true,
+        `${tag} On, Documents: back is the round chevron at the project page's 40px (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
+      chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.divider === 'rgba(0, 0, 0, 0)' && dcOn.endRadius === '999px',
+        `${tag} On, Documents: the folder / conversation switch is a pill with no edge or divider, its end segments round`, JSON.stringify(dcOn));
+      const plOn = await projectsLook(page);
+      chk(plOn.found && plOn.card === 'rgba(0, 0, 0, 0)' && plOn.shadow === 'none' && plOn.radius === '24px',
+        `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));
+      chk(plOn.found && plOn.tile === 'rgba(0, 0, 0, 0)' && plOn.tileBg === 'rgba(0, 0, 0, 0)' && plOn.plus.round === '50%' && plOn.plus.w === 40 && plOn.newBorder === 'none',
+        `${tag} On, Projects: the Projects tile has no box and Add Project is a 40px round button with no dashed edge`, JSON.stringify(plOn));
+      chk(plOn.found && plOn.attn !== 'rgba(0, 0, 0, 0)' && plOn.hover && plOn.hover !== 'missed',
+        `${tag} On, Projects: a needs-you card keeps its red edge, and a card under the pointer shows its border (a sign it opens)`, JSON.stringify(plOn));
+      chk(plOn.found && plOn.issueTile && plOn.msgTile && plOn.issueTile.border !== 'rgba(0, 0, 0, 0)' && plOn.msgTile.border === 'rgba(0, 0, 0, 0)' && plOn.msgTile.bg === 'rgba(0, 0, 0, 0)',
+        `${tag} On, Projects: the Issue tile keeps its red outline, the Messages count has no box`, JSON.stringify({ issue: plOn.issueTile, msg: plOn.msgTile }));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -851,6 +1069,10 @@ const AGENTS_LOOK = `(() => {
       const phOff = await page.evaluate(PHONE_LOOK);
       chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.newTaskRadius !== '999px',
         `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM) and New task its corners (the control)`, JSON.stringify(phOff));
+      await page.mouse.move(0, 0);
+      const crOff = await page.evaluate(CREATE_LOOK);
+      chk(crOff.found && crBefore.found && JSON.stringify(crOff) === JSON.stringify(crBefore) && crOff.restEdge !== 'rgba(0, 0, 0, 0)' && crOff.continueRadius !== '999px',
+        `${tag} Off, Create an agent: today's edged cards and Continue, as before the switch was touched (the control)`, JSON.stringify({ off: crOff, before: crBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
@@ -861,6 +1083,22 @@ const AGENTS_LOOK = `(() => {
          not byte-identical across looks (round 1); what must hold in both is that it reads red. */
       chk(tkOn.found && tkOff.found && tkOn.decisionRed && tkOff.decisionRed && tkOff.plainNotRed === true && tkOff.goldNotRed,
         `${tag} the Needs Your Decision edge reads red with the look on and off`, JSON.stringify({ on: tkOn.decision, off: tkOff.decision }));
+      const dcOff = await docsLook(page, proj.id);
+      chk(dcOff.found && dcOff.backShown && !dcOff.chevShown && dcOff.segRadius !== '999px',
+        `${tag} Off, Documents: today's text back link, no chevron, today's switch (the control)`, JSON.stringify(dcOff));
+      chk(dcOn.found && dcOff.found && dcOn.chosen === dcOff.chosen && dcOff.chosen !== 'absent' && dcOff.chosen !== 'rgba(0, 0, 0, 0)',
+        `${tag} Documents: the chosen segment is today's gold with the look on`, JSON.stringify({ on: dcOn.chosen, off: dcOff.chosen }));
+      const plOff = await projectsLook(page);
+      chk(plOff.found && plOff.card !== 'rgba(0, 0, 0, 0)' && plOff.shadow !== 'none' && plOff.radius === '12px' && plOff.tile !== 'rgba(0, 0, 0, 0)' && plOff.plus.round !== '50%' && plOff.newBorder === 'dashed',
+        `${tag} Off, Projects: today's bordered card with 12px corners, boxed Projects tile and dashed Add Project tile (the control)`, JSON.stringify(plOff));
+      chk(plOn.found && plOff.found && plOn.attn === plOff.attn && plOn.seg === plOff.seg && plOff.seg !== 'rgba(0, 0, 0, 0)' && plOff.seg !== 'absent',
+        `${tag} Projects: the needs-you edge and the current view's gold are today's with the look on`, JSON.stringify({ on: [plOn.attn, plOn.seg], off: [plOff.attn, plOff.seg] }));
+      chk(plOn.found && plOff.found && plOn.hover === plOff.hover && plOff.hover !== 'missed',
+        `${tag} Projects: a card under the pointer shows today's hover border and lift with the look on`, JSON.stringify({ on: plOn.hover, off: plOff.hover }));
+      chk(plOn.focus && plOn.focus.visible && plOn.focus.style !== 'none' && parseFloat(plOn.focus.width) > 0 && JSON.stringify(plOn.focus) === JSON.stringify(plOff.focus),
+        `${tag} Projects: a card reached from the keyboard shows a focus ring with the look on, as with it off`, JSON.stringify({ on: plOn.focus, off: plOff.focus }));
+      chk(plOn.roadmap && plOff.roadmap && JSON.stringify(plOn.roadmap) === JSON.stringify(plOff.roadmap),
+        `${tag} Projects: a plain roadmap row is exactly today's with the look on (no border, same shadow, corners and padding)`, JSON.stringify({ on: plOn.roadmap, off: plOff.roadmap }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */

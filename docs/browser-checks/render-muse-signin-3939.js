@@ -627,7 +627,7 @@ const chk = (ok, label, extra) => {
   const readsOn = await q(() => window.__museReads || 0);
   await museRead();
   cm = await createMeta();
-  chk(cm.disabled === true && cm.off === 'Set up in Settings: Add a provider', 'create form, on but not signed in: disabled, says where to set it up', JSON.stringify(cm));
+  chk(cm.disabled === true && cm.off === 'Set up in Settings, AI Models', 'create form, on but not signed in: disabled, says where to set it up', JSON.stringify(cm));
   chk(await q((n) => (window.__museReads || 0) > n, readsOn), 'CONTROL: with the flag on, the read is made');
   // On, installed and signed in: offered.
   await q(() => { window.__museSignedIn = true; });

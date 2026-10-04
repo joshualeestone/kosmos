@@ -2366,6 +2366,91 @@ test('#5023: at birth, near the size limit, the introduction gives way and the c
   assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_BYTES, 'the file is over the limit');
 });
 
+test('#5050: on a Spanish Mac the new agent file ENDS with the language block; on an English one it has none', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  try {
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'es-MX';
+    pl._resetForTests();
+    const made = create.createAgent({ ...BINS, name: 'lang-es', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const text = fs.readFileSync(create.instructionFile('lang-es'), 'utf8');
+    assert.ok(text.trimEnd().endsWith(pl.END), 'the language block is not the last thing in the new file');
+    assert.match(text, /reads Spanish \(es-MX, from this computer's language setting\)/);
+    assert.ok(Array.isArray(made.steps), 'createAgent returned no steps, so the check below would be vacuous');
+    assert.ok(!made.steps.some((st) => /language/.test(st.label || '') && st.ok === false), 'the language step reported a failure');
+
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'en-US';
+    pl._resetForTests();
+    const plain = create.createAgent({ ...BINS, name: 'lang-en', role: 'pm' });
+    assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-en'), 'utf8').includes(pl.START), 'an English Mac wrote a language block');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
+test('#5050 review 13: pasted instructions with two language blocks are left alone and the step says it failed', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  const two = `You are **{{NAME}}**, with instructions pasted from another computer.\n\n${pl.START}\nold one\n${pl.END}\n\n${pl.START}\nolder one\n${pl.END}\n`;
+  try {
+    for (const [tag, name] of [['es-MX', 'lang-two-es'], ['en-US', 'lang-two-en']]) {
+      process.env.AGENT_WORKFORCE_PERSON_LOCALE = tag;
+      pl._resetForTests();
+      const made = create.createAgent({ ...BINS, name, role: 'pm', instructions: two });
+      assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+      assert.ok(Array.isArray(made.steps));
+      assert.ok(made.steps.some((st) => /found two language sections/.test(st.label || '') && st.ok === false), tag + ': the two-block case was not reported');
+      const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+      assert.equal(text.split(pl.START).length - 1, 2, tag + ': the two pasted blocks were changed');
+      assert.match(text, /old one/);
+      assert.match(text, /older one/);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
+test('#5050 review 14: a read that is not sure (a Mac whose defaults failed, Spanish region) writes and reports nothing', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  try {
+    pl._resetForTests({ env: {}, platform: 'darwin', run: () => { throw new Error('timed out'); }, intl: 'es-ES' });
+    assert.equal(pl.read().sure, false, 'CONTROL: the read really is a fallback');
+    const made = create.createAgent({ ...BINS, name: 'lang-unsure', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-unsure'), 'utf8').includes(pl.START), 'an unsure read wrote a language block');
+    assert.ok(Array.isArray(made.steps) && !made.steps.some((st) => /language/.test(st.label || '')), 'an unsure read reported a language step');
+  } finally { pl._resetForTests(); }
+});
+
+test('#5050 review 20: on an English Mac a pasted language section is taken out, and the step says so', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  try {
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'en-US';
+    pl._resetForTests();
+    const pasted = `You are **{{NAME}}**, with instructions pasted from a Spanish Mac.\n\n${pl.START}\nold one\n${pl.END}\n`;
+    const made = create.createAgent({ ...BINS, name: 'lang-paste-en', role: 'pm', instructions: pasted });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-paste-en'), 'utf8').includes(pl.START), 'CONTROL: the section was taken out');
+    assert.ok(made.steps.some((st) => /took out a language section from its instructions, because this computer's language is English/.test(st.label || '') && st.ok === true), 'the removal was silent');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
   recorder();
   create.setDryRun(false);
@@ -5377,6 +5462,8 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   let r = create.createAgent({ ...noClaude, codexBin: '/nonexistent-codex', name: 'cg-a', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /could not find Claude Code/);
+  // #5127: the whole sentence a person sees, ending at the place to connect (no alternative here).
+  assert.match(r.because, /Connect a Claude account in Settings, AI Models\. Kosmos will then set up Claude Code\.$/);
   assert.ok(!/OpenAI instead/.test(r.because), 'a dead-end alternative was offered in words');
   assert.equal(r.alternative.offered, false);
   assert.match(r.alternative.because, /codex runner/);
@@ -5394,7 +5481,9 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   r = create.createAgent({ ...noClaude, codexBin: CODEX_BIN, name: 'cg-c', role: 'pm' });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
-  assert.match(r.because, /or create this agent on OpenAI instead/);
+  assert.match(r.because, /or create this agent on OpenAI instead/i);
+  // #5127: the shipped sentence, joined right: the place, a full stop, then the alternative as its own sentence.
+  assert.match(r.because, /in Settings, AI Models\. Kosmos will then set up Claude Code\. Or create this agent on OpenAI instead\.$/);
   assert.equal(r.alternative.offered, true);
 
   // And nothing was half-made by any of the three refusals.
@@ -5758,7 +5847,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 5],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 6],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(

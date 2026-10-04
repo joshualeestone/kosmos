@@ -1165,7 +1165,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    120px at 1440 through 440, then the header WRAPS -- 138px at 420, 154px
    at 400 -- so one value padded from one width put focus 22px under the
    bar at 400. */
-html { scroll-padding-top: 132px; }
+html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: plus the floating notices, see below */
   /* 🔑 RESERVE THE SCROLLBAR GUTTER SO THE LAYOUT DOES NOT MOVE (kosmos#1309).
      Josh, on 0.5.97: "when I hit Connections or This Computer, it is a slightly
      wider design and kicks the page over ... because the content scrolls off the
@@ -1185,35 +1185,30 @@ html { scroll-padding-top: 132px; }
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
   /* (The wide agent Talk view is exempted from this gutter, and wide headers are padded to match: see the #3497 block.) */
-/* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
-   case; the comment above says per width, and the notice changed the
-   heights): desktop stays 128 tall so 132 still clears; between 441 and
-   720 the notice wraps onto its own row (157 measured at 600); at 440 and
-   below the header wraps further (179 measured at 375). Padded to clear
-   the with-notice height; without a notice the rescue lands a little low,
-   which is harmless in the direction the guard cares about. */
-@media (max-width: 720px) { html { scroll-padding-top: 165px; } }
-@media (max-width: 440px) { html { scroll-padding-top: 187px; } }
+/* Measured 2026-08-17 with the then-inline update notice present: desktop 128, 157 at 600, 179 at 375. Since #5018
+   the notices float below the header instead, so these values now clear the header with room to spare, and
+   --topnotes-h (the floating stack's height, kept by topnotesTrack) adds whatever notices are showing, so a focused
+   element never lands under one. A little low without a notice is harmless in the direction the guard cares about,
+   and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
+@media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
+@media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
    (the app's one attention red; a second red would be permanent drift).
-   PLACEMENT superseded 2026-08-17 (Josh; pack 2e4e100): it sits IN THE
-   FLOW of the header's left group beside the mark. The old absolute float
-   -- whose own comment called absolute "the requirement" -- carried a
-   measured offset and a history of covering the agent-status stamp; in
-   the flow it cannot overlap anything, the row's x-positions are pinned
-   unshifted by the toast drive, and the header growing ~8px taller while
-   a notice waits is the accepted trade (the pack's mobile note blessed
-   exactly that direction). The Install button is gold (#e3b341, the
+   PLACEMENT: since #5018 it floats with the other notices (.topnotes, below).
+   HISTORY: 2026-08-17 (Josh; pack 2e4e100) to #5018 it sat in the flow of the
+   header's left group beside the mark, because an older absolute float had
+   covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
 .utoast {
   --utone: #b3261e;
-  /* IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100). The old
-     absolute float carried a measured top:79 offset and a history of
-     covering the agent-status stamp; an element in the flow cannot overlap
-     anything, so the measurement and its bug class both retire. */
+  /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
+     old float covered the agent-status stamp. Since #5018 (Josh 2026-10-02) the
+     notices float again, over the page centred under the navigation (.topnotes),
+     anchored to the header rather than a measured offset, so the header never
+     grows. */
   display: flex; align-items: center; gap: 11px;
   padding: 7px 8px 7px 12px; border-radius: 11px;
   background: var(--bg-elevated); border: 1px solid var(--utone);
@@ -1236,6 +1231,49 @@ html { scroll-padding-top: 132px; }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
+/* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
+   header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
+   Centred, not under the K mark: the left column holds the page's primary actions (New agent, the agents rail), and
+   a notice there covered New agent (render-update-toast). */
+.apphead header { position: relative; }
+.apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content;
+  max-width: min(460px, 100%); pointer-events: none; }
+.apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
+/* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
+   a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
+#askcard { margin-top: calc(10px + var(--topnotes-h, 0px)); }
+/* Mona Lisa, 2026-10-03: the Claude-unreachable line (#conn) is a warning too, and it shows on the same day as an
+   expiring login, so it moves down the same way. Only when the Allow card is hidden: a showing Allow card already
+   moved down and #conn follows it in the flow. The agent talk view gives #conn its own top gap, plus the stack. */
+#askcard[hidden] + #conn { margin-top: var(--topnotes-clear, 0px); }
+/* #5140 (day-one): a new user on a phone with no agents yet has one thing to press, New agent, and it sits right
+   under the floating stack, so an update or offline notice clipped it. When the grid holds only its empty-state block
+   (no agents, or a sign-in / offline / cannot-read box) and only at phone widths, the board row moves below the stack,
+   by the same clearance. Below the row there is only that box, so Josh's ruling (notices float, never push the page)
+   holds wherever there is a page to push. When the Allow card or the Claude-unreachable line shows, it has already moved down and the row follows it. */
+@media (max-width: 720px) {
+  body:has(#grid > .pj-empty) #askcard[hidden] + #conn[hidden] ~ #boardbar:not([hidden]) { margin-top: var(--topnotes-clear, 0px); }
+}
+/* The Kosmos+ phone gives the row its own 16px (html.kremote #boardbar, under this same media condition); keep it as the
+   floor there, so with no notice nothing moves. Scoped exactly like that rule: wider, it would add 16px where none was. */
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  html.kremote body:has(#grid > .pj-empty) #askcard[hidden] + #conn[hidden] ~ #boardbar:not([hidden]) { margin-top: max(16px, var(--topnotes-clear, 0px)); }
+}
+/* Scoped to the two ranges where the talk view's own #conn gap applies (the rules beside #3708's), so between them
+   nothing changes with no notice. */
+@media (min-width: 56.01rem), (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard[hidden] + #conn:not([hidden]) {
+    margin-top: calc(var(--space-6) + var(--topnotes-h, 0px)); }
+}
+/* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
+   page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
+   reaction picker (20) and the header menus (40). */
+html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 10; }
+.utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
+  background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
+.utoast .ux:hover { background: var(--bg); color: var(--label); }
+.utoast .ux:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
@@ -1343,16 +1381,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .sfoot-live { align-items: center; gap: var(--space-4); }
 #pjs-save-live { margin: 0; min-height: 0; }
 #pjs-save-live:empty { display: none; }
-/* Narrow screens: in-flow like everywhere else now (the float this rule
-   used to break against is retired). The version line hides and the left
-   group wraps the notice onto its own row -- "the header grows when an
-   update is waiting" is the harm a person can live with, per the original
-   trade. */
+/* Narrow screens drop the update notice's version line. */
 @media (max-width: 720px) {
-  /* Inline everywhere now; narrow screens just drop the version line and
-     let the header's left group wrap the notice onto its own row. */
   .headleft { flex-wrap: wrap; }
   .utoast .utxt small { display: none; }
+  /* #5018: the login notice's line is who and which account, the point of it; it floats, so it costs no header room. */
+  .utoast.login-adv .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -1421,11 +1455,10 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
-     so the navy bar is the whole header (the mock). A notice that shows still takes its own row. */
+     so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
-  html.kremote .apphead header:has(.headleft > [id$="-slot"]:not(:empty)) { padding: 8px 0; }
 }
 /* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
    Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
@@ -1548,7 +1581,9 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
    view's bottom padding makes its bottom rule land where consolidated's does (y=50).
    Measured after, both widths, notices on and off: K mark top 8, switcher and You 9,
    rule at 50, in both views. render-tophead-stable-2624 pins it. Below 960px there is
-   only the tab view, so nothing there can jump and it keeps its own spacing. */
+   only the tab view, so nothing there can jump and it keeps its own spacing.
+   Since #5018 the notices float over the page (.topnotes), so they no longer sit in this
+   row or grow the bar; the top alignment stays. */
 @media (min-width: 960px) {
   body:not(.consolidated) > .apphead { padding-top: 0; }
   body:not(.consolidated) > .apphead header { padding-top: 8px; padding-bottom: 4px; }
@@ -2013,7 +2048,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -2046,7 +2081,6 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
      and the name WRAPPED to a second row (main red after #4848, run 36821115449). With no floor it can only shrink. */
   .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 0; }
   .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
-  .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
   /* #4847: on a phone the person's menu shows just their face (and the arrow): their name, which they know, gives its
      room to the computer's name, which is the one that tells them where they are. The name stays the button's
      accessible name (hidden visually as .vh does, not removed). On a phone it is then shown nowhere on screen; their
@@ -3279,7 +3313,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
 @media (min-width: 56.01rem) {
   /* The body becomes a viewport-tall flex column and the panel takes what is left under the
-     header, so a taller header (a wrapped notice, other fonts) shrinks the box instead of
+     header, so a taller header (a wrap, other fonts) shrinks the box instead of
      pushing it past the bottom. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; height: 100vh; padding-bottom: 0; }
@@ -3340,14 +3374,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    window, 77px at 900px where it wraps), so it is measured into --apphead-h; unmeasured, this is the
    old 16px. Not in the consolidated view (body.consolidated): Settings is its own scroll box inside
    Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
-   56rem .snav is static and none of this applies. */
-body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
+   56rem .snav is static and none of this applies.
+   #5018: notices no longer grow the header; they float 8px below it (.topnotes). So the nav also clears a showing
+   stack: its height is --topnotes-h (topnotesTrack), 0 with no notice, and the stack's 8px gap sits inside the 16px. */
+body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + var(--topnotes-h, 0px) + 16px); }
 /* #4979: on a window too short to hold the whole nav below the header, a stuck nav hangs its last
    pills off the bottom and, at the page's end, pushes its first ones back under the header. There
    it scrolls with the page instead, as the agent page's does. Whether it fits is measured, not a
-   fixed height: the header grows with the Kosmos+ bar, an update or offline notice, or a wrap, so
-   the script beside the #s-nav handler sets snav-loose on the root when the header, the nav and
-   16px above and below it are taller than the window. */
+   fixed height: the header grows with the Kosmos+ bar or a wrap, and (#5018) a floating notice stack below it adds
+   its own height, so the script beside the #s-nav handler sets snav-loose on the root when the header, the stack,
+   the nav and 16px above and below it are taller than the window. */
 html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
@@ -3469,6 +3505,9 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 .dsec[data-tied="0"] #d-term-empty { display: block; }
 .dsec[data-tied="gone"] #d-term-gone { display: block; }
 #d-window-box:not([hidden]) ~ .dterm-note { display: none; }
+/* #5223: a Windows agent has no window, so the box's send-into-this-window composer is not offered
+   (the Direct Message composer is the way to reach it); see setWindowBoxNoWindow. */
+#d-window-box.nowin #d-term-composer, #d-window-box.nowin #d-term-say-msg { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
    boxes. The inner one speaks at sentence size. */
@@ -3962,8 +4001,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
-   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
-   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+   reuses the crumb's Open project path); on Documents in the consolidated view (the tab view keeps
+   its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron
+   sits against it, not across the row. */
 .sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
@@ -4796,7 +4836,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      by later source order, so the slot stays gone whenever consolidated is active. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { display: none; }
   /* The header gives way (Josh, 15:32: "header gone is what I'm going
-     for"). Its notice slots stay in the flow, so an update note or the
+     for"). Its notice slots stay (floating since #5018), so an update note or the
      offline warning still has somewhere to appear; the tabs, the K link,
      the status line and the theme pill are elsewhere in this view. */
   /* 🛑 margin MUST be reset here, and its absence was a shipped clip.
@@ -4831,10 +4871,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
          only visible header content and its margin separated it from the board. The
-         header is now a real bar with its own border-bottom, and the notices ride inside
-         it exactly as they do in the tab view -- so a consolidated-only bottom margin
-         made a shown notice the tallest item in the header's flex row, growing and
-         misaligning the bar. Dropping them keeps the notices consistent across views
+         header is now a real bar with its own border-bottom, and (until #5018 floated them
+         over the page) the notices rode inside it as they do in the tab view -- so a
+         consolidated-only bottom margin made a shown notice the tallest item in the
+         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -10279,6 +10319,20 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
 }
+/* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
+   step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
+   card keeps its ink outline and check mark (the choice is marked by shape, not colour), and an enabled card under
+   the pointer keeps today's edge as its feedback (on touch a tapped card can keep :hover until the next tap; the
+   chosen card's own outline still marks the choice). Every button in the create flow is a pill, as every button in
+   the look is (the controls slice): the gold ones, main and inline, Single's and Team's alike (Josh, #4935: Team
+   matches Single), and the plain ones beside them (Cancel, Back, Keep them), which keep their fill and edge because
+   here they sit on the white page, not on a grey box. Unchanged on purpose: the cards' size (#737, Josh), their order
+   (Josh, 2026-08-22), the Recommended pill (#737: Josh asked for it back after the pack), and the role menu's own
+   edged box (it holds fields, which keep their edge everywhere in the look). A resting card on white is about 1.09:1,
+   under WCAG 1.4.11's 3:1, as the controls slice records for buttons: its label identifies it, and the chosen card's
+   2px outline is the state. */
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.pick2:not(:has(input:checked)), .nak-btn):not(:hover:not(:disabled)) { border-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.btn, .btn-quiet) { border-radius: 999px; }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
@@ -10449,6 +10503,56 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    solid could-not-read board note already uses, on the list and on the cards alike. */
 :root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
 :root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
+/* #4470, the Projects list in the new look: the Agents page's language, since the Projects list is drawn in the
+   same grammar (count tiles, the dashed add tile, the sort menu and view toggle, then cards). No drawing exists for
+   this page; this is that approved language applied, not a new design.
+   The count tiles (Projects, Messages) do nothing when pressed, so like the Agents page's inert tiles they never show
+   a box. The Issue tile keeps its red outline (#4470 Agents rule: an alert keeps what it says). Add Project becomes the
+   round grey button with its words beside it, as New agent did; the sort menu and the grid / roadmap toggle are grey
+   pills and the current view stays GOLD (Josh, 2026-08-17: "selected is gold, not ink").
+   A plain project card loses its border and shadow at rest (its grey ground is the separation, as on the Agents
+   cards) and KEEPS today's hover border and lift, as the
+   Agents list rows do. A needs-you card is left as today (its red edge and resting shadow). The tiles,
+   Add Project and the two pills are the same in both views; the roadmap ROWS are left as they are (render-newlook-4470 compares them with the look off):
+   they are already flat rows with no border, with Josh's stripes (#4730) and a red ring for needs-you.
+   The tile rule has no [role="button"] exclusion (the Agents page needs one for its Messages filter) because no tile
+   here is clickable; a tile made clickable later needs one. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .statsrow .stats .stat:not(.alert) { border-color: transparent; background: transparent; padding-inline: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 44px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new .plus { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--nl-grey); color: var(--k-ink); font-size: 1.375rem; }
+:root[data-look="new"] body:not(.consolidated) #pj-new:hover .plus { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: nowrap; }
+/* #718 on a phone: Add Project keeps its narrowest width (its words on two lines) so the sort and the view toggle
+   fit beside it down to 320; on one line the new look would use up the margin #718 left there. */
+@media (max-width: 30rem) {
+  :root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: normal; }
+}
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select:hover { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .vt + .vt { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the toggle already clips
+   its fill), as on the Agents page. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row { border-radius: 24px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row:not(.attn):not(:hover) { border-color: transparent; box-shadow: none; }
+/* #4470, a project's Documents screen in the new look, in the project page's language (no drawing of this screen):
+   back is the round chevron beside the title, as on the project page this screen opens from (Josh's #4586 chevron,
+   which the consolidated view already shows; the tab view's text link hides under the look). Both run the same
+   pjView('one'). The In the project folder | From this conversation switch is a grey pill like the look's other
+   toggles; the chosen segment stays GOLD (Josh, 2026-08-17: "selected is gold, not ink"). */
+:root[data-look="new"] body:not(.consolidated) #docs-back { display: none; }
+/* 40px with a 14px gap in the tab view (the project page's back frame under the look); the consolidated view keeps the
+   32px chevron its own sub-view headers use. The two sizes are deliberate. */
+:root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; width: 40px; height: 40px; margin-right: 14px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the switch already
+   clips its fill). */
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:last-child { border-radius: 0 999px 999px 0; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -11440,16 +11544,14 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
-         that appear to the right of the icon in the upper left corner...
-         so that it is right in line with everything else." It used to be
-         absolutely positioned over the header, which is why it once covered
-         the agent-status stamp and needed an 8px nudge. Inline is the
-         structural fix rather than a better offset: an element in the flow
-         CANNOT overlap anything, so the whole class of bug stops being
-         possible instead of being avoided by a number (the pack's own
-         reasoning, drawn 2e4e100). Renders only when a newer version is
-         published; role=status per the pack. -->
+    <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
+         because an earlier absolute float covered the agent-status stamp. The current placement is the next
+         comment. The update chip renders only when a newer version is published; role=status per the pack. -->
+    <!-- #5018 (Josh, 2026-10-02): "i hate that these push the navigation down.. i would much rather they appear over
+         the content". The four notice slots float together just under the header, over the page, so the header
+         never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the stack is
+         centred under the navigation, clear of the left column's primary actions. -->
+    <div class="topnotes" id="topnotes">
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -11465,6 +11567,7 @@ window.kosmosMeasureScrollbarWidth();
          since #3955 the post-update message is the "Kosmos has been updated" window,
          and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
+    </div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
        and collapses behind the burger under 56rem. THREE tabs, the pack's,
@@ -12117,15 +12220,15 @@ window.kosmosMeasureScrollbarWidth();
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
-        <!-- #1373: WHICH OpenAI sign-in. Creation has always let you pick and the
-             switch stated a default, and that asymmetry was the whole card. Hidden
-             until OpenAI is the chosen provider, because for a switch back to
-             Anthropic there is nothing to pick. -->
-        <select id="d-provider-account" aria-label="OpenAI sign-in to run on" hidden></select>
+        <!-- #1373: WHICH sign-in. Creation has always let you pick and the switch stated a default, and that asymmetry
+             was the whole card. Shown when a switch to a provider with accounts is armed: OpenAI, Gemini, Grok and, since
+             #5091, Claude. Its label is set for the chosen provider when it shows. -->
+        <select id="d-provider-account" aria-label="Account to run on" hidden></select>
         <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
       <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-      <div class="mstep">
+      <!-- #5091: the CURRENT provider's account and model rows, hidden whole while a switch to another provider is armed. -->
+      <div class="mstep" id="d-current-rows">
         <div class="frow">
           <select id="d-account" aria-label="Account this agent runs on"></select>
           <button class="btn" type="button" id="d-account-go" disabled>Move</button>
@@ -12157,8 +12260,8 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <p class="dhint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
-    <p class="dhint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
+    <p class="dhint d-current-hint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+    <p class="dhint d-current-hint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
   <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
@@ -12579,7 +12682,7 @@ window.kosmosMeasureScrollbarWidth();
        viewport-not-transcript honesty as the project page's block. The box
        still hides for an agent whose pane cannot be tied to its name and
        while the first read is in flight; the paragraph after it is what the
-       section says then, so the Terminal pill never opens onto nothing. -->
+       section says then, so the section that shows its window, under AI Settings, never opens onto nothing (#5127). -->
   <section class="dbox" id="d-window-box" hidden>
     <h3 class="dlab" id="d-window-label">The window it is running in</h3>
     <!-- The hint ships EMPTY: the affirmative "as it looks right now"
@@ -13937,6 +14040,14 @@ window.kosmosMeasureScrollbarWidth();
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2559 (Mona Lisa's ruling, 2026-10-03): a row whose grant Kosmos cannot read, offered Turn On after a few seconds,
+           says "Not confirmed" in the neutral pill, never the red "Not activated": red means we KNOW it is off. */
+        .s3-pill-unsure{display:none}
+        .s3-gate-row[data-unsure] .s3-pill-req{display:none}
+        .s3-gate-row[data-unsure] .s3-pill-unsure{display:inline}
+        /* #2559 (Mona Lisa): in the unsure state ONLY, one quiet line says Next works; it sits right after the row. */
+        .s3-unsure-hint{display:none;margin:6px 0 0}
+        .s3-gate-row[data-unsure] + .s3-unsure-hint{display:block}
         /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
            the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
            replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
@@ -14016,10 +14127,11 @@ window.kosmosMeasureScrollbarWidth();
              confirmation. Kosmos = data-gate="tmux" (app). -->
         <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><span class="s3-pill s3-pill-wait s3-pill-unsure">Not confirmed</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
+        <p class="dhint s3-unsure-hint">Kosmos cannot check this yet. If you have already turned it on, press Next.</p>
         <!-- install-flow-9screen: the "Turn On" buttons open System Settings
              (sleep row -> Energy; tmux row -> Accessibility). The delegated
              handler is on this pane; only a failure speaks here, the Settings
@@ -14725,7 +14837,7 @@ window.kosmosMeasureScrollbarWidth();
     <h2 id="nak-title">What would you like to create?</h2>
     <div class="nak-buttons" role="group" aria-labelledby="nak-title">
       <button type="button" class="nak-btn" data-path="single"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><circle cx="139" cy="45" r="30"/><circle class="nak-gold" cx="139" cy="45" r="13"/></svg><span class="nak-name">Create a Single Agent</span><span class="nak-desc">One agent for one job</span></button>
-      <button type="button" class="nak-btn" data-path="team"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><path d="M139 26V45M76 45H202M76 45V62M118 45V62M160 45V62M202 45V62"/><circle class="nak-gold" cx="139" cy="17" r="11"/><circle class="nak-gold" cx="76" cy="72" r="9"/><circle class="nak-gold" cx="118" cy="72" r="9"/><circle class="nak-gold" cx="160" cy="72" r="9"/><circle class="nak-gold" cx="202" cy="72" r="9"/></svg><span class="nak-name">Create a Team of Agents</span><span class="nak-desc">A lead and the people who report to it</span></button>
+      <button type="button" class="nak-btn" data-path="team"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><path d="M139 26V45M76 45H202M76 45V62M118 45V62M160 45V62M202 45V62"/><circle class="nak-gold" cx="139" cy="17" r="11"/><circle class="nak-gold" cx="76" cy="72" r="9"/><circle class="nak-gold" cx="118" cy="72" r="9"/><circle class="nak-gold" cx="160" cy="72" r="9"/><circle class="nak-gold" cx="202" cy="72" r="9"/></svg><span class="nak-name">Create a Team of Agents</span><span class="nak-desc">A lead and the agents who report to it</span></button>
       <button type="button" class="nak-btn" data-path="swarm" id="nak-swarm" hidden><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><circle cx="139" cy="45" r="38"/><circle class="nak-gold" cx="139" cy="45" r="11"/><circle class="nak-gold" cx="113" cy="30" r="8"/><circle class="nak-gold" cx="166" cy="30" r="8"/><circle class="nak-gold" cx="110" cy="60" r="8"/><circle class="nak-gold" cx="168" cy="60" r="8"/><circle class="nak-gold" cx="139" cy="17" r="6"/><circle class="nak-gold" cx="139" cy="73" r="6"/></svg><span class="nak-name">Create a Swarm of Autonomous Agents</span><span class="nak-desc">Many agents that answer as one</span></button>
     </div>
   </div>
@@ -16164,7 +16276,8 @@ window.kosmosMeasureScrollbarWidth();
       <div class="pjtitle">
         <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
              project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
-             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view, and in the
+             tab view under the new look (#4470), which hides that link. -->
         <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
@@ -18723,6 +18836,57 @@ function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
 }
+/* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
+   over Kosmos+ the person is on another device, so a file click DOWNLOADS it to that device, as an attachment
+   already does (#4930), and a button that would open a folder window on the board's computer says where the folder
+   is instead. At the computer itself (kplusRemote() false) both keep opening there. */
+const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
+const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device.';
+const KPLUS_SETTINGS_ELSEWHERE = 'Those settings open on the computer Kosmos runs on, not on this device.';
+/* The download starts IN the person's click (an anchor clicked synchronously), so no browser can treat it as a
+   download nobody asked for. Alongside it the page looks at the same file with ?check=1 (the route's gates, then
+   204 with no body, so the look never moves the file again): on a refusal the board's own sentence is shown through
+   `say` (a kplusSayer), rather than left to the browser's downloads. At the click `say` gets `after` (a sentence
+   the line was already showing, such as a cut-short list), which a refusal then replaces. `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
+   written out here, once each, so every fetch on the page keeps a URL the route test can read. */
+const KPLUS_LATEST = new WeakMap();   // message line -> the last download asked through it
+function kplusDownload(kind, owner, name, say, after) {
+  const q = 'name=' + encodeURIComponent(name);
+  const ticket = {};
+  if (say && say.el) KPLUS_LATEST.set(say.el, ticket);   // an older look's answer then never lands on a newer click
+  const base = kind === 'agent'
+    ? '/api/agent/' + encodeURIComponent(owner) + '/files/download?' + q
+    : '/api/project/' + encodeURIComponent(owner) + '/file-download?' + q;
+  const a = document.createElement('a');
+  a.href = base;
+  a.download = String(name || '').split('/').pop() || '';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (say) say(after || '');
+  const look = kind === 'agent'
+    ? fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download?check=1&' + q, { cache: 'no-store' })
+    : fetch('/api/project/' + encodeURIComponent(owner) + '/file-download?check=1&' + q, { cache: 'no-store' });
+  look.then(async (res) => {
+    if (res.ok || (say && say.el && KPLUS_LATEST.get(say.el) !== ticket)) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
+    if (say) say(asSentence(said) || 'That file could not be downloaded.');
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+}
+/* A sentence-setter for one message line that writes only while `stillHere()` holds, so an answer that arrives after
+   the person moved to another project or agent never lands under the new one. */
+function kplusSayer(el, stillHere) {
+  const say = (text) => { if (el && (!stillHere || stillHere())) el.textContent = text; };
+  say.el = el;
+  return say;
+}
+function kplusFolderElsewhere(msg) {
+  if (!kplusRemote()) return false;
+  if (msg) { msg.textContent = KPLUS_FOLDER_ELSEWHERE; msg.hidden = false; }
+  return true;
+}
 function kplusBarDrawMark(cv, hh) {
   const md = plusMd(), h = hh || 14, w = Math.round(h * md.VBW / md.VBH), s = h / md.VBH;
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
@@ -19456,7 +19620,7 @@ const PRESSAY = {
 /* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
    off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
 const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
-function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.crashLoop && a.crashLoop.looping === true) return { st: 'attn', pres: (CARD_ST[a.state] || CARD_ST.unknown).pres }; /* #5154 slice A: a crash loop wears the needs-you look; review 1: its PRESENCE stays its state's (an offline agent between crashes keeps its offline dot, tense and Start), like #4006's failed restart */ if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -19489,6 +19653,9 @@ function glyphOf(a) {
   return GLYPH[st];
 }
 function stateCopyOf(a) {
+  /* #5154 slice A: Kosmos keeps restarting it and it keeps stopping. First, because between crashes its state can
+     read working or idle, and that word on a red card would contradict the sentence under it. */
+  if (a && a.crashLoop && a.crashLoop.looping === true) return { label: 'Keeps stopping', attn: true };
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
   // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
@@ -19620,6 +19787,14 @@ function waitingLine(w) {
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
+  /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
+     Placed before the state rules: between crashes the agent can read working or idle, which is what hid the loop.
+     Copy: Mona Lisa (10-03): no 'stop it' (there is no stop control, and launchd keeps restarting), and 'what it shows'
+     (after a restart the last screen is gone). */
+  if (a && a.crashLoop && a.crashLoop.looping === true) {
+    const n = Number(a.crashLoop.count) || 3;
+    return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -20002,7 +20177,9 @@ function roleLine(a, titles) {
    aligned with engine/status.js needsPerson. */
 function agentNeedsAttention(a) {
   return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
-    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')));
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
+    // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
+    || (a.crashLoop && a.crashLoop.looping === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
@@ -21113,34 +21290,138 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired } (one per
-   credential near expiry); empty/absent clears the slot. dataset.v is a signature so an
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, worksUntil, service, provider, email, names }
+   (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
+/* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
+   the notice for this page's life, and it comes back on reload. */
+const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+/* #5164: when an advisory's agents stop working (epoch ms), while that is still ahead of this page's clock; else null.
+   The page's own clock decides, so a notice the board computed a minute before the time turns into "has expired" on
+   time rather than when the board next reads the credential. */
+function loginAdvWorksUntil(a) {
+  const t = a && typeof a.worksUntil === 'number' && Number.isFinite(a.worksUntil) ? a.worksUntil : null;
+  return t !== null && t > Date.now() ? t : null;
+}
+/* "at about 1:18 PM", or "tomorrow at about 1:05 AM" when it is not today on this page's clock (Mona Lisa: a bare 1:05 AM
+   read at 11 PM looks like the past). An access token lasts 8 hours (measured), so the time is never more than a day
+   ahead and "tomorrow" is the only other day it can be. "About": Claude Code tries its refresh around the time the token
+   runs out, not on the second. */
+function loginAdvWhen(ms) {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return 'at about ' + time;
+  if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at about ' + time;
+  // Never reached by an 8-hour token; a wrong page clock or a longer token still gets a true day, not "tomorrow".
+  return 'on ' + d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) + ' at about ' + time;
+}
+let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
   if (!slot) return;
-  const list = Array.isArray(advs) ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length) : [];
+  /* #5018 (Josh): a small X hides a notice until it says something new (fewer days, other agents, another account,
+     or expired). The key is the notice's own state, kept per viewer in this browser. */
+  /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
+     bring a closed notice back. */
+  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new.
+     #5164: except that "they stop at 1:18 pm" and "they have stopped" are two states: the second is news, so a closed
+     first notice comes back as the second. */
+  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? (loginAdvWorksUntil(a) ? 'w' : 'x') : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
+     renewed, or its date could not be read this time) forgets it, so a later expiry of the same account is never born
+     hidden. Keyed on the account, not the exact notice, so one agent's pane read failing for a moment does not bring a
+     closed notice back; a failed read of the account's own date can, once. */
+  if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && a.service).map((a) => a.service));
+  const hidden = loginAdvDismissed();
+  const list = Array.isArray(advs)
+    ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => (a.severity || '') + ':' + a.daysLeft + ':' + a.agents.join(',')).join('|');
+  /* #5164 (review): the stop time's words are in the signature too, so a notice painted before midnight as "tomorrow at
+     about 1:10 AM" repaints as "at about 1:10 AM" after it, rather than telling the person they have a day. */
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')
+    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
     const sev = (a.severity === 'urgent' || a.severity === 'warn') ? a.severity : 'notice';
     const n = a.agents.length;
-    const who = a.agents.map(esc).join(', ');
-    const head = a.expired
+    // #5018: the names the person gave the agents (the board sends them as names, same order as agents).
+    const names = (Array.isArray(a.names) && a.names.length === n) ? a.names : a.agents;
+    const who = names.map(esc).join(', ');
+    // #5018: which provider and account they run under; when the email could not be read, the provider only, never a guess.
+    const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
+    /* #5164 (measured on account-e, 2026-10-03): a login past its date keeps its agents working until the access token
+       they hold runs out, hours later. While that time is still ahead, the notice says when they stop, not that they
+       have: "expired" at 06:58 for agents that worked until 13:18 read as a false alarm. */
+    const until = a.expired ? loginAdvWorksUntil(a) : null;
+    const head = until
+      ? ((n === 1 ? 'An agent stops working ' : n + ' agents stop working ') + loginAdvWhen(until))
+      : a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
       : (a.daysLeft <= 0
         ? (n === 1 ? 'An agent’s login expires today' : n + ' agents’ login expires today')
         : ((n === 1 ? 'An agent’s login expires in ' : n + ' agents’ login expires in ') + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days')));
-    const tail = a.expired
+    const tail = until
+      ? ('Sign in again before then to keep ' + (n === 1 ? 'it' : 'them') + ' running.')   // Mona Lisa: the head carries the timing; the not-expired sibling's verb
+      : a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
-    return '<div class="utoast login-adv ' + sev + '" role="status">'
+    // role=status on the words, not the notice, so the close button is not read out with every announcement.
+    return '<div class="utoast login-adv ' + sev + '">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + who + '. ' + esc(tail) + '</small></div>'
+      + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
+  slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
+    loginAdvDismiss(btn.getAttribute('data-adv-key'));
+    delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
+    paintLoginAdvisories(advs);
+    // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
+    // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
+    const next = slot.querySelector('.ux')
+      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
+  }));
+}
+/* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
+   notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
+(function topnotesTrack() {
+  if (typeof document === 'undefined' || typeof ResizeObserver !== 'function') return;
+  const stack = document.getElementById('topnotes');
+  if (!stack) return;
+  new ResizeObserver(() => {
+    const h = Math.ceil(stack.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--topnotes-h', h + 'px');
+    /* What a warning in the page flow moves down by to clear the stack: its height plus the 8px it floats below the
+       header plus 8px of air, and 0 when nothing shows, so no notice means no shift (Mona Lisa, #conn, 2026-10-03). */
+    document.documentElement.style.setProperty('--topnotes-clear', (h ? h + 16 : 0) + 'px');
+  }).observe(stack);
+})();
+function loginAdvDismissed() {
+  try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
+  return loginAdvHiddenMem.slice();
+}
+function loginAdvPrune(liveServices) {
+  // A key's 4th field is its credential (advKey); a credential name carries no colon. A key with no credential (an
+  // advisory without one) is never forgotten here, since no reply can say its account was renewed.
+  const keep = (k) => { const svc = String(k).split(':')[3]; return !svc || liveServices.includes(svc); };
+  loginAdvHiddenMem = loginAdvHiddenMem.filter(keep);
+  try {
+    const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (Array.isArray(v) && v.some((k) => !keep(k))) localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.filter(keep)));
+  } catch { /* refused: nothing stored to prune */ }
+}
+function loginAdvDismiss(key) {
+  if (!key) return;
+  loginAdvHiddenMem = loginAdvHiddenMem.concat(key);
+  try {
+    let v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (!Array.isArray(v)) v = [];
+    localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.concat(key).slice(-40)));
+  } catch { /* refused: the in-memory copy still hides it */ }
 }
 
 /* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
@@ -23556,6 +23837,7 @@ function wireMachineRows(mach) {
       // The pane opening IS the success feedback; words appear on refusal
       // (a click that silently does nothing reads as a broken button).
       const failMsg = document.getElementById('set-machine-msg');
+      if (kplusRemote()) { failMsg.hidden = false; failMsg.textContent = KPLUS_SETTINGS_ELSEWHERE; return; }   // #5165
       try {
         const r = await fetch('/api/open-sleep-settings', { method: 'POST' });
         failMsg.hidden = r.ok;
@@ -24585,6 +24867,8 @@ function switchKeyedWord(p) {
    "Gemini account" there. (#3391: a Grok account may be a key OR a subscription sign-in;
    "Grok account" is true of both. A Grok subscription is connected in Settings, AI Models, not here.) */
 function switchKeyedSay(text, p) {
+  /* #5091: a switch to Claude has a picker too now, and its lines must say Claude, never OpenAI. */
+  if (p === 'anthropic') return String(text).replace(/OpenAI sign-ins/g, 'Claude accounts').replace(/OpenAI sign-in/g, 'Claude account').replace(/OpenAI/g, 'Claude');
   if (!keyOnlyProvider(p)) return text;
   return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
 }
@@ -24608,7 +24892,7 @@ function paintAgyOption(sel, current) {
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
-    : AGY_INSTALLED === false ? 'Set up in Settings: Add a provider' : 'Checking Antigravity';
+    : AGY_INSTALLED === false ? 'Set up in Settings, AI Models' : 'Checking Antigravity';
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // #3946: a Swarm keeps its non-Claude providers greyed (typeof: these painters also run alone in tests)
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
@@ -24658,7 +24942,7 @@ function paintMuseOption(sel, current) {
   const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
   opt.disabled = !on;
   if (on || !creating || !MUSE_CREATE || !MUSE_CREATE.on) delete opt.dataset.off;
-  else opt.dataset.off = 'Set up in Settings: Add a provider';   // turned on here, not installed or not signed in
+  else opt.dataset.off = 'Set up in Settings, AI Models';   // turned on here, not installed or not signed in
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
@@ -31440,6 +31724,7 @@ refreshYouName();
    sleep sibling states four thousand lines up. */
 document.getElementById('set-a11y-open').addEventListener('click', async () => {
   const failMsg = document.getElementById('set-machine-msg');
+  if (kplusRemote()) { failMsg.hidden = false; failMsg.textContent = KPLUS_SETTINGS_ELSEWHERE; return; }   // #5165
   try {
     const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
     failMsg.hidden = r.ok;
@@ -31454,6 +31739,7 @@ document.getElementById('set-a11y-open').addEventListener('click', async () => {
    buttons cannot open different places. The folder opening is the success feedback. */
 document.getElementById('upd-open-folder').addEventListener('click', async () => {
   const msg = document.getElementById('upd-open-folder-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
@@ -31466,6 +31752,7 @@ document.getElementById('upd-open-folder').addEventListener('click', async () =>
 });
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
@@ -34426,6 +34713,16 @@ function paintBusy(fresh, name) {
    project pages only since agent-page-nav); a refusal is said
    in the engine's own sentence, never rendered as an empty terminal. */
 let WINDOW_LOAD = 0;
+/* #5223: the ONE writer of the box's no-window state. A Windows agent has no window (the engine says so with
+   `noWindow`, per agent, from the card's own mark), so the heading stops naming one and the
+   send-into-this-window composer is hidden (CSS on `.nowin`). Every arm that answers calls it (capture,
+   refusal, thrown fetch), and so do the 404 arm that hides the box and the agent switch, so a Mac agent opened after a Windows one never
+   inherits the state; the arms that only hide the box leave it, since nothing hidden is drawn. Each answer
+   decides afresh: a tick that fails for another reason says so for that tick, which is true. */
+function setWindowBoxNoWindow(on) {
+  document.getElementById('d-window-box').classList.toggle('nowin', on === true);
+  document.getElementById('d-window-label').textContent = on === true ? 'No window to show' : 'The window it is running in';
+}
 /* A COUNTER: two rapid opens overlap their refreshes. DORMANT since
    agent-page-nav (every caller passes the cached flag); kept with the
    uncached branch it guards, to be deleted with it. */
@@ -34490,6 +34787,7 @@ async function paintAgentWindow(sessionName, opts) {
          stand until a tick flipped the tie, so the section says the bare
          thing now: no window to show. */
       detailSection('term').dataset.tied = 'gone';
+      setWindowBoxNoWindow(false);   // #5223: nothing is established about a window the route refused
       box.hidden = true; return;
     }
     if (r.text != null) {
@@ -34497,13 +34795,17 @@ async function paintAgentWindow(sessionName, opts) {
       pre.hidden = false;
       document.getElementById('d-window-hint').textContent = 'As it looks right now. It is not a transcript, and it is not what the agent said to you.';
       msg.hidden = true;
+      setWindowBoxNoWindow(false);
       box.hidden = false;
       detailSection('term').dataset.tied = '1';
     } else {
       pre.hidden = true;
       document.getElementById('d-window-hint').textContent = '';
-      msg.textContent = r.because || r.error || 'We could not read its window just now.';
+      /* #5223: a Windows agent's answer is a lasting fact, not a refusal, and it is the sentence every Windows
+         agent page shows, so it is set as a sentence. Other refusals keep their raw clause. */
+      msg.textContent = (r.noWindow === true ? pjSentence(r.because) : r.because) || r.error || 'We could not read its window just now.';
       msg.hidden = false;
+      setWindowBoxNoWindow(r.noWindow === true);
       box.hidden = false;
     }
   } catch {
@@ -34518,6 +34820,7 @@ async function paintAgentWindow(sessionName, opts) {
     document.getElementById('d-window-hint').textContent = '';
     msg.textContent = 'We could not read its window just now.';
     msg.hidden = false;
+    setWindowBoxNoWindow(false);
     box.hidden = false;
     box.dataset.gone = '';   // an answer of sorts: not the 404 the marker records
   }
@@ -36489,7 +36792,8 @@ async function paintAgentFilesAll(sessionName) {
   for (const f of files) list.append(agentFileRow(f));
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
-    more.textContent = 'And ' + rest + ' more in the folder. Open in Finder shows them all.';
+    // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
+    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() ? '' : ' Open in Finder shows them all.');
     more.hidden = false;
   }
 }
@@ -36498,6 +36802,10 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById(msgId);
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
+    return;
+  }
   let say;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
@@ -36523,6 +36831,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById('d-filesall-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   let failed = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -36992,6 +37301,7 @@ function openDetail(sessionName, section, fromProject) {
     document.getElementById('d-withdrawn').hidden = true;           // and the last agent's absence
     document.getElementById('d-window-hint').textContent = '';
     document.getElementById('d-window-msg').hidden = true;
+    setWindowBoxNoWindow(false);   // #5223: the last agent's no-window state is not this one's
     // The box itself too: a bare heading standing over nothing for two
     // round-trips is the same misattribution family, one notch quieter.
     document.getElementById('d-window-box').hidden = true;
@@ -38149,12 +38459,13 @@ function settingsOpen(sec, opts) {
   if (sec === 'usage') paintUsage();
 }
 /* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
-   fits below it (see the #s-nav rules). Observers on the header's and the nav's border boxes and a
-   window resize recompute both, so a header that wraps or gains a bar or a notice moves the nav,
-   and a window too short for it lets the nav scroll with the page. */
+   fits below it (see the #s-nav rules). Observers on the header's, the nav's and (#5018) the floating notice stack's
+   border boxes and a window resize recompute both, so a header that wraps or gains a bar, or a notice that shows,
+   moves the nav, and a window too short for it lets the nav scroll with the page. */
 (() => {
   const head = document.querySelector('.apphead');
   const nav = document.getElementById('s-nav');
+  const notes = document.getElementById('topnotes');   // #5018: floats below the header, outside its height
   if (!head || !nav || typeof head.getBoundingClientRect !== 'function' || typeof nav.getBoundingClientRect !== 'function') return;
   const root = document.documentElement;
   const write = () => {
@@ -38163,7 +38474,10 @@ function settingsOpen(sec, opts) {
       if (typeof h !== 'number' || !Number.isFinite(h)) return;
       root.style.setProperty('--apphead-h', h + 'px');
       const n = nav.getBoundingClientRect().height;   // 0 while Settings is not showing: nothing to fit
-      root.classList.toggle('snav-loose', n > 0 && h + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
+      let t = 0;
+      try { t = notes && typeof notes.getBoundingClientRect === 'function' ? notes.getBoundingClientRect().height : 0; } catch { t = 0; }
+      if (typeof t !== 'number' || !Number.isFinite(t)) t = 0;
+      root.classList.toggle('snav-loose', n > 0 && h + t + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
     } catch { /* unmeasured: the nav keeps the old 16px and stays sticky */ }
   };
   write();
@@ -38172,6 +38486,7 @@ function settingsOpen(sec, opts) {
       const ro = new ResizeObserver(write);
       ro.observe(head, { box: 'border-box' });
       ro.observe(nav, { box: 'border-box' });
+      if (notes) ro.observe(notes, { box: 'border-box' });
     }
     if (typeof window.addEventListener === 'function') window.addEventListener('resize', write);
   } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }
@@ -38782,7 +39097,7 @@ async function paintConnLive() {
     el.append(what + ': ');
     const go = document.createElement('button');
     go.type = 'button'; go.className = 'linkish';
-    go.textContent = 'see them on the Accounts tab';
+    go.textContent = 'see them in AI Models';
     go.addEventListener('click', () => settingsGo('accounts'));
     el.append(go, document.createTextNode('.'));
   } catch {
@@ -42912,6 +43227,7 @@ document.getElementById('d-open-terminal').addEventListener('click', async () =>
   const forAgent = CURRENT.sessionName;
   const btn = document.getElementById('d-open-terminal');
   const msg = document.getElementById('d-open-terminal-msg');
+  if (kplusRemote()) { msg.textContent = KPLUS_TERMINAL_ELSEWHERE; return; }   // #5165
   btn.disabled = true;
   msg.textContent = 'Opening the Terminal window…';
   try {
@@ -47301,6 +47617,9 @@ function paintProviderPicker(a) {
      control. */
   const acctSel0 = document.getElementById('d-provider-account');
   if (acctSel0) acctSel0.hidden = true;
+  /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
+     (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
+  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -47384,6 +47703,18 @@ const SWITCH_ACCT_ALLDEAD = 'None of your OpenAI sign-ins are working right now,
      list unreadable        -> false (the `unreadable` guard); "we could not read
                                it" is not "we checked and none works", and must
                                not fire the refusal on a machine that is fine. */
+/* #5091: true when the list was read and no Claude account can take a switched agent (none shares the agents'
+   history with a state other than 'none'): the switch would restart it onto a dead or separate login. */
+function claudeNoTarget(accounts, unreadable) {
+  if (unreadable) return false;
+  /* Round 7: NO Claude rows is the commoner empty case (a main account with no login is left out of the list), so it
+     counts too: the list was read and nothing can take the agent. */
+  const claude = (accounts || []).filter((x) => x && acctProvider(x) === 'anthropic');
+  return !claude.some((x) => x.memoryShared && (!x.connection || x.connection.state !== 'none') && x.offerable !== false);
+}
+const SWITCH_CLAUDE_NONE = 'There is no Claude account on this computer that can take it: none is signed in that shares your agents\u2019 history. Sign in to Claude in Settings, AI Models, then switch.';
+// #5091 (Renet): said when Switch is pressed while the accounts are still being read, instead of switching to the main one.
+const SWITCH_ACCT_CHECKING = 'Still checking which accounts it can use. Press Switch again in a moment.';
 function openaiAllDead(accounts, unreadable) {
   if (unreadable) return false;
   const openai = (accounts || []).filter((x) => x && x.provider === 'openai');
@@ -47402,6 +47733,36 @@ let SWITCH_ACCT_SAID = '';
    control appear at all. The feature's own test calls that call site the entire feature.
    ⇒ Guarding the rare path and leaving the common one bare is the wrong way round, and two
    spellings of the same recovery is how they drift. */
+/* #5091 (Renet's review, the blocker): an Antigravity or Muse agent's paintAccountPicker returns BEFORE its accounts
+   fetch, so on a fresh page nothing has read /api/accounts. Choosing Claude then showed no list, Switch sent no account
+   and the agent landed on the main one: Josh's exact case. So a keyed switch reads the list itself when nobody has, and
+   refills when it lands. It shares paintAccountPicker's one in-flight fetch and its epoch, and writes the list only
+   through accountsRead / accountsUnreadable, so the two loaders cannot disagree.
+   ⚠️ ONCE PER AGENT, ON PURPOSE. A failed read leaves ACCOUNTS_LOADED false, so "read when not loaded" alone would refetch
+   on every refill, for ever. After one try the existing unreadable lines speak, as they do for every other agent.
+   SWITCH_ACCT_ENSURING names the agent whose read is in flight, so Switch can wait rather than send no account. */
+let SWITCH_ACCT_ENSURED_FOR = null;
+let SWITCH_ACCT_ENSURING = null;
+function switchAccountsEnsure(forAgent) {
+  SWITCH_ACCT_ENSURED_FOR = forAgent;
+  SWITCH_ACCT_ENSURING = forAgent;
+  const mine = ++ACCT_PICKER_EPOCH;
+  if (!ACCT_PICKER_FETCH) {
+    ACCT_PICKER_FETCH = fetch('/api/accounts', { cache: 'no-store' })
+      .then((res) => (res.ok
+        ? res.json().then((body) => ({ ok: true, accounts: (body || {}).accounts || [] }))
+        : { ok: false, accounts: [] }))
+      .catch(() => ({ ok: false, accounts: [] }))
+      .finally(() => { ACCT_PICKER_FETCH = null; });
+  }
+  ACCT_PICKER_FETCH
+    .then((got) => { if (got && got.ok) accountsRead(got.accounts); else if (mine === ACCT_PICKER_EPOCH) accountsUnreadable(); })
+    .catch(() => { if (mine === ACCT_PICKER_EPOCH) accountsUnreadable(); })
+    .finally(() => {
+      if (SWITCH_ACCT_ENSURING === forAgent) SWITCH_ACCT_ENSURING = null;
+      if (CURRENT && CURRENT.sessionName === forAgent) fillSwitchAccountsSafely();   // a newer agent's panel is left alone
+    });
+}
 function fillSwitchAccountsSafely() {
   try {
     fillSwitchAccounts();
@@ -47441,7 +47802,11 @@ function fillSwitchAccounts() {
      switch route takes an account for each of them. `keyed` is the menu's provider id
      when it is one of those, else ''. The OpenAI-only sentences below (unreadable,
      all dead) stay OpenAI's: they describe engine behaviour measured for codex. */
-  const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : '';
+  /* #5091 (Josh, 10-02 22:10): a switch TO Claude offers its accounts too ("when i change the top to claude, i dont get
+     my list of emails"). The engine now takes the pick (setProvider -> setAccount). Its list is Move's rule for a Claude
+     destination: a Claude row that shares the agents' history and whose connection state is not 'none' (a row whose
+     badge reads rejected while its state is connected is still offered, exactly as Move offers it). */
+  const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : (prov.value === 'anthropic' ? 'anthropic' : '');
   paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
   paintAgyOption(prov, CURRENT ? providerOf(CURRENT) : ''); agyAsk();   // #3568
   paintMuseOption(prov, CURRENT ? providerOf(CURRENT) : '');   // #3939 3c-3b
@@ -47453,6 +47818,8 @@ function fillSwitchAccounts() {
      there" rule this file keeps, and the sibling #d-account is disabled for the
      same agent for the same reason. */
   const armed = !!CURRENT && prov.value !== providerOf(CURRENT);
+  // #5091 (Renet): nobody has read the list for this agent (an Antigravity/Muse panel never does); read it, refill on landing.
+  if (keyed && armed && !ACCOUNTS_LOADED && SWITCH_ACCT_ENSURED_FOR !== CURRENT.sessionName) switchAccountsEnsure(CURRENT.sessionName);
   /* #1488: AND OFFERABLE. When AGENT_WORKFORCE_CODEX_HOME names a home,
      engine/create.js collapses the OpenAI accounts to that ONE home and refuses every
      other, so without this line the menu offered rows the engine could only refuse -
@@ -47465,7 +47832,21 @@ function fillSwitchAccounts() {
      engine cannot drift - which is what this card reports them doing. */
   const list = ACCOUNTS.filter((x) => keyed && acctProvider(x) === keyed
     && (!x.connection || x.connection.state !== 'none')
-    && x.offerable !== false);
+    && x.offerable !== false
+    && (keyed !== 'anthropic' || x.memoryShared));
+  /* #5091: while a switch to ANOTHER provider is armed, the rows below speak for the agent's CURRENT provider
+     ("It runs on your Google subscription through Antigravity, so there is no account to move it to", "Gemini picks
+     its own model"), which is false for the switch being set up; they are hidden until the menu is back on it. */
+  /* The whole block (account row, its line, the model row) is the current provider's, so it goes as one; nothing else
+     sets this block's hidden, so a repaint of the rows inside it cannot bring it back while the switch is armed. */
+  /* Not `armed`: after a switch the menu value is '' (armed reads true there), and the block must come back. */
+  {
+    const other = !!CURRENT && !!prov.value && prov.value !== providerOf(CURRENT);
+    const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = other;
+    // Round 2: the two lines under the block describe ITS controls (model change, account move); they go with it.
+    for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = other;
+  }
+
   /* Hidden for THREE reasons, and the condition below names all of them because a
      comment that names one is how a reader concludes the others are bugs:
        not OpenAI    switching back to Anthropic has no OpenAI account to pick
@@ -47505,8 +47886,11 @@ function fillSwitchAccounts() {
        ⇒ Strip OUR half and leave the engine's, which is the more specific sentence and not
        ours to delete. */
     if (pmsg0 && SWITCH_ACCT_SAID && pmsg0.textContent === SWITCH_ACCT_SAID) { pmsg0.textContent = ''; SWITCH_ACCT_SAID = ''; }
-    else if (pmsg0 && pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)) {
-      pmsg0.textContent = pmsg0.textContent.slice(0, -(SWITCH_ACCT_UNREADABLE.length + 1));
+    else if (pmsg0 && (pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)
+                       || pmsg0.textContent.endsWith(' ' + switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic')))) {
+      /* #5091: a refused Claude switch appends Claude's form of the line, so either form is ours to strip. */
+      const u = pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE) ? SWITCH_ACCT_UNREADABLE : switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic');
+      pmsg0.textContent = pmsg0.textContent.slice(0, -(u.length + 1));
       SWITCH_ACCT_SAID = '';  /* same reset as the sibling branch; an asymmetry here is what goes wrong on the next edit */
     }
     /* ✅ AND IF THE LIST IS EMPTY BECAUSE WE COULD NOT READ IT, SAY SO. Only when the
@@ -47515,6 +47899,11 @@ function fillSwitchAccounts() {
        ordinary and a fault line would be noise.
        📌 It writes only into our own region and only when that region is empty, so it
        cannot overwrite somebody else's status text. */
+    /* Round 7: Claude chosen and nothing can take it: say so under the menu now, not after a dialog. */
+    if (prov.value === 'anthropic' && armed && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE) && pmsg0 && !pmsg0.textContent) {
+      pmsg0.textContent = SWITCH_CLAUDE_NONE;
+      SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE;
+    }
     if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
       pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
       SWITCH_ACCT_SAID = SWITCH_ACCT_UNREADABLE;
@@ -47595,7 +47984,7 @@ function fillSwitchAccounts() {
      options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
-  sel.setAttribute('aria-label', switchKeyedSay('OpenAI sign-in to run on', keyed));
+  sel.setAttribute('aria-label', keyed === 'anthropic' ? 'Claude account to run on' : switchKeyedSay('OpenAI sign-in to run on', keyed));   // #5091
   sel.hidden = false;
   /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
      `changeProviderNow` disables this select while a switch is in flight and re-enables it
@@ -48168,6 +48557,11 @@ async function changeProviderNow(say) {
      must not fire this) and at least one OpenAI account exists but none is live.
      Mirrors the picker's own filter (connection.state !== 'none'). This is the
      real refusal; fillSwitchAccounts only shows the sentence. */
+  if (want === 'anthropic' && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE)) {   // #5091
+    if (msg) { msg.textContent = SWITCH_CLAUDE_NONE; SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE; }
+    tell(SWITCH_CLAUDE_NONE, false);
+    return;
+  }
   if (want === 'openai' && openaiAllDead(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
     if (msg) { msg.textContent = SWITCH_ACCT_ALLDEAD; SWITCH_ACCT_SAID = SWITCH_ACCT_ALLDEAD; }
     tell(SWITCH_ACCT_ALLDEAD, false);
@@ -48202,6 +48596,7 @@ async function changeProviderNow(say) {
   if (acctSel) acctSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
+    let sentAccount = null;   // #5091: what `account` below sent, kept for the repaint after
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -48217,7 +48612,7 @@ async function changeProviderNow(say) {
          The claim about who chose it travels separately and stays conservative. */
       body: JSON.stringify({
         provider: want,
-        account: (acctSel && !acctSel.hidden) ? acctSel.value : null,
+        account: (sentAccount = (acctSel && !acctSel.hidden) ? acctSel.value : null),
         picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
       }),
     });
@@ -48289,7 +48684,37 @@ async function changeProviderNow(say) {
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
     const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude' }[want];
-    if (restarted && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
+    /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
+       starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
+    const moved = restarted || (out.outcome === 'partial' && out.provider === want && out.restarted === true);
+    if (moved && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
+    /* #5091 round 3: the current rows come back after the switch, so they must speak for the NEW provider. The poll never
+       repaints an open panel, so the open agent takes the runner (and the Claude account) the switch just confirmed, and
+       the account and model rows are repainted from it, as Move does after its own success. */
+    if (moved && CURRENT && CURRENT.sessionName === forAgent) {
+      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '' };
+      if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
+      /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
+      CURRENT.modelName = null;
+      // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
+      CURRENT.plannedModelName = want === 'anthropic' ? 'Claude (its default model)' : null;
+      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
+         would disable Move for an agent that is on main. */
+      const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
+      CURRENT.account = want === 'anthropic'
+        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
+        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null);   // round 5: OpenAI/Gemini/Grok keep the sent account too
+      /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
+      {
+        const drun = document.getElementById('d-runson');
+        const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
+        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label)
+        if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
+      }
+      accountsDropped();
+      try { await paintAccountPicker(CURRENT); } catch { /* the switch's own sentence is the answer */ }
+      try { if (CURRENT && CURRENT.sessionName === forAgent) await paintModelPicker(CURRENT); } catch { /* same */ }
+    }
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -48340,7 +48765,7 @@ async function changeProviderNow(say) {
        engine owns. */
     /* #3566: Gemini/Grok too. Their engine arm refuses a stale account outright (it has no
        fall-through), so the re-read is what makes the next press work. */
-    if (ACCT_KEYED_ROUTE[want] && err && err.serverRefused === true) {
+    if ((ACCT_KEYED_ROUTE[want] || want === 'anthropic') && err && err.serverRefused === true) {   // #5091: Claude's list too
       accountsDropped();
       try { await paintAccountPicker(CURRENT); }
       catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
@@ -48361,8 +48786,9 @@ async function changeProviderNow(say) {
        longer describes the region. A tracker that outlives what it tracks is the drift it
        was introduced to prevent. */
     SWITCH_ACCT_SAID = '';
-    if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(SWITCH_ACCT_UNREADABLE) === -1) {
-      msg.textContent = msg.textContent + ' ' + SWITCH_ACCT_UNREADABLE;
+    if (ACCOUNTS_UNREADABLE && msg && msg.textContent
+        && msg.textContent.indexOf(want === 'anthropic' ? switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic') : SWITCH_ACCT_UNREADABLE) === -1) {
+      msg.textContent = msg.textContent + ' ' + (want === 'anthropic' ? switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic') : SWITCH_ACCT_UNREADABLE);   // #5091: Claude's form for a Claude switch
     }
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
@@ -48383,6 +48809,17 @@ async function changeProviderNow(say) {
 }
 
 document.getElementById('d-provider-go').addEventListener('click', () => {
+  /* Round 7: refuse before the dialog, which would otherwise promise the main Claude account first. */
+  { const p0 = document.getElementById('d-provider'); const m0 = document.getElementById('d-provider-msg');
+    /* #5091 (Renet): the list is still being read for this agent; Switch now would send no account (the main one). */
+    if (p0 && CURRENT && SWITCH_ACCT_ENSURING === CURRENT.sessionName) {
+      if (m0) { m0.textContent = SWITCH_ACCT_CHECKING; SWITCH_ACCT_SAID = SWITCH_ACCT_CHECKING; }
+      return;
+    }
+    if (p0 && p0.value === 'anthropic' && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
+      if (m0) { m0.textContent = SWITCH_CLAUDE_NONE; SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE; }
+      return;
+    } }
   const sel = document.getElementById('d-provider');
   if (!CURRENT || !sel.value) return;
   const toOpenai = sel.value === 'openai';
@@ -48515,7 +48952,14 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
               if (switchAcctSending()) return 'and it runs on the ' + label + ' account shown above.';
               return 'and with no ' + label + ' account shown above it runs on this computer\'s own ' + label + ' key, if one is set up.';
             })())
-        : 'It runs on your main Claude account and Claude’s default model until you change them.'),
+        /* #5091: a switch to Claude can carry a picked account now, so the main-account sentence is said only when
+           the picker is not sending one. */
+        : ((() => {
+          const on = switchAcctShown();
+          if (on) return 'It will run on ' + on + ', on Claude’s default model until you change it.';
+          if (switchAcctSending()) return 'It runs on the Claude account shown above, on Claude’s default model until you change it.';
+          return 'It runs on your main Claude account and Claude’s default model until you change them.';
+        })())),
     go: 'Switch and restart',
     /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
        switch, worded for what it is doing -- "Setting up OpenAI" (which may install/authorise)
@@ -54834,6 +55278,11 @@ function memberDotClass(row) {
  * never as something healthy, and never as nothing at all.
  */
 function pjMember(m, suppressTold, withMinus, hideState) {
+  /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
+     borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
+  if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
+    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+  }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the
      row reads that FIRST and the pill and the row agree by construction; the latest /api/status
@@ -56198,6 +56647,10 @@ let PJ_DOC_NAMES = null;
 let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
 let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
 const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
+/* #5165: over Kosmos+ the folder cannot open on this device, so the cut-short sentence does not point at it there. */
+function pjDocsPartialHere() {
+  return kplusRemote() ? 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here.' : PJ_DOCS_PARTIAL;
+}
 let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
@@ -58894,6 +59347,7 @@ document.getElementById('pjs-chats-reveal').addEventListener('click', async () =
   const btn = document.getElementById('pjs-chats-reveal');
   const msg = document.getElementById('pjs-chats-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   btn.disabled = true;
   try {
     const res = await fetch('/api/chats/reveal', { method: 'POST' });
@@ -58915,6 +59369,7 @@ document.getElementById('tk-chats-reveal').addEventListener('click', async () =>
   const btn = document.getElementById('tk-chats-reveal');
   const msg = document.getElementById('tk-chats-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   btn.disabled = true;
   try {
     const res = await fetch('/api/task-chats/reveal', { method: 'POST' });
@@ -58932,6 +59387,7 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   if (!p) return;
   const msg = document.getElementById('pjs-reveal-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   const btn = document.getElementById('pjs-reveal');
   btn.disabled = true;
   try {
@@ -59267,7 +59723,7 @@ async function openDocsView() {
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
     PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
-    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
+    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
     msg.textContent = '';
     /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
        page: enough to scan, never a wall. The floor sentence survives at the
@@ -59277,7 +59733,7 @@ async function openDocsView() {
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-    if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
+    if (body.truncated === true) msg.textContent = pjDocsPartialHere();
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs' && docsOpen === DOCS_OPEN_GEN) msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -59286,6 +59742,7 @@ document.getElementById('docs-back').addEventListener('click', () => { pjView('o
 document.getElementById('docs-chev').addEventListener('click', () => { pjView('one'); }); // #4586: the same way back
 document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
+  if (kplusFolderElsewhere(msg)) { docsSegShow('folder'); return; }   // #5165
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/reveal-folder', { method: 'POST' });
     if (!r.ok) { docsSegShow('folder'); const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }   // #4937: the sentence lives on the folder's segment
@@ -59297,6 +59754,12 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('docs-msg');
+  if (kplusRemote()) {   // #5165: download it to this device
+    const forProject = PJ_CURRENT;
+    kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject && PJ_VIEW === 'docs'),
+      PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : '');
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }) });
@@ -59419,12 +59882,12 @@ async function pjLoadDocs(id) {
   const files = Array.isArray(body.files) ? body.files : [];
   PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
-    msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
+    msg.textContent = body.truncated === true ? pjDocsPartialHere() : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
     all.hidden = true;
     return;
   }
   /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-  msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : '';
+  msg.textContent = body.truncated === true ? pjDocsPartialHere() : '';
   for (const f of files) {
     /* A BUTTON, not a div with a handler: this opens a file, and an action
        that cannot be reached from the keyboard is not an action for everyone. */
@@ -60370,6 +60833,11 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject),
+      PJ_DOCS_RAIL_PARTIAL ? pjDocsPartialHere() : '');
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -60402,6 +60870,10 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   if (!go || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-room-msg');
   const forProject = PJ_CURRENT;
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('project', forProject, go.dataset.ref, kplusSayer(msg, () => PJ_CURRENT === forProject));
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -63192,6 +63664,9 @@ async function loadRoom() {
   paintRoom(body);
 }
 
+/* #4653: the ambiguous-mention note last shown under the composer, so the next edit can take away that note
+   and only that one (the input listener below). */
+let PJ_AMBIG_NOTE = '';
 async function pjPostSend(attachment) {
   const pendingIds = attachment ? [attachment] : attachList(ATTACH_ROOM).map((r) => r.id);
   if (PJ_POSTING) return;
@@ -63260,11 +63735,14 @@ async function pjPostSend(attachment) {
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
     if (replying && PJ_REPLY[sentProject] && PJ_REPLY[sentProject].id === replying.id) { delete PJ_REPLY[sentProject]; if (PJ_CURRENT === sentProject) pjReplyPaint(sentProject); }
-    if (PJ_CURRENT === sentProject) msg.textContent = '';
+    /* #4653: an @-word that named two agents reached neither as a request; the engine's sentence
+       stays under the composer (and is announced), so the person can re-send with the exact name. */
+    const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote : '';
+    if (PJ_CURRENT === sentProject) { msg.textContent = ambig; PJ_AMBIG_NOTE = ambig; }
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
-    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p));
+    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p) + (ambig ? ' ' + ambig : ''));
     if (PJ_CURRENT === sentProject) await loadRoom();
   } catch {
     verdict('We could not reach Kosmos to post that.');
@@ -63387,6 +63865,14 @@ function mentionPick(i) {
 }
 
 document.getElementById('pj-post').addEventListener('input', mentionRefresh);
+/* #4653: the ambiguous-mention note is about the post just sent; once the person types the next one it is
+   stale, so the first edit takes it away. Only that note: any other line under the box keeps its own rules.
+   PJ_AMBIG_NOTE is declared above pjPostSend, which sets it. */
+document.getElementById('pj-post').addEventListener('input', () => {
+  const msg = document.getElementById('pj-room-msg');
+  if (PJ_AMBIG_NOTE && msg && msg.textContent === PJ_AMBIG_NOTE) msg.textContent = '';
+  PJ_AMBIG_NOTE = '';
+});
 document.getElementById('pj-post').addEventListener('click', mentionRefresh);
 document.getElementById('pj-post').addEventListener('blur', () => { setTimeout(mentionClose, 150); });
 document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
@@ -64627,16 +65113,21 @@ function paintThread(body) {
       + 'It is not a transcript, and it is not what the agent said to you.';
   } else {
     // The non-claiming static heading: naming the agent here would still
-    // promise a screen the next line says we could not read.
-    document.getElementById('pj-screen-label').textContent = 'Its screen';
+    // promise a screen the next line says we could not read. #5223: a
+    // Windows agent has none, so its heading says so rather than promise one.
+    document.getElementById('pj-screen-label').textContent = (body.viewport && body.viewport.noWindow === true)
+      ? 'No screen to show' : 'Its screen';
     screen.hidden = true;
     // ⚠️ The reason, in place of the screen. An empty box would read as an
     // agent sitting at a blank terminal, which is a claim about its screen we
     // did not make.
     // The clause becomes its own pjSentence rather than a raw splice
     // (round 25): a stderr line ending in a stop would double it.
-    hint.textContent = 'We cannot see its screen right now.'
-      + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
+    // #5223: a Windows agent has no screen at all, so "right now" would call a lasting fact a passing failure.
+    hint.textContent = (body.viewport && body.viewport.noWindow === true)
+      ? pjSentence(body.viewport.because)
+      : 'We cannot see its screen right now.'
+        + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
   }
 }
 
@@ -67174,6 +67665,8 @@ let FR_YOU_GEN = 0;
    too) and adds the pre-Allow entry case; a browser / no-native-app
    (nativePresent!==true) still never blocks. See kosmos#2347 (native half exposes
    nativePresent on /api/file-access-status). */
+// #2559: how long a gate row may show "Checking..." before it offers Turn On (see FR_GATES.tmux.turnOnAfterMs).
+const FR_CHECKING_TURN_ON_MS = 4000;
 const FR_GATES = {
   'file-access': {
     url: '/api/file-access-status',
@@ -67199,6 +67692,11 @@ const FR_GATES = {
     url: '/api/a11y-status',
     granted: (r) => r.checkable === true && r.trusted === true,
     blocked: (r) => r.checkable === true && r.trusted !== true,
+    // #2559 day-one (Splinter, 2026-10-03): on a fresh Mac with no Full Disk Access the route cannot read the grant
+    // (checkable:false), so the row sat on "Checking..." with no Turn On and a newcomer's first real screen offered
+    // no action. A row still uncheckable after this long paints "Not activated" + Turn On (which opens the same
+    // setting); it still never gates Next, and a granted read turns it green at once (frPollGates).
+    turnOnAfterMs: FR_CHECKING_TURN_ON_MS,
     // #2559/#2911 (Josh's #1, 2026-09-14): RE-GATED. This step blocks Next again --
     // Next stays disabled until Kosmos accessibility is granted (block-on-positive:
     // only a definite checkable:true + trusted:false blocks; an uncheckable reading
@@ -67218,6 +67716,9 @@ const FR_GATES = {
   },
 };
 let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
+// #2559: when each gate row (by its data-gate name) first read uncheckable on the showing screen; cleared by any
+// other reading and when a screen starts, so a row is offered Turn On only after FR_CHECKING_TURN_ON_MS of Checking.
+const FR_CHECKING_SINCE = new Map();
 // #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
 // user granted the permission the pill/Next could sit unchanged for over a second and the
 // screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
@@ -67256,8 +67757,21 @@ async function frPollGates(screenEl, gen) {
   const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
+  const nowMs = Date.now();
   rows.forEach((row, i) => {
     const st = reads[i].state;
+    // #2559: a row uncheckable for longer than its turnOnAfterMs becomes ACTIONABLE (Turn On), never blocked.
+    {
+      const gname = row.getAttribute('data-gate');
+      const gspec = FR_GATES[gname];
+      if (st !== 'uncheckable') FR_CHECKING_SINCE.delete(gname);
+      else {
+        // Review 1: a clock set BACKWARD (network time on a fresh Mac) restarts the spell rather than leaving the row
+        // on Checking until the clock catches up, which is the very trap this fixes.
+        if (!FR_CHECKING_SINCE.has(gname) || FR_CHECKING_SINCE.get(gname) > nowMs) FR_CHECKING_SINCE.set(gname, nowMs);
+        if (gspec && gspec.turnOnAfterMs > 0 && nowMs - FR_CHECKING_SINCE.get(gname) >= gspec.turnOnAfterMs) reads[i].actionable = true;
+      }
+    }
     // #2085: three visual states, exactly one attribute set (or neither = the
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
@@ -67275,6 +67789,8 @@ async function frPollGates(screenEl, gen) {
     // uncheckable (a browser / no-FDA box) keeps the honest "Checking..." (nothing to grant).
     else if (st === 'uncheckable' && !reads[i].actionable) { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
+    // #2559 (Mona Lisa): an uncheckable row offering Turn On says "Not confirmed" (neutral), not "Not activated".
+    if (st === 'uncheckable' && reads[i].actionable) row.setAttribute('data-unsure', ''); else row.removeAttribute('data-unsure');
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
@@ -67331,6 +67847,7 @@ function frSyncSwitchOverlays() {
 if (typeof window !== 'undefined') window.addEventListener('resize', frSyncSwitchOverlays);
 function frGateStart(screenEl) {
   frGateStop();
+  FR_CHECKING_SINCE.clear();   // #2559: a new screen's rows start their Checking clock afresh
   const gen = ++FR_GATE_GEN;
   FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
@@ -67734,7 +68251,8 @@ async function frPaintYou() {
     // for white-collar business workers". The spoken instruction survives,
     // invisible: a screen-reader user must not have to guess why the step
     // will not advance (SC 3.3.2); the fields carry aria-required too.
-    '<p class="vh">The first two answers are needed before Continue.</p>' +
+    // #5111: the button here reads Next, so the spoken instruction names Next (it named a Continue that is not there).
+    '<p class="vh">The first two answers are needed before Next.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
     /* An example name (grey placeholder, not a filled value). #683 changed this
        away from "Josh" to "Alex" because a real first name in the box can read as
@@ -69508,7 +70026,7 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
          disabled, so the person had no way to try again from here. */
       if (Date.now() - started > 600000) {
         clearInterval(tick); showBar(false); go.disabled = false;
-        if (msg) msg.textContent = 'This is taking longer than expected. It may still be working, or it may be stuck. Press Confirm to check again, or finish it later in Settings > Accounts.';
+        if (msg) msg.textContent = 'This is taking longer than expected. It may still be working, or it may be stuck. Press Confirm to check again, or finish it later in Settings, AI Models.';
       }
     }, 2000);
   } catch (err) {

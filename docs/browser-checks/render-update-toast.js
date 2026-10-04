@@ -127,7 +127,7 @@ const RELPORT = freePort();
     const txt = (await p.locator('.uchip').innerText()).replace(/\s+/g, ' ').trim();
     if (txt !== 'An update is available Update') die('chip text wrong: ' + txt);
 
-    // In the flow beside the mark; the checks below prove no overlap with the header controls either way.
+    // #5018: floating over the page under the header; the checks below prove no overlap with New agent either way.
     // #3051: the agent-status stamp (#checked) moved off the header row into the user
     // menu, so it is no longer a header-row peer the toast could collide with or re-space;
     // it is dropped from this check's geometry set (measuring a hidden element is vacuous).
@@ -138,31 +138,26 @@ const RELPORT = freePort();
     const overlap = (a, c) => a && c && a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
     if (overlap(boxes.toast, boxes.newagent)) die('toast overlaps the New agent button');
 
-    // The drawn placement (#47, pack 2e4e100): the notice lives INSIDE the
-    // header's left group, in line beside the mark, not floating anywhere.
-    // Without this pin, the clear-of-controls checks pass any placement.
+    // The placement since #5018 (Josh: "i would much rather they appear over the content"): the notice lives in
+    // the floating stack centred under the navigation, below the header, and the header keeps its height. Without
+    // this pin, the clear-of-controls checks pass any placement. (2026-08-17 to #5018 it sat inline beside the mark.)
+    const headH = () => p.evaluate(() => document.querySelector('.apphead header').getBoundingClientRect().height);
     const placement = await p.evaluate(() => {
       const t = document.querySelector('.uchip');
-      const k = document.getElementById('klink');
-      const inLeft = !!t.closest('.headleft');
+      const hb = document.querySelector('.apphead header').getBoundingClientRect();
       const tb = t.getBoundingClientRect();
-      const kb = k.getBoundingClientRect();
-      return { inLeft, rightOfMark: tb.left >= kb.right,
-               sameBand: Math.abs((tb.top + tb.height / 2) - (kb.top + kb.height / 2)) < kb.height,
-               staticPos: getComputedStyle(t).position === 'static' };
+      const centre = (b) => b.left + b.width / 2;
+      return { inStack: !!t.closest('#topnotes'), belowHeader: tb.top >= hb.bottom, centred: Math.abs(centre(tb) - centre(hb)) < 2 };
     });
-    if (!placement.inLeft || !placement.rightOfMark || !placement.sameBand || !placement.staticPos) {
-      die('desktop: the notice is not inline beside the mark ' + JSON.stringify(placement));
+    if (!placement.inStack || !placement.belowHeader || !placement.centred) {
+      die('desktop: the notice does not float centred under the header ' + JSON.stringify(placement));
     }
 
-    // The old absolute comment's warning, mechanized: a child in the flow
-    // must not re-space the row. Measured 2026-08-17: zero x-shift on the
-    // right group; the header grows 8px taller, the trade the pack's own
-    // mobile comment blesses ("the header grows when an update is waiting"
-    // over anything unclickable). Pin the x-shift at zero.
+    // A floating notice must not re-space anything: New agent stays where it is and the header keeps its height.
     const withToast = await p.evaluate(() => ({
       newagent: Math.round(document.getElementById('new-agent').getBoundingClientRect().x),
     }));
+    withToast.headH = await headH();
     // display:none, not an innerHTML round trip: rebuilding the markup from
     // a string would strip the buttons' listeners and kill the Install step
     // this drive runs later.
@@ -170,8 +165,9 @@ const RELPORT = freePort();
     const sansToast = await p.evaluate(() => ({
       newagent: Math.round(document.getElementById('new-agent').getBoundingClientRect().x),
     }));
+    sansToast.headH = await headH();
     await p.evaluate(() => { document.getElementById('utoast-slot').style.display = ''; });
-    if (withToast.newagent !== sansToast.newagent) {
+    if (withToast.newagent !== sansToast.newagent || withToast.headH !== sansToast.headH) {
       die('the notice re-spaces the header row: ' + JSON.stringify({ withToast, sansToast }));
     }
     await p.screenshot({ path: path.join(OUT, 'update-toast.png') });
@@ -275,6 +271,40 @@ const RELPORT = freePort();
     if (mboxes.toast.x + mboxes.toast.width > edge.vw) die('mobile: the chip runs past the right edge ' + JSON.stringify({ toast: mboxes.toast, edge }));
     if (edge.sw > edge.vw) die('mobile: the page scrolls sideways ' + JSON.stringify(edge));
     await p.screenshot({ path: path.join(OUT, 'update-toast-375.png') });
+
+    // #5140 (day-one): a brand-new user on a phone, past the welcome, with no agents yet. Their first action is New
+    // agent, and a floating notice must not sit on it. The pass above dismisses the welcome with Escape, where New
+    // agent is not shown at all, so its "toast overlaps newagent" test had nothing to compare (newagent: null). Here the
+    // welcome is completed, the way a person finishes it, and New agent must render (CONTROL) before "not covered" counts.
+    await p.evaluate(async () => { await fetch('/api/first-run/complete', { method: 'POST' }).then((r) => r.text()); });
+    await p.evaluate(() => localStorage.removeItem('kosmos-update-later'));
+    // Renet's review: not only phones. A new user can be on a tablet or a narrow window, so the same measurement runs at
+    // phone, tablet and desktop widths; every width must leave New agent clear and clickable.
+    for (const width of [320, 375, 414, 768, 834, 1024, 1280]) {
+      await p.setViewportSize({ width, height: 900 });
+      // The passes above end in Settings > Updates and a reload keeps that page; a new user lands on the agents board.
+      await p.goto(`http://127.0.0.1:${PORT}/?tab=agents`, { waitUntil: 'networkidle' });
+      await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
+      // --topnotes-clear is written by a ResizeObserver after layout; measure once it holds the notice's clearance, and
+      // say so when it never did, so a pass at clearance 0 is visible rather than silent.
+      const clearSet = await p.waitForFunction(() => { const v = getComputedStyle(document.documentElement).getPropertyValue('--topnotes-clear').trim(); return v !== '' && v !== '0px'; }, null, { timeout: 10000 }).then(() => true, () => false);
+      const empty = await p.evaluate(() => {
+        const box = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+        const na = box(document.getElementById('new-agent')); const chip = box(document.querySelector('.uchip'));
+        const hit = na ? document.elementFromPoint(na.left + na.width / 2, na.top + na.height / 2) : null;
+        const cover = na && chip && na.left < chip.right && chip.left < na.right && na.top < chip.bottom && chip.top < na.bottom;
+        return { emptyBoard: !!document.querySelector('#grid > .pj-empty'), boardShown: !document.getElementById('boardbar').hidden, welcomeShown: !document.getElementById('firstrun').hidden,
+          newAgent: na && [Math.round(na.left), Math.round(na.top), Math.round(na.width), Math.round(na.height)],
+          chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.width), Math.round(chip.height)], cover: !!cover,
+          takesClick: !!(hit && document.getElementById('new-agent').contains(hit)),
+          clear: getComputedStyle(document.documentElement).getPropertyValue('--topnotes-clear').trim() };
+      });
+      empty.width = width; empty.clearSet = clearSet;
+      if (!empty.emptyBoard || !empty.boardShown || empty.welcomeShown || !empty.newAgent || !empty.chip) die('CONTROL #5140: past the welcome on an empty board at ' + width + ', New agent and the update notice must both render, on the agents board ' + JSON.stringify(empty));
+      if (empty.cover || !empty.takesClick) die('#5140: on an empty board at ' + width + ' the update notice covers New agent, a new user\'s first action ' + JSON.stringify(empty));
+      console.log('PASS  #5140: empty board at ' + width + ', the update notice clears New agent and New agent takes the click ' + JSON.stringify(empty));
+      if (width === 375) await p.screenshot({ path: path.join(OUT, 'update-toast-375-empty.png') });
+    }
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
     console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);

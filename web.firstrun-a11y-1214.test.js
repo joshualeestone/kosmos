@@ -389,3 +389,15 @@ test('#2587/#2559/#2911: only sleep is advisory; the accessibility gates block N
   assert.match(S3, /\.s3-gate-row\[data-battonly\] \.s3-battonly\{display:flex/, 'the battOnly note is not shown when data-battonly is set');
   assert.doesNotMatch(S3, /s3-continued-pill|s3-continue\{|data-continued/, 'stale escape CSS (continue button / caveat pill / data-continued) survives');
 });
+
+test('#5111: the About-you step tells a screen-reader user the button that is really there', () => {
+  // The spoken instruction once said "before Continue" while the button read Next. Read both from the one painter.
+  const start = PAGE.indexOf('async function frPaintYou()');
+  assert.ok(start > 0, 'frPaintYou is gone; find where the About-you step is painted now');
+  const body = PAGE.slice(start, PAGE.indexOf('\n}\n', start));
+  const said = /<p class="vh">[^<]*needed before ([A-Z][A-Za-z ]*?)\.<\/p>/.exec(body);
+  const label = /frActions\(\s*\{\s*label:\s*'([^']+)'/.exec(body);
+  assert.ok(said, 'the spoken instruction naming the button is missing');
+  assert.ok(label, 'the About-you step no longer sets its button through frActions');
+  assert.equal(said[1], label[1], 'the spoken instruction names a button the step does not show');
+});
