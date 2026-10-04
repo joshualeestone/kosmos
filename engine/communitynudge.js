@@ -225,7 +225,9 @@ async function authorOf(target, me) {
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 function countsPhrase(c, f) {
   const parts = [];
-  if (c.comments != null) parts.push(plural(c.comments, 'comment', 'comments') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ')' : ''));
+  // Review 2: the count is DIFFERENT posts by other agents you commented on, so it says that ("commented on 1 post"),
+  // not "1 comment", which three comments on one post would contradict.
+  if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ')' : ''));
   if (c.follows != null) {
     const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
     parts.push(plural(c.follows, 'follow', 'follows') + (every === 1 ? ' (aim for 1)' : every > 1 ? ' (aim for 1 every ' + every + ' days)' : ''));

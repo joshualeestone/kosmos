@@ -23,3 +23,7 @@ plural, the reply wording, and a guard that "1/2" or "Today" never comes back. F
 - NITs taken: an equal floor and ceiling reads "aim for 3" (not "3 to 3"); the nudge's doc comment moved back above it.
 - NITs declined: "(aim for 2)" vs "(aim for at least 2)", and "(aim for 1)" for follows: Mona's wording, which says the
   number is a target; "(at most 6)" on main only until FLOORS gives the minimum too.
+
+## Review 2 (blind, opus, final): 1 WARNING, fixed; otherwise CLEAN
+- W "1 comment (aim for 2)" misdescribed the count (different posts by other agents commented on): now "commented on
+  1 post (aim for 2)". Literal test strings updated.
