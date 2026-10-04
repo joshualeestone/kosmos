@@ -241,7 +241,7 @@ function handleEvent(projectId, line, checked) {
     s.inbound.count += 1;
     s.inbound.bytes += size;
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
-      if (!s.inday.minuteNoted) { s.inday.minuteNoted = true; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
+      if (!s.inday.minuteNoted && s.heldNotedOn !== s.inday.day) { s.inday.minuteNoted = true; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
       return;
     }
     // Only what is KEPT counts toward the day: a flood the minute bound drops
@@ -627,9 +627,11 @@ function revokeCheck(projectId, link, edges) {
     const epoch = st.epoch + 1;
     const keep = {};
     for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
-    fedseal.setRoomState(projectId, Object.assign({}, st, {
-      peers: keep, epoch, rotatedAt: Date.now(), keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }),
-    }));
+    const keys = Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() });
+    // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
+    // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it.
+    if (!Object.keys(keep).length) delete keys[st.epoch];
+    fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys }));
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
     return { checked: true, rotated: true };
@@ -660,11 +662,12 @@ function sharedEdges(now) {
     held, except on the 60 s pass (`pass`), which shows them unchecked. `askedAt()` is when
     the answer used was asked for; the room counts as checked from then, not from when the
     answer arrived. */
-async function checkRoom(projectId, link, edges, pass, askedAt) {
+async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
   const started = Date.now();
   const r = await revokeCheck(projectId, link, edges);
   const s = seats.get(projectId);
-  if (!s) return r;
+  // A seat replaced while the check was out (an id reused) is not credited with it.
+  if (!s || (seat && s !== seat)) return r;
   if (r && r.checked) {
     const at = typeof askedAt === 'function' ? askedAt() : 0;
     s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
@@ -672,6 +675,7 @@ async function checkRoom(projectId, link, edges, pass, askedAt) {
   if (s.held && s.held.length && ((r && r.checked) || pass)) {
     const held = s.held;
     s.held = [];
+    s.heldIds = new Set();
     for (const line of held) {
       try { handleEvent(projectId, line, true); } catch (err) {
         console.error('#5191: a held post for ' + JSON.stringify(projectId) + ' could not be handled: ' + String((err && err.message) || err));
@@ -682,27 +686,35 @@ async function checkRoom(projectId, link, edges, pass, askedAt) {
 }
 /** #5191: hold a sealed post to an owner whose edges were not checked in the last
     EDGE_FRESH_MS, and ask (once per room per EDGE_FRESH_MS). True when the post was taken.
-    Only a post that opens now is held: a check can only narrow what opens, so one that
-    does not open now goes straight to the usual refusal and takes no place. Held posts
-    live in this seat's memory: a board restart while they wait loses them. */
+    A post is held only if it would be shown now: it opens, is inside the time window and
+    has not been shown, and is not already held (by its sealed id). Anything else goes
+    straight to the usual refusal and takes no place. Held posts live in this seat's
+    memory: a board restart while they wait loses them. */
 function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
   if (isFresh(s.edgesCheckedAt, now)) return false;
-  if (!s.room || !fedseal.open(acceptedKeys(sealed, now), s.room, env)) return false;
+  const opened = s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, env) : null;
+  if (!opened || now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS || (s.seen && s.seen.has(opened.id))) return false;
   s.held = s.held || [];
+  s.heldIds = s.heldIds || new Set();
+  if (s.heldIds.has(opened.id)) return true;   // a copy of a held post: it would be refused as seen
   if (s.held.length >= HELD_MAX) {
     const day = new Date(now).toISOString().slice(0, 10);
-    if (s.heldNotedOn !== day) { s.heldNotedOn = day; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
+    // One note a day between this and the minute budget's: they say the same thing.
+    if (s.heldNotedOn !== day && !(s.inday && s.inday.day === day && s.inday.minuteNoted)) {
+      s.heldNotedOn = day;
+      say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.');
+    }
     return true;
   }
-  if (s.held.includes(line)) return true;   // a replay of a held post: it would be refused as seen
+  s.heldIds.add(opened.id);
   s.held.push(line);
   if (!s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const link = safeLink(projectId);
     if (link && link.role === 'owner') {
       s.edgeAskedAt = now;
       const ask = sharedEdges(now);
-      s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt).catch(() => {}).then(() => { s.edgeAsk = null; });
+      s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });
     }
   }
   return true;

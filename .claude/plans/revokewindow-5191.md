@@ -6,7 +6,8 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
 - A member keeps EPOCH_GRACE_MS (10 min): it is not told why the owner rotated.
 - An owner rotates only on a revoke (rotateForRevoked is its only rotation), so every owner
   rotation gets REVOKE_GRACE_MS (90 s) while a member peer remains and NO previous epoch once none
-  does. The grace is computed from the rooms file alone (peers + rotatedAt), so a restart cannot
+  does. A revoke that leaves nobody also drops the revoked key from the record, so a member pinned
+  later cannot bring the grace back for it (challenge iteration 3). The grace is computed from the rooms file alone (peers + rotatedAt), so a restart cannot
   forget it (W1). Decided in challenge iteration 1: no `rotatedFor` field. With one reason it was a
   field nothing read, and the restart safety comes from the record, not from it.
 - "A member" is a pinned member peer only (N4).
@@ -23,8 +24,9 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
   revoked member through whenever Kosmos+ is slow.
 - A shared answer asked for at T counts the room as checked from T, so a revoke landing just after T
   is seen at the first check asked after T + 15 s.
-- An age below zero (the clock stepped back) is never fresh. A replay of a held post takes no place.
-- Only a post that opens NOW is held (a check can only narrow what opens), so junk takes no place.
+- An age below zero (the clock stepped back) is never fresh.
+- A post is held only if it would be shown now (opens, inside the time window, not shown before,
+  not already held by its sealed id); anything else takes no place.
   Held count is capped at INBOUND_PER_WINDOW; past it the room's minute-budget note.
 - Post-triggered checks share one Mac-wide edges answer per 15 s (sharedEdges), so busy rooms do
   not multiply requests; a room counts as checked from when the answer was ASKED for.

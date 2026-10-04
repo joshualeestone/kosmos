@@ -1493,3 +1493,55 @@ test('#5191: a replayed held post takes no second place, and the exported onEven
   assert.deepStrictEqual(shown(h), ['once']);
   assert.ok(!h.notes.some((n) => /more messages than Kosmos keeps in a minute/.test(n.text)), 'replays filled the held places');
 });
+
+test('#5191: a member pinned after the only one was revoked does not reopen the revoked key', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const inv0 = newInvite('rnm-0');
+  const inv1 = newInvite('rnm-1');
+  const { h, seat } = await ownerRoom('proj-5191-newmember', 'ref-rnm', 'room-rnm', [inv0, inv1]);
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv0.s, inv0.code, fedseal.newKeyPair(), 'room-rnm') });
+  await settle();
+  const oldKey = fedseal.roomState('proj-5191-newmember').keys[0];
+  h.edges = [{ id: 'edge-inv-rnm-0', project_ref: 'ref-rnm', status: 'revoked', invite_id: 'inv-rnm-0' }, { id: 'edge-inv-rnm-1', project_ref: 'ref-rnm', status: 'active', invite_id: 'inv-rnm-1' }];
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5191-newmember', federation.linkFor('proj-5191-newmember'), null), true);
+  t.mock.timers.tick(5000);
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv1.s, inv1.code, fedseal.newKeyPair(), 'room-rnm') });
+  await settle();
+  assert.strictEqual(Object.keys(fedseal.roomState('proj-5191-newmember').peers).length, 1, 'fixture: the new member is pinned');
+  t.mock.timers.tick(5000);
+  say(seat, { event: 'message', data: fedseal.seal(oldKey, 0, 'room-rnm', { from: 'Revoked', kind: 'person', text: 'old key after a new member' }) });
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'a new member reopened the revoked member\'s key');
+});
+
+test('#5191: re-shaped copies and stale posts take no held place, so they cannot crowd out an honest post', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, room, post } = await pinnedRoom('proj-5191-pad', 'rpd', 1);
+  const key = fedseal.roomState('proj-5191-pad').keys[0];
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const env = fedseal.seal(key, 0, room, { from: 'Guest', kind: 'person', text: 'once' });
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) say(h.spawned[0], { event: 'message', data: Object.assign({ pad: i }, env) });
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) post('stale ' + i, 0, Date.now() - 2 * 3600 * 1000);
+  post('honest');
+  await settle();
+  release();
+  h.gate = null;
+  await settle();
+  assert.deepStrictEqual(shown(h), ['once', 'honest']);
+  assert.ok(!h.notes.some((n) => /more messages than Kosmos keeps in a minute/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5191: a replay of a post already shown is refused at once and asks Kosmos+ nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, room } = await pinnedRoom('proj-5191-seen', 'rsn', 1);
+  const env = fedseal.seal(fedseal.roomState('proj-5191-seen').keys[0], 0, room, { from: 'Guest', kind: 'person', text: 'shown once' });
+  say(h.spawned[0], { event: 'message', data: env });
+  await settle();
+  t.mock.timers.tick(20 * 1000);
+  const asked = h.asked;
+  say(h.spawned[0], { event: 'message', data: env });
+  await settle();
+  assert.strictEqual(h.asked, asked, 'a replay of a shown post triggered an edges request');
+  assert.deepStrictEqual(shown(h), ['shown once']);
+});
