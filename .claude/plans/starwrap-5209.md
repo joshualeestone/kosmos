@@ -13,13 +13,14 @@ visible flash; the card's "flash" wording is not backed.)
 the end edge (v > o), keep the offset past the new edge (n + (v - o)). Both axes. A dot in the margin can
 then never cross the wrap line by a resize.
 
-Rejected: re-wrapping after scaling (moves the dot to the other edge, the same visible jump the card
-names). Rejected: scaling only in-box dots and dropping the rest (changes the field's count).
+Rejected: re-wrapping after scaling (moves the dot to the far edge; keeping its offset leaves it where
+it was). Rejected: scaling only in-box dots and dropping the rest (changes the field's count).
 
 ## Tests
 `web.plus-stars-wrap-5209.test.js`: the card's own case (-3.7 grown x1.63 stays at -3.7), past-the-bottom
 offset kept growing and shrinking, in-box scaling unchanged, and plusStarsResize uses the helper on both
-axes. Sabotage (helper back to v * n / o) turns two rows red. 336 page-reading and repo-wide test files:
+axes. Sabotage (helper back to v * n / o) turns three rows red: the card's case, the past-the-bottom
+offset and the wrap lines. 336 page-reading and repo-wide test files:
 3061 pass, 0 fail.
 
 ## Weakest premise
