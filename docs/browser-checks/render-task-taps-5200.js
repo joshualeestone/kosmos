@@ -8,8 +8,8 @@
  *    never applies and every line below would test nothing,
  *  - on that phone, each of the task page's controls (Change who, Done, + Add subtask, Add a part, Add, the message
  *    box, Send, Show me where the task conversations live, Due, Put on hold) is at least 44x44,
- *  - the small links in a row keep their line: the who row is the same height with the rule switched off on the
- *    same page. (+ Add subtask and Close this task are honest 44px boxes on their own lines, so the subtasks block
+ *  - the small links in a row keep their line: the who row is the same height, and the name's and Done's words sit
+ *    in the same place sideways, with the rule switched off on the same page. (+ Add subtask and Close this task are honest 44px boxes on their own lines, so the subtasks block
  *    may grow; that is by design and not asserted as unchanged.)
  *  - two neighbouring targets never overlap: with a 40-character name, Change who ends before Done starts, and a tap
  *    just inside each one's edge lands on that control; "Close this task" and "+ Add subtask" likewise,
@@ -82,12 +82,17 @@ const CONTROLS = [
   };
   // The rule switched off on the same page: the base look, with + Add subtask's own 10px gap.
   const RULE_OFF = '#pj-task-view .tkwho-pick, #pj-task-view .tkpart-go, #pj-task-view #tk-subadd, #pj-task-view #tk-subs-close'
-    + ' { padding: 0 !important; margin: 0 !important; min-width: 0 !important; } #pj-task-view #tk-subadd { margin-top: 10px !important; }';
+    + ' { padding: 0 !important; margin: 0 !important; min-width: 0 !important; } #pj-task-view #tk-subadd { margin-top: 10px !important; }'
+    + ' #pj-task-view .tkwho-pick { border-bottom: 1px dashed transparent !important; text-decoration: none !important; }';
   const heights = (page) => page.evaluate(() => {
     const h = (e) => (e ? Math.round(e.getBoundingClientRect().height * 10) / 10 : null);
     const pick = document.querySelector('#pj-task-view .tkwho-pick');
     const add = document.querySelector('#pj-task-view #tk-subadd');
-    return { who: h(pick && pick.parentElement), subs: h(add && add.parentElement), addTop: add ? Math.round(add.getBoundingClientRect().top) : null };
+    // Where the words sit, left to right: a hit area that is not taken back exactly moves them sideways.
+    const textEdge = (e, side) => { if (!e) return null; const r = document.createRange(); r.selectNodeContents(e); return Math.round(r.getBoundingClientRect()[side] * 10) / 10; };
+    const done = document.querySelector('#pj-task-view .tkpart-go');
+    return { who: h(pick && pick.parentElement), subs: h(add && add.parentElement), addTop: add ? Math.round(add.getBoundingClientRect().top) : null,
+      nameLeft: textEdge(pick, 'left'), doneRight: textEdge(done, 'right') };
   });
   // Two targets on one row or one above the other: their boxes must not overlap, and a tap just inside each one's
   // inner edge must land on that control.
@@ -122,14 +127,16 @@ const CONTROLS = [
         const s = got[i];
         chk(!!s && s[0] >= 44 && s[1] >= 44, `${tag} ${label} is at least 44x44`, JSON.stringify(s) + ' ' + sel);
       });
-      const deco = await page.evaluate(() => { const c = getComputedStyle(document.querySelector('#pj-task-view .tkwho-pick')); return { border: c.borderBottomWidth, style: c.textDecorationStyle }; });
-      chk(deco.border === '0px' && deco.style === 'dashed', `${tag} the name's dashed affordance is an underline, not the padded box's border`, JSON.stringify(deco));
+      const deco = await page.evaluate(() => { const c = getComputedStyle(document.querySelector('#pj-task-view .tkwho-pick')); return { style: c.textDecorationStyle, color: c.borderBottomColor }; });
+      chk(deco.style === 'dashed' && deco.color === 'rgba(0, 0, 0, 0)', `${tag} the name's dashed affordance is an underline, not the padded box's border`, JSON.stringify(deco));
       // Without the rule, the same layout: measured with the rule switched off, on the same page.
       const on = await heights(page);
       const style = await page.addStyleTag({ content: RULE_OFF });
       const off = await heights(page);
       await style.evaluate((el) => el.remove());
       chk(on.who !== null && on.who === off.who, `${tag} the who row keeps its height`, `${on.who} vs ${off.who}`);
+      chk(on.nameLeft !== null && on.nameLeft === off.nameLeft && on.doneRight === off.doneRight,
+        `${tag} the name and Done keep their place sideways`, JSON.stringify({ on: [on.nameLeft, on.doneRight], off: [off.nameLeft, off.doneRight] }));
       // A long name: Change who and Done side by side must not overlap.
       await openTask(page, 2);
       const longPair = await apart(page, '.tkwho-pick', '.tkpart-go', false);
