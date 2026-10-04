@@ -1088,11 +1088,13 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
 }
-/** Held more than HELD_POSTS_AGE_MS, or held 'in the future' (the clock stepped back): not
-    sent, as #5191 treats a time ahead of the clock as not fresh. */
+/** Held more than HELD_POSTS_AGE_MS, or held more than FUTURE_SKEW_MS 'in the future' (the
+    clock stepped back that far): not sent, as #5191 treats a time that far ahead of the clock
+    as not fresh. A smaller step back (a wake or a time sync) keeps them, so a post can be held
+    up to the hour plus that step. */
 function heldStale(h) {
   const age = Date.now() - h.at;
-  return age < 0 || age > HELD_POSTS_AGE_MS;
+  return age < -FUTURE_SKEW_MS || age > HELD_POSTS_AGE_MS;
 }
 /** #5192: on every pass the hour runs out on held posts, whether or not the seat is connected
     (one connected but unable to flush still ages them), and the room is told. */

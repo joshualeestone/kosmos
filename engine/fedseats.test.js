@@ -2202,6 +2202,31 @@ test('#5192: posts held while a member is behind go out, in order, when the new 
   void h;
 });
 
+test('#5192: a clock stepped back a few seconds keeps held posts; one stepped back past the skew drops them', async (t) => {
+  for (const [back, sent] of [[2 * 1000, true], [6 * 60 * 1000, false]]) {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
+    const id = 'proj-5192-step-' + back;
+    const sk = fedseal.randomSecret();
+    federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
+    fedseal.setRoomState(id, { role: 'member', s: sk, code: 'code-' + id, peer: null, epoch: null, keys: {} });
+    const h = harness();
+    await fedseats.ensure(id);
+    const seat = h.spawned[0];
+    say(seat, { event: 'connected', room: 'room-' + id, expires_at: 9 });
+    await settle();
+    fedseats.post(id, { from: 'Ana', kind: 'person', text: 'held across a step back' });
+    t.mock.timers.setTime(Date.now() - back);
+    const before = lines(seat).length;
+    const owner = fedseal.newKeyPair();
+    const roomKey = fedseal.randomSecret();
+    say(seat, { event: 'message', data: fedseal.shareFrame(sk, 'code-' + id, owner, fedseal.sealingKey().pub, roomKey, 0, 'room-' + id) });
+    await settle();
+    const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-' + id, f)).filter(Boolean);
+    assert.strictEqual(out.some((o) => o.m.text === 'held across a step back'), sent, 'clock stepped back ' + back + ' ms');
+    t.mock.timers.reset();
+  }
+});
+
 test('#5192: a post held for more than an hour is not sent, and the room says so; the hold is capped', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
   const sk = fedseal.randomSecret();
