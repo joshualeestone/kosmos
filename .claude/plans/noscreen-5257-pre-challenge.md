@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: noscreen-5257
-diff_hash: bc9e5ce13a6ca7cc7cd6852bca06a67e6e217f06827ec58be7cf9a3a23197905
+diff_hash: 3f3d2e19e7a8993a106fe246e3190d5da0eb95f10c3ae05a825e59c339d6c719
 validation: passed (D3: a behaviour-neutral page move + a new node test; every web.* test + guards 2481/2481; browser-check coarse and surface gates pass); full browser checks on the exact head before the after-Monday merge
 subdir_audit: passed
-timestamp: 2026-10-04T15:25:15Z
+timestamp: 2026-10-04T20:19:21Z
 iterations: 1
 converged: true
 ---
@@ -29,3 +29,6 @@ converged: true
 ## Weakest premise
 Browser-neutral by construction (bytes unchanged, same arguments); a full browser-check run on the exact head comes
 before the merge.
+
+## Baron Draxum's browser arm (cherry-picked as 6fb3a5883)
+- docs/browser-checks/render-thread.js section 3b: patches the real thread's viewport. Run on this branch at 6fb3a5883 (Agent1s light lane, 14:12 CDT): all 7 #5257 lines pass (thread really fetched and patched; label; sentence; no "right now" lead; full stop; no empty box; CONTROL unpatched), the whole check RC=0. Baron measured it red (3 FAIL) with the no-window branch removed.
