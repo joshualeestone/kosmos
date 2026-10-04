@@ -191,5 +191,5 @@ test('#4649 slice 3 review round 3: the room reads the invites record once per r
   assert.equal(room.status, 200);
   const labelled = (room.json.messages || room.json.rows || []).filter((m) => m && m.invited_as === 'Kim').length;
   assert.equal(labelled, 50, 'precondition: every stamped post is labelled');
-  assert.ok(reads <= 1, 'the invites record was read ' + reads + ' times for one room request');
+  assert.equal(reads, 1, 'the invites record was read ' + reads + ' times for one room request');
 });
