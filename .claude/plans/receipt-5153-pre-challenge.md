@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: receipt-5153
-diff_hash: afb20264b8a5c066d481a6c11b150f912b9128cc5ee06fd22374f414c45aa863
-validation: passed (Mortals full suite at 801dce9e5, 14944 tests 0 fail, hash afb20264b8a5, 2026-10-03 16:59 CDT; the first Mortals run at 9e858bd57 failed only the #1777 win32-host guard on this branch's new test, fixed in 801dce9e5)
+diff_hash: c02f268fd61e1f5481f5131ab00f88a0cd2680b534b9135dd2e8bb97f318269c
+validation: passed (Mortals full suite at 801dce9e5, 14944 tests 0 fail, hash afb20264b8a5, 2026-10-03 16:59 CDT; the first Mortals run at 9e858bd57 failed only the #1777 win32-host guard on this branch's new test, fixed in 801dce9e5; after the design review (page only): all web.* and related tests 2409/2409)
 subdir_audit: passed
-timestamp: 2026-10-03T21:59:33Z
+timestamp: 2026-10-04T00:21:27Z
 iterations: 5
 converged: true
 ---
