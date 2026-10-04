@@ -116,6 +116,18 @@ test('#5224: a highlight tagged for one platform shows only there; an untagged o
   assert.ok(!('platforms' in whatsnew.read('0.6.98', f, 'darwin')[0]), 'the tag is not served to the page');
 });
 
+test('#5224: with no platform given, the read uses the platform the page is stamped with (engine/platform describe)', () => {
+  const o = { version: '0.6.98', highlights: [
+    { icon: 'shield', title: 'Mac', line: 'On a Mac, it says so.', platforms: ['mac'] },
+    { icon: 'spark', title: 'Win', line: 'On a Windows PC, it says so.', platforms: ['windows'] },
+    { icon: 'tasks', title: 'All', line: 'Everywhere.' },
+  ] };
+  const f = tmp(o);
+  const stamped = require('./platform').describe().platform;
+  assert.deepEqual(whatsnew.read('0.6.98', f), whatsnew.read('0.6.98', f, stamped));
+  assert.notDeepEqual(whatsnew.read('0.6.98', f, 'darwin'), whatsnew.read('0.6.98', f, 'win32'), 'CONTROL: the platform changes the read');
+});
+
 test('#5224: when every highlight is for another platform there is no window (null), and key follows the same read', () => {
   const o = { version: '0.6.98', highlights: [
     { icon: 'shield', title: 'Keeps stopping', line: 'On a Mac, an agent that keeps stopping now says so.', platforms: ['mac'] },
@@ -137,6 +149,7 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
   assert.match(one({ line: 'Works on macOS.', platforms: ['mac', 'windows'] }).join(' '), /is for mac and windows but names only mac: take the other platform out/);
   assert.match(one({ line: 'Now on MacOS.' }).join(' '), /names mac but has no "platforms"/, 'a common miswriting of macOS');
   assert.match(one({ title: 'WINDOWS' }).join(' '), /names windows but has no "platforms"/);
+  assert.deepEqual(one({ title: 'Faster OS', line: 'X marks the spot.' }), [], 'a title ending "OS" and a line starting "X" are not "OS X"');
   for (const line of ['Now on macos.', 'On a Macintosh.', 'Since OS X 10.9.', 'On an imac.', 'PCS too.']) {
     assert.ok(one({ line }).some((p) => /has no "platforms"/.test(p)), line + ' was not seen as naming a platform');
   }

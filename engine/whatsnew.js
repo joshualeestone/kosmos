@@ -53,7 +53,7 @@ const NOT_PLATFORM_WORDS = Object.freeze(['mac', 'macs', 'windows']);
 function platformsNamed(text) {
   const s = String(text);
   const words = new Set(s.split(/[^A-Za-z]+/).filter((w) => !NOT_PLATFORM_WORDS.includes(w)).map((w) => w.toLowerCase()));
-  if (/\bOS[\s\u00a0]+X\b/i.test(s)) words.add('osx');
+  if (/\bOS[\s\u00a0]+X\b/i.test(s)) words.add('osx');   // callers pass the title and the line separately, so they cannot join into "OS X"
   return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w.toLowerCase())));
 }
 
@@ -93,7 +93,7 @@ function problems(obj, version) {
       out.push(n + '\'s "platforms" is not a list drawn from ' + PLATFORMS.join(', '));
       return;
     }
-    const named = platformsNamed((typeof x.title === 'string' ? x.title : '') + ' ' + (typeof x.line === 'string' ? x.line : ''));
+    const named = PLATFORMS.filter((p) => [x.title, x.line].some((t) => typeof t === 'string' && platformsNamed(t).includes(p)));
     if (named.length && tag === undefined) {
       out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform:'
         + ' tag it with the platforms it is about, or reword it if it is not about one');
@@ -128,7 +128,7 @@ function countsByPlatform(obj) {
  * read(), with the file's main "version" from the same parse (#4928): { key, highlights } or null.
  * #5224: only the highlights for `nodePlatform` (default: this process's), and null when none are left.
  */
-function readFull(version, file, nodePlatform = process.platform) {
+function readFull(version, file, nodePlatform = require('./platform').describe().platform) {   // the platform server.js stamps on the page
   const at = file || fileForTests || FILE;
   let raw;
   try { raw = fs.readFileSync(at, 'utf8'); } catch (e) {
