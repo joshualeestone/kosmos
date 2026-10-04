@@ -1617,9 +1617,9 @@ function antigravityQueued(paneText) {
   if (typeof paneText !== 'string' || !paneText) return null;
   const tail = paneText.split('\n').slice(-35).join('\n');
   const hasQueuePrompt = /to edit queued messages/i.test(tail) || /user-queued messages/i.test(tail);
+  if (!hasQueuePrompt) return null;
   const matches = tail.match(/(?:^|\n)\s*▸?\s*\[message from [^\n]+/g);
-  if (!hasQueuePrompt && (!matches || matches.length === 0)) return null;
-  const n = matches ? matches.length : 1;
+  const n = matches && matches.length > 0 ? matches.length : 1;
   return { n, yours: 0 };
 }
 
@@ -4441,7 +4441,7 @@ function classify(pane, paneText) {
     }
     const tail = paneText.split('\n').slice(-25).join('\n');
     const waiting = antigravityQueued(paneText);
-    if (/esc to cancel/.test(tail)) {
+    if (/esc to cancel/.test(tail) || waiting !== null) {
       return {
         state: STATE.WORKING,
         confidence: CONFIDENCE.SCRAPED,

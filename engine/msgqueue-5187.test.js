@@ -59,6 +59,29 @@ test('#5187 antigravityQueued parses pane text for queued messages', () => {
     'esc to cancel                                            Gemini 3.8 Flash · high',
   ].join('\n');
   assert.deepEqual(status.antigravityQueued(promptOnly), { n: 1, yours: 0 });
+
+  // Kano review blocker 1: turn-start delivered message or agent-typed text
+  // without queue prompt must strictly return null.
+  const turnStartDelivered = [
+    '● Bash(echo starting task)',
+    '▸ [message from your colleague liukang · m4097] Johnny Cage: work on card',
+    '────────────────────────────────────────────────────────────────────────────────',
+    '>',
+    '────────────────────────────────────────────────────────────────────────────────',
+    'esc to cancel                                            Gemini 3.8 Flash · high',
+  ].join('\n');
+  assert.equal(status.antigravityQueued(turnStartDelivered), null);
+
+  const agentTypedText = [
+    '● Bash(git log)',
+    '    commit abc123',
+    '    [message from your colleague liukang · m4000] old log',
+    '────────────────────────────────────────────────────────────────────────────────',
+    '>',
+    '────────────────────────────────────────────────────────────────────────────────',
+    'esc to cancel                                            Gemini 3.8 Flash · high',
+  ].join('\n');
+  assert.equal(status.antigravityQueued(agentTypedText), null);
 });
 
 test('#5187 classify detects working, idle, and queued messages for Antigravity panes', () => {
@@ -117,6 +140,33 @@ test('#5187 classify detects working, idle, and queued messages for Antigravity 
   const queuedRes = status.classify(agyPane, queuedScreen);
   assert.equal(queuedRes.state, status.STATE.WORKING);
   assert.deepEqual(queuedRes.waiting, { n: 1, yours: 0 });
+
+  // Kano review blocker 2: when messages are queued, footer replaces "esc to cancel"
+  // with "Press up to edit queued messages", which must still classify as WORKING.
+  const liveQueuedReplacedFooter = [
+    '⣾  Running command...',
+    '▸ [message from your colleague liukang · m4163] Johnny: review card',
+    '────────────────────────────────────────────────────────────────────────────────',
+    '>',
+    '────────────────────────────────────────────────────────────────────────────────',
+    'Press up to edit queued messages                         Gemini 3.8 Flash · high',
+  ].join('\n');
+  const liveQueuedRes = status.classify(agyPane, liveQueuedReplacedFooter);
+  assert.equal(liveQueuedRes.state, status.STATE.WORKING);
+  assert.deepEqual(liveQueuedRes.waiting, { n: 1, yours: 0 });
+
+  // Turn-start without queue prompt must not attach waiting
+  const turnStartScreen = [
+    '⣾  Running command...',
+    '▸ [message from your colleague liukang · m4097] Johnny: work on card',
+    '────────────────────────────────────────────────────────────────────────────────',
+    '>',
+    '────────────────────────────────────────────────────────────────────────────────',
+    'esc to cancel                                            Gemini 3.8 Flash · high',
+  ].join('\n');
+  const turnStartRes = status.classify(agyPane, turnStartScreen);
+  assert.equal(turnStartRes.state, status.STATE.WORKING);
+  assert.equal(turnStartRes.waiting, undefined);
 });
 
 test('#5187 reconcileReport preserves scraped.waiting when agent reports working', () => {
