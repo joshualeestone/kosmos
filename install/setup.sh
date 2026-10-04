@@ -2474,6 +2474,16 @@ else
   printf '  (could not read the release pointer; installing what the download host serves)\n'
 fi
 
+# ⚠️ THE macOS FLOOR IS GATED HERE, IN A SENTENCE, NOT DISCOVERED AT THE
+# LAST STEP. The shipped Node runtime is built with minos 13.5 (measured
+# with otool on the artifact), so on an older macOS the entire narrated
+# install would succeed and then die at "Starting Kosmos." with a log
+# nobody reads -- the exact opposite of the named-refusal rule above. The
+# build gates its artifacts against this same floor, so the number here
+# and the binaries cannot drift apart silently.
+MACOS_FLOOR_MAJOR=13
+MACOS_FLOOR_MINOR=5
+
 step "Checking this computer."
 case "$(uname -s)" in
   Darwin)
@@ -2485,15 +2495,6 @@ case "$(uname -s)" in
       arm64) ;;
       *) die "Kosmos needs a Mac with Apple silicon (M1 or newer). This Mac is $ARCH." ;;
     esac
-    # ⚠️ THE macOS FLOOR IS GATED HERE, IN A SENTENCE, NOT DISCOVERED AT THE
-    # LAST STEP. The shipped Node runtime is built with minos 13.5 (measured
-    # with otool on the artifact), so on an older macOS the entire narrated
-    # install would succeed and then die at "Starting Kosmos." with a log
-    # nobody reads -- the exact opposite of the named-refusal rule above. The
-    # build gates its artifacts against this same floor, so the number here
-    # and the binaries cannot drift apart silently.
-    MACOS_FLOOR_MAJOR=13
-    MACOS_FLOOR_MINOR=5
     _osver="$(sw_vers -productVersion 2>/dev/null || echo 0.0)"
     [ -n "$_osver" ] || _osver="0.0"
     _osmajor="${_osver%%.*}"
@@ -2990,19 +2991,16 @@ step "Setting up the pieces Kosmos needs."
 # whole step when a tmux was already present, which froze every machine at
 # whatever tmux its FIRST install shipped -- no path to ever deliver a fix.
 # The staged swap makes re-fetching safe, and the download is ~700KB.
-case "$(uname -s)" in
-  Linux)
-    setup_linux_tmux "$KOSMOS_HOME/tmux" || die "Could not set up tmux on this computer."
-    ;;
-  *)
-    info "installing a private copy of tmux (about 2MB, nothing system-wide)"
-    # On a release this fetches the checksum-verified bundle from the release
-    # URL (the binaries inside carry ad-hoc signatures; nothing here is Apple-
-    # signed, and saying "signed" would overclaim). Kept as a function so the
-    # clean-machine test can point it at a local file.
-    fetch_tmux "$KOSMOS_HOME/tmux" || die "Could not set up the terminal manager. The lines above say why, and whether trying again can help."
-    ;;
-esac
+if [ "$(uname -s)" = "Linux" ]; then
+  setup_linux_tmux "$KOSMOS_HOME/tmux" || die "Could not set up tmux on this computer."
+else
+  info "installing a private copy of tmux (about 2MB, nothing system-wide)"
+  # On a release this fetches the checksum-verified bundle from the release
+  # URL (the binaries inside carry ad-hoc signatures; nothing here is Apple-
+  # signed, and saying "signed" would overclaim). Kept as a function so the
+  # clean-machine test can point it at a local file.
+fetch_tmux "$KOSMOS_HOME/tmux" || die "Could not set up the terminal manager. The lines above say why, and whether trying again can help."
+fi
 ok
 
 # ⚠️ TERMINFO IS PINNED RATHER THAN TRUSTED. The bundled ncurses carries a
