@@ -16,6 +16,11 @@
  * One definition of "a file the window can show", used twice: by the board (read, below, which
  * serves nothing it cannot draw) and by the cut (tools/whats-new-check.js, which refuses a cut
  * whose file is not for the version being cut).
+ *
+ * #5224: a highlight that is about one platform carries "platforms": ["mac"] (or ["windows"]), and
+ * the board shows it only on that platform. A title or line that names a platform (Mac, Macs, macOS,
+ * Windows, PC, PCs) must carry the tag, naming every platform it lists, so a Windows user is never told
+ * about their Mac. A highlight with no tag shows everywhere.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -32,6 +37,20 @@ const MAX_LINE = 140;    // one sentence of about 90 to 120
 const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
 /* A version like 0.6.98: the one pattern for this module and tools/whats-new-check.js (round 12). */
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
+/* #5224: the platforms a highlight can be for, and the whole words (case-sensitive) that name each. */
+const PLATFORMS = Object.freeze(['mac', 'windows']);
+const PLATFORM_WORDS = Object.freeze({ mac: ['Mac', 'Macs', 'macOS'], windows: ['Windows', 'PC', 'PCs'] });
+
+/** #5224: the platforms a text names, in PLATFORMS order. */
+function platformsNamed(text) {
+  const words = new Set(String(text).split(/[^A-Za-z]+/));
+  return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w)));
+}
+
+/** #5224: the board's platform as a PLATFORMS value, or null on any other (only untagged highlights show there). */
+function platformOf(nodePlatform) {
+  return nodePlatform === 'darwin' ? 'mac' : nodePlatform === 'win32' ? 'windows' : null;
+}
 
 /** Every problem with a parsed file, as sentences; an empty list means it is good for `version`. */
 function problems(obj, version) {
@@ -58,6 +77,18 @@ function problems(obj, version) {
       if (v.length > max) out.push(n + '\'s ' + key + ' is ' + v.length + ' characters (at most ' + max + ')');
       if (EM_DASH.test(v)) out.push(n + '\'s ' + key + ' has an em dash');
     }
+    const tag = x.platforms;
+    if (tag !== undefined && (!Array.isArray(tag) || tag.length < 1 || tag.some((p) => !PLATFORMS.includes(p))
+        || new Set(tag).size !== tag.length)) {
+      out.push(n + '\'s "platforms" is not a list drawn from ' + PLATFORMS.join(', '));
+      return;
+    }
+    const named = platformsNamed((typeof x.title === 'string' ? x.title : '') + ' ' + (typeof x.line === 'string' ? x.line : ''));
+    if (named.length && tag === undefined) {
+      out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform');
+    } else if (named.length && tag.some((p) => !named.includes(p))) {
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names only ' + named.join(' and '));
+    }
   });
   return out;
 }
@@ -66,13 +97,16 @@ function problems(obj, version) {
  * The highlights to show for `version`, or null: null when there is no file, it cannot be read,
  * it is for another version (last release's text can never appear), or it has any problem.
  */
-function read(version, file) {
-  const got = readFull(version, file);
+function read(version, file, nodePlatform) {
+  const got = readFull(version, file, nodePlatform);
   return got && got.highlights;
 }
 
-/** read(), with the file's main "version" from the same parse (#4928): { key, highlights } or null. */
-function readFull(version, file) {
+/**
+ * read(), with the file's main "version" from the same parse (#4928): { key, highlights } or null.
+ * #5224: only the highlights for `nodePlatform` (default: this process's), and null when none are left.
+ */
+function readFull(version, file, nodePlatform = process.platform) {
   const at = file || fileForTests || FILE;
   let raw;
   try { raw = fs.readFileSync(at, 'utf8'); } catch (e) {
@@ -88,7 +122,10 @@ function readFull(version, file) {
     if (!(bad.length === 1 && /^it is for /.test(bad[0]))) logOnce(at + ': ' + bad[0]);
     return null;
   }
-  return { key: obj.version, highlights: obj.highlights.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() })) };
+  const here = platformOf(nodePlatform);
+  const shown = obj.highlights.filter((x) => x.platforms === undefined || x.platforms.includes(here));
+  if (!shown.length) return null;
+  return { key: obj.version, highlights: shown.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() })) };
 }
 
 /**
@@ -111,4 +148,4 @@ function logOnce(line) {
 }
 function setFileForTests(f) { fileForTests = f || null; lastLogged = null; }
 
-module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, readFull, key, setFileForTests };
+module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, PLATFORMS, PLATFORM_WORDS, platformsNamed, platformOf, problems, read, readFull, key, setFileForTests };
