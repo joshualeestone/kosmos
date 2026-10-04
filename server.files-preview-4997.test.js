@@ -395,3 +395,23 @@ test('#4997 + #5165: the resolved-equals-walked check is exact off Windows and c
   assert.equal(projects.sameListedPath('C:\\Proj\\B.png', 'c:\\proj/b.png', 'win32'), true, 'Windows: case and separators do not refuse');
   assert.equal(projects.sameListedPath('C:\\Proj\\B.png', 'C:\\Proj\\C.png', 'win32'), false, 'CONTROL: another file is still refused on Windows');
 });
+
+test('#4997: a file inside a folder the list skips is refused even when it is named in another case and the path check is case-blind (as on Windows) (CONTROL: a listed file in a real folder is served)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-preview-skipcase-'));
+  fs.mkdirSync(path.join(dir, 'node_modules'));
+  fs.writeFileSync(path.join(dir, 'node_modules', 'x.png'), SECRET);
+  fs.mkdirSync(path.join(dir, 'pics'));
+  fs.writeFileSync(path.join(dir, 'pics', 'ok.png'), PNG);
+  const caseBlind = fs.existsSync(path.join(dir, 'NODE_MODULES'));   // APFS and NTFS are case-insensitive by default
+  const was = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });   // sameListedPath goes case-blind
+  let skipped, control;
+  try {
+    skipped = projects.resolveListedFile(dir, 'NODE_MODULES/x.png', 'here', { listed: true });
+    control = projects.resolveListedFile(dir, 'pics/ok.png', 'here', { listed: true });
+  } finally { Object.defineProperty(process, 'platform', was); }
+  assert.equal(control.ok, true, 'CONTROL: a listed file in a real folder is served: ' + control.because);
+  if (!caseBlind) return;   // a case-sensitive disk has no NODE_MODULES to walk into, so the arm cannot be staged
+  assert.equal(skipped.ok, false, 'a file under node_modules was served through another case');
+  assert.match(skipped.because, /not a file in here/);
+});
