@@ -67731,9 +67731,9 @@ function fedOutsideHtml() {
   const body = fm.body || {};
   if (fm.ok && (body.owner !== true || body.self_shared === true)) return '';
   const rows = fm.ok ? fedOutsideRows(body) : [];
-  // Not checked: the GET failed, or the board could not ask the coordinator about invites it HAS (a project
-  // that never invited anyone answers checked_at null too, and has nothing to be out of date about).
-  const note = !fm.ok || (typeof body.checked_at !== 'number' && Array.isArray(body.invites) && body.invites.length > 0);
+  // Not checked: the GET failed, or the board could not ask the coordinator and there are rows to show (with
+  // none visible, e.g. a project that never invited anyone, there is nothing to be out of date about).
+  const note = !fm.ok || (typeof body.checked_at !== 'number' && rows.length > 0);
   const keys = new Set(rows.map(fedRowKey));
   // A sentence whose row is gone (Remove's 404, Withdraw's 409 joined after the refetch) is said under the list.
   const loose = Object.keys(FED_MSGS).filter((k) => !keys.has(k) && FED_MSGS[k]).map((k) => FED_MSGS[k]);
@@ -67770,7 +67770,7 @@ async function fedMembersLoad(project) {
     entry = res.status === 404 ? { project, ok: true, body: {}, at: Date.now() }
       : { project, ok: res.ok && !!body && typeof body === 'object', body: (body && typeof body === 'object') ? body : {}, at: Date.now() };
   } catch {
-    entry = { project, ok: false, body: {} };
+    entry = { project, ok: false, body: {}, at: Date.now() };   // at: the 30 s retry counts from here too
   }
   if (seq !== FED_MEMBERS_SEQ) return;
   FED_MEMBERS_ASKING = null;
@@ -67857,7 +67857,7 @@ async function fedRemoveGo() {
   }
   FED_BUSY.delete(f.key);
   // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
-  if (PJ_CURRENT !== f.project) return;
+  if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) fedRemoveReset(); return; }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   if (!said && res.ok) {
