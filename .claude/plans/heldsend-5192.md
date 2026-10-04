@@ -30,8 +30,8 @@ A post that could never go (too long once sealed, measured by sealing it with a 
 refused at once with the too-long note, not held.
 A post re-held during a flush keeps the time it was first held, so passes never reset its hour. A
 flush runs only through the project's live, connected seat (a key that arrives while the seat is down
-keeps the posts held until it is up; a replaced seat never sends another's). A held post the write
-loses stays held. A flush that meets an unreadable rooms record holds the posts again for
+keeps the posts held until it is up; a replaced seat never sends another's). A held post whose write
+throws stays held (an asynchronous EPIPE is not caught: the post counts as sent). A flush that meets an unreadable rooms record holds the posts again for
 the next one. The byte cap keeps a flush well inside the receiver's minute but is not a guarantee:
 other posts in that minute share it.
 At most 50 held per seat, and at most 3/4 of the receiving board's minute byte budget (a flush sends them
@@ -57,9 +57,12 @@ is sent to the first computer that joins with its key, if one joins within the h
 A seat that ends (member removed) with posts held says how many were not sent. A post held on no edge (an owner's own room, before any guest) still goes when the seat
 moves onto a guest's edge: that is the same room.
 
-An owner's held post also records the invites live when it was written, and goes only to a member
-pinned from one of them (round 12): a post is never sent to someone invited afterwards. A post held
-for a sealed room is never sent in the clear, whatever the record later says.
+An owner's post held while NO member is pinned records the invites live when it was written, and
+goes only to a member pinned from one of them (rounds 12-13): never to someone invited afterwards.
+Held with members already in, it is for them. When the records cannot be read at hold time it fails
+closed (not sent if anyone is pinned, with a note saying why). A post held while the room was known
+to be sealed is never sent in the clear; one held on an unreadable record goes by what the record
+says once it reads. A seat not connected still ages its held posts out at each pass, with a note.
 A flush that throws keeps what it had not handled (untested: nothing reachable in sendPost throws).
 
 ## Weakest premise

@@ -2536,3 +2536,75 @@ test('#5192: a post held for a sealed room never leaves in the clear', async (t)
   assert.ok(!seat.written.join('').includes('secret words'), 'a held post left in the clear');
   void h;
 });
+
+test('#5192: an owner\'s post held while a member is already in the room goes to that member', async () => {
+  const inv = newInvite('5192in');
+  const { h, seat } = await ownerRoom('proj-5192-in', 'ref-5192-in', 'room-5192-in', [inv]);
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5192-in') });
+  await settle();
+  const share = lines(seat).find((f) => f.t === 'key-share');
+  const got = fedseal.openShare(inv.s, inv.code, member, share, 'room-5192-in');
+  say(seat, { event: 'connected', expires_at: 10 });   // reconnects without a room id: the post is held
+  await settle();
+  fedseats.post('proj-5192-in', { from: 'Josh', kind: 'person', text: 'to the member already here' });
+  const before = lines(seat).length;
+  say(seat, { event: 'connected', room: 'room-5192-in', expires_at: 11 });
+  await settle();
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-in', f)).filter(Boolean);
+  assert.deepStrictEqual(out.map((o) => o.m.text), ['to the member already here'], 'a post held with a member in the room was dropped: ' + JSON.stringify(h.notes));
+});
+
+test('#5192: an owner\'s post held while the link record cannot be read is not sent to a later invitee', async (t) => {
+  const early = newInvite('5192lu');
+  const { h, seat } = await ownerRoom('proj-5192-lu', 'ref-5192-lu', 'room-5192-lu', [early]);
+  const broken = t.mock.method(federation, 'linkFor', () => { throw new Error('EIO'); });
+  fedseats.post('proj-5192-lu', { from: 'Josh', kind: 'person', text: 'for early only' });
+  broken.mock.restore();
+  const late = newInvite('5192lulate');
+  fedseal.stashInvite('ref-5192-lu', late);
+  h.edges = h.edges.concat([{ id: 'edge-inv-5192lulate', project_ref: 'ref-5192-lu', status: 'active', invite_id: 'inv-5192lulate' }]);
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(late.s, late.code, member, 'room-5192-lu') });
+  await settle();
+  const frames = lines(seat);
+  const share = frames.find((f) => f.t === 'key-share');
+  assert.ok(share, 'fixture: pinned');
+  const got = fedseal.openShare(late.s, late.code, member, share, 'room-5192-lu');
+  assert.deepStrictEqual(frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-lu', f)).filter(Boolean), []);
+  assert.ok(h.notes.some((n) => /could not read who the shared project included/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: a post held on an unreadable record in a room that turns out unsealed goes, in the clear as before', async (t) => {
+  federation.recordLink('proj-5192-plain', { role: 'member', edge_id: 'edge-5192-plain' });
+  const h = harness();
+  await fedseats.ensure('proj-5192-plain');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-plain', expires_at: 9 });
+  await settle();
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  fedseats.post('proj-5192-plain', { from: 'Ana', kind: 'person', text: 'plain room' });
+  broken.mock.restore();
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(lines(seat).filter((f) => f.text).map((f) => f.text), ['plain room'], JSON.stringify(h.notes));
+  assert.ok(!h.notes.some((n) => /no longer reads as sealed/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: posts held on a seat that is not connected still age out at the pass, with a note', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T04:00:00Z') });
+  federation.recordLink('proj-5192-wait', { role: 'member', edge_id: 'edge-5192-wait' });
+  fedseal.setRoomState('proj-5192-wait', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192w', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-wait');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-wait', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-wait', { from: 'Ana', kind: 'person', text: 'waits' });
+  say(seat, { event: 'disconnected' });
+  await settle();
+  t.mock.timers.tick(61 * 60 * 1000);
+  await fedseats.ensureAll();
+  await settle();
+  assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
+});
