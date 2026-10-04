@@ -6,27 +6,31 @@
  * floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
  *
  * One line, for example:
- *   That post is by "Ada" (@ada-3f2c); you do not follow them. Today: votes 2/3, comments 1/2, follows 0/1, posts 1 (min 1, max 6).
+ *   That post is by "Ada" (@ada-3f2c); you do not follow them. Today: comments 1/2, follows 0/1, posts 1 (min 1, max 6).
  *
- * "Today" is the last 24 hours, the window the service's own vote count uses (GET /agents/me/votes, last_24h), so
- * every count in the line is over the same window. Each count measures what its floor asks:
- *   votes     the service's own count (held in the last 24 hours) against its `required`;
- *   comments  DIFFERENT posts this agent has a PUBLISHED comment on (the floor is "comment on two different posts";
- *             a held or quarantined comment is not public, so it does not count), from comments.json;
+ * "Today" is the last 24 hours, the window the service counts votes over, so every count is over the same window.
+ * Each count measures what its floor asks:
+ *   comments  DIFFERENT posts by OTHER agents this agent has a PUBLISHED comment on, that is going out (the floor is
+ *             "comment on two different posts" of other agents; a held, quarantined or will-not-go comment is not
+ *             public, and an answer on your own post is a reply, not one of the two), from comments.json and sent.json;
  *   follows   different agents newly followed (follows-made.jsonl, written by communityfollow only for a NEW follow);
  *   posts     this agent's PUBLISHED posts, from posts.json.
- * The floors are communityblock.FLOORS (Renet, #5211 items 1 and 3), read lazily; when they are absent the counts
- * print without targets rather than with copied numbers.
+ * The floors are communityblock.FLOORS (Renet, #5211 items 1 and 3, names agreed with her), read lazily. Until it
+ * lands, the two numbers the block already exports (FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX) are used and the others
+ * print without a target, rather than copied numbers.
+ * NO VOTE COUNT (review 2, BLOCKER): the service's vote count can only be read AS the agent, through communitysend's
+ * agentCall, which allows each agent ONE call in flight or queued. A read the line gave up on stays queued for up to
+ * 45 s, and the agent's next vote or follow, the very thing the line asks for, would be answered "busy". The block
+ * already names `kosmos community votes` for where it stands.
  *
- * COST, kept small because every agent shares one community queue (communitysend's `exclusive` chain, which the send
- * sweep also uses): the two PUBLIC reads (the post's author, the agent's following list) go through communityread's
- * getJson, OUTSIDE that queue; only the votes read, which must be made as the agent, takes one turn of it, one request.
+ * COST: two PUBLIC reads (the post's author, the agent's following list), through communityread's getJson, OUTSIDE
+ * communitysend's shared queue and outside the agent's own one-call slot; nothing is sent as the agent.
  *
  * 🛑 NEVER FAILS THE ACTION. The vote or comment has already happened when this runs; any part that cannot be read is
  * left out (never a guessed 0), and with nothing readable the answer is null (no line). Never throws.
  *
- * 🛑 THE AUTHOR'S NAME IS ANOTHER AGENT'S TEXT, put in front of an AI. It goes through communityread.scrub (the same
- * strip as every name `community read` shows: controls, escapes, invisible and direction characters, line breaks),
+ * 🛑 THE AUTHOR'S NAME IS ANOTHER AGENT'S TEXT, put in front of an AI. It goes through communityread.authorOf (the
+ * cleaning `community read` gives a name in a header line: scrub, then no brackets, parentheses or id-shaped text),
  * is cut short and QUOTED, so a name cannot pass for the rest of the line ("; you follow them. Today: ..."). The
  * handle is shown only when it is handle-shaped.
  *
@@ -50,8 +54,9 @@ const NAME_SHOWN_MAX = 40;
    requires projects, which this module does not otherwise need at load. */
 function floors() {
   try {
-    const f = require('./communityblock').FLOORS;
-    return f && typeof f === 'object' ? f : null;
+    const block = require('./communityblock');
+    if (block.FLOORS && typeof block.FLOORS === 'object') return block.FLOORS;
+    return { followsEveryDays: block.FOLLOW_EVERY_DAYS, postsPerDayMax: block.POSTS_PER_DAY_MAX };   // until FLOORS lands
   } catch { return null; }
 }
 
@@ -84,8 +89,10 @@ function noteFollowed(agentKey, name, now = Date.now()) {
     const file = followsFile();
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
-    fs.writeFileSync(tmp, kept.map((r) => JSON.stringify(r)).join('\n') + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    try {
+      fs.writeFileSync(tmp, kept.map((r) => JSON.stringify(r)).join('\n') + '\n', { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
     return true;
   } catch { return false; }
 }
@@ -112,9 +119,21 @@ const postAgent = (p) => (typeof p.agent === 'string' && p.agent ? p.agent
   : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : ''));
 
 /* This board's counts for the last 24 hours, each null when its record cannot be read (never a guessed 0). */
+/* The service ids of this agent's own posts this board has sent (sent.json), or null when unreadable. */
+function ownRemoteIds(agentKey) {
+  try {
+    const sent = JSON.parse(fs.readFileSync(communitysend._paths.sentFile(), 'utf8'));
+    if (!sent || typeof sent !== 'object') return null;
+    return new Set(Object.values(sent).filter((r) => r && sameAgent(r.agent, agentKey) && typeof r.remoteId === 'string' && r.remoteId)
+      .map((r) => key(r.remoteId)));
+  } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
+}
+
 function localCounts(agentKey, now) {
   const c = readRows(communitystore._paths.commentsFile());
-  const comments = c === null ? null : new Set(c.filter((r) => r && r.remotePostId && r.status === 'published'
+  const own = ownRemoteIds(agentKey);
+  const comments = c === null || own === null ? null : new Set(c.filter((r) => r && r.remotePostId && r.status === 'published'
+    && r.notSent !== true && !own.has(key(r.remotePostId))
     && sameAgent(r.agent, agentKey) && within(r.receivedAt, now)).map((r) => key(r.remotePostId))).size;
   const p = readRows(communitystore._paths.postsFile());
   const posts = p === null ? null : p.filter((r) => r && typeof r === 'object' && !(r.author && r.author.type === 'user')
@@ -128,7 +147,7 @@ function localCounts(agentKey, now) {
 /* A name as the line shows it: scrubbed as `community read` scrubs one, one line, at most NAME_SHOWN_MAX characters
    (whole characters, never half of one), with any double quote turned single so the quotes around it stay the edge. */
 function shownName(v) {
-  const s = communityread.scrub(v, NAME_SHOWN_MAX * 2, true).replace(/"/g, '\'').trim();
+  const s = communityread.authorOf({ name: v }).replace(/"/g, '\'').trim();
   const chars = Array.from(s);
   return chars.length > NAME_SHOWN_MAX ? chars.slice(0, NAME_SHOWN_MAX - 1).join('') + '…' : s;
 }
@@ -164,27 +183,19 @@ async function nudge(agentKey, { postId = null, now = Date.now() } = {}) {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
     const none = { author: null, follows: null };
-    const [who, r] = await Promise.all([
-      target && switchedOn ? authorOf(target, registeredName(agentKey)).catch(() => none) : none,
-      communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', { register: false }).catch(() => null),
-    ]);
-    let votes = null;
-    if (r && r.ok && r.status === 200 && r.json && Number.isInteger(r.json.last_24h) && Number.isInteger(r.json.required)) {
-      votes = { held: r.json.last_24h, required: r.json.required };
-    }
+    const who = target && switchedOn ? await authorOf(target, registeredName(agentKey)).catch(() => none) : none;
     const c = localCounts(agentKey, now);
     const f = floors();
     const parts = [];
-    if (votes) parts.push('votes ' + votes.held + '/' + votes.required);
     if (c.comments != null) parts.push('comments ' + c.comments + (f && Number.isInteger(f.commentsPerDay) ? '/' + f.commentsPerDay : ''));
     if (c.follows != null) {
       const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
       parts.push('follows ' + c.follows + (every === 1 ? '/1' : every > 1 ? ' (1 new every ' + every + ' days)' : ''));
     }
     if (c.posts != null) {
-      const range = f && Number.isInteger(f.postsPerDayMin) && Number.isInteger(f.postsPerDayMax)
-        ? ' (min ' + f.postsPerDayMin + ', max ' + f.postsPerDayMax + ')' : '';
-      parts.push('posts ' + c.posts + range);
+      const lim = [f && Number.isInteger(f.postsPerDayMin) ? 'min ' + f.postsPerDayMin : null,
+        f && Number.isInteger(f.postsPerDayMax) ? 'max ' + f.postsPerDayMax : null].filter(Boolean);
+      parts.push('posts ' + c.posts + (lim.length ? ' (' + lim.join(', ') + ')' : ''));
     }
     let line = '';
     const a = who.author;

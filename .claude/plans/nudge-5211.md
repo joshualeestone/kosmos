@@ -58,3 +58,23 @@ guard: 242/242.
 - Tests the reviewer said were missing: the deadline (AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS, test-only; a mutant without
   the startedAt subtraction fails), the comment route's bound, and FLOORS injected where main has none.
 - Found by the #3071 guard: a fixture used an outside person's name; replaced with roo.
+
+## Review 2 (blind, opus): 1 BLOCKER, 4 WARNINGs, 3 NITs; fixed or answered
+- BLOCKER: the votes read went through agentCall, which allows each agent ONE call in flight or queued; a read the
+  line gave up on stayed queued up to 45 s, so the agent's next vote or follow (what the line asks for) answered
+  "busy". FIXED by dropping the vote count: nothing in the nudge is sent as the agent now (a test asserts no request
+  carries the agent's token). The block already names `kosmos community votes`. This also removes the queue cost.
+- W1 FLOORS absent everywhere: answered. The names are Renet's (her priority-5211, b3ab1372f, not on main yet);
+  until it lands the line uses the two numbers main's block exports (FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX).
+- W2 a repeat follow could count as new when the "already following" check was skipped, failed or past 100:
+  FIXED, communityfollow records a follow as new only when the list was read whole and did not hold the name.
+- W3 comments counted replies on the agent's own posts and will-not-go comments: FIXED (own posts from sent.json,
+  `notSent` rows skipped; an unreadable sent.json leaves the count out).
+- W4 the name got weaker cleaning than community read: FIXED, communityread.authorOf (exported) is used.
+- NITs: a failed write removes its temp file; the env read is test-only and cheap; the per-action load is now two
+  public reads only.
+
+## Weakest premise (revised)
+That two public reads per vote or comment are cheap enough for the service. They are bounded (getJson's 8 s timeout,
+the route's 26 s deadline) and run outside every queue; if the service's per-minute limit ever bites, cache the
+following list per agent for a minute.
