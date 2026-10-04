@@ -89,3 +89,11 @@ holds Claude Code's own runtime state), and realOr's its paths so a symlinked ro
 refreshTokenOnlyGuards writes the managed-belt-absent warning to STDERR; the board captures its agents'
 stderr to its log, so it surfaces there. "board log" in the code comment is that path, not a dedicated
 logger.
+
+## After the review rounds (2026-10-04)
+- A world created MID-SESSION: its token path is covered for the file tools at once (the world-store glob), but for
+  the agent's SHELL only by the sandbox write scope (the shell can write its own folder and temp only) until the
+  agent's next start rewrites the concrete denies. Do not widen that write scope to the Kosmos store, the worlds
+  base or the home (a note sits by the sandbox block).
+- Gate-side hardening (accept other worlds' tokens only from the board's start-time snapshot, or refuse them for
+  agent-marked requests) is a follow-up card: 5247.
