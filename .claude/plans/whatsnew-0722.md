@@ -47,3 +47,13 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 - Ranking changed to breadth (reviewer): #5154 (every card, every device), #5164 (any Claude user), #5152 (every new
   agent), #5165 (Kosmos+ only), #5140 (phone, empty board, notice showing). The phone lines reach the fewest.
 - Shas: #5165 landed as dfe2b88b1 and #5152 as 4091df1e9 (the shas above are their proof commits); reviewed those.
+
+## Angel's cross-agent review (21:53), all taken
+- "Agents that keep stopping" OVERCLAIMED FOR WINDOWS: crashloop reads <data>/runs/<key>.log, written only by the Mac
+  supervisor (bin/agent-supervisor.sh, the #5154 block near line 185); engine/win32supervisor.js never writes it
+  (verified: its "runs" hits are the English word). 0.7.22 ships to Windows staging too. Now begins "On a Mac".
+  "right after each start" was looser than the rule (3 runs ending on their own within 2 min, inside 30 min).
+- "An honest sign-in warning": worksUntil is set for ANY live margin, minutes included; "a few more hours" was only
+  the measured case. Now "can still work for a while", and names "the sign-in warning".
+- "Work you can check off": "Existing agents are offered the change."
+- Ranking: Angel agrees the five beat #5146.

@@ -4,17 +4,17 @@
     {
       "icon": "shield",
       "title": "Agents that keep stopping",
-      "line": "An agent that stops right after each start now shows Keeps stopping on its card. With Kosmos+ phone notifications on, your phone is told."
+      "line": "On a Mac, an agent that keeps stopping minutes after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told."
     },
     {
       "icon": "chat",
       "title": "An honest sign-in warning",
-      "line": "When a Claude sign-in ends but its agents can work a few more hours, the warning now says when they stop, not that they already have."
+      "line": "When a Claude sign-in ends but its agents can still work for a while, the sign-in warning now says when they will stop, not that they have."
     },
     {
       "icon": "tasks",
       "title": "Work you can check off",
-      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing ones are offered it."
+      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing agents are offered the change."
     },
     {
       "icon": "phone",
