@@ -24,13 +24,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync(process.env.PLUS_PAGE || 'web/index.html', 'utf8');
 
-test('the Plus off-state scopes its claim to Kosmos', () => {
+test('the Plus off-state scopes its claim to Kosmos and reflects #4318 wording', () => {
   const m = PAGE.match(/id="plus-devices-off"[^>]*>([^<]*)</);
   assert.ok(m, 'the plus-devices-off line is still in the page');
   const line = m[1];
 
   assert.match(line, /Kosmos/,
     'the off-state must name Kosmos, so the claim is about our reach and not the machine');
+  assert.match(line, /^Remote access is off/,
+    'the off-state must start with Remote access is off (kosmos#4318)');
+  assert.match(line, /Shared projects and phone notifications stay connected\./,
+    'the off-state must state that shared projects and phone notifications stay connected (kosmos#4318)');
+  assert.doesNotMatch(line, /Plus is off/,
+    'the misleading master-switch phrase Plus is off must not be used (kosmos#4318)');
   assert.doesNotMatch(line, /nothing can reach this Mac/,
     'the unscoped claim must not come back');
   assert.doesNotMatch(line, /nothing can reach this computer/,
@@ -42,4 +48,12 @@ test('CONTROL: the assertion can fail, so a green here means something', () => {
   const line = broken.match(/id="plus-devices-off"[^>]*>([^<]*)</)[1];
   assert.doesNotMatch(line, /Kosmos/, 'the pre-fix sentence really does lack the scope word');
   assert.match(line, /nothing can reach this Mac/, 'and the regex really does catch it');
+});
+
+test('CONTROL: kosmos#4318 off-state copy assertions catch the old text', () => {
+  const oldText = '<p id="plus-devices-off">Plus is off, so no device can reach Kosmos on this computer right now. Your devices are kept for when you turn it back on.</p>';
+  const line = oldText.match(/id="plus-devices-off"[^>]*>([^<]*)</)[1];
+  assert.match(line, /Plus is off/);
+  assert.doesNotMatch(line, /^Remote access is off/);
+  assert.doesNotMatch(line, /Shared projects and phone notifications stay connected\./);
 });
