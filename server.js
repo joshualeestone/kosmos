@@ -6430,7 +6430,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal or download' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download or reveal-file' });
     return;
   }
   /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
