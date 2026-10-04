@@ -19303,8 +19303,8 @@ function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
   if (!plusReduce) plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
 /* #5209: one coordinate of a dot across a resize from old size o to new size n. The part inside the box
    scales; a dot in the 4px wrap margin keeps its offset from the edge it is past. Scaling the margin too
-   pushed a just-wrapped dot (y about -3.7, grown x1.6 to about -6) past the -4 wrap line, so the same
-   frame wrapped it to the bottom and the next one back: a one-frame flash at the bottom edge. */
+   pushed a just-wrapped dot (y about -3.7, grown x1.6 to about -6) past the -4 wrap line, so it was
+   wrapped to the far edge early. */
 function plusStarScale(v, o, n) { return v < 0 ? v : v > o ? n + (v - o) : v * n / o; }
 /* #3778 (review pass 2): a re-size KEEPS the field. Re-seeding on every change in the section's
    height (a status line appearing is enough) made every dot jump to a new place each time. Each

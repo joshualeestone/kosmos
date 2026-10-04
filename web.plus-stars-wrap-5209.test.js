@@ -2,7 +2,7 @@
 
 /**
  * #5209: a resize scales the Kosmos+ star field's dots into the new box without pushing a dot that sits in
- * the 4px wrap margin past the wrap line (which flashed it at the opposite edge for one frame).
+ * the 4px wrap margin past the wrap line (which wrapped it to the far edge early).
  *
  *   node --test web.plus-stars-wrap-5209.test.js
  */
@@ -25,11 +25,11 @@ const WRAP = 4;   // the draw loop wraps at -4 and size + 4
 
 test('#5209: a just-wrapped dot near the top stays inside the wrap band when the field grows (the card\'s case)', () => {
   const y = plusStarScale(-3.7, 698, 1136);
-  assert.ok(y >= -WRAP, 'grown to ' + y + ', past the -4 wrap line, so it flashes at the bottom');
+  assert.ok(y >= -WRAP, 'grown to ' + y + ', past the -4 wrap line, so it is wrapped to the bottom early');
   assert.equal(y, -3.7);
 });
 
-test('#5209: a dot past the bottom keeps its offset from the bottom edge, growing or shrinking', () => {
+test('#5209: a dot past the bottom keeps its offset from the bottom edge (a grow pushed it out; a shrink keeps it too)', () => {
   assert.equal(plusStarScale(700, 698, 1136), 1138);
   assert.equal(plusStarScale(1139, 1136, 698), 701);
   for (const [v, o, n] of [[701.9, 698, 1136], [1139.9, 1136, 400]]) {
