@@ -92,7 +92,7 @@ indefinitely.
 ## Controls (engine/fedseats.test.js '#5192', each perturbed red)
 member post before the share is sent sealed, in order, on the share; owner post before the first
 pin follows the share frame; behind-held posts go out on the rotate, before a later post; a post
-after a hold ran out with no key drops the post held during it (never the old key); over an hour not sent + note; cap 50
+after a hold ran out with no key drops the post held during it (never the old key); over an hour not sent + note; a clock stepped back under 5 min keeps them, past it drops them; cap 30
 (a stale post takes no place); a refusal for good does not strand the rest; a held post with a file
 says so when sent (and server.fedmsg: the server passes `files`); held for a missing room id goes on
 connect, and the pass flushes after a behind hold ran out; a stopped seat sends nothing held.
