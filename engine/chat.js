@@ -1864,6 +1864,14 @@ function viewport(sessionName, roster) {
   if (card.isNamedOurs !== true) {
     return { text: null, because: 'something is running under this name, but we cannot tell that it is this agent, so we are not showing you its screen' };
   }
+  /* #5223: a Windows agent has NO window. It runs headless (`claude -p`, stream-json) under its
+     supervisor, the same fact `send` branches on above, read off the same card mark. The tmux
+     capture below could only fail, and its sentence ("could not reach the agents on this computer")
+     told every Windows user, on every agent page, that a working agent was unreachable. Said as
+     the fact it is, before tmux is asked, so nothing is spawned for an answer that is known. */
+  if (card.reachedByChannel === true) {
+    return { text: null, because: 'on Windows an agent runs without a window, so there is no screen to show here. What it says to you is in its Direct Message' };
+  }
   if (!card.target) {
     return { text: null, because: 'we cannot tell where this agent is running' };
   }

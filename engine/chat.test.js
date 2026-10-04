@@ -749,6 +749,28 @@ test('a viewport we could not capture says so, and never comes back as an empty 
   });
 });
 
+test('#5223: a Windows agent has no window, so the viewport says so and never asks tmux', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    board.card('casey').reachedByChannel = true;
+    const tmux = arm([refused('no server running')]);
+    const view = chat.viewport('casey', board.agents);
+    assert.equal(view.text, null);
+    assert.match(view.because, /on Windows an agent runs without a window/);
+    assert.doesNotMatch(view.because, /could not/, 'a working Windows agent is not reported as unreachable');
+    assert.equal(tmux.calls.length, 0, 'nothing is captured for an answer that is known');
+  });
+});
+
+test('#5223 CONTROL: a Mac agent (no channel mark) is still captured from its pane', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    assert.notEqual(board.card('casey').reachedByChannel, true);
+    const tmux = arm([ok('on screen')]);
+    const view = chat.viewport('casey', board.agents);
+    assert.equal(view.text, 'on screen');
+    assert.equal(tmux.calls.length, 1);
+  });
+});
+
 test('an untied pane’s screen is not shown under this agent’s name', () => {
   withFleet([fleet.stranger('casey', { state: 'working' })], (board) => {
     const tmux = arm([ok('somebody else’s work')]);
