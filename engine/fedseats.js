@@ -511,7 +511,9 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    this pause, which is no more than a relay can do anyway by dropping frames. Longer than
    the 90 s grace (#5197), and armed no earlier than the rotation, so a post sent after it,
    still under the old key, is past the grace and refused on the other boards (those whose
-   clock is not behind the owner's): holding until the key arrives would let a forger pause a member
+   clock is not behind the owner's). It arms once per epoch this member holds, so a forged
+   envelope that armed it leaves a real miss of the next rotation, at that epoch, unheld
+   (#5192 is where a refused post would be kept and resent): holding until the key arrives would let a forger pause a member
    indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 

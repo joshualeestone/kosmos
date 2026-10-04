@@ -1809,6 +1809,7 @@ test('#5197: a member\'s grace runs from the owner\'s rotation time, clamped to 
     say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-' + id, { from: 'In flight', kind: 'person', text: label }) });
     await settle();
     assert.deepStrictEqual(h.recorded.map((r) => r.text), shows ? [label] : [], label);
+    if (!shows) assert.ok(h.notes.some((n) => /was retired/.test(n.text)), 'refused for another reason: ' + JSON.stringify(h.notes));
     if (shows) {   // the slow clock's grace still ends 90 s after receipt
       t.mock.timers.tick(31 * 1000);
       say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-' + id, { from: 'Late', kind: 'person', text: '91 s after receipt' }) });

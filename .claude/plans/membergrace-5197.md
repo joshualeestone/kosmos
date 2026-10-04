@@ -20,6 +20,10 @@ The refused post itself is not resent (#5192). The realistic cases are a sleepin
 spanning the revoke: back more than 90 s later, posting before the owner's re-send reaches it (10 minutes
 covered more sleeps). What would change my mind: evidence that members routinely miss a
 rotation for more than 90 s while posting (for example sleep-and-post reports after a revoke).
+A member that has not yet seen a newer-epoch post holds nothing, so its first post after waking
+can be refused with no note; and the behind hold arms once per epoch the member holds, so a
+forged envelope that armed it earlier leaves a real miss at that epoch unheld. Kept: re-arming
+would let a forger pause a member indefinitely. Both are the #5192 class (noted there).
 
 Second premise (challenge round 1): the grace is the owner's rotation time judged on the
 member's clock, so a member clock running ahead shortens it, to nothing at 90 s ahead. Fails
