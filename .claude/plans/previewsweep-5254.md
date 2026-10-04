@@ -24,5 +24,12 @@ gone file, since the resolver runs first; this is only about what stays on disk)
 server.preview-sweep-5254.test.js: record mode and owner; deleted PDF swept with a kept control; removed project
 swept (its files stay) with a before-removal control; removed agent swept, unreadable list kept, another agent's
 removal kept; no-record folder swept; failed render leaves no folder; wiring. Mutants on each of the three checks
-turn a test red. Related tests + guards: 1087/1088; the one red (engine.reachable: projects.fileInFolder) is
-pre-existing on #5119's branch, measured with this change stashed, and reported to April.
+turn a test red. After the rebase onto #5119's ddef70dae (April fixed the pre-existing engine.reachable red):
+related tests + guards 1092/1092.
+
+## Review 1 (opus, blind)
+- [BLOCKER] a sweep during a FIRST render (no record yet) deleted the render: FIXED, a folder with a render in it
+  is skipped and an unrecorded one is left until 10 minutes old; test (sweep from inside the renderer) + mutant.
+- [WARNING] synchronous lstat per folder can stall on a hung network drive: documented as a known cost.
+- [NIT] record recreated after a mid-render sweep: FIXED (only beside a page that exists). [NIT] agent names compared
+  cleaned: FIXED + test. [NIT] no-record test control: added. [NIT] agent removal waits for the hourly sweep: decided.
