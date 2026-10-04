@@ -32,7 +32,8 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 0d. #5164 (1e23b5085, PR #5185) chat "An honest sign-in warning": from the PR, an ended login whose access token is still live
    shows "N agents stop working at about <time>" instead of saying they stopped. Ranks 3rd (day-one). 5 lines = the cap.
 
-0e. #5154 slice A (580fb2556, PR #5203, Renet) shield "Agents that keep stopping": "When an agent keeps crashing, its card
+0e. [SUPERSEDED: the line and order below were rewritten; the CURRENT file is web/whats-new.json, and the review
+   sections at the end of this plan record each change.] #5154 slice A (580fb2556, PR #5203, Renet) shield "Agents that keep stopping": "When an agent keeps crashing, its card
    now says Keeps stopping, and with Kosmos+ your phone is told once." From the merge: the card label is 'Keeps stopping'
    with the needs-you look (web/index.html stateCopyOf); a needs_you push once per loop episode (engine/crashloop.js).
    Ranks 3rd. #5146 (community English) DROPS at the cap of 5: it reaches the fewest newcomers.
@@ -57,3 +58,11 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
   the measured case. Now "can still work for a while", and names "the sign-in warning".
 - "Work you can check off": "Existing agents are offered the change."
 - Ranking: Angel agrees the five beat #5146.
+
+## Challenge loop iteration 1 (22:07)
+- WARNING taken: the sign-in warning is Mac-only too. engine/loginexpiry.js readCredDefault reads the macOS keychain
+  (`security find-generic-password`) with no file fallback, and status.js resolves each agent's sign-in via tmux/ps,
+  so Windows never produces the warning. The line now begins "On a Mac".
+- "soon after it starts" replaces "minutes after" (crashloop counts runs ending within 2 min; the usual case is seconds).
+- Superseded sections marked. The "Weakest premise" above is about #5146, which was dropped at the cap; the live one:
+  both Mac-only claims rest on reading the Windows code paths, not on a Windows run.

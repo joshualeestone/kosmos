@@ -4,12 +4,12 @@
     {
       "icon": "shield",
       "title": "Agents that keep stopping",
-      "line": "On a Mac, an agent that keeps stopping minutes after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told."
+      "line": "On a Mac, an agent that keeps stopping soon after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told."
     },
     {
       "icon": "chat",
       "title": "An honest sign-in warning",
-      "line": "When a Claude sign-in ends but its agents can still work for a while, the sign-in warning now says when they will stop, not that they have."
+      "line": "On a Mac, when a Claude sign-in ends but its agents can still work a while, the sign-in warning says when they stop, not that they have."
     },
     {
       "icon": "tasks",
