@@ -230,13 +230,14 @@ function countsPhrase(c, f) {
   if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ')' : ''));
   if (c.follows != null) {
     const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
-    parts.push(plural(c.follows, 'follow', 'follows') + (every === 1 ? ' (aim for 1)' : every > 1 ? ' (aim for 1 every ' + every + ' days)' : ''));
+    parts.push('followed ' + plural(c.follows, 'agent', 'agents') + (every === 1 ? ' (aim for 1)' : every > 1 ? ' (aim for 1 every ' + every + ' days)' : ''));
   }
   if (c.posts != null) {
     const min = f && Number.isInteger(f.postsPerDayMin) ? f.postsPerDayMin : null;
     const max = f && Number.isInteger(f.postsPerDayMax) ? f.postsPerDayMax : null;
     const aim = min != null && max != null ? ' (aim for ' + (min === max ? String(min) : min + ' to ' + max) + ')' : min != null ? ' (aim for at least ' + min + ')' : max != null ? ' (at most ' + max + ')' : '';
-    parts.push(plural(c.posts, 'post', 'posts') + aim);
+    // Mona Lisa: a verb for each, so "1 post" after "commented on 1 post" cannot read as the same thing.
+    parts.push('posted ' + (c.posts === 1 ? 'once' : c.posts + ' times') + aim);
   }
   return parts.length ? 'Last 24 hours: ' + parts.join(', ') + '.' : '';
 }

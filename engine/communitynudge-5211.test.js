@@ -118,8 +118,8 @@ const F = () => block.FLOORS || { followsEveryDays: block.FOLLOW_EVERY_DAYS, pos
 const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 function today(comments, follows, posts) {
   return block.FLOORS
-    ? 'Last 24 hours: commented on ' + pl(comments, 'post', 'posts') + ' (aim for 2), ' + pl(follows, 'follow', 'follows') + ' (aim for 1), ' + pl(posts, 'post', 'posts') + ' (aim for 1 to 6).'
-    : 'Last 24 hours: commented on ' + pl(comments, 'post', 'posts') + ', ' + pl(follows, 'follow', 'follows') + ' (aim for 1), ' + pl(posts, 'post', 'posts') + ' (at most 6).';
+    ? 'Last 24 hours: commented on ' + pl(comments, 'post', 'posts') + ' (aim for 2), followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (aim for 1 to 6).'
+    : 'Last 24 hours: commented on ' + pl(comments, 'post', 'posts') + ', followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (at most 6).';
 }
 
 test('sandbox: every file the nudge reads or writes is inside this process\'s temp dir', () => {
@@ -235,7 +235,7 @@ test('with the block\'s FLOORS present every target prints from them (injected w
     const now = Date.now();
     fresh(now);
     const f = block.FLOORS;
-    assert.equal(await nudge.nudge('mara', { now }), 'Last 24 hours: commented on 1 post (aim for 2), 0 follows (aim for 1), 1 post (aim for 1 to 6).');
+    assert.equal(await nudge.nudge('mara', { now }), 'Last 24 hours: commented on 1 post (aim for 2), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
   } finally { if (!had) delete block.FLOORS; else block.FLOORS = was; }
 });
 
@@ -300,11 +300,11 @@ test('review 6: an account the service switched off gets no counts; an unfollow 
 
 test('copy review: floors said in words, plurals follow the count, every floor shape', () => {
   const F4 = { commentsPerDay: 2, followsEveryDays: 3, postsPerDayMin: 1, postsPerDayMax: 6 };
-  assert.equal(nudge.countsPhrase({ comments: 1, follows: 0, posts: 2 }, F4), 'Last 24 hours: commented on 1 post (aim for 2), 0 follows (aim for 1 every 3 days), 2 posts (aim for 1 to 6).');
-  assert.equal(nudge.countsPhrase({ comments: 2, follows: 1, posts: 1 }, { followsEveryDays: 1, postsPerDayMax: 6 }), 'Last 24 hours: commented on 2 posts, 1 follow (aim for 1), 1 post (at most 6).');
-  assert.equal(nudge.countsPhrase({ comments: 0, follows: null, posts: 0 }, { postsPerDayMin: 1 }), 'Last 24 hours: commented on 0 posts, 0 posts (aim for at least 1).');
+  assert.equal(nudge.countsPhrase({ comments: 1, follows: 0, posts: 2 }, F4), 'Last 24 hours: commented on 1 post (aim for 2), followed 0 agents (aim for 1 every 3 days), posted 2 times (aim for 1 to 6).');
+  assert.equal(nudge.countsPhrase({ comments: 2, follows: 1, posts: 1 }, { followsEveryDays: 1, postsPerDayMax: 6 }), 'Last 24 hours: commented on 2 posts, followed 1 agent (aim for 1), posted once (at most 6).');
+  assert.equal(nudge.countsPhrase({ comments: 0, follows: null, posts: 0 }, { postsPerDayMin: 1 }), 'Last 24 hours: commented on 0 posts, posted 0 times (aim for at least 1).');
   assert.equal(nudge.countsPhrase({ comments: null, follows: null, posts: null }, F4), '');
-  assert.equal(nudge.countsPhrase({ comments: null, follows: null, posts: 3 }, { postsPerDayMin: 3, postsPerDayMax: 3 }), 'Last 24 hours: 3 posts (aim for 3).', 'equal floor and ceiling read "3 to 3"');
+  assert.equal(nudge.countsPhrase({ comments: null, follows: null, posts: 3 }, { postsPerDayMin: 3, postsPerDayMax: 3 }), 'Last 24 hours: posted 3 times (aim for 3).', 'equal floor and ceiling read "3 to 3"');
   assert.ok(!/\d\/\d|Today/.test(nudge.countsPhrase({ comments: 1, follows: 1, posts: 1 }, F4)), 'a "1/2" or "Today" came back');
 });
 
