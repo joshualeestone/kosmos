@@ -939,8 +939,11 @@ _busy_person_hint() {
 # `security show-keychain-info`. Measured 2026-10-02 (keychain UNLOCKED in the desktop arms): over SSH it fails with
 # "User interaction is not allowed", rc 36; in the agents' tmux server and in a desktop session it answers, rc 0; a
 # missing keychain is rc 50. Only rc 36 gives the note: any other failure is not this cause, and a wrong note sends a
-# person to fix something that is not broken. A LOCKED keychain in a desktop session was not measured and might put up
-# a password dialog, so the probe is cut at 3 s and a cut probe says nothing.
+# person to fix something that is not broken. A LOCKED keychain, measured 2026-10-04 on a throwaway keychain on a Mac
+# whose screen was locked: rc 152 ("Unable to obtain authorization") in 0.21 s, so no note; SecurityAgent started and
+# exited by itself within seconds. NOT measured: an awake desktop with a person at the screen, where SecurityAgent may
+# draw a password dialog that outlives a cut probe (kosmos#5246, needs a device). The probe is still cut at 3 s, and a
+# cut probe says nothing.
 # Rejected: the SSH variables (tmux copies them into windows of a session that CAN read the Keychain) and
 # `launchctl managername` (it says Background in all three contexts). Advice, never a refusal: a board that is up and
 # wrong beats one that is down. KOSMOS_NO_KEYCHAIN_NOTE=1 silences it (the installer: the board it starts on the
