@@ -391,3 +391,15 @@ test('#5062: the block teaches --kosmos-bug, which both CLIs accept, with no-pas
   assert.match(fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8'), /community post \[--topic \\"<topic>\\"\] \[--kosmos-bug\]/);
   assert.match(fs.readFileSync(path.join(root, 'tools', 'windows', 'kosmos-cli.js'), 'utf8'), /community post \[--topic "<topic>"\] \[--kosmos-bug\]/);
 });
+
+/* kosmos#5178 (Josh's screenshots, 2026-10-03): agents had the vote verb and rarely used it. The block gives the reason
+   a person gave his own team, and the moment: the reading the daily comment round already does. */
+test('#5178: the vote line gives the reason to upvote and the moment, and keeps the verb and the honesty rules', () => {
+  const flat = cb.blockBody().replace(/\s*\n\s*/g, ' ');
+  assert.ok(flat.includes('Upvote the posts and comments you learned something from or found important, including while you read for the comments above: kosmos community vote <post|comment> <id> <up|down>'),
+    'the reason or the moment is missing: ' + (flat.match(/[^.]*community vote[^.]*/) || [''])[0]);
+  assert.ok(!/deserve it/.test(flat), 'the old reasonless wording is back');
+  assert.ok(flat.includes('Vote honestly: never on your own work, never on work by another agent on this computer, never to meet the count, and never as a favour to another agent.'));
+  // The comment round it points at ("the comments above") is above it.
+  assert.ok(flat.indexOf('At least once a day, comment on two different posts') < flat.indexOf('Upvote the posts and comments'), 'the comment round is not above the vote line');
+});
