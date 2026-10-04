@@ -2862,11 +2862,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Only --kosmos-app-download-selftest sets this: a loopback host to treat as a Kosmos+ computer, so the
     /// question can be driven through a real click.
     static var askAboutHostForSelftest: String?
+    /// Only --kosmos-app-download-selftest sets this: it stands in for the Allow question's runModal (true is
+    /// Allow), so the real question's own branch runs through a real click with no modal on the build box.
+    static var allowAnswerForSelftest: (() -> Bool)?
     fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
     fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
     private var downloadAsks: [String: [(Bool) -> Void]] = [:]
-    private var pageCommits = 0   // main-frame commits; the Allow answer counts only for the page that asked
+    fileprivate var pageCommits = 0   // main-frame commits; the Allow answer counts only for the page that asked
 
     fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {
         guard let page = committedPageURL, let host = page.host?.lowercased(),
@@ -2906,8 +2909,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.window.initialFirstResponder = refuse   // with Full Keyboard Access a stray Space must not answer Allow either
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
-        NSApp.activate(ignoringOtherApps: true)   // in front, where the person can read it
-        let asked = alert.runModal() == .alertFirstButtonReturn
+        let asked: Bool
+        if let stand = AppDelegate.allowAnswerForSelftest { asked = stand() } else {
+            NSApp.activate(ignoringOtherApps: true)   // in front, where the person can read it
+            asked = alert.runModal() == .alertFirstButtonReturn
+        }
         // The page may have changed while it was asked (a switch to connect clears it). Don't Allow is always kept
         // (refusing is safe, and a page that reloads cannot ask again and again); only an Allow is void, since it
         // was given for a page no longer there, and the waiting downloads are not saved.
@@ -3046,8 +3052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
             // WebKit marks what it downloads too; the person is told only if the file carries no mark at all.
             if getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0) <= 0 {
-                // Always on its own: it is the one warning about a file that WAS saved, so it cannot go into a
-                // summary of files that were not.
+                // Brought to the front (`always`): it is the one warning about a file that WAS saved.
                 tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
                                    title: "Kosmos saved that file without its download mark", always: true)
             }
@@ -5156,8 +5161,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        computer that runs agents (computerMode stays unset, which the policy treats as run); a connect computer is
        not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    /* Above the worst case of a run where NOTHING saves (every expected-file wait runs out, then the 10s settle;
-       measured 146s, 2026-10-03), so a product that saves nothing is judged, not timed out. A passing run: ~55s. */
+    /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
+       settle: well under 300s), so a product that saves nothing is judged, not timed out. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
         try? FileManager.default.removeItem(at: dl)
@@ -5195,6 +5200,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=gone href=/gone download=gone.pptx>r</a>"
                 + "<a id=signin href=/signin download=report.pptx>p</a>"
                 + "<a id=askyes href=/asked-yes.txt download>n</a>"
+                + "<a id=modalno href=/modal-no.txt download>s</a>"
+                + "<a id=modalvoid href=/modal-void.txt download>t</a>"
+                + "<a id=modalyes href=/modal-yes.txt download>u</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
@@ -5267,11 +5275,12 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     var leftBoard: [String] = []
     var notBoardStayed = false
     var liveAsked: [String] = []
+    var modalAsked = 0
     /* Before the rows are read, the messages are waited for (up to 20s), so a busy build box cannot fail a good
-       product on a message that came late. Two come from the arms (the 404 and the web page); a run that says fewer
-       is judged as it stands. */
+       product on a message that came late. Three come from the arms (the 404, the web page, and the voided
+       Allow); a run that says fewer is judged as it stands. */
     func settled(_ go: @escaping () -> Void, tries: Int = 200) {
-        if told.count >= 2 || tries == 0 { go(); return }
+        if told.count >= 3 || tries == 0 { go(); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
@@ -5293,8 +5302,31 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             }
         }
     }
+    /* The real question's own branch (the one a Kosmos+ computer meets), with only runModal stood in for:
+       Don't Allow saves nothing; an Allow given while the page committed again is void, saves nothing and is
+       said; then, asked fresh, Allow saves. */
+    func modalArm(then: @escaping () -> Void) {
+        AppDelegate.askAboutHostForSelftest = "127.0.0.1"
+        var answer: () -> Bool = { false }
+        AppDelegate.allowAnswerForSelftest = { modalAsked += 1; return answer() }
+        click("modalno") {
+            d.resetDownloadAsks()
+            answer = { d.pageCommits += 1; return true }   // the page commits while the person is asked
+            click("modalvoid") {
+                d.resetDownloadAsks()
+                answer = { true }
+                click("modalyes", expect: "modal-yes.txt") {
+                    AppDelegate.askAboutHostForSelftest = nil
+                    AppDelegate.allowAnswerForSelftest = nil
+                    d.allowedDownloadHosts = []
+                    d.resetDownloadAsks()
+                    then()
+                }
+            }
+        }
+    }
     /* A page that is not the board (localhost on the same port: not the host the board was loaded as)
-       asking for a download from its own origin: refused, said, and the page stays. */
+       asking for a download from its own origin: refused (logged only), and the page stays. */
     func notBoard(then: @escaping () -> Void) {
         web.load(URLRequest(url: URL(string: "http://localhost:\(port)/elsewhere")!))
         func poll(_ tries: Int) {
@@ -5339,7 +5371,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm { settled {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -5364,6 +5396,12 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 "Allow holds for that computer only, for this run, and is not asked again (\(d.allowedDownloadHosts))")
             row(liveAsked == ["127.0.0.1", "127.0.0.1"] && !saved("asked-no.txt") && saved("asked-yes.txt"),
                 "THROUGH A REAL CLICK: a computer that must be asked saves nothing on Don't Allow, and saves on Allow (asked \(liveAsked))")
+            let voided = told.filter { $0.contains("The page changed while you were asked") }
+            row(modalAsked == 3 && !saved("modal-no.txt"),
+                "THE REAL ALLOW QUESTION (only its modal stood in for): Don't Allow saves nothing (asked \(modalAsked) of 3)")
+            row(!saved("modal-void.txt") && voided.count == 1,
+                "AN ALLOW GIVEN WHILE THE PAGE COMMITTED AGAIN IS VOID: nothing saved, and said once (\(voided.count))")
+            row(saved("modal-yes.txt"), "asked fresh, the real question's Allow saves")
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
@@ -5383,9 +5421,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
-            row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 2 && told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("a web page, not the file") },
-                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, a web page answered for a file), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
+            row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(told.count == 3 && voided.count == 1 && told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("a web page, not the file") },
+                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, a web page answered for a file, the voided Allow), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
             row(!told.contains { $0.contains("not a board") } && !told.contains { $0.contains("were not allowed") }
                 && !told.contains { $0.contains("stopped before it began") } && !told.contains { $0.contains("not opened or saved") }
                 && !told.contains { $0.contains("somewhere Kosmos does not save from") },
@@ -5397,11 +5435,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 23
+            let expected = 26
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
