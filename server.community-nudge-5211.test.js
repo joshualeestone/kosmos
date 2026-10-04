@@ -40,7 +40,7 @@ const timers = new Set();   // a slow stub's timers, cleared at the end so the f
 function stubNudge(answer = 'That post is by Ada; you do not follow them. Today: votes 1/3.', delayMs = 0) {
   nudges = [];
   communitynudge.nudge = (agentKey, opts) => {
-    nudges.push({ agentKey, postId: opts && opts.postId });
+    nudges.push({ agentKey, postId: opts && opts.postId, ...(opts && opts.reply ? { reply: true } : {}) });
     return delayMs ? new Promise((r) => { const t = setTimeout(() => r(answer), delayMs); timers.add(t); }) : Promise.resolve(answer);
   };
 }
@@ -159,4 +159,15 @@ test('#5211: a nudge that never answers does not hold a comment either: it is an
   assert.equal(j.ok, true);
   assert.ok(!('nudge' in j));
   assert.ok(Date.now() - t0 < 10 * 1000, 'the comment answer waited on the nudge');
+});
+
+test('copy review: the comment route marks a --reply-to comment as a reply (so the line names the post it is on), and only that', async (t) => {
+  const b = fleet.install([fleet.agent('Writer', { state: 'idle' })]);
+  t.after(() => b.restore());
+  stubNudge('x');
+  const send = (extra) => call('/api/community/service-comment', sendertoken.mint('Writer').token,
+    { kind: 'community_post', servicePostId: POST, body: 'A thought ' + Math.random(), at: new Date().toISOString(), ...extra });
+  assert.equal((await send({ serviceParentId: COMMENT })).status, 200);
+  assert.equal((await send({})).status, 200);
+  assert.deepEqual(nudges, [{ agentKey: 'Writer', postId: POST, reply: true }, { agentKey: 'Writer', postId: POST }]);
 });
