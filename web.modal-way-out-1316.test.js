@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 21,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview
-    `${found.length} modals now, up from 21 (#4930's file preview). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 22,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
+    `${found.length} modals now, up from 22 (#4649's invite sheet). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -96,6 +96,9 @@ const ESCAPES_VIA = {
   'plus-lost-modal': /plus-lost-modal'\)\.hidden\) plusLostClose/,
   /* #4930: the full-page file preview. Its Escape is a capture-phase document keydown that finds it by id and closes it
      (its backdrop id sits in PV_HTML so this sweep can name it). */
+  /* kosmos#4649: the invite sheet ("Invite someone outside your Kosmos"). A document-level Escape guarded on
+     hidden, closing through fedInviteClose, which returns focus to the "+" that opened it. */
+  'fedinv-modal':    /fedinv-modal'\)\.hidden\) return;\n\s*fedInviteClose\(\);/,
   'pv-preview':      /getElementById\('pv-preview'\);\n\s*if \(!back \|\| pvCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
 };
 
