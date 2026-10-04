@@ -1754,6 +1754,12 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
   return true;
 }
 
+/**
+ * Open ONE file from a folder with the system opener, once it passes `resolveListedFile`.
+ *
+ * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE: `open` will happily launch an
+ * application or a script, which is why every name goes through resolveListedFile's gates first.
+ */
 function openFile(folder, name, where = 'this project') {
   const got = resolveListedFile(folder, name, where);
   if (!got.ok) return got;
