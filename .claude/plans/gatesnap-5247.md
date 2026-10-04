@@ -29,3 +29,10 @@ server.board-auth-worldswitch-3055.test.js: setup writes the registry BEFORE sta
 added after start is refused (with a same-state control), a board-made world (knowWorld) is accepted, a world hidden
 since start is refused, wiring pinned. Mutant (filter removed) turns two red. 81 related files + guards: 1163 pass,
 0 fail.
+
+## After Ice Cream Kitty's review (approved for after Monday)
+- The snapshot is as of board START: a token written before a restart is what the next board snapshots. #4491's
+  write protections (PR #5122) stop a token-only agent writing one, so the two layers work together; this one alone
+  does not cover a restart.
+- Hiding is not revoking: a world hidden after start and later un-hidden (by hand; there is no un-hide) counts again
+  with its start-time token.
