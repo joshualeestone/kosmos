@@ -36,7 +36,8 @@ improvement it gained would have died with the session that wrote it.
    `"platforms": ["mac"]` (or `["windows"]`) and shows only there (#5224); a title or
    line that says Mac, macOS, MacBook, iMac, Windows or PC (whole words, capitalised)
    must carry a tag listing exactly those platforms, or the check refuses the file. It
-   is a word list, not a guarantee: read each line as a user of the other platform. A cut whose file is missing, not for the
+   is a word list, not a guarantee: read each line as a user of the other platform.
+   If every highlight is for one platform, the other shows no window (the check says so). A cut whose file is missing, not for the
    version being cut, or not one the window can draw stops here
    (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
    `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and that release shows no

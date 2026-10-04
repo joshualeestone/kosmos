@@ -13,7 +13,7 @@ main has the same problem, with two highlights that start "On a Mac".
   - If no highlight is left, it returns null: no window.
 - `problems()` refuses:
   - a malformed tag;
-  - a title or line that names a platform (whole word, case-sensitive: Mac, Macs, macOS, Windows, PC, PCs) with
+  - a title or line that names a platform (whole word, case-sensitive: Mac, Macs, macOS, MacBook(s), iMac(s), Windows, PC, PCs) with
     no tag;
   - a tag listing a platform the text does not name.
   - The cut check (`tools/whats-new-check.js`) uses `problems()`, so an untagged "On a Mac" line now stops a cut
