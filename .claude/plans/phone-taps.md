@@ -63,6 +63,16 @@ MONDAY (main is frozen until the 07:00 pin).
   for the read; a 44x10 name area now reds it by name); two absolute siblings overlapping were exempted as
   stacking (fixed: layers by ancestor; synthetic case 6 caught, the open menu still exempt); :popover-open guarded.
 
+- Round 4 (blind): the check read hit areas' SIZE only, so an area knocked loose (host not positioned: the ::after
+  spans the page) passed (fixed: each area is probed for reach AND bounded, nothing hit 40px out, on a laid-out
+  element: names and a stand-in close on the board, the back chevron on a real Tasks view; removing position:relative
+  now reds 4 lines). Covers false reds fixed: a fixed control is its own layer; a control and its own label skip each
+  other; points outside a clipping ancestor are skipped. The check now LIFTS fitOf from mobile-shots instead of a copy,
+  so the two cannot drift. Reviewer's cases 7-10 read clean.
+- KNOWN, NOT FIXED (named): a padded hit area over a neighbour when each sits in its own absolutely positioned row
+  wrapper reads as stacking (case 11). Telling that from a real overlay needs z-order, which hit-testing alone does not
+  give; none of the audited screens has the shape (48 shots, 0 covers; the room-at-44 control still caught).
+
 ## Weakest premise
 - WebKit ran on Mortals in Angel's review (AI settings and names clean); not re-run here after round 2's changes,
   which touch only the tool and the check, not the page's CSS.

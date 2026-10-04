@@ -1135,7 +1135,8 @@ async function fitOf(page) {
     // open dialog / popover. Two controls answer each other's points as STACKING only when they sit in different
     // layers (a menu over the page); two in the same layer overlapping is a hit area, however positioned (round 3).
     const layerOf = (n) => {
-      for (n = n && n.parentElement; n && n.nodeType === 1; n = n.parentElement) {   // ancestors only: a positioned control is in its container's layer
+      if (n && n.nodeType === 1 && getComputedStyle(n).position === 'fixed') return n;   // a fixed control escapes its parent: its own layer (round 4)
+      for (n = n && n.parentElement; n && n.nodeType === 1; n = n.parentElement) {   // otherwise ancestors only: an absolute control is in its container's layer
         const pos = getComputedStyle(n).position;
         if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') return n;
         try { if (n.matches('dialog[open]') || n.matches(':popover-open')) return n; } catch { /* an engine without :popover-open */ }
@@ -1160,13 +1161,23 @@ async function fitOf(page) {
       for (let x = r.left + 0.5; x < r.right - 0.5; x += step) for (let y = r.top + 0.5; y < r.bottom - 0.5; y += step) pts.push([x, y]);
       for (const x of [r.left + 0.5, r.right - 0.5]) for (let y = r.top + 0.5; y < r.bottom; y += step) pts.push([x, y]);
       for (const y of [r.top + 0.5, r.bottom - 0.5]) for (let x = r.left + 0.5; x < r.right; x += step) pts.push([x, y]);
+      // Only the part of the box a finger can see: an ancestor that clips (overflow other than visible) hides the rest,
+      // and a point there answers whatever is beyond the clip (round 4: a false red).
+      let clip = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+      for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { const b = a.getBoundingClientRect(); clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) }; }
+      }
       for (const [x, y] of pts) {
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+        if (x < clip.left || x >= clip.right || y < clip.top || y >= clip.bottom) continue;
         const hit = document.elementFromPoint(x, y);
         const other = controlOf(hit);
         // An ANCESTOR answering inside this control is skipped (this control is part of it). A DESCENDANT is not: a
         // child's hit area reaching over its own card is a cover like any other (Angel, #5218 review).
         if (!other || other === el || other.contains(el)) continue;
+        // A control and its own label answer for each other (a custom checkbox: an invisible input over its label).
+        if ((other.labels && [...other.labels].includes(el)) || (el.labels && [...el.labels].includes(other))) continue;
         // A point OUTSIDE the other control's drawn box is a hit area reaching past it (a ::after). A point INSIDE
         // it is either a box grown over its neighbour (padding taken back by a negative margin: a hit area too) or a
         // control drawn on top in another layer (an open menu, a dialog): only the second is stacking, so it is told
