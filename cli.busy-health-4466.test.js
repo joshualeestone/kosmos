@@ -870,9 +870,9 @@ test('#4466 the watchdog reclaim: only KOSMOS_RECLAIM_BUSY=1 lets `kosmos start`
   fs.mkdirSync(path.join(home, 'app'), { recursive: true });
   fs.symlinkSync(STUB, server);
   try {
-    // AGENT_WORKFORCE_LAUNCH makes the board read as unsupervised, so nothing touches this Mac's launchd.
-    const env = baseEnv(port, { KOSMOS_HOME: home, AGENT_WORKFORCE_LAUNCH: home, KOSMOS_BUSY_WAIT: '2' });
     await withBoard('hang', async (port) => {
+      // AGENT_WORKFORCE_LAUNCH makes the board read as unsupervised, so nothing touches this Mac's launchd.
+      const env = baseEnv(port, { KOSMOS_HOME: home, AGENT_WORKFORCE_LAUNCH: home, KOSMOS_BUSY_WAIT: '2' });
       const plain = await runCli(['start'], env);
       assert.equal(plain.code, 0, plain.stdout + plain.stderr);
       assert.match(plain.stdout, /already running .*busy/, 'CONTROL: without the flag a busy board is left alone');
