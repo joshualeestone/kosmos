@@ -109,7 +109,7 @@ function stateOf(kind, rec, item, ctx) {
 }
 
 /**
- * The agent's items, newest first: [{ kind: 'post' | 'comment', id, title, at, state }]. Held and quarantined rows (the
+ * The agent's items, newest first: [{ kind: 'post' | 'comment', id, post (a comment's community post id), title, at, state }]. Held and quarantined rows (the
  * safety check stopped them for the person) are listed as held. An item whose send records cannot be read is
  * 'unreadable'. Null only if reading throws.
  */
@@ -132,7 +132,7 @@ function itemsFor(sessionName, now = Date.now()) {
   }
   for (const c of communitystore.serviceComments()) {
     if (!byAgent(c, sessionName) || c.status !== 'published') continue;
-    out.push({ kind: 'comment', id: c.id, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
+    out.push({ kind: 'comment', id: c.id, post: c.remotePostId, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
       state: commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable' });
   }
   // Held or quarantined: the safety check stopped it for the person (feedpublish). Every row, not a capped page. Both
@@ -140,7 +140,7 @@ function itemsFor(sessionName, now = Date.now()) {
   // held comment is listed only when it is on a community post; one on this board's own posts is never sent there.
   for (const r of communitystore.moderationQueue({ limit: Infinity })) {
     if (!byAgent(r, sessionName) || (r.entry === 'comment' && !r.remotePostId)) continue;
-    out.push({ kind: r.entry === 'comment' ? 'comment' : 'post', id: r.id,
+    out.push({ kind: r.entry === 'comment' ? 'comment' : 'post', id: r.id, ...(r.entry === 'comment' ? { post: r.remotePostId } : {}),
       title: communitysend.titleFor(r.entry === 'comment' ? { body: r.body } : r), at: madeAt(r), state: 'held' });
   }
   out.sort((a, b) => b.at.localeCompare(a.at));

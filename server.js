@@ -8394,7 +8394,7 @@ const server = http.createServer(async (req, res) => {
         .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
       return;
     }
-    communityread.read({ channel: q.get('channel'), post: q.get('post') })
+    communityread.read({ channel: q.get('channel'), post: q.get('post'), reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))

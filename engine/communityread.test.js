@@ -1453,3 +1453,88 @@ test('#4951 review 18 (Opus): an unanswered round-2 page after an answer makes t
   const none = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.deepEqual([none.ok, none.asked, none.posts], [true, 0, []], 'an agent with no posts did not report asking nothing');
 });
+
+/* #4941 (Josh's test, C5): one post read on its own is shown whole, up to the service's own body limit; the feed still
+   cuts at BODY_CAP. */
+test('#4941: read --post shows a long post whole; the same post in the feed is cut', async () => {
+  on();
+  const long = 'w'.repeat(3000) + ' END-OF-POST';
+  serve({
+    ['/posts/' + ID]: () => ({ status: 200, json: post({ body: long }) }),
+    ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }),
+    '/posts/feed': () => ({ status: 200, json: { posts: [post({ body: long }), post({ id: '2b2c3d4e-0000-4000-8000-000000000002', body: long })] } }),
+  });
+  const one = await cr.read({ post: ID });
+  assert.equal(one.ok, true, one.because);
+  assert.match(one.text, /END-OF-POST/, 'the single post was cut');
+  assert.doesNotMatch(one.text, /\[cut\]/);
+  const feed = await cr.read({});
+  assert.equal(feed.ok, true, feed.because);
+  assert.doesNotMatch(feed.text, /END-OF-POST/, 'CONTROL: the feed no longer cuts');
+  assert.equal((feed.text.match(/\[cut\]/g) || []).length, 2, 'every feed item is cut at BODY_CAP (and none is cut at its index)');
+  // Past the service's limit the cut still holds: a service answer is never trusted to be bounded.
+  serve({ ['/posts/' + ID]: () => ({ status: 200, json: post({ body: 'v'.repeat(cr.POST_BODY_CAP + 50) }) }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  const over = await cr.read({ post: ID });
+  assert.match(over.text, /\[cut\]/);
+  assert.ok(!over.text.includes('v'.repeat(cr.POST_BODY_CAP + 1)));
+});
+
+/* #4941 (C6): the reader's own comment on a post that has not gone out yet is not in the thread and has no id to reply
+   to: a line after the frame says so, for comments still on their way only (review 1: never one that will not go). */
+test('#4941: read --post counts only the reader\'s own comments on it that are still on their way; held ones are promised nothing', async () => {
+  on();
+  const communitystore = require('./communitystore');
+  const feedpublish = require('./feedpublish');
+  const OTHER = '2b2c3d4e-0000-4000-8000-000000000002';
+  serve({ ['/posts/' + ID]: () => ({ status: 200, json: post() }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  const writeJson = (f, o) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(o)); };
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+  const mk = (agent, text, onPost = ID) => {
+    communitystore.grantTrust(agent);
+    const r = feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: text, servicePostId: onPost }, { agentId: agent });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    return r;
+  };
+  const line = async (reader = 'quill') => { const r = await cr.read({ post: ID, reader }); assert.equal(r.ok, true, r.because); return r.text.slice(r.text.lastIndexOf(cr.FRAME_CLOSE) + cr.FRAME_CLOSE.length); };
+  assert.equal(await line(), '', 'CONTROL: nothing of quill\'s');
+  const going = mk('quill', 'first of mine');
+  mk('quill', 'on another post', OTHER);
+  mk('other', 'not quill\'s');
+  assert.match(await line(), /You have 1 comment on this post that is on its way to the community, so it is not shown above\. Once Kosmos has sent one, it is in this post's thread with the id to reply to/);
+  assert.doesNotMatch(await line(), /first of mine/, 'the reader\'s own words were echoed');
+  assert.equal(await line('Quill'), '', 'a name that only keys alike saw quill\'s');
+  assert.doesNotMatch((await cr.read({ post: ID })).text, /on its way/, 'no reader, no line');
+  // Every final state, one comment each: none is counted (review 1 measured five of these counted and promised).
+  const finals = { sent: { state: 'sent', remoteId: 'r1' }, deleted: { state: 'deleted' }, refused: { state: 'refused', reasons: ['thread_full'] },
+    withheld: { state: 'withheld' }, not_sent: { state: 'not_sent' }, unconfirmed: { state: 'pending', attempted: true } };
+  const csent = {};
+  for (const [name, rec] of Object.entries(finals)) csent[mk('quill', 'final ' + name).id] = { agent: 'quill', post: ID, ...rec };
+  csent[going.id] = { state: 'sent', agent: 'quill', post: ID, remoteId: 'r0' };
+  writeJson(cs._paths.commentsSentFile(), csent);
+  assert.equal(await line(), '', 'a comment that will not go (or is already there) was counted');
+  // Marked never to send, and an agent the community refused: not counted either.
+  const marked = mk('quill', 'marked');
+  communitystore.markServiceCommentNotSent(marked.id);
+  assert.equal(await line(), '');
+  mk('quill', 'refused agent');
+  writeJson(cs._paths.keysFile(), { quill: { refused: true } });
+  assert.equal(await line(), '', 'a refused agent\'s comment was promised a place');
+  writeJson(cs._paths.keysFile(), {});
+  assert.match(await line(), /1 comment on this post that is on its way/, 'CONTROL: refusal lifted, it is on its way again');
+  // Held: promised nothing.
+  const held = mk('quill', 'Write to me at someone@example.com about it.');
+  assert.notEqual(held.status, 'published', 'fixture: the safety check did not stop it');
+  assert.match(await line(), /You have 1 comment on this post held for your person to look at\.$/);
+  // Always hedged (review 2): replies are previewed two at a time, so even a short thread may not show it.
+  assert.match(await line(), /though perhaps past the comments and replies shown here/);
+  // Past the daily comment cap, or with the agent's name held with no key: still on its way (review 2 NIT 3).
+  const soon = new Date(Date.now() + 3600 * 1000).toISOString();
+  writeJson(cs._paths.keysFile(), { quill: { apiKey: 'k', commentRetryAt: soon } });
+  assert.match(await line(), /1 comment on this post that is on its way/, 'a capped comment was not counted');
+  writeJson(cs._paths.keysFile(), { quill: { registering: { taken: true } } });
+  assert.match(await line(), /1 comment on this post that is on its way/, 'a comment waiting on a held name was not counted');
+  writeJson(cs._paths.keysFile(), {});
+  fs.writeFileSync(cs._paths.commentsSentFile(), '{corrupt');
+  assert.equal(await line(), '', 'unreadable records still counted');
+  for (const f of [cs._paths.commentsSentFile(), cs._paths.keysFile(), cs._paths.stateFile()]) fs.rmSync(f, { force: true });
+});
