@@ -3,7 +3,8 @@
 Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + B, owner side only.
 
 ## A. The owner's grace after a rotation (engine/fedseats.js graceAfter)
-- A member keeps EPOCH_GRACE_MS (10 min): it is not told why the owner rotated.
+- A member keeps EPOCH_GRACE_MS (10 min): it is not told why the owner rotated. (Changed by #5197: a
+  member uses REVOKE_GRACE_MS, and EPOCH_GRACE_MS is removed.)
 - An owner rotates only on a revoke (rotateForRevoked is its only rotation), so every owner
   rotation gets REVOKE_GRACE_MS (90 s) while a member peer remains and NO previous epoch once none
   does. A revoke that leaves nobody also drops the revoked key from the record, so a member pinned

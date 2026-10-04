@@ -184,7 +184,7 @@ function handleEvent(projectId, line, heldAt) {
           s.behindArmedAt = sealed.epoch;
           s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
         }
-        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile.');
+        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
       if (!opened && !sealed) {
@@ -202,8 +202,9 @@ function handleEvent(projectId, line, heldAt) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
         }
-        if (sealed && sealed.role === 'owner' && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)) {
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired (someone was removed from the shared project), so it was not shown.');
+        if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
+          && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : '. Or this computer\'s clock may be off.'));
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -483,20 +484,24 @@ function linkFor(projectId) {
    kept per seat run; one hour of ids is at most the minute budget times 60. */
 const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
-/* After a rotation, the previous epoch still opens for this long (a message sealed
-   just before it, still in flight), then never again: a revoked member cannot keep
-   posting under the key it was rotated out of. This is a MEMBER's grace: a member is
-   not told why the owner rotated. */
-const EPOCH_GRACE_MS = 10 * 60 * 1000;
-/* #5191: the OWNER's grace after a rotation. An owner rotates only when a member is
-   revoked, and during a grace the revoked member's old-key posts open too (a sealed post
-   does not say which member sealed it), so the owner's is short: in-flight posts plus
+/* #5191: the grace after a rotation, during which the previous epoch still opens (a
+   message sealed just before it, still in flight), then never again. An owner rotates
+   only when a member is revoked, and during a grace the revoked member's old-key posts open too (a sealed post
+   does not say which member sealed it), so it is short: in-flight posts plus
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
    EDGE_FRESH_MS, about 75 s, relying on the relay to cut the revoked member at its ticket.
    Owner-side alone it is about 15 s + a 20 s round trip + this grace. While Kosmos+ cannot
-   answer, the pass shows held posts unchecked: then only the relay's ticket bounds it. */
+   answer, the pass shows held posts unchecked: then only the relay's ticket bounds it (a
+   sealed room does not trust the relay, so that is not a guarantee).
+   #5197: a member that has received the rotation uses the same grace. A member the relay
+   never sends the rotation to stays on the old key (fedseal.js NOT CLAIMED). Members hold nothing for
+   an edge check, so on a member's board a revoked member is shown until the owner detects
+   the revoke and the rotation reaches the member, plus at most this grace (longer by any amount the
+   member's clock runs behind the owner's: fedseal.js NOT CLAIMED). A member's grace runs from the
+   owner's rotation time on its own clock: a member clock running ahead shortens it
+   (fails closed: in-flight posts refused there). */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One
@@ -514,7 +519,13 @@ const HELD_MAX = INBOUND_PER_WINDOW;
 /* How long a member holds its posts after seeing a message sealed one epoch ahead of
    its own (it missed a rotation; the owner re-sends each pass). The epoch on an
    envelope cannot be checked before it opens, so a forged one must cost no more than
-   this pause, which is no more than a relay can do anyway by dropping frames. */
+   this pause, which is no more than a relay can do anyway by dropping frames. Longer than
+   the 90 s grace (#5197), and armed no earlier than the rotation, so a post sent after it,
+   still under the old key, is past the grace and refused on the other boards (those whose
+   clock is not behind the owner's). It arms once per epoch this member holds, so a forged
+   envelope that armed it leaves a real miss of the next rotation, at that epoch, unheld
+   (#5192 is where a refused post would be kept and resent): holding until the key arrives would let a forger pause a member
+   indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
@@ -549,11 +560,11 @@ function acceptedKeys(st, now) {
   return keys;
 }
 /** #5191: how long the previous epoch opens after this room's last rotation. An owner
-    rotates only on a revoke (rotateForRevoked), so every owner rotation gets the revoke
-    grace, read from the rooms file alone. "A member" is a pinned member PEER: when #4658
+    rotates only on a revoke (rotateForRevoked), so every rotation gets the revoke grace,
+    a member's too (#5197), read from the rooms file alone. "A member" is a pinned member PEER: when #4658
     lets the owner's own other computers in, they must count as the owner, never here. */
 function graceAfter(st) {
-  if (st.role !== 'owner') return EPOCH_GRACE_MS;
+  if (st.role !== 'owner') return REVOKE_GRACE_MS;
   return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
 }
 /** The link for the seal decisions: null when there is none, undefined when the record
@@ -816,9 +827,10 @@ function onKeyFrame(projectId, s, frame) {
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
       if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
       const keys = Object.assign({}, st.keys, { [got.epoch]: got.roomKey });
-      // The grace runs from the owner's rotation (sealed in the frame), never from now:
-      // a member catching up late must not reopen the old key for a revoked member.
-      // A time ahead of this clock counts as now.
+      // The grace runs from the owner's rotation (sealed in the frame), so a member catching
+      // up late does not reopen the old key. A time ahead of this clock counts as now, so on
+      // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
+      // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
     }
   } catch (err) {
@@ -1030,6 +1042,14 @@ function post(projectId, { from, kind, text }) {
   if (Buffer.byteLength(line) > MAX_POST_LINE) {
     say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
     return false;
+  }
+  // #5197: past the hold, still on the epoch it held when the hold armed (the armed epoch is
+  // unauthenticated, so a member that has rotated since is not warned): the post goes out
+  // under the old key, which the other boards refuse once the rotation is 90 s old. Said
+  // once per epoch that armed a hold: a forged envelope claiming another epoch does not use
+  // up the note for a real miss, one that guesses the next epoch does (the #5192 class).
+  if (sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) {
+    noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
 }
