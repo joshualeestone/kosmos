@@ -7,6 +7,7 @@
  * ruled, user-facing wording. Its shape:
  *
  *   {"version":"0.6.98","highlights":[{"icon":"spark","title":"...","line":"..."}]}
+ *   (a highlight about one platform adds "platforms":["mac"] or ["windows"], #5224 below)
  *
  * #4928: a platform cut on another number from the same work (Windows on 0.7.13 while the Mac is on
  * 0.7.16) is named in an optional "also": ["0.7.13"], so the same highlights show on both. Without it
@@ -53,7 +54,7 @@ const NOT_PLATFORM_WORDS = Object.freeze(['mac', 'macs', 'windows']);
 function platformsNamed(text) {
   const s = String(text);
   const words = new Set(s.split(/[^A-Za-z]+/).filter((w) => !NOT_PLATFORM_WORDS.includes(w)).map((w) => w.toLowerCase()));
-  if (/\bOS X\b/i.test(s)) words.add('osx');
+  if (/\bOS[\s\u00a0]+X\b/i.test(s)) words.add('osx');
   return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w.toLowerCase())));
 }
 
