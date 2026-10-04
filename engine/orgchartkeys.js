@@ -45,7 +45,11 @@ function urlFrom(envName, fallback) {
 }
 /* Longer than the Claude read's 120 s: a reasoning model through a key can take minutes on a dense chart, and a read
    cut off at the timeout may still be billed while Kosmos throws its answer away. */
-const TIMEOUT_MS = 300 * 1000;
+/* Under the Kosmos+ relay's 120 s wait for a board answer (kosmos-relay crates/tunnel/src/proxy.rs
+   BOARD_RESPONSE_HEAD_TIMEOUT): a read from a phone through the relay must end, and be stopped, before the relay
+   gives up on it, or the key is billed for an answer nobody sees (round 1 of the continuation). The Claude read
+   already has 120 s (orgchartfile MODEL_TIMEOUT_MS). */
+const TIMEOUT_MS = 110 * 1000;
 let timeoutMs = TIMEOUT_MS;
 /** Tests only: a shorter timeout; null restores the real one. */
 function setTimeoutMs(ms) { timeoutMs = Number.isFinite(ms) && ms > 0 ? ms : TIMEOUT_MS; }
@@ -309,7 +313,7 @@ async function read(reader, prompt, name, media, buf, signal) {
 
 async function readOnce(reader, prompt, name, media, buf, signal) {
   const p = reader && PROVIDERS[reader.provider];
-  if (!p) return { ok: false, because: 'no provider can read this file' };
+  if (!p) return { ok: false, local: true, because: 'no provider can read this file' };   // nothing was sent: no log line
   if (!enabled[reader.provider]) return { ok: false, local: true, because: OFF_WHY[reader.provider] || p.name + ' does not read org charts in Kosmos.' };
   const cannot = cannotRead(reader.provider, media);
   if (cannot) return { ok: false, local: true, because: cannot };
@@ -378,4 +382,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

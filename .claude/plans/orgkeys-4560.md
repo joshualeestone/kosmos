@@ -8,8 +8,30 @@ The design, the provider table, Liu Kang's rulings and the weakest parts are Kan
 - Plus a merge of origin/main (645 commits newer). One conflict, CLAUDE.md, two rows: main had changed the
   Community feed row and the branch the org chart row, each side only its own, so the merge takes main's
   Community row and the branch's org chart row (checked against the merge base, row by row).
-- No other change at the merge. The org chart tests pass on the merged tree (orgchartkeys 27, orgchartfile 51,
-  server.orgchart-read-4559 18) and the page's inline scripts parse.
+- No other change at the merge. The org chart unit tests pass on the merged tree (orgchartkeys 27, orgchartfile 51,
+  server.orgchart-read-4559 18) and the page's inline scripts parse. That is NOT validation: the page change
+  (the consent sentence and the reading message, which render-orgchart-file-4559 pins) has not had its browser
+  check run on the merged tree, and that is the main open risk after 645 merged commits.
+
+## Changed in the continuation (round 1)
+- Key reads stop at 110 s, was 300 s: a read from a phone goes through the Kosmos+ relay, which gives up after
+  120 s with no answer (kosmos-relay crates/tunnel/src/proxy.rs BOARD_RESPONSE_HEAD_TIMEOUT), so a longer read
+  was billed to the key and seen by nobody. The Claude read already stops at 120 s. The page now says "up to two
+  minutes" instead of "a few minutes". Rejected: a longer limit only for local reads (the board would have to
+  tell a relayed request apart; the Claude path already lives with 120 s).
+- The model ids were checked against the providers' live docs on 2026-10-03: gpt-6-astra (text and image in,
+  128,000 output tokens; PDF through the PDF guide) and grok-4.7 (text and image in, structured outputs) are
+  current. Not checked: that xAI's Responses API accepts `store` and `max_output_tokens`.
+
+## Deferred, with reasons
+- The reader is the first key account in Settings order even when its key no longer works (an expired default
+  OpenAI key keeps winning over a working Grok key, and every read fails with "did not accept this key"). Choosing
+  by the last check would need a live check per provider at pick time (none is stored). The person's way out is
+  to remove or fix the dead key in Settings, AI Models, which the failure sentence already points to.
+- `keyTail` is taken from the untrimmed key in openaiaccounts' identityFromData (main's code, also used by
+  Settings), so a key saved with a trailing newline shows the wrong last four on the consent line. The reader id
+  stays consistent. Outside this card.
+- `invalid_request_error` in KNOWN_CODES can show as jargon in a refusal. Cosmetic, carries no key.
 
 ## Why continue rather than restart
 The work is done to iteration 13 and its design was ruled on by Liu Kang. It has sat four days with no PR. A new
