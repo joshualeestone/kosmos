@@ -348,6 +348,12 @@ const SCREENS = [
     await at(page, '?tab=settings');
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
   } },
+  /* #5206: Settings > Advanced, where every row is an on/off switch whose 44px target is a ::after past its 42x24
+     box: the tap audit must count it as the finger reaches it. */
+  { name: 'settings-advanced', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#look-toggle', { state: 'visible', timeout: 8000 });
+  } },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
@@ -1065,7 +1071,11 @@ async function overflowOf(page) {
    px either way is Apple's floor. A checkbox or radio is judged by its label
    when it has one, since that is what the finger lands on. A link inside a
    sentence is exempt (WCAG 2.5.8's inline exception). A typing field under
-   16px makes iOS Safari zoom the page on focus. */
+   16px makes iOS Safari zoom the page on focus.
+   #5206: a control whose BOX is under 44 can still be a 44 target, the standard way: a ::after (or ::before) laid
+   past it, or padding taken back by a negative margin. What counts is where a finger lands, so a small box is probed:
+   scrolled into view, each edge of a 44x44 square centred on it must hit the control (document.elementFromPoint).
+   Only a control every probe reaches passes; a probe that hits something else, or an off-screen point, fails it. */
 const MIN_TAP_PX = 44;
 const MIN_FIELD_FONT_PX = 16;
 async function fitOf(page) {
@@ -1084,6 +1094,20 @@ async function fitOf(page) {
     };
     const taps = [];
     const seen = new Set();
+    const sx = window.scrollX, sy = window.scrollY;
+    const reaches = (target) => {
+      target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const r = target.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, h = minTap / 2 - 0.5;
+      const pts = [];
+      if (r.height < minTap - 0.5) pts.push([cx, cy - h], [cx, cy + h]);
+      if (r.width < minTap - 0.5) pts.push([cx - h, cy], [cx + h, cy]);
+      return pts.every(([x, y]) => {
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        const hit = document.elementFromPoint(x, y);
+        return !!hit && (hit === target || target.contains(hit));
+      });
+    };
     for (const el of document.querySelectorAll('button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea')) {
       if (el.disabled || !shown(el) || inSentence(el)) continue;
       let target = el;
@@ -1092,8 +1116,9 @@ async function fitOf(page) {
       seen.add(target);
       const r = target.getBoundingClientRect();
       if (!onPage(r)) continue;
-      if (r.width < minTap - 0.5 || r.height < minTap - 0.5) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+      if ((r.width < minTap - 0.5 || r.height < minTap - 0.5) && !reaches(target)) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
     }
+    window.scrollTo({ left: sx, top: sy, behavior: 'instant' });
     const fields = [];
     for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
       if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
