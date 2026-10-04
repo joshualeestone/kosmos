@@ -165,7 +165,7 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
           const oh = other.querySelector('.pjcard-h') || other;
           const f2 = document.createElement('span'); f2.className = 'pjfaces'; f2.innerHTML = '<span class="pjcount">3 agents</span>'; oh.appendChild(f2); added.push(f2);
           const c2 = chip.cloneNode(true); other.appendChild(c2); added.push(c2);
-          noTag = { chip: box(c2), name: box(other.querySelector('.pjname')) };
+          noTag = { chip: box(c2), name: box(other.querySelector('.pjname')), faces: box(f2) };
         }
         const phone = window.matchMedia('(max-width: 40rem)').matches;
         for (const el of added) el.remove();
@@ -189,6 +189,13 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
         m.found && m.withChip.chip.mid > m.withChip.name.mid + 8 && m.withChip.name.w >= 60, JSON.stringify(m.withChip));
       ok(`#5070 roadmap @${vw}: on a row with no "Done not set", the orphan chip stays off the name's line too`,
         m.found && m.noTag && m.noTag.chip.mid > m.noTag.name.mid + 8 && m.noTag.name.w >= 60, JSON.stringify(m.noTag));
+      // Baron's review of #5105: an EMPTY tag track must cost the name nothing. With a column-gap it cost one more gap
+      // (12 px) on every row without the tag, and on every phone row (the tag moves under the name there). The name's
+      // track ends exactly one 12 px space before the count: on a row with no tag, and on the tag row on a phone.
+      const oneGap = (a, b) => Math.abs((b.l - a.r) - 12) <= 1;
+      ok(`#5070 roadmap @${vw}: an empty "Done not set" track costs the name no room (one 12 px space before the count)`,
+        m.found && m.noTag && onLine(m.full.faces) && oneGap(m.noTag.name, m.noTag.faces) && (!m.phone || oneGap(m.full.name, m.full.faces)),
+        JSON.stringify({ noTag: m.noTag, full: m.full, phone: m.phone }));
     }
     await p.setViewportSize({ width: 1400, height: 900 });
     await p.evaluate((l) => layoutApply('projects', l), layoutBefore);
