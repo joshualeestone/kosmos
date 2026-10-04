@@ -142,9 +142,9 @@ test.after(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-/* #5247: a world ADDED to the registry after the board started (by anything but the board) does not widen what the
-   gate accepts; one the board creates itself does; and a world hidden since start stops counting. */
-test('#5247: a world added to the registry after start is REFUSED at the gate; one the board made is accepted', async () => {
+/* #5247: nothing written after the board started (a registry entry, a token file) widens what the gate accepts;
+   a world hidden since start stops counting. */
+test('#5247: a world added to the registry after start is REFUSED at the gate, and so is a token for a world the board made before it boots', async () => {
   const { knowWorld } = require('./server');
   const storeBase = worlds.baseRoot(process.env);
   const reg = JSON.parse(fs.readFileSync(worlds.registryPath(storeBase), 'utf8'));
@@ -160,14 +160,26 @@ test('#5247: a world added to the registry after start is REFUSED at the gate; o
   // Control: the world known at start is still accepted in the same state (the 403 above is about the late world).
   assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': OTHER_TOK } })).code, 403);
   knowWorld('wlate');   // what the create route does for a world this board made
-  assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': LATE_TOK } })).code, 403,
-    'a world this board created is not accepted');
+  assert.equal((await hit('/api/status', { headers: { 'x-kosmos-board-token': LATE_TOK } })).code, 403,
+    'a token written for a world this board made, before that world ever booted, was accepted');
+});
+
+test('#5247 (review): a known world\'s token file overwritten after start does not change what the gate accepts', async () => {
+  const storeBase = worlds.baseRoot(process.env);
+  const leftTok = path.join(worlds.worldStoreRoot(storeBase, { id: 'wleft' }), 'board.token');
+  const WRITTEN = 'WRITTEN_after_start_0123456789abcdef';
+  fs.writeFileSync(leftTok, WRITTEN);
+  try {
+    assert.equal((await hit('/api/status', { headers: { 'x-kosmos-board-token': WRITTEN } })).code, 403, 'a token written after start was accepted');
+    assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': OTHER_TOK } })).code, 403, 'the start-time token stopped working');
+  } finally { fs.writeFileSync(leftTok, OTHER_TOK); }
 });
 
 test('#5247: a world hidden since start stops counting (the snapshot can only narrow)', async () => {
   const storeBase = worlds.baseRoot(process.env);
   const reg = JSON.parse(fs.readFileSync(worlds.registryPath(storeBase), 'utf8'));
   const left = reg.worlds.find((w) => w.id === 'wleft');
+  assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': OTHER_TOK } })).code, 403, 'control: accepted before it is hidden');
   left.hiddenAt = new Date().toISOString();
   fs.writeFileSync(worlds.registryPath(storeBase), JSON.stringify(reg));
   try {
@@ -182,5 +194,5 @@ test('#5247: the create route tells the gate about the world it made, and start(
   const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.match(SRC, /world = worlds\.createWorld\(base, body\.name\); knowWorld\(world && world\.id\);/);
   assert.match(SRC, /function start\(port = PORT\) \{\n  snapshotWorlds\(\);/);
-  assert.match(SRC, /\.filter\(\(w\) => known\.has\(w\.id\)\)/);
+  assert.match(SRC, /\.filter\(\(w\) => known\.has\(w\.id\)\)\n\s*\.map\(\(w\) => known\.get\(w\.id\)\)/, 'the gate reads tokens from disk again');
 });
