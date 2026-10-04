@@ -46,10 +46,10 @@ arrives.
 
 ## Owner side (asked in review, kept)
 Each held post records the edge its seat was on; one whose seat has since moved to another edge (an
-owner's member revoked, another joined on a new edge) is not sent, and the room says so. This is NOT
-a reader list: while that edge lasts, anyone who joins the room gets the held post, which is what the
-owner's hold note says ("to the first computer that joins"). Challenge round 9 asked for membership at
-hold time; an owner holding has no pinned member by definition, so that would send nothing ever.
+owner's member revoked, another joined on a new edge) is not sent, and the room says so. The edge is
+not a reader list; the invite limit below is, for an owner. A MEMBER's held post has no limit: like
+any live post it goes to whoever is in the room when it is sent (within the hour), since a member
+cannot see who the room includes (asymmetry stated in round 17).
 An owner's post held before its first member is pinned goes to that member when it joins (within the
 hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
 is sent to the first computer that joins with its key, if one joins within the hour.
@@ -84,7 +84,7 @@ indefinitely.
 ## Controls (engine/fedseats.test.js '#5192', each perturbed red)
 member post before the share is sent sealed, in order, on the share; owner post before the first
 pin follows the share frame; behind-held posts go out on the rotate, before a later post; a post
-after a hold ran out with no key sends the held one first; over an hour not sent + note; cap 50
+after a hold ran out with no key drops the post held during it (never the old key); over an hour not sent + note; cap 50
 (a stale post takes no place); a refusal for good does not strand the rest; a held post with a file
 says so when sent (and server.fedmsg: the server passes `files`); held for a missing room id goes on
 connect, and the pass flushes after a behind hold ran out; a stopped seat sends nothing held.

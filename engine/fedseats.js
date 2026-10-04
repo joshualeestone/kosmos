@@ -998,7 +998,10 @@ function fitsSealed(payload) {
     False, as post() returns for a post that did not go now. */
 function holdPost(projectId, s, msg, why, when, heldAt) {
   // One that could never go is refused now, as it would be once the key arrived, and takes no place.
-  if (!fitsSealed({ from: clean(msg.from, 80) || 'someone', kind: msg.kind === 'agent' ? 'agent' : 'person', text: String(msg.text || '') })) {
+  // Measured sealed only when the room is known sealed; otherwise in the clear (an unreadable
+  // record may turn out to be an unsealed room), and the exact check is made again at send.
+  const plain = { from: clean(msg.from, 80) || 'someone', kind: msg.kind === 'agent' ? 'agent' : 'person', text: String(msg.text || '') };
+  if (msg.sealedHeld ? !fitsSealed(plain) : Buffer.byteLength(JSON.stringify(plain)) > MAX_POST_LINE) {
     if (!heldAt) say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
     return false;
   }
@@ -1014,9 +1017,9 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     return false;
   }
   // The edge its seat was on: an owner's seat moves to another member's edge when that one
-  // ends, and a post held on an edge that has ended is not sent through another. (Not a list
-  // of who may read it: anyone who joins the room while that edge lasts gets it, as the
-  // owner's hold note says.)
+  // ends, and a post held on an edge that has ended is not sent through another. The edge is
+  // not who may read it; the invite limit below is, for an owner. A member's held post, like
+  // any live post, goes to whoever is in the room when it is sent (within the hour).
   // An owner's post held while NO member is pinned records the invites live when it was
   // written, and goes only to a member pinned from one of them, never to someone invited
   // afterwards. Held with members already in the room, it is for them (null: no limit). When
@@ -1093,7 +1096,7 @@ function flushHeld(projectId, s) {
       // that room. Held on an edge that has since ended: not sent through another.
       if (held[i].edge && held[i].edge !== s.edge) { moved += 1; continue; }
       // Held while behind: still behind once the hold ran out, it is not sent under the old key.
-      if (held[i].msg.behindHeld && st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && s.behindArmedAt === st0.epoch && Date.now() >= s.behind.until) { keyless += 1; continue; }
+      if (held[i].msg.behindHeld && st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && Date.now() >= s.behind.until) { keyless += 1; continue; }
       if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
         // Pinned members exist and not all came from an invite live when it was written.
         if (pinnedAny(projectId)) { if (held[i].msg.invitesUnknown) unknownWho += 1; else unmeant += 1; continue; }
@@ -1192,7 +1195,7 @@ function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown,
         ? 'when the relay names the room, if that is within the hour'
         : !link || link.role !== 'owner'
         ? 'when the key arrives, if it arrives within the hour'
-        : 'to the first computer that joins with its key, if one joins within the hour', heldAt);
+        : 'to the first computer that joins with its key from an invite already made, if one joins within the hour', heldAt);
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
