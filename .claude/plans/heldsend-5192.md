@@ -19,7 +19,10 @@ that is held again keeps everything after it held, in order; one refused for goo
 not seal) says why and the rest carry on. The room says how many were sent, and whether any had a
 file (the server tells the seat: `files`), since files never leave this computer.
 A post WRITTEN during a behind hold goes only under the new key, whatever it is held for first (an
-unreadable record, round 28): if the hold runs out first it is dropped with a note (round 16). The drop
+unreadable record, round 28): if the hold runs out first it is dropped with a note (round 16). A member
+that caught up while the hold still runs is not marked; one whose record cannot be read is (it cannot
+tell, and dropping is the safe side; round 29). A held post that meets an active behind hold at a flush
+is held for it and marked the same way, so it too goes only under the new key. The drop
 happens at the first flush after the hold runs out (the 60 s pass, a new post, or a key), so a key that
 arrives in that gap still sends it, under the new key; the note says "when this computer next checks". A post held for another reason after the hold ran out goes as a live post would,
 under the key the member has, and the flush note says so (round 24: dropping every held post let one
