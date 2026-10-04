@@ -13,7 +13,11 @@
  *    tall, and its visible buttons are 44 tall,
  *  - NO COVER: across every control's own box on those screens (every 3px, edges included) a tap lands on that
  *    control, not on a neighbour's hit area (one reaching past its box paints above its neighbours: the cost of reach),
- *  - CONTROL: a desktop with a mouse keeps a name's 16px line and no hit area, and the terminal box's own size,
+ *  - every rule this change adds is read from computed style on touch (min-height 44, the 44px ::after areas, the 16px
+ *    box), on real elements, and on stand-ins for those that appear only with data (a notice's close, Try again, a
+ *    room's document row): the reach and cover lines see only what is on screen,
+ *  - CONTROL: a desktop with a mouse keeps a name's 16px line and no hit area, the terminal box's own size, and none
+ *    of the rules apply,
  *  - light and dark, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -66,6 +70,13 @@ const REACH = (sel) => {
 // other control's drawn box, with 1px of slack for a snapped shared edge, is stacking, not a hit area.
 const COVERS = () => {
   const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], input:not([type="hidden"]), textarea';
+  const layered = (top, under) => {
+    for (let n = top; n && !n.contains(under); n = n.parentElement) {
+      const pos = getComputedStyle(n).position;
+      if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky' || (n.matches && n.matches('dialog[open], :popover-open'))) return true;
+    }
+    return false;
+  };
   const out = [];
   for (const el of document.querySelectorAll(SEL)) {
     if (el.disabled || !el.checkVisibility()) continue;
@@ -84,10 +95,36 @@ const COVERS = () => {
       const other = hit && hit.closest ? hit.closest(SEL) : null;
       if (!other || other === el || other.contains(el)) continue;   // an ancestor; a descendant's hit area still counts
       const o = other.getBoundingClientRect();
-      if (x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1) continue;
+      const inBox = x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1;
+      if (inBox && el.contains(other)) continue;   // a control inside this one, drawn where it is (a label's own input)
+      if (inBox && layered(other, el)) continue;   // drawn on top in its own layer (a menu): stacking
+      if (inBox && (Math.abs(x - o.left) <= 1.5 || Math.abs(x - o.right) <= 1.5 || Math.abs(y - o.top) <= 1.5 || Math.abs(y - o.bottom) <= 1.5)) continue;   // a snapped shared edge
       out.push((el.id || el.className) + ' <- ' + (other.id || other.className)); break;
     }
   }
+  return out;
+};
+
+
+// In the page: every rule this change adds, read from computed style, on real elements where the page has them and on
+// stand-ins (removed after) where they only appear with data (a notice's close, Try again, a room's document row).
+const RULES = () => {
+  const made = [];
+  const standIn = (parentSel, html) => { const host = document.querySelector(parentSel) || document.body; const t = document.createElement('template'); t.innerHTML = html.trim(); const el = t.content.firstChild; host.appendChild(el); made.push(el); return el; };
+  const toast = standIn('body', '<div class="utoast"><button class="ux" type="button">x</button></div>');
+  const notice = standIn('body', '<div class="pnotice"><button class="qopt" type="button">Try again</button></div>');
+  const doc = standIn('#pj-one-view', '<button class="pj-doc" type="button">doc</button>');
+  const mh = (sel, el) => { const e = el || document.querySelector(sel); return e ? getComputedStyle(e).minHeight : 'missing'; };
+  const after = (sel, el) => { const e = el || document.querySelector(sel); if (!e) return 'missing'; const a = getComputedStyle(e, '::after'); return a.content === 'none' ? 'none' : a.width + 'x' + a.height; };
+  const out = {
+    'Sort agents': mh('#agent-sort'), 'Sort projects': mh('#pj-sort'), 'menu tab': mh('.apphead .tab'),
+    'Open Terminal': mh('#d-open-terminal'), 'Remove this agent': mh('#d-remove-start'), 'Send': mh('#d-term-send'), 'Trust & Restart': mh('#d-trust-restart'),
+    'terminal box font': getComputedStyle(document.querySelector('#d-term-say')).fontSize, 'terminal box': mh('#d-term-say'),
+    'Upload an org chart': mh('#team-orgchart-open'), 'Join Kosmos+': mh('#plus-site-link'),
+    'Try again': mh(null, notice.firstChild), 'document row': mh(null, doc),
+    'tasks back area': after('#tsk-back'), 'notice close area': after(null, toast.firstChild), 'name area': after('.namego'),
+  };
+  for (const m of made) m.remove();
   return out;
 };
 
@@ -144,6 +181,10 @@ const COVERS = () => {
       chk(btns.length >= 2 && btns.every(([, h]) => h >= 44), `${tag} AI settings: its visible buttons are 44 tall`, JSON.stringify(btns));
       const aiCovers = await page.evaluate(COVERS);
       chk(aiCovers.length === 0, `${tag} AI settings: no control is taken by a neighbour's hit area`, JSON.stringify(aiCovers));
+      // Every rule this change adds, on the touch phone (the reach and cover lines above see only what is on screen).
+      const rules = await page.evaluate(RULES);
+      const bad = Object.entries(rules).filter(([k, v]) => (k === 'terminal box font' ? v !== '16px' : /area$/.test(k) ? (v === 'none' || v === 'missing' || !v.includes('44px')) : v !== '44px'));
+      chk(bad.length === 0, `${tag} every rule this change adds applies on touch (44px, the 44px areas, 16px)`, JSON.stringify(bad.length ? bad : rules));
       chk(errs.length === 0, `${tag} no page errors`, errs.slice(0, 2).join(' | '));
       await ctx.close();
     }
@@ -160,6 +201,9 @@ const COVERS = () => {
     await page.waitForSelector('#d-sec-term', { state: 'visible', timeout: 5000 });
     const dt = await page.evaluate(() => getComputedStyle(document.querySelector('#d-term-say')).fontSize);
     chk(dt !== '16px', '[desktop 1280] CONTROL: the terminal box keeps its own size with a mouse', dt);
+    const drules = await page.evaluate(RULES);
+    const leaked = Object.entries(drules).filter(([k, v]) => (k === 'terminal box font' ? v === '16px' : /area$/.test(k) ? v !== 'none' : v === '44px'));
+    chk(leaked.length === 0, '[desktop 1280] CONTROL: none of this change\'s rules apply with a mouse', JSON.stringify(leaked.length ? leaked : drules));
     await ctx.close();
   } catch (e) {
     console.error(e);
