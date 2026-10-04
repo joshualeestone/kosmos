@@ -19255,7 +19255,7 @@ function applyPlatformCopy(root) {
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
   /* An accessible name has to say what the visible label says (the Terminal tab reads
-     "Live output" on Windows, and its section is named from the same key). */
+     "Starting this agent" on Windows (#5239), and its section is named from the same key). */
   root.querySelectorAll('[data-win-aria-label]').forEach((el) => { el.setAttribute('aria-label', windowsCopy(el.getAttribute('data-win-aria-label'))); });
 }
 applyPlatformCopy(typeof document === 'undefined' ? null : document);
