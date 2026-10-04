@@ -31,3 +31,9 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 
 0d. #5164 (1e23b5085, PR #5185) chat "An honest sign-in warning": from the PR, an ended login whose access token is still live
    shows "N agents stop working at about <time>" instead of saying they stopped. Ranks 3rd (day-one). 5 lines = the cap.
+
+0e. #5154 slice A (580fb2556, PR #5203, Renet) shield "Agents that keep stopping": "When an agent keeps crashing, its card
+   now says Keeps stopping, and with Kosmos+ your phone is told once." From the merge: the card label is 'Keeps stopping'
+   with the needs-you look (web/index.html stateCopyOf); a needs_you push once per loop episode (engine/crashloop.js).
+   Ranks 3rd. #5146 (community English) DROPS at the cap of 5: it reaches the fewest newcomers.
+   Final order: #5140, #5165, #5154 A, #5164, #5152 slice 0.
