@@ -73,7 +73,7 @@ const fitOf = (() => {
   return new Function(src.slice(a, b) + '; return fitOf;')();
 })();
 const covers = async (page) => (await fitOf(page)).covers;
-// In the page: a hit area must reach 44 around its control's centre AND stop short of 40px out, so an area knocked
+// In the page: a hit area must reach 44 around its control's centre AND stop short of 26px out, so an area knocked
 // loose (its host not positioned: the ::after then spans the page) or shifted reads as a failure (round 4).
 const AREA = (el) => {
   if (!el) return 'missing';
@@ -82,7 +82,9 @@ const AREA = (el) => {
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   const hits = (x, y) => { const h = document.elementFromPoint(x, y); return !!h && (h === el || el.contains(h)); };
   const reach = [[0, -21.5], [0, 21.5], [-21.5, 0], [21.5, 0]].every(([dx, dy]) => hits(cx + dx, cy + dy));
-  const far = Math.max(40, r.width / 2 + 18), farV = Math.max(40, r.height / 2 + 18);
+  // Bounded tightly: every area here is exactly max(its box, 44), so nothing 26px out from the centre (4px past the 22
+  // of a 44 area), or 4px past a wider box's own edge, may answer (round 5: 40 let a 76px-tall area pass).
+  const far = Math.max(26, r.width / 2 + 4), farV = Math.max(26, r.height / 2 + 4);
   const bounded = [[0, -farV], [0, farV], [-far, 0], [far, 0]].every(([dx, dy]) => !hits(cx + dx, cy + dy));
   return { reach, bounded };
 };
