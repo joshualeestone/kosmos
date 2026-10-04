@@ -1217,6 +1217,10 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
   const sealed = roomSeal(projectId);
   const link = sealLink(projectId);
   const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
+  // #5192 round 28: a post written while a behind hold is on was promised the new key, whatever
+  // it is held for first (an unreadable record here), so it is marked now and dropped, not sent
+  // under the old key, if the hold runs out before the key arrives.
+  if (!heldAt && s.behind && Date.now() < s.behind.until) msg.behindHeld = true;
   if (sealedRoom === undefined) {
     // #5192: held, not dropped (a held one met here is held again): it goes once the record
     // can be read and says whether the room is sealed.
@@ -1245,7 +1249,7 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
       // #5192: marked, so it goes only under the new key: if the hold runs out first it is
       // dropped, never sent under a key a removed member may still hold.
       msg.behindHeld = true;
-      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives; if it has not arrived within a few minutes, it is not sent', heldAt);
+      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives; if it is still missing when this computer next checks after a few minutes, it is not sent', heldAt);
     }
     if (!hasKey(sealed) || !s.room) {
       return holdPost(projectId, s, msg, hasKey(sealed)
