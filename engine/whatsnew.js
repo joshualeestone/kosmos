@@ -40,7 +40,11 @@ const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 /* #5224: the platforms a highlight can be for, and the whole words (case-sensitive) that name each. */
 const PLATFORMS = Object.freeze(['mac', 'windows']);
-const PLATFORM_WORDS = Object.freeze({ mac: ['Mac', 'Macs', 'macOS', 'MacBook', 'MacBooks', 'iMac', 'iMacs'], windows: ['Windows', 'PC', 'PCs'] });
+/* Lower-case "windows" and "mac" are left out on purpose: a window on screen, a MAC address. */
+const PLATFORM_WORDS = Object.freeze({
+  mac: ['Mac', 'Macs', 'macOS', 'MacOS', 'MACOS', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
+  windows: ['Windows', 'WINDOWS', 'PC', 'PCs'],
+});
 
 /** #5224: the platforms a text names, in PLATFORMS order (whole ASCII words, case-sensitive: "Mac's" is Mac, "mac" is not). */
 function platformsNamed(text) {
@@ -88,9 +92,12 @@ function problems(obj, version) {
     if (named.length && tag === undefined) {
       out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform:'
         + ' tag it with the platforms it is about, or reword it if it is not about one');
-    } else if (named.length && (tag.length !== named.length || tag.some((p) => !named.includes(p)))) {
-      out.push(n + ' is for ' + tag.join(' and ') + ' but names ' + named.join(' and ') + ': its "platforms" must list exactly the'
-        + ' platforms it names, so reword it to name only the platforms it is for');
+    } else if (named.length && named.some((p) => !tag.includes(p))) {
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names ' + named.join(' and ')
+        + ': reword it to name only the platforms it is for');
+    } else if (named.length && tag.some((p) => !named.includes(p))) {
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names only ' + named.join(' and ')
+        + ': take the other platform out of its "platforms", or name it in the line');
     }
   });
   return out;
@@ -105,7 +112,7 @@ function read(version, file, nodePlatform) {
   return got && got.highlights;
 }
 
-/** #5224: how many highlights each platform shows, e.g. { mac: 5, windows: 3 } (for the cut's report). */
+/** #5224: how many highlights each platform shows, e.g. { mac: 5, windows: 3 } (for the cut's report). Takes a file problems() passed. */
 function countsByPlatform(obj) {
   const out = {};
   for (const p of PLATFORMS) out[p] = obj.highlights.filter((x) => x.platforms === undefined || x.platforms.includes(p)).length;
