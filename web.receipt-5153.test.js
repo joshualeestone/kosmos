@@ -76,10 +76,10 @@ test('two unpriced models read "which have"', () => {
 function painter(state) {
   const holder = { hidden: true, innerHTML: '' };
   // eslint-disable-next-line no-new-func
-  const make = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml', 'S',
+  const make = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml', 'S', 'paintTaskUndo', 'tkUndoHide',
     'var PJ_CURRENT = "p1"; var TKR_SEQ = 0; Object.defineProperty(globalThis, "TK_OPEN", { get: () => S.open, configurable: true });\n'
     + lift('tkTaskClosed') + '\n' + lift('paintTaskReceipt') + '\nreturn paintTaskReceipt;');
-  const paint = make({ getElementById: () => holder }, () => ({ id: 'p1', tasks: [state.task] }), state.fetch, () => 'RECEIPT', state);
+  const paint = make({ getElementById: () => holder }, () => ({ id: 'p1', tasks: [state.task] }), state.fetch, () => 'RECEIPT', state, () => {}, () => {});   // #5153 slice 4's undo panel: no-ops here
   return { paint, holder };
 }
 
@@ -132,12 +132,12 @@ test('a receipt read that fails is tried again on the next poll, not left hidden
   // eslint-disable-next-line no-new-func
   let now = Date.parse('2026-10-03T12:00:00Z');
   const FakeDate = { now: () => now };
-  const sync = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml', 'Date',
+  const sync = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml', 'Date', 'paintTaskUndo', 'tkUndoHide',
     'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null; var TKR_SEQ = 0; var TKR_FAILED = null; var TKR_RETRY_MS = 30000;\n'
     + lift('tkTaskClosed') + '\n' + lift('paintTaskReceipt') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
   )({ getElementById: () => holder }, () => ({ id: 'p1', tasks: [{ number: 4, closedAt: '2026-10-01T12:00:00Z' }] }),
     async () => { reads += 1; if (fails-- > 0) throw new Error('board restarting'); return { ok: true, json: async () => ({ agents: [] }) }; },
-    () => 'RECEIPT', FakeDate);
+    () => 'RECEIPT', FakeDate, () => {}, () => {});
   sync();
   await new Promise((r) => setImmediate(r));
   assert.equal(holder.hidden, true, 'control: the first read failed');

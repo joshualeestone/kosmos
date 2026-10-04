@@ -6326,6 +6326,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .dwork-row:hover .dwork-what, .dwork-row:focus-visible .dwork-what { text-decoration: underline; }
 .dwork-what { display: block; overflow-wrap: anywhere; }
 .dwork-meta { display: block; margin-top: 2px; color: var(--label-2); font-size: .85rem; overflow-wrap: anywhere; }
+/* #5153 slice 4: the undo panel under the receipt. */
+.tkundo { margin-top: 10px; }
+.tku-list { list-style: none; margin: 8px 0; padding: 0; }
+.tku-list li { padding: 4px 0; overflow-wrap: anywhere; }
+.tku-list label { display: flex; gap: 8px; align-items: flex-start; }
+.tku-why { display: block; color: var(--k-ink-3, var(--label-2)); }
 /* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
    like the column's others, every line one size, facts about the tool muted, the page's own toggle for the files. */
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
@@ -16286,6 +16292,9 @@ window.kosmosMeasureScrollbarWidth();
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
         <!-- #5153: a closed task's change receipt, drawn by paintTaskReceipt; hidden while the task is open. -->
         <div id="tk-receipt" class="tkreceipt" hidden></div>
+        <!-- #5153 slice 4: undo this task's file changes; drawn by paintTaskUndo only while Settings' undo switch is on
+             and there is something to undo. Its own element, so a receipt repaint never wipes a list being chosen. -->
+        <div id="tk-undo" class="tkundo" hidden></div>
         <!-- #768: the composer. A message typed here is recorded on the task, shows
              in the activity above (engine tasks.say -> taskchat), AND is delivered to
              the agents assigned to the task (the server route notifies them via
@@ -18377,6 +18386,17 @@ window.kosmosMeasureScrollbarWidth();
   </section>
 
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
+    <!-- #5153 slice 4: undo a task's file changes. OFF by default (Josh can override): while on, Kosmos keeps a copy of a
+         file just before a Claude agent edits it, on this computer, for 30 days. Unread draws no knob, never a false Off. -->
+    <section class="dbox">
+      <h3 class="dlab">Undo</h3>
+      <div class="setrow" id="undo-row">
+        <div><b>Keep a copy before an agent edits a file</b>
+          <p class="dhint" style="margin:2px 0 0;">So a finished task’s file changes can be undone from its receipt. Copies stay on this computer for 30 days. Claude agents only, and only files changed with their editing tools, not by commands.</p></div>
+        <button class="toggle" id="undo-toggle" role="switch" aria-label="Keep a copy before an agent edits a file" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="undo-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <section class="dbox">
       <!-- LIVE now (eng-mode): On reveals the raw session on the project
            page and the agent page; Off hides them, and hiding is the
@@ -31003,6 +31023,38 @@ async function communityToggleClick() {
 }
 document.getElementById('community-toggle').addEventListener('click', communityToggleClick);
 
+/* #5153 slice 4: the undo switch, Settings > Advanced. Same shape as Community's: an unread setting hides the knob. */
+let UNDO_SET_EPOCH = 0;
+let UNDO_SAVING = false;
+function undoSettingPaint(r) {
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
+  paintSwitch('undo-toggle', unread ? null : r.on === true);
+  document.getElementById('undo-msg').textContent = unread ? 'We could not read this setting just now. It stays as it was.' : '';
+}
+async function refreshUndoSetting() {
+  const mine = ++UNDO_SET_EPOCH;
+  try {
+    const res = await fetch('/api/undo-setting');
+    const r = res.ok ? await res.json() : null;
+    if (mine === UNDO_SET_EPOCH) undoSettingPaint(r);
+  } catch { if (mine === UNDO_SET_EPOCH) undoSettingPaint(null); }
+}
+document.getElementById('undo-toggle').addEventListener('click', async () => {
+  if (UNDO_SAVING) return;
+  UNDO_SAVING = true;
+  const mine = ++UNDO_SET_EPOCH;
+  const msg = document.getElementById('undo-msg');
+  try {
+    const on = document.getElementById('undo-toggle').getAttribute('aria-checked') !== 'true';
+    const res = await fetch('/api/undo-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== UNDO_SET_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
+    undoSettingPaint(body);
+  } catch { msg.textContent = 'We could not save that setting.'; }
+  finally { UNDO_SAVING = false; }
+});
+
 /* #4375: the owner's industry picker. The options come from the board's own list (GET), so the page
    offers exactly the keys the board accepts. An unreadable setting (or a failed read) draws NO
    industry as chosen, says so, and keeps "None" pickable, so the person can always clear what their
@@ -31787,6 +31839,7 @@ refreshEngMode();
 refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
+refreshUndoSetting(); // #5153 slice 4: the undo switch
 refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
@@ -37983,6 +38036,7 @@ function settingsGo(section, opts) {
      in flight: a refresh bumps the same epoch, so it would drop that save's answer and could paint a read
      taken before the save landed. */
   if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
+  if (section === 'advanced' && typeof refreshUndoSetting === 'function' && !UNDO_SAVING) refreshUndoSetting();   // #5153
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
   /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
      repaints the industry row too, so an earlier save message there is cleared. */
@@ -58097,6 +58151,7 @@ function tkActPhrase(ev, p) {
     // whole return is esc()'d once at the render site, like every other phrase.
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
+    case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';
     /* #3951: who marked it built and what was left; and why the mark went. */
     case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
@@ -58163,6 +58218,83 @@ function tkReceiptHtml(r, p) {
     + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
     + body;
 }
+/* #5153 slice 4: the undo list, file by file, from GET .../undo. Pure. What each row will do, or why it will not:
+   a file changed after the close, already gone, or with no copy cannot be chosen; one another agent also edited is
+   unchecked and can be chosen. */
+const TKU_WHY = {
+  restore: 'goes back to how it was before this task',
+  'move-aside': 'the agent created it: moved into Kosmos’s own folder, not deleted',
+  shared: 'another agent also edited it meanwhile: choose it to undo theirs too',
+  'changed-since': 'changed after the task closed: left as it is',
+  gone: 'already gone',
+  'copy-missing': 'its copy is missing: left as it is',
+};
+function tkUndoListHtml(plan) {
+  const files = Array.isArray(plan && plan.files) ? plan.files : [];
+  const rows = files.map((f, i) => {
+    const choosable = f.ok || f.why === 'shared';
+    const why = f.ok ? TKU_WHY[f.action] : TKU_WHY[f.why] || 'left as it is';
+    return '<li><label><input type="checkbox" data-path="' + esc(f.path) + '"' + (f.ok ? ' checked' : '') + (choosable ? '' : ' disabled')
+      + ' aria-describedby="tku-why-' + i + '"><span>' + esc(f.path) + '<span class="tku-why" id="tku-why-' + i + '">' + esc(why) + '</span></span></label></li>';
+  }).join('');
+  return '<p class="tkr-intro">These files go back to how they were before this task. Kosmos saves each one’s current version first.</p>'
+    + '<ul class="tku-list">' + rows + '</ul>'
+    + '<div class="frow"><button class="btn" type="button" data-undo="go">Undo the chosen files</button> '
+    + '<button class="btn-quiet" type="button" data-undo="cancel">Cancel</button></div>';
+}
+/* After an undo: what was done, what was not, and where the saved versions are. Pure. */
+function tkUndoDoneLine(out) {
+  const done = (out && out.done) || [];
+  const skipped = (out && out.skipped) || [];
+  const bits = [];
+  bits.push(done.length === 1 ? 'Undone: 1 file.' : 'Undone: ' + usageNum(done.length) + ' files.');
+  if (skipped.length) bits.push(skipped.length === 1 ? '1 file was left as it was.' : usageNum(skipped.length) + ' files were left as they were.');
+  if (out && out.savedIn) bits.push('The versions from before the undo are saved in ' + out.savedIn + '.');
+  return bits.join(' ');
+}
+let TKU_SEQ = 0;
+/* The undo panel goes when the receipt goes (a task put back, another task opened). */
+function tkUndoHide() { const box = document.getElementById('tk-undo'); if (box) { TKU_SEQ += 1; box.hidden = true; box.innerHTML = ''; } }
+async function paintTaskUndo(n) {
+  const box = document.getElementById('tk-undo');
+  if (!box) return;
+  const seq = ++TKU_SEQ;
+  const p = pjById(PJ_CURRENT);
+  if (!p || !tkTaskClosed(n)) { box.hidden = true; box.innerHTML = ''; return; }
+  let plan = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/undo', { cache: 'no-store' });
+    plan = res.ok ? await res.json() : null;
+  } catch { plan = null; }
+  if (seq !== TKU_SEQ || n !== TK_OPEN) return;
+  const files = plan && plan.on && Array.isArray(plan.files) ? plan.files : [];
+  if (!files.length) { box.hidden = true; box.innerHTML = ''; return; }
+  box.innerHTML = '<button class="linkish" type="button" data-undo="open">Undo this task’s file changes</button><p class="dhint" role="status" id="tku-msg"></p>';
+  box.dataset.plan = JSON.stringify(plan);
+  box.hidden = false;
+}
+document.getElementById('tk-undo').addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-undo]');
+  if (!b) return;
+  const box = document.getElementById('tk-undo');
+  const act = b.dataset.undo;
+  if (act === 'open') { box.innerHTML = tkUndoListHtml(JSON.parse(box.dataset.plan || '{}')) + '<p class="dhint" role="status" id="tku-msg"></p>'; return; }
+  if (act === 'cancel') { paintTaskUndo(TK_OPEN); return; }
+  const paths = [...box.querySelectorAll('input[type="checkbox"][data-path]')].filter((x) => x.checked && !x.disabled).map((x) => x.dataset.path);
+  const msg = document.getElementById('tku-msg');
+  if (!paths.length) { msg.textContent = 'Choose at least one file.'; return; }
+  const p = pjById(PJ_CURRENT);
+  b.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/undo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paths }) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.error || 'We could not undo that just now.'; b.disabled = false; return; }
+    box.innerHTML = '<p class="tkr-line">' + esc(tkUndoDoneLine(out)) + '</p>';
+    paintTaskActivity(TK_OPEN);
+  } catch { msg.textContent = 'We could not undo that just now.'; b.disabled = false; }
+});
+
 /* #5153: fetch and draw the receipt for task `n` when it is closed; hidden otherwise. Same stale-page guards as the
    activity below. A failed read hides it rather than showing a receipt of nothing. */
 let TKR_SEQ = 0;
@@ -58197,7 +58329,7 @@ async function paintTaskReceipt(n) {
   if (!holder) return;
   const seq = ++TKR_SEQ;   // only the newest call paints: a slow read must not paint over a reopen (review 1)
   const p = pjById(PJ_CURRENT);
-  if (!p || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
+  if (!p || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
   let r = null;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/receipt', { cache: 'no-store' });
@@ -58209,9 +58341,10 @@ async function paintTaskReceipt(n) {
   /* A failed read is tried again (after TKR_RETRY_MS), not left hidden while the page stays open (review 3). */
   if (!r) { TKR_FAILED = TKR_SHOWN ? { key: TKR_SHOWN, at: Date.now() } : null; TKR_SHOWN = null; }
   else TKR_FAILED = null;
-  if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
+  if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
   holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
   holder.hidden = false;
+  paintTaskUndo(n);   // #5153 slice 4: offered only while Settings' undo switch is on
 }
 /* Draw the task's activity, oldest first (the way the record is written and the
    way a conversation reads top-to-bottom). Fetched on open and re-fetched after
@@ -58279,6 +58412,8 @@ function openTaskPage(n) {
   if (acts) acts.innerHTML = '';
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
+  const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
+  if (undoBox) { undoBox.hidden = true; undoBox.innerHTML = ''; }
   paintTaskActivity(n);
   TKR_SHOWN = null;   // #5153: a task opened again is painted again
   tkReceiptSync();
