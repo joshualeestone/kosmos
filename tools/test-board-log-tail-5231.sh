@@ -16,7 +16,7 @@ pass=0; fail=0
 ok() { echo "PASS  $1"; pass=$((pass+1)); }
 bad() { echo "FAIL  $1"; fail=$((fail+1)); }
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; LIVE_PID=""; trap '[ -n "$LIVE_PID" ] && kill "$LIVE_PID" 2>/dev/null; rm -rf "$T"' EXIT   # review 2: never leave the listener
 RUN_DIR="$T/run"; mkdir -p "$RUN_DIR"
 DEAD_PORT="$(node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})')"
 OTHER_PORT="$(node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})')"
@@ -54,8 +54,9 @@ case "$out" in *"the second board on this port"*) case "$out" in *"heap out of m
 LIVE_PORT_FILE="$T/live.port"
 node -e 'const s=require("node:http").createServer((q,r)=>r.end("{}"));s.listen(0,"127.0.0.1",()=>{require("node:fs").writeFileSync(process.argv[1],String(s.address().port))});setTimeout(()=>process.exit(0),15000)' "$LIVE_PORT_FILE" &
 LIVE_PID=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$LIVE_PORT_FILE" ] && break; sleep 0.3; done
+for _ in $(seq 1 50); do [ -s "$LIVE_PORT_FILE" ] && break; sleep 0.2; done   # review 2: up to 10 s on a loaded box
 LIVE_PORT="$(cat "$LIVE_PORT_FILE" 2>/dev/null)"
+[ -n "$LIVE_PORT" ] || bad "the test's own listener never started (a loaded machine?), so arm 4c measured nothing"
 LIVE_LOG="$T/live.log"; printf 'a board that came back\n' > "$LIVE_LOG"
 printf '%s\t%s\n' "$LIVE_PORT" "$LIVE_LOG" >> "$RUN_DIR/board-logs.tsv"
 printf 'Error: connect ECONNREFUSED 127.0.0.1:%s\n' "$LIVE_PORT" > "$CAP"

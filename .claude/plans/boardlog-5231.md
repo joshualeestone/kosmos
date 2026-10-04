@@ -35,6 +35,11 @@ not a board (e.g. a stub's 127.0.0.1:9 relayed in an error) is said as "not a bo
 (a re-booted port shows the later board's log; a board that answers again is not called GONE). NIT ACCEPTED: when a
 board died during attempt 1, attempt 2 prints the same tail again.
 
+## Review 2 (opus, blind)
+No WARNING+. NITs FIXED: the listener wait is up to 10 s and a listener that never starts is named, not misread; the
+EXIT trap kills it. NIT ACCEPTED: cut -c counts bytes with no locale, so a multibyte character at byte 300 can split
+(cosmetic). Converged.
+
 ## Weakest premise
 That a dying board's server.log holds its cause. An OOM kill by the OS (SIGKILL) writes nothing to it; the line
 "is GONE" with an ordinary tail would then point at the OS, which is still more than today's nothing.
