@@ -2914,6 +2914,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if asked, committedPageURL?.host?.lowercased() != host || pageCommits != commitsBefore {
             logLine("#5167: the page changed while \(host) was asked about, so its downloads were not saved")
             answer(false)   // counted as Don't Allow for the run: a page that keeps reloading cannot keep asking (View > Reload asks again)
+            tellDownloadFailed("The page changed while you were asked, so the file was not saved. Choose View > Reload to be asked again.")   // the person pressed Allow: say why nothing saved
             return
         }
         answer(asked)
