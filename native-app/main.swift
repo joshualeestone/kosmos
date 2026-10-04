@@ -2885,6 +2885,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             for waiting in self.downloadAsks.removeValue(forKey: host) ?? [] { waiting(yes) }
         }
         if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
+        let commitsBefore = pageCommits
+        // On the next turn, not inside WebKit's policy callback: the waiting decision handlers are held in
+        // downloadAsks, so WebKit's delegate calls do not run nested inside this question's modal loop.
+        DispatchQueue.main.async { [self] in
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
         // Cleaned as a saved name is (no direction controls or separators): the page chose this text.
@@ -2903,21 +2907,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         NSApp.activate(ignoringOtherApps: true)   // in front, where the person can read it
-        let commitsBefore = pageCommits
         let asked = alert.runModal() == .alertFirstButtonReturn
-        // The page may have changed while it was asked (a switch to connect clears it): the waiting downloads
-        // are not saved, and nothing is recorded, since the person answered for a page no longer there.
-        guard committedPageURL?.host?.lowercased() == host, pageCommits == commitsBefore else {
+        // The page may have changed while it was asked (a switch to connect clears it). Don't Allow is always kept
+        // (refusing is safe, and a page that reloads cannot ask again and again); only an Allow is void, since it
+        // was given for a page no longer there, and the waiting downloads are not saved.
+        if asked, committedPageURL?.host?.lowercased() != host || pageCommits != commitsBefore {
             logLine("#5167: the page changed while \(host) was asked about, so its downloads were not saved")
             for waiting in downloadAsks.removeValue(forKey: host) ?? [] { waiting(false) }
             return
         }
         answer(asked)
+        }
     }
 
     /// #5167: a download the person started that did not save is said, one plain alert each. A refusal by policy
-    /// (`quiet: true`: not a board, not this board's origin, a computer the person did not allow, the page changed,
-    /// WebKit stopping it) is logged only: the person either chose it or is not on a Kosmos page, and a page that
+    /// (`quiet: true`: not a board, not this board's origin, WebKit stopping it; a computer the person did not allow
+    /// and a page that changed are logged in mayDownload itself) is logged only: the person either chose it or is not on a Kosmos page, and a page that
     /// repeats one cannot pile alerts up. The selftest sets downloadAlertPresenter to read what is said.
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false, always: Bool = false) {
         if quiet { logLine("#5167: not saved (a refusal, logged only): \(detail)"); return }
@@ -2950,7 +2955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         } else {
             logLine("#5167: refused a download's redirect to another origin")
             downloadsTold.add(download)
-            tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
+            tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.", quiet: true)
             decisionHandler(.cancel)
         }
     }
