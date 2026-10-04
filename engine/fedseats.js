@@ -492,8 +492,9 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
    which a sealed room does not rely on (the relay is not trusted).
    #5197: a member that has received the rotation uses the same grace. A member the relay
    never sends the rotation to stays on the old key (fedseal.js NOT CLAIMED). Members hold nothing for
-   an edge check, so on a member's board a revoked member is shown for the owner's
-   detection (up to a 60 s pass) plus this grace. A member's grace runs from the
+   an edge check, so on a member's board a revoked member is shown until the owner detects
+   the revoke and the rotation reaches the member, plus this grace (longer by any amount the
+   member's clock runs behind the owner's: fedseal.js NOT CLAIMED). A member's grace runs from the
    owner's rotation time on its own clock: a member clock running ahead shortens it
    (fails closed: in-flight posts refused there). */
 const REVOKE_GRACE_MS = 90 * 1000;
