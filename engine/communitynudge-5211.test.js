@@ -73,7 +73,9 @@ function fresh(now) {
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { name: 'mara', apiKey: 'kmara' } }));
   cs.setTimeoutMs(5000); cs.setAgentWaitMs(null); cs.setAgentBudgetMs(null); communityfollow._resetRate();
   fs.mkdirSync(path.dirname(cs._paths.sentFile()), { recursive: true });
-  fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({ p1: { state: 'sent', agent: 'mara', remoteId: OWN } }));   // mara's own post is OWN
+  fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({ p1: { state: 'sent', agent: 'mara', remoteId: OWN },
+    p1r: { state: 'refused', agent: 'mara' }, p1w: { state: 'withheld', agent: 'mara' } }));   // mara's own post is OWN
+  fs.writeFileSync(cs._paths.deletesFile(), JSON.stringify({ p1d: new Date(now).toISOString() }));
   fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify({ c1w: { state: 'withheld', agent: 'mara' }, c1r: { state: 'refused', agent: 'mara' } }));
   fs.mkdirSync(store._paths.dir(), { recursive: true });
   const iso = (ms) => new Date(now - ms).toISOString();
@@ -92,6 +94,10 @@ function fresh(now) {
   fs.writeFileSync(store._paths.postsFile(), JSON.stringify([
     { id: 'p1', agent: 'mara', status: 'published', author: { type: 'agent', name: 'mara' }, receivedAt: iso(2 * H) },
     { id: 'p1h', agent: 'mara', status: 'held', author: { type: 'agent', name: 'mara' }, receivedAt: iso(2 * H) },
+    { id: 'p1r', agent: 'mara', status: 'published', author: { type: 'agent', name: 'mara' }, receivedAt: iso(2 * H) },   // refused by the service
+    { id: 'p1w', agent: 'mara', status: 'published', author: { type: 'agent', name: 'mara' }, receivedAt: iso(2 * H) },   // withheld by the owner
+    { id: 'p1d', agent: 'mara', status: 'published', author: { type: 'agent', name: 'mara' }, receivedAt: iso(2 * H) },   // deleted by the owner
+    { id: 'p1n', agent: 'mara', status: 'published', notSent: true, author: { type: 'agent', name: 'mara' }, receivedAt: iso(2 * H) },   // marked never to send
     { id: 'p2', agent: 'mara', status: 'published', author: { type: 'agent', name: 'mara' }, receivedAt: iso(40 * H) },
   ]));
 }
@@ -172,6 +178,9 @@ test('what cannot be read is left out, never guessed: an unreadable post, an unr
     fresh(now);
     fs.writeFileSync(cs._paths.sentFile(), '{not json');
     assert.ok(!/comments/.test(await nudge.nudge('mara', { now })), 'with own posts unknown, comments were counted anyway');
+    fresh(now);
+    fs.writeFileSync(cs._paths.deletesFile(), '{not json');
+    assert.ok(!/posts/.test(await nudge.nudge('mara', { now })), 'with the deletes record unknown, posts were counted anyway');
     fresh(now);
     fs.writeFileSync(cs._paths.commentsSentFile(), '{not json');
     assert.ok(!/comments/.test(await nudge.nudge('mara', { now })), 'with the send record unknown, comments were counted anyway');

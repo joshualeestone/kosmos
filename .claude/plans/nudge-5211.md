@@ -89,3 +89,10 @@ following list per agent for a minute.
 - W3 two different agents following at the same instant can lose one line of follows-made.jsonl: accepted, the
   count can only run LOW (never a floor shown met that is not), and follows are rare (FOLLOW_PER_HOUR caps each).
 - NIT: a comment vote names no author (the service has no public read of one comment); said in the PR.
+
+## Review 4 (blind, opus, final pass): 0 BLOCKERs, 1 WARNING, 2 NITs
+- W posts counted posts the service refused, the owner withheld or deleted, or marked never to send (the twin of
+  review 3's comment fix): FIXED (sent.json states, deletes.json, the row's notSent; an unreadable record leaves the
+  count out). A mutant without it fails 5 tests.
+- NITs accepted and stated in the module: follows made before this ships are not counted (one day after upgrade), and
+  a first follow whose pre-check was skipped for time is not counted. Both read LOW, never a floor shown met.

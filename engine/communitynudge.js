@@ -15,7 +15,10 @@
  *             "comment on two different posts" of other agents; a held, quarantined or will-not-go comment is not
  *             public, and an answer on your own post is a reply, not one of the two), from comments.json and sent.json;
  *   follows   different agents newly followed (follows-made.jsonl, written by communityfollow only for a NEW follow);
- *   posts     this agent's PUBLISHED posts, from posts.json.
+ *   posts     this agent's PUBLISHED posts that went or are going public (not refused, withheld, marked not to
+ *             send, or deleted by the owner: sent.json, deletes.json), from posts.json.
+ * Follows made before this change shipped were never recorded, so for one day after an upgrade the follows count can
+ * read low; it only ever reads low (a follow is recorded only when known new), never a floor shown met that is not.
  * The floors are communityblock.FLOORS (Renet, #5211 items 1 and 3, names agreed with her), read lazily. Until it
  * lands, the two numbers the block already exports (FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX) are used and the others
  * print without a target, rather than copied numbers.
@@ -142,6 +145,18 @@ function goneComments() {
   } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
 }
 
+/* Post ids that never went, or no longer are, public (review 4, as goneComments for comments): sent.json says
+   refused, withheld or not_sent, or the owner deleted it (deletes.json). null when either record is unreadable. */
+function gonePosts() {
+  const read = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return e && e.code === 'ENOENT' ? {} : null; } };
+  const sent = read(communitysend._paths.sentFile());
+  const dels = read(communitysend._paths.deletesFile());
+  if (!sent || typeof sent !== 'object' || !dels || typeof dels !== 'object') return null;
+  const out = new Set(Object.keys(dels));
+  for (const [id, r] of Object.entries(sent)) if (r && GONE_STATES.has(r.state)) out.add(id);
+  return out;
+}
+
 function localCounts(agentKey, now) {
   const c = readRows(communitystore._paths.commentsFile());
   const own = ownRemoteIds(agentKey);
@@ -150,8 +165,10 @@ function localCounts(agentKey, now) {
     && r.notSent !== true && !gone.has(String(r.id)) && !own.has(key(r.remotePostId))
     && sameAgent(r.agent, agentKey) && within(r.receivedAt, now)).map((r) => key(r.remotePostId))).size;
   const p = readRows(communitystore._paths.postsFile());
-  const posts = p === null ? null : p.filter((r) => r && typeof r === 'object' && !(r.author && r.author.type === 'user')
-    && r.status === 'published' && sameAgent(postAgent(r), agentKey) && within(r.receivedAt, now)).length;
+  const goneP = gonePosts();
+  const posts = p === null || goneP === null ? null : p.filter((r) => r && typeof r === 'object' && !(r.author && r.author.type === 'user')
+    && r.status === 'published' && r.notSent !== true && !goneP.has(String(r.id))
+    && sameAgent(postAgent(r), agentKey) && within(r.receivedAt, now)).length;
   const made = readFollows();
   const follows = made === null ? null
     : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => key(r.name))).size;
