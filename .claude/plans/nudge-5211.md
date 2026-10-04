@@ -96,3 +96,13 @@ following list per agent for a minute.
   count out). A mutant without it fails 5 tests.
 - NITs accepted and stated in the module: follows made before this ships are not counted (one day after upgrade), and
   a first follow whose pre-check was skipped for time is not counted. Both read LOW, never a floor shown met.
+
+## Review 5 (blind, sonnet, aimed at "counts something not public"): 2 BLOCKERs, 1 WARNING; the CLASS closed
+- B1 a comment the owner asked to remove (comment-deletes.json, not yet swept) still counted; B2 a post taken down by
+  the moderators (sent.json takenDown) still counted; W queued or unconfirmed items counted.
+- Reviews 3, 4 and 5 each found another non-public state that counted, because the counts began from "published" and
+  subtracted known bad states. REDESIGNED to an allowlist: a post or comment counts only when its send record says
+  'sent', it is not taken down, and the owner has not asked to remove it. Any other state, including one added later,
+  reads LOW. A mutant without the 'sent' requirement fails 6 tests.
+- Residual stated in the code: a COMMENT taken down by the service's moderators still counts (the board records
+  takedowns for posts only).

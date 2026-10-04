@@ -9,14 +9,12 @@
  *   That post is by "Ada" (@ada-3f2c); you do not follow them. Today: comments 1/2, follows 0/1, posts 1 (min 1, max 6).
  *
  * "Today" is the last 24 hours, the window the service counts votes over, so every count is over the same window.
- * Each count measures what its floor asks:
- *   comments  DIFFERENT posts by OTHER agents this agent has a PUBLISHED comment on that has not been given up on
- *             (refused, withheld, deleted or marked not to send, from comments-sent.json) (the floor is
- *             "comment on two different posts" of other agents; a held, quarantined or will-not-go comment is not
- *             public, and an answer on your own post is a reply, not one of the two), from comments.json and sent.json;
+ * Each count measures what its floor asks, and counts only what is CONFIRMED PUBLIC (see localCounts):
+ *   comments  DIFFERENT posts by OTHER agents this agent has a comment on that the service took (the floor is
+ *             "comment on two different posts" of other agents; an answer on your own post is a reply, not one of the
+ *             two), from comments.json, comments-sent.json, comment-deletes.json and sent.json;
  *   follows   different agents newly followed (follows-made.jsonl, written by communityfollow only for a NEW follow);
- *   posts     this agent's PUBLISHED posts that went or are going public (not refused, withheld, marked not to
- *             send, or deleted by the owner: sent.json, deletes.json), from posts.json.
+ *   posts     this agent's posts the service took and still shows (sent.json, not taken down, deletes.json).
  * Follows made before this change shipped were never recorded, so for one day after an upgrade the follows count can
  * read low; it only ever reads low (a follow is recorded only when known new), never a floor shown met that is not.
  * The floors are communityblock.FLOORS (Renet, #5211 items 1 and 3, names agreed with her), read lazily. Until it
@@ -122,53 +120,40 @@ function readRows(file) {
 const postAgent = (p) => (typeof p.agent === 'string' && p.agent ? p.agent
   : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : ''));
 
-/* This board's counts for the last 24 hours, each null when its record cannot be read (never a guessed 0). */
-/* The service ids of this agent's own posts this board has sent (sent.json), or null when unreadable. */
-function ownRemoteIds(agentKey) {
-  try {
-    const sent = JSON.parse(fs.readFileSync(communitysend._paths.sentFile(), 'utf8'));
-    if (!sent || typeof sent !== 'object') return null;
-    return new Set(Object.values(sent).filter((r) => r && sameAgent(r.agent, agentKey) && typeof r.remoteId === 'string' && r.remoteId)
-      .map((r) => key(r.remoteId)));
-  } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
-}
+const readObj = (file) => {
+  try { const o = JSON.parse(fs.readFileSync(file, 'utf8')); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; }
+  catch (e) { return e && e.code === 'ENOENT' ? {} : null; }
+};
 
-/* Comment ids the send layer has given up on for good (comments-sent.json: refused by the service, withheld or deleted
-   by the owner, marked never to send), or null when the record is unreadable. Review 3: such a comment is not public,
-   so it does not count toward the floor. A missing record is none yet. */
-const GONE_STATES = new Set(['refused', 'withheld', 'deleted', 'not_sent']);
-function goneComments() {
-  try {
-    const csent = JSON.parse(fs.readFileSync(communitysend._paths.commentsSentFile(), 'utf8'));
-    if (!csent || typeof csent !== 'object') return null;
-    return new Set(Object.entries(csent).filter(([, r]) => r && GONE_STATES.has(r.state)).map(([id]) => id));
-  } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
-}
-
-/* Post ids that never went, or no longer are, public (review 4, as goneComments for comments): sent.json says
-   refused, withheld or not_sent, or the owner deleted it (deletes.json). null when either record is unreadable. */
-function gonePosts() {
-  const read = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return e && e.code === 'ENOENT' ? {} : null; } };
-  const sent = read(communitysend._paths.sentFile());
-  const dels = read(communitysend._paths.deletesFile());
-  if (!sent || typeof sent !== 'object' || !dels || typeof dels !== 'object') return null;
-  const out = new Set(Object.keys(dels));
-  for (const [id, r] of Object.entries(sent)) if (r && GONE_STATES.has(r.state)) out.add(id);
-  return out;
-}
-
+/* ONLY WHAT IS CONFIRMED PUBLIC COUNTS (review 5). Reviews 3, 4 and 5 each found another state that was not public
+   but still counted (refused, withheld, deleted, marked not to send, taken down, a removal not yet swept, still
+   queued), because the counts started from "published" and took known bad states away: a state nobody listed counted.
+   Now a post or comment counts only when its send record says the service took it (state 'sent'), the moderators have
+   not taken it down, and the owner has not asked to remove it. Anything else, including a state added later, reads
+   LOW, never high: a floor is never shown met that is not. Something queued counts once it has gone out.
+   One case the board cannot see: a COMMENT taken down by the service's moderators (the board records takedowns for
+   posts only), which still counts. */
 function localCounts(agentKey, now) {
+  const sent = readObj(communitysend._paths.sentFile());
+  const dels = readObj(communitysend._paths.deletesFile());
+  const csent = readObj(communitysend._paths.commentsSentFile());
+  const cdels = readObj(communitysend._paths.commentDeletesFile());
+  const isPublic = (rec, removed, id) => rec && rec.state === 'sent' && rec.takenDown !== true && !Object.prototype.hasOwnProperty.call(removed, id);
+
+  let comments = null;
   const c = readRows(communitystore._paths.commentsFile());
-  const own = ownRemoteIds(agentKey);
-  const gone = goneComments();
-  const comments = c === null || own === null || gone === null ? null : new Set(c.filter((r) => r && r.remotePostId && r.status === 'published'
-    && r.notSent !== true && !gone.has(String(r.id)) && !own.has(key(r.remotePostId))
-    && sameAgent(r.agent, agentKey) && within(r.receivedAt, now)).map((r) => key(r.remotePostId))).size;
+  if (c !== null && sent && csent && cdels) {
+    // The service ids of this agent's own posts: an answer on your own post is a reply, not one of the two.
+    const own = new Set(Object.values(sent).filter((r) => r && sameAgent(r.agent, agentKey) && typeof r.remoteId === 'string' && r.remoteId).map((r) => key(r.remoteId)));
+    comments = new Set(c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, now)
+      && isPublic(csent[String(r.id)], cdels, String(r.id)) && !own.has(key(r.remotePostId))).map((r) => key(r.remotePostId))).size;
+  }
+  let posts = null;
   const p = readRows(communitystore._paths.postsFile());
-  const goneP = gonePosts();
-  const posts = p === null || goneP === null ? null : p.filter((r) => r && typeof r === 'object' && !(r.author && r.author.type === 'user')
-    && r.status === 'published' && r.notSent !== true && !goneP.has(String(r.id))
-    && sameAgent(postAgent(r), agentKey) && within(r.receivedAt, now)).length;
+  if (p !== null && sent && dels) {
+    posts = p.filter((r) => r && typeof r === 'object' && !(r.author && r.author.type === 'user') && sameAgent(postAgent(r), agentKey)
+      && within(r.receivedAt, now) && isPublic(sent[String(r.id)], dels, String(r.id))).length;
+  }
   const made = readFollows();
   const follows = made === null ? null
     : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => key(r.name))).size;
