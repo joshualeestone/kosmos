@@ -6241,6 +6241,25 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* The name as a control. It must read as the NAME at rest -- the row is a
    fact first and a menu second -- so it inherits everything and only picks up
    an affordance when somebody reaches for it. */
+/* kosmos#5218, #5219, #5220, #5221 (Monday's phone sweep): on a touch screen these reach 44px, and the AI settings terminal box
+   is 16px text, because iPhone Safari zooms the whole page on tapping a field under 16px. Boxed controls grow; the
+   Tasks back chevron keeps its 32px circle and takes a 44px hit area past it, so the Tasks head does not move.
+   Touch screens and any coarse pointer: desktop is unchanged. */
+@media (hover: none), (pointer: coarse) {
+  #d-term-say { font-size: 16px; min-height: 44px; }
+  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort) { min-height: 44px; }
+  #plus-site-link { display: inline-flex; align-items: center; }
+  #tsk-back { position: relative; }
+  #tsk-back::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+  /* #5218, the agents board: the agent's name (its way in), the menu's tabs, the sort menu and a notice's close. */
+  .namego, .utoast .ux { position: relative; }
+  :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  :is(.apphead .tab, #agent-sort) { min-height: 44px; }
+  /* #5219, a project's room: a document row and Try again grow to 44. The header's small controls keep their 36px
+     areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
+     answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
+  :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
+}
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
               border-bottom: 1px dashed transparent; }

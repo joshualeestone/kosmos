@@ -1128,7 +1128,7 @@ async function fitOf(page) {
     }
     /* A hit area that reaches past its control (a ::after, padding taken back) paints above its neighbours, so it
        can take taps meant for them. That is the risk the reach probe above rewards, so it is measured too: inside
-       every control's own box (its centre and four points a quarter in), a tap must land on that control. A point
+       every control's own box (a 5x3 grid of points), a tap must land on that control. A point
        answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
     const covers = [];
     const SEL = 'button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
@@ -1139,7 +1139,10 @@ async function fitOf(page) {
       el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
       const r = el.getBoundingClientRect();
       if (r.width < 4 || r.height < 4) continue;
-      const pts = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]].map(([fx, fy]) => [r.left + r.width * fx, r.top + r.height * fy]);
+      // A 5x3 grid inside the box (15 points). Still a sample: a cover smaller than the grid's step can pass, which
+      // render-room-msgbox-2806's whole-pixel scan of the room's header caught where 5 points did not.
+      const pts = [];
+      for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const fy of [0.2, 0.5, 0.8]) pts.push([r.left + r.width * fx, r.top + r.height * fy]);
       for (const [x, y] of pts) {
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
         const hit = document.elementFromPoint(x, y);
