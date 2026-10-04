@@ -2742,7 +2742,7 @@ test('#5192: an owner\'s post held with a member in the room is not sent once so
   assert.ok(h.notes.some((n) => /came from an invite made after it was written/.test(n.text)), JSON.stringify(h.notes));
 });
 
-test('#5192: a post held on no edge keeps that through a re-hold, so a second move of the seat does not drop it', async (t) => {
+test('#5192: an owner\'s own-room post goes when the seat has moved twice, to a member from an invite made before it', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const g = newInvite('5192g');
   const hInv = newInvite('5192h');
@@ -2809,4 +2809,19 @@ test('#5192: an owner\'s post when the invites cannot be read is refused at once
   broken.mock.restore();
   assert.ok(h.notes.some((n) => /stayed on this computer: it cannot read its shared-project records/.test(n.text)), JSON.stringify(h.notes));
   assert.ok(!h.notes.some((n) => /is held on this computer/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: a held post whose time is ahead of the clock (it stepped back) is not sent', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T06:00:00Z') });
+  federation.recordLink('proj-5192-back', { role: 'member', edge_id: 'edge-5192-back' });
+  fedseal.setRoomState('proj-5192-back', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192bk', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-back');
+  say(h.spawned[0], { event: 'connected', room: 'room-5192-back', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-back', { from: 'Ana', kind: 'person', text: 'held' });
+  t.mock.timers.setTime(Date.parse('2026-10-04T04:00:00Z'));   // two hours back
+  await fedseats.ensureAll();
+  await settle();
+  assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
 });

@@ -955,7 +955,7 @@ async function ensureAll() {
   for (const id of Object.keys(links)) {
     const seat = seats.get(id);
     if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); } catch { /* next pass */ } }
-    else if (seat) { try { ageHeld(id, seat); } catch { /* next pass */ } }
+    if (seat) { try { ageHeld(id, seat); } catch { /* next pass */ } }   // connected or not
   }
   for (const id of Object.keys(links)) {
     const link = links[id];
@@ -1014,7 +1014,7 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   // Posts held past the hour no longer count against the cap; the next flush says so.
   const fresh = [];
   for (const h of s.outbox || []) {
-    if (Date.now() - h.at <= HELD_POSTS_AGE_MS) fresh.push(h);
+    if (!heldStale(h)) fresh.push(h);
     else s.staleHeld = (s.staleHeld || 0) + 1;
   }
   s.outbox = fresh;
@@ -1057,12 +1057,18 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
 }
-/** #5192: a seat that is not connected (waiting for a guest, reconnecting) keeps its held
-    posts, but the hour still runs out on them and the room is told. */
+/** Held more than HELD_POSTS_AGE_MS, or held 'in the future' (the clock stepped back): not
+    sent, as #5191 treats a time ahead of the clock as not fresh. */
+function heldStale(h) {
+  const age = Date.now() - h.at;
+  return age < 0 || age > HELD_POSTS_AGE_MS;
+}
+/** #5192: on every pass the hour runs out on held posts, whether or not the seat is connected
+    (one connected but unable to flush still ages them), and the room is told. */
 function ageHeld(projectId, s) {
   if (!s.outbox) return;
   const before = s.outbox.length;
-  s.outbox = s.outbox.filter((h) => Date.now() - h.at <= HELD_POSTS_AGE_MS);
+  s.outbox = s.outbox.filter((h) => !heldStale(h));
   const n = before - s.outbox.length + (s.staleHeld || 0);
   s.staleHeld = 0;
   if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
@@ -1100,9 +1106,7 @@ function flushHeld(projectId, s) {
   let i = 0;
   try {
     for (; i < held.length; i++) {
-      if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
-      // Held on no edge (an owner's own room, before any guest): any edge it moves to is still
-      // that room. Held on an edge that has since ended: not sent through another.
+      if (heldStale(held[i])) { stale += 1; continue; }
       // Held while behind: still behind once the hold ran out, it is not sent under the old key.
       if (held[i].msg.behindHeld && st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && Date.now() >= s.behind.until) { keyless += 1; continue; }
       if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
@@ -1114,7 +1118,7 @@ function flushHeld(projectId, s) {
       // Held again (it is now at the end of the outbox): everything after it waits too, in
       // order. Not held again: refused for good (its own line said why); carry on.
       if (!s.reheld) continue;
-      const rest = held.slice(i + 1).filter((h) => Date.now() - h.at <= HELD_POSTS_AGE_MS);
+      const rest = held.slice(i + 1).filter((h) => !heldStale(h));
       stale += held.length - i - 1 - rest.length;
       s.outbox = s.outbox.concat(rest);
       break;
