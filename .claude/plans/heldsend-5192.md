@@ -25,7 +25,8 @@ A post re-held during a flush keeps the time it was first held, so passes never 
 flush runs only through the project's live, connected seat (a key that arrives while the seat is down
 keeps the posts held until it is up; a replaced seat never sends another's). A held post the write
 loses stays held.
-At most 50 held per seat (past that: "stayed on this computer ... 50 messages are already waiting");
+At most 50 held per seat, and at most 3/4 of the receiving board's minute byte budget (a flush sends them
+in one go; past either: "stayed on this computer ... as many messages as Kosmos sends at once");
 one held more than an hour is not sent, and no longer counts against the cap; the room says how many. Sealed at send time, so the
 receivers' freshness checks see a fresh time.
 
@@ -46,6 +47,8 @@ would change my mind: evidence that keys routinely take more than an hour to arr
 restart while posts wait.
 
 ## Not covered
+A seat that has ended (this member removed) never flushes: its held posts are never sent and never
+reported as expired; the room already says the connection ended.
 A post refused because the seat is not connected at all ("the connection ... is not up") is not
 held: that is not this card (the key), and a seat can be down for days.
 A member posting under the old key after its behind hold ran out, past the 90 s grace (#5197), still

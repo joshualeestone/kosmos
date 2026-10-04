@@ -963,6 +963,10 @@ async function ensureAll() {
    HELD_POSTS_AGE_MS is not sent (the room says how many). Kept in this seat's memory:
    a board restart loses them, and the room's own copy of each stays where it was. */
 const HELD_POSTS_MAX = 50;
+/* And bytes: a flush sends them in one go, and the receiving board keeps at most
+   INBOUND_BYTES_PER_WINDOW a minute, so what is held must fit inside it. */
+const HELD_POSTS_BYTES = INBOUND_BYTES_PER_WINDOW * 3 / 4;
+const heldSize = (m) => Buffer.byteLength(String(m.text || '')) + Buffer.byteLength(String(m.from || ''));
 const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
 
 /**
@@ -984,8 +988,8 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     else s.staleHeld = (s.staleHeld || 0) + 1;
   }
   s.outbox = fresh;
-  if (s.outbox.length >= HELD_POSTS_MAX) {
-    if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and ' + HELD_POSTS_MAX + ' messages are already waiting for it.');
+  if (s.outbox.length >= HELD_POSTS_MAX || s.outbox.reduce((n, h) => n + heldSize(h.msg), heldSize(msg)) > HELD_POSTS_BYTES) {
+    if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and as many messages as Kosmos sends at once are already waiting for it.');
     return false;
   }
   s.outbox.push({ msg, at: heldAt || Date.now() });
@@ -1022,7 +1026,7 @@ function flushHeld(projectId, s) {
     s.flushing = false;
   }
   if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent.' : sent + ' messages held on this computer were sent.')
-    + (files ? (files === 1 ? ' Its attached file stayed on this computer.' : ' Their attached files stayed on this computer.') : ''));
+    + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
 }
 function sendPost(projectId, { from, kind, text, files }, heldAt) {
@@ -1061,9 +1065,11 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
       return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or when this computer stops waiting for it in a few minutes (then under the key it has, which the others may not accept)', heldAt);
     }
     if (!hasKey(sealed) || !s.room) {
-      return holdPost(projectId, s, msg, link && link.role === 'owner'
+      return holdPost(projectId, s, msg, hasKey(sealed)
+        ? 'this computer has not heard this shared room\'s name from the relay yet'
+        : link && link.role === 'owner'
         ? 'this shared room is sealed, and no member\'s computer has joined with its key yet'
-        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', 'when the key arrives (within an hour)', heldAt);
+        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', 'when the key arrives, if it arrives within the hour', heldAt);
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
@@ -1089,7 +1095,7 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
   // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
   if (!heldAt && s.outbox && s.outbox.length) flushHeld(projectId, s);
   try { s.child.stdin.write(line + '\n'); return true; } catch {
-    if (heldAt) s.outbox.push({ msg, at: heldAt });   // a held post the write lost stays held
+    if (heldAt) s.outbox.push({ msg, at: heldAt });   // a held post whose write threw stays held
     return false;
   }
 }

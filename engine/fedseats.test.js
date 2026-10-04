@@ -2064,7 +2064,7 @@ test('#5192: a post held for more than an hour is not sent, and the room says so
   fedseats.post('proj-5192-old', { from: 'Ana', kind: 'person', text: 'old' });
   t.mock.timers.tick(61 * 60 * 1000);
   for (let i = 0; i < 60; i++) fedseats.post('proj-5192-old', { from: 'Ana', kind: 'person', text: 'p' + i });
-  assert.ok(h.notes.some((n) => /50 messages are already waiting/.test(n.text)), 'the hold was not capped');
+  assert.ok(h.notes.some((n) => /as many messages as Kosmos sends at once are already waiting/.test(n.text)), 'the hold was not capped');
   const before = lines(seat).length;
   const owner = fedseal.newKeyPair();
   const roomKey = fedseal.randomSecret();
@@ -2164,22 +2164,26 @@ test('#5192: a post held for a missing room id goes out when the seat connects w
   void h;
 });
 
-test('#5192: posts held when the seat is stopped are dropped, never sent to a room since unshared', async () => {
-  const sk = fedseal.randomSecret();
-  federation.recordLink('proj-5192-stop', { role: 'member', edge_id: 'edge-5192-stop' });
-  fedseal.setRoomState('proj-5192-stop', { role: 'member', s: sk, code: 'code-5192stop', peer: null, epoch: null, keys: {} });
-  const h = harness();
-  await fedseats.ensure('proj-5192-stop');
-  const seat = h.spawned[0];
-  say(seat, { event: 'connected', room: 'room-5192-stop', expires_at: 9 });
+test('#5192: an owner seat replaced while a hello was being checked does not flush its held posts through the new seat', async () => {
+  const inv = newInvite('5192r');
+  const { h, seat } = await ownerRoom('proj-5192-repl', 'ref-5192-repl', 'room-5192-repl', [inv]);
+  fedseats.post('proj-5192-repl', { from: 'Josh', kind: 'person', text: 'held by the old seat' });
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), 'room-5192-repl') });
   await settle();
-  fedseats.post('proj-5192-stop', { from: 'Ana', kind: 'person', text: 'held' });
-  const before = seat.written.length;
-  fedseats.stop('proj-5192-stop');
-  say(seat, { event: 'message', data: fedseal.shareFrame(sk, 'code-5192stop', fedseal.newKeyPair(), fedseal.sealingKey().pub, fedseal.randomSecret(), 0, 'room-5192-stop') });
+  // The project is stopped and seated again while the hello waits on Kosmos+ (its request
+  // already holds the gate; the new seat's own request must not).
+  h.gate = null;
+  fedseats.stop('proj-5192-repl');
+  await fedseats.ensure('proj-5192-repl');
+  const fresh = h.spawned[h.spawned.length - 1];
+  assert.notStrictEqual(fresh, seat, 'fixture: a new seat');
+  const notes = h.notes.length;
+  release();
   await settle();
-  assert.strictEqual(seat.written.length, before, 'a held post went out after the seat was stopped');
-  void h;
+  assert.strictEqual(fresh.written.length, 0, 'the old seat\'s held post went out through the new seat');
+  assert.ok(!h.notes.slice(notes).some((n) => /stayed on this computer/.test(n.text)), 'the old seat\'s held post was flushed into the new one: ' + JSON.stringify(h.notes.slice(notes)));
 });
 
 test('#5192: re-holding a post on each pass keeps its age, so the hour still runs out', async (t) => {
@@ -2248,4 +2252,25 @@ test('#5192: a held post the write loses stays held for the next flush', async (
   const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-5192-epipe', f)).filter(Boolean);
   assert.deepStrictEqual(out.map((o) => o.m.text), ['survives'], 'the post the write lost was not held again');
   void h;
+});
+
+test('#5192: what is held fits the receiving board\'s minute: held bytes are capped', async () => {
+  const sk = fedseal.randomSecret();
+  federation.recordLink('proj-5192-bytes', { role: 'member', edge_id: 'edge-5192-bytes' });
+  fedseal.setRoomState('proj-5192-bytes', { role: 'member', s: sk, code: 'code-5192bytes', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-bytes');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-bytes', expires_at: 9 });
+  await settle();
+  for (let i = 0; i < 45; i++) fedseats.post('proj-5192-bytes', { from: 'Ana', kind: 'person', text: String(i).padEnd(1500, '.') });
+  assert.ok(h.notes.some((n) => /as many messages as Kosmos sends at once/.test(n.text)), 'held bytes were not capped');
+  const before = lines(seat).length;
+  const roomKey = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.shareFrame(sk, 'code-5192bytes', fedseal.newKeyPair(), fedseal.sealingKey().pub, roomKey, 0, 'room-5192-bytes') });
+  await settle();
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-5192-bytes', f)).filter(Boolean);
+  const bytes = out.reduce((n, o) => n + Buffer.byteLength(o.m.text) + Buffer.byteLength(o.m.from), 0);
+  assert.ok(bytes <= fedseats.INBOUND_BYTES_PER_WINDOW, 'one flush sent ' + bytes + ' bytes, more than a receiving board keeps in a minute');
+  assert.ok(out.length >= 30, 'fixture: most were held');
 });
