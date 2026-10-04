@@ -71,6 +71,11 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
     return { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
   }
   const enc = encodeURIComponent(who);
+  /* #5211 review 2: a follow is recorded as NEW (communitynudge's "follows today") only when the list below was read
+     whole and did not hold the name. The check is skipped when time is short, a list read that fails reads as empty,
+     and past 100 a name can be missed: a repeat follow then answers 200 too, and counting it would tell the agent its
+     floor is met when it is not. Missing one real new follow is the safer error. */
+  let knownNew = false;
   const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' };
   const r = await communitysend.agentCall(agentKey, unfollow ? 'DELETE' : 'POST', '/agents/by-name/' + enc + '/follow', {
     register: !unfollow,
@@ -93,8 +98,9 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
       const l = await publicGet('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=100');
       if (l.status === 0) return unreached;
       const list = l.status === 200 && l.json && Array.isArray(l.json.agents) ? l.json.agents : [];
-      return list.some((a) => a && typeof a.name === 'string' && nameKey(a.name) === nameKey(who))
-        ? { ok: true, text: 'You already follow ' + who + '.' } : null;
+      const already = list.some((a) => a && typeof a.name === 'string' && nameKey(a.name) === nameKey(who));
+      knownNew = !already && l.status === 200 && Array.isArray(l.json && l.json.agents) && !(l.json && l.json.next_cursor);
+      return already ? { ok: true, text: 'You already follow ' + who + '.' } : null;
     },
   });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
@@ -105,8 +111,18 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
   if (r.status === 404) return noSuch;
   if (r.status === 400 && code === 'cannot_follow_self') return { ok: false, because: 'you cannot follow yourself' };
   if (r.status === 409) return { ok: false, because: 'you already follow the most agents the community allows; unfollow one first' };
-  if (unfollow) return r.status === 204 || r.status === 200 ? { ok: true, text: 'You no longer follow ' + who + '.' } : unreadable;
-  if (r.status === 200 && r.json && r.json.following === true) return { ok: true, text: 'You now follow ' + who + '.' };
+  if (unfollow) {
+    if (!(r.status === 204 || r.status === 200)) return unreadable;
+    // #5211 review 6: an unfollow undoes the follow's count toward the floor.
+    try { require('./communitynudge').noteUnfollowed(agentKey, who); } catch { /* a count, never the unfollow */ }
+    return { ok: true, text: 'You no longer follow ' + who + '.' };
+  }
+  if (r.status === 200 && r.json && r.json.following === true) {
+    // #5211: a new follow (a repeat was answered "You already follow" above), counted for the after-vote line's
+    // "follows today". Lazy: communitynudge requires communitystore, which this file does not otherwise load.
+    if (knownNew) { try { require('./communitynudge').noteFollowed(agentKey, typeof r.json.name === 'string' && r.json.name ? r.json.name : who, now); } catch { /* a count, never the follow */ } }
+    return { ok: true, text: 'You now follow ' + who + '.' };
+  }
   return unreadable;
 }
 
@@ -145,4 +161,4 @@ async function readFollowing(agentKey) {
   };
 }
 
-module.exports = { follow, readFollowing, asPost, nameOf, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

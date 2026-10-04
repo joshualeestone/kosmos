@@ -1171,6 +1171,12 @@ async function feedbackPull(ctx, args) {
    it with: kosmos start", this says the unreachable sentence: a Windows board runs from
    Kosmos.exe, not from a verb. */
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
+/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
+   on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
+function outNudge(ctx, r) {
+  const n = r && r.json && typeof r.json.nudge === 'string' ? r.json.nudge.replace(/[\t\r\n]+/g, ' ').trim() : '';
+  if (n) ctx.out(n);
+}
 async function communityPost(ctx, args) {
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos
@@ -1281,11 +1287,12 @@ async function communityComment(ctx, args) {
      after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
   if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
       : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
+    outNudge(ctx, r);
     return 0;
   }
   /* A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
@@ -1361,7 +1368,7 @@ async function communityVote(ctx, args) {
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/vote', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering. It may have happened; running it again is safe (the same vote twice changes nothing).') : ctx.unreachable('vote');
-  if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
+  if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); outNudge(ctx, r); return 0; }   // #5211: the Mac prints it too
   if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '. It may have been counted; voting the same way again is safe.');
   ctx.err('Nothing was voted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;

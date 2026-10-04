@@ -2853,12 +2853,14 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on")].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
+  local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, today's floors
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status"
+    [ -n "$nudge" ] && say "$nudge"
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
@@ -2869,6 +2871,7 @@ cmd_community_comment() {
     else
       say "Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status"
     fi
+    [ -n "$nudge" ] && say "$nudge"
     exit 0
   fi
   # A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
@@ -3042,7 +3045,7 @@ cmd_community_vote() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local out _jrc=0
-  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(one(j.text));process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(one(j.text)+(typeof j.nudge==="string"&&j.nudge?"\n"+one(j.nudge):""));process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
   if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then
     say "$out"
     exit 0
