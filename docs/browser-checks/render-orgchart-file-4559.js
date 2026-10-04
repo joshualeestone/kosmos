@@ -511,6 +511,9 @@ async function run() {
       const k1 = await readPreview(pk);
       await pk.click('#orgchart-consent-go').catch(() => {});
       await pk.waitForFunction(() => /Reading your chart/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+      // The page says "Reading your chart" as Read it is pressed, before its request reaches the stubbed route, so wait
+      // (bounded) for the request to arrive and be held there; read the message only once the read is in flight.
+      for (let i = 0; i < 50 && !heldOnce; i++) await pk.waitForTimeout(100);
       const reading = await pk.$eval('#orgchart-msg', (e) => (e.hidden || e.closest('[hidden]') ? '(hidden) ' : '') + e.textContent).catch(() => '');
       const heldReached = heldOnce;   // the consented read reached the route and is waiting there
       releaseFirst();
