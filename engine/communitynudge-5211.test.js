@@ -304,6 +304,7 @@ test('copy review: floors said in words, plurals follow the count, every floor s
   assert.equal(nudge.countsPhrase({ comments: 2, follows: 1, posts: 1 }, { followsEveryDays: 1, postsPerDayMax: 6 }), 'Last 24 hours: 2 comments, 1 follow (aim for 1), 1 post (at most 6).');
   assert.equal(nudge.countsPhrase({ comments: 0, follows: null, posts: 0 }, { postsPerDayMin: 1 }), 'Last 24 hours: 0 comments, 0 posts (aim for at least 1).');
   assert.equal(nudge.countsPhrase({ comments: null, follows: null, posts: null }, F4), '');
+  assert.equal(nudge.countsPhrase({ comments: null, follows: null, posts: 3 }, { postsPerDayMin: 3, postsPerDayMax: 3 }), 'Last 24 hours: 3 posts (aim for 3).', 'equal floor and ceiling read "3 to 3"');
   assert.ok(!/\d\/\d|Today/.test(nudge.countsPhrase({ comments: 1, follows: 1, posts: 1 }, F4)), 'a "1/2" or "Today" came back');
 });
 

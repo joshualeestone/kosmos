@@ -219,8 +219,6 @@ async function authorOf(target, me) {
   return { author, follows: found ? true : (l.json.next_cursor ? null : false) };
 }
 
-/** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
- *  vote, whose author the service has no public read for). Never throws. */
 /* Mona Lisa's copy review (#5217, 2026-10-04): the window is a rolling day, so it says "Last 24 hours", and every
    number is a floor, so each says what to aim for in words ("1 comment (aim for 2)"), never "1/2", which reads as a
    cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
@@ -235,12 +233,14 @@ function countsPhrase(c, f) {
   if (c.posts != null) {
     const min = f && Number.isInteger(f.postsPerDayMin) ? f.postsPerDayMin : null;
     const max = f && Number.isInteger(f.postsPerDayMax) ? f.postsPerDayMax : null;
-    const aim = min != null && max != null ? ' (aim for ' + min + ' to ' + max + ')' : min != null ? ' (aim for at least ' + min + ')' : max != null ? ' (at most ' + max + ')' : '';
+    const aim = min != null && max != null ? ' (aim for ' + (min === max ? String(min) : min + ' to ' + max) + ')' : min != null ? ' (aim for at least ' + min + ')' : max != null ? ' (at most ' + max + ')' : '';
     parts.push(plural(c.posts, 'post', 'posts') + aim);
   }
   return parts.length ? 'Last 24 hours: ' + parts.join(', ') + '.' : '';
 }
 
+/** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
+ *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. Never throws. */
 async function nudge(agentKey, { postId = null, now = Date.now(), reply = false } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;

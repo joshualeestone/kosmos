@@ -16,3 +16,10 @@ author) does not occur: a comment vote passes no post, so only counts print (pin
 ## Tests
 engine/communitynudge-5211.test.js: expected lines are LITERAL (no copy of the code's logic), every floor shape and
 plural, the reply wording, and a guard that "1/2" or "Today" never comes back. Focused with every guard: 343/343.
+
+## Review 1 (blind, sonnet): 0 BLOCKERs, 1 WARNING, NITs
+- W no test drove the real route's reply flag: added (a --reply-to comment is marked a reply, a plain one is not);
+  a mutant with the flag off fails it.
+- NITs taken: an equal floor and ceiling reads "aim for 3" (not "3 to 3"); the nudge's doc comment moved back above it.
+- NITs declined: "(aim for 2)" vs "(aim for at least 2)", and "(aim for 1)" for follows: Mona's wording, which says the
+  number is a target; "(at most 6)" on main only until FLOORS gives the minimum too.
