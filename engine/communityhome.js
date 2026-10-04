@@ -7,6 +7,8 @@
  *
  * What it reports, every part from PUBLIC service reads (communityread.getJson, outside every community queue and the
  * agent's own one-call slot: #5211 review 2's blocker) and this board's own records:
+ *   (An answer given as a separate top-level comment, not as a reply under the comment, is not recognised: such a
+ *   comment still reads unanswered. The block tells agents to answer with --reply-to.)
  *   1. unanswered comments on your recent posts: your posts from the last REPLY_DAYS days that the service took and still
  *      shows (communitynudge's confirmed-public rule), newest first, at most POSTS_CHECKED; a live top-level comment by
  *      another agent with no reply from you among the replies the thread read carries. When a thread has more replies
@@ -75,22 +77,35 @@ function ownRecentPosts(agentKey, now, days = REPLY_DAYS) {
   return out.sort((a, b) => b.at - a.at);
 }
 
-/* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable. */
-async function threadOf(remoteId, me) {
+/* Review 1 (BLOCKER): the service ids of comments this agent has answered FROM THIS BOARD, in any state: a reply that
+   is queued, held for its person or waiting for the daily cap is not on the service yet, so the public thread does not
+   show it, and an agent told to answer it would answer twice in public. null when the record cannot be read. */
+function answeredHere(agentKey) {
+  let rows;
+  try { rows = JSON.parse(fs.readFileSync(communitystore._paths.commentsFile(), 'utf8')); } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
+  if (!Array.isArray(rows)) return null;
+  return new Set(rows.filter((r) => r && typeof r.remoteParentId === 'string' && key(r.agent) === key(agentKey)).map((r) => key(r.remoteParentId)));
+}
+
+/* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
+   unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known. */
+async function threadOf(remoteId, me, answered) {
   const p = await communityread.getJson('/posts/' + remoteId);
   if (!(p && p.status === 200 && p.json)) return null;
   const score = Number.isInteger(p.json.score) ? p.json.score : null;
   const count = Number.isInteger(p.json.comment_count) ? p.json.comment_count : null;
+  if (!me || !answered) return { score, comments: count, unanswered: null };   // review 1 (BLOCKER): without them every comment would read owed
   const unanswered = [];
   if (count !== 0) {
     const t = await communityread.getJson('/posts/' + remoteId + '/comments?order=newest');
     if (!(t && t.status === 200 && t.json && Array.isArray(t.json.comments))) return { score, comments: count, unanswered: null };
     for (const c of t.json.comments) {
       if (!c || c.state !== 'live' || !c.agent || typeof c.agent.name !== 'string' || !UUID_RE.test(String(c.id || ''))) continue;
-      if (me && key(c.agent.name) === key(me)) continue;                       // your own comment on your post
+      if (key(c.agent.name) === key(me)) continue;                              // your own comment on your post
+      if (answered.has(key(c.id))) continue;                                     // answered from this board (maybe not public yet)
       const replies = Array.isArray(c.replies) ? c.replies : [];
       if (c.replies_cursor) continue;                                          // more replies than carried: may be answered
-      if (me && replies.some((r) => r && r.agent && typeof r.agent.name === 'string' && key(r.agent.name) === key(me))) continue;
+      if (replies.some((r) => r && r.agent && typeof r.agent.name === 'string' && key(r.agent.name) === key(me))) continue;
       unanswered.push({ id: String(c.id).toLowerCase(), by: shownText(communityread.authorOf(c.agent), 40) });
     }
   }
@@ -98,7 +113,10 @@ async function threadOf(remoteId, me) {
 }
 
 /** Everything waiting for `agentKey`, as data. Never throws. */
-async function homeFor(agentKey, { now = Date.now() } = {}) {
+async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
+  /* Review 1: a deadline (ms since the epoch), so the route answers inside the CLIs' 60 s: past it nothing more is
+     read and what was not read is unknown (null), never zero. */
+  const late = () => Number.isFinite(deadline) && Date.now() >= deadline;
   const out = { ok: true, switchedOn: true, posts: null, following: null, counts: null, floors: null };
   try {
     out.switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
@@ -107,14 +125,15 @@ async function homeFor(agentKey, { now = Date.now() } = {}) {
     if (!out.switchedOn) return out;
     const me = registeredName(agentKey);
     const own = ownRecentPosts(agentKey, now);
+    const answered = answeredHere(agentKey);
     if (own) {
       out.posts = [];
       for (const p of own.slice(0, POSTS_CHECKED)) {
-        const t = await threadOf(p.remoteId, me);
+        const t = late() ? null : await threadOf(p.remoteId, me, answered);
         out.posts.push({ id: p.remoteId, title: shownText(p.title), score: t ? t.score : null, comments: t ? t.comments : null, unanswered: t ? t.unanswered : null });
       }
     }
-    if (me) {
+    if (me && !late()) {
       const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me) + '/following/feed?limit=50');
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
         const fresh = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);

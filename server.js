@@ -923,8 +923,12 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
    ("2 comments on your post 'X' have no answer from you yet") instead of its generic one, and the after-vote/comment
    line (#5211) carries "replies owed N" when the read is fresh. Both run synchronously or under a deadline, so they use
    only what is already here; a read older than HOME_LINE_TTL_MS is not used. Refreshed after each community-turn pass
-   (idle agents) and, without waiting, after an agent's own vote or comment. One read at a time. */
+   (idle agents in the community), and, without waiting, after an agent's own vote or comment when its entry is stale.
+   An agent's own comment DROPS its entry first (it may answer a comment the entry lists as waiting). One read at a time. */
 const HOME_LINES = new Map();
+const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-flight or recent read (review 1)
+const HOME_ROUTE_REUSE_MS = 30 * 1000;
+const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
 const HOME_LINE_TTL_MS = 60 * 60 * 1000;
 const HOME_REFRESH_PER_PASS = 4;
 let homeRefreshing = false;
@@ -8497,7 +8501,16 @@ const server = http.createServer(async (req, res) => {
     const who = resolveAgentSender(req, null, authRoster);
     if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
     const communityhome = require('./engine/communityhome');
-    communityhome.homeFor(who.card.sessionName)
+    /* Review 1: one read per agent at a time, its answer reused for HOME_ROUTE_REUSE_MS, and a deadline that answers
+       inside the CLIs' 60 s (what was not read by then is said to be unknown). */
+    const agentKey = String(who.card.sessionName);
+    let pending = HOME_ROUTE.get(agentKey);
+    if (!pending || (pending.done && Date.now() - pending.done > HOME_ROUTE_REUSE_MS)) {
+      pending = { done: 0, p: communityhome.homeFor(agentKey, { deadline: Date.now() + HOME_ROUTE_DEADLINE_MS }) };
+      pending.p.then(() => { pending.done = Date.now(); }, () => { HOME_ROUTE.delete(agentKey); });
+      HOME_ROUTE.set(agentKey, pending);
+    }
+    pending.p
       .then((h) => sendJson(res, 200, { ok: true, text: communityhome.homeText(h), home: h }))
       .catch(() => sendJson(res, 500, { error: 'we could not read your community home just now' }));
     return;
@@ -8783,6 +8796,10 @@ const server = http.createServer(async (req, res) => {
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
         if (r.status === 'published' && sends && !will.later) communitySendSoon();
+        // #5212 review 1 (BLOCKER): a comment may answer one the home read listed as waiting: that read is now wrong, so
+        // it goes (the next read sees this comment in the board's own records even before it is sent).
+        HOME_LINES.delete(String(agentId));
+        HOME_ROUTE.delete(String(agentId));
         // A reply (--reply-to) names the post it is on as such: "that post" could read as the comment answered.
         communityNudge(agentId, String(content.servicePostId || ''), startedAt, content.serviceParentId != null && content.serviceParentId !== '').then((nudge) => {
           if (nudge) answer.nudge = nudge;
@@ -20208,6 +20225,13 @@ function start(port = PORT) {
         const cb = require('./engine/communityblock');
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
         const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
+        // One check of "is this agent in the community" (its instructions carry the block), for the turn and the read-ahead.
+        const inCommunity = (session) => {
+          const cur = instructions.read(session);
+          if (!cur || !cur.exists) return false;
+          const f = projects.findBlock(cur.text || '', cb.START, cb.END);
+          return Boolean(f) && f.ambiguous !== true;
+        };
         const done = communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),
@@ -20217,12 +20241,7 @@ function start(port = PORT) {
           sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
-          inCommunity: (session) => {
-            const cur = instructions.read(session);
-            if (!cur || !cur.exists) return false;
-            const f = projects.findBlock(cur.text || '', cb.START, cb.END);
-            return Boolean(f) && f.ambiguous !== true;
-          },
+          inCommunity,
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
@@ -20234,7 +20253,8 @@ function start(port = PORT) {
         /* #5212: read ahead for the next passes. Only agents idle at this pass (the turn fills that set only once its
            gates pass: live execution, the community switch, the Prompter's switch), whose line is stale, a few a pass. */
         try {
-          const stale = [...COMMUNITY_TURN_IDLE_SEEN].filter((s) => { const e = HOME_LINES.get(s); return !e || Date.now() - e.at >= HOME_LINE_TTL_MS; });
+          // Review 1: only agents in the community (the ones the turn could prompt).
+          const stale = [...COMMUNITY_TURN_IDLE_SEEN].filter((s) => { const e = HOME_LINES.get(s); return (!e || Date.now() - e.at >= HOME_LINE_TTL_MS) && inCommunity(s); });
           refreshHomeLines(stale.slice(0, HOME_REFRESH_PER_PASS));
           for (const s of HOME_LINES.keys()) if (!COMMUNITY_TURN_IDLE_SEEN.has(s) && Date.now() - HOME_LINES.get(s).at >= HOME_LINE_TTL_MS) HOME_LINES.delete(s);
         } catch { /* the generic line stands in */ }

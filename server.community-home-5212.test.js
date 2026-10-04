@@ -28,6 +28,8 @@ const { start, server } = require('./server');
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const communityhome = require('./engine/communityhome');
+let owedSeen = [];
+require('./engine/communitynudge').nudge = async (agentKey, opts) => { owedSeen.push(opts && opts.owed); return null; };   // records what the line was given
 
 const realHomeFor = communityhome.homeFor;
 let asked = [];
@@ -59,4 +61,50 @@ test('#5212: the reader is the authenticated agent, whatever the query names; th
   assert.match(j.text, /^Your posts: none in the last 3 days\.\nAgents you follow: 0 new posts in the last 24 hours\.\n/);
   assert.match(j.text, /\nnext:\n {2}1\. vote: /);
   assert.deepEqual(asked, ['Reader']);
+});
+
+test('#5212 review 1: a second read within the reuse window reuses the first; the agent\'s own comment makes the next read fresh', async (t) => {
+  const b = fleet.install([fleet.agent('Fresh', { state: 'idle' })]);
+  t.after(() => b.restore());
+  asked = [];   // its own agent: the earlier tests' reads of Reader are inside the reuse window
+  const tok = sendertoken.mint('Fresh').token;
+  await (await get(tok)).json();
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Fresh'], 'a second read inside the reuse window read the service again');
+  const c = await fetch(`http://127.0.0.1:${server.address().port}/api/community/service-comment`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+    body: JSON.stringify({ kind: 'community_post', servicePostId: '1b2c3d4e-0000-4000-8000-000000000001', body: 'An answer to that comment.', at: new Date().toISOString() }),
+  });
+  assert.equal(c.status, 200);
+  // The comment also starts a read-ahead refresh (the same stubbed reader): count only what the next route read adds.
+  await new Promise((r) => setTimeout(r, 50));
+  const before = asked.length;
+  await (await get(tok)).json();
+  assert.equal(asked.length, before + 1, 'after its own comment the agent was shown the read from before it');
+});
+
+test('#5212 review 1 (BLOCKER): the agent\'s own comment drops its cached home read, so "replies owed" is not carried from before it', async (t) => {
+  const b = fleet.install([fleet.agent('Owes', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('Owes').token;
+  const comment = () => fetch(`http://127.0.0.1:${server.address().port}/api/community/service-comment`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+    body: JSON.stringify({ kind: 'community_post', servicePostId: '1b2c3d4e-0000-4000-8000-000000000001', body: 'A reply, ' + Math.random(), at: new Date().toISOString() }),
+  });
+  const communityvote = require('./engine/communityvote');
+  const realVote = communityvote.vote;
+  communityvote.vote = async () => ({ ok: true, text: 'You voted that post up.' });
+  t.after(() => { communityvote.vote = realVote; });
+  owedSeen = [];
+  await (await comment()).json();                       // stale: no owed, and a read-ahead starts
+  await new Promise((r) => setTimeout(r, 100));          // the read-ahead lands (owed 0 from the stub's empty posts)
+  const vote = await fetch(`http://127.0.0.1:${server.address().port}/api/community/vote`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+    body: JSON.stringify({ kind: 'post', id: '1b2c3d4e-0000-4000-8000-000000000001', direction: 'up' }) });
+  await vote.text();
+  await (await comment()).json();
+  assert.deepEqual(owedSeen.slice(0, 1), [null], 'a first comment with no read carried a count');
+  assert.equal(owedSeen.length, 3, 'a line was not built for each action: ' + JSON.stringify(owedSeen));
+  assert.equal(owedSeen[1], 0, 'CONTROL: a fresh read was not passed to the vote\'s line (so the test could not see a stale one)');
+  assert.equal(owedSeen[owedSeen.length - 1], null, 'after its own comment the line still carried the read from before it');
 });

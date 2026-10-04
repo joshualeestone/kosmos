@@ -182,3 +182,50 @@ test('the community switched off: nothing is read, the board\'s own counts still
     assert.equal(home.nudgeLine(h), null);
   } finally { cs.setSwitch(() => ({ ok: true, on: true })); await be.close(); }
 });
+
+test('review 1 (BLOCKER): a comment you answered from this board counts as answered even before the reply is public', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([
+      { id: 'r1', postId: null, remotePostId: P[0], remoteParentId: id(101), status: 'held', agent: 'mara', receivedAt: new Date(now).toISOString(), body: 'x' },
+      { id: 'r2', postId: null, remotePostId: P[1], remoteParentId: id(201), status: 'published', agent: 'roo', receivedAt: new Date(now).toISOString(), body: 'x' },   // another agent's reply
+    ]));
+    const h = await home.homeFor('mara', { now });
+    assert.deepEqual(h.posts[0].unanswered, [], 'a comment answered here (held, not public yet) was listed as waiting');
+    assert.deepEqual(h.posts[1].unanswered.map((u) => u.id), [id(201)], 'another agent\'s reply counted as yours');
+    fs.writeFileSync(store._paths.commentsFile(), '{not json');
+    const u = await home.homeFor('mara', { now });
+    assert.equal(u.posts[0].unanswered, null, 'with your answers unknown, comments were listed as waiting');
+    assert.equal(home.owedCount(u), null);
+  } finally { await be.close(); }
+});
+
+test('review 1 (BLOCKER): without your own name every comment would read owed, so the list is unknown instead', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    for (const keys of ['{not json', JSON.stringify({ mara: { apiKey: 'k' } }), JSON.stringify({})]) {
+      fresh(now); seed(be.st);
+      fs.writeFileSync(cs._paths.keysFile(), keys);
+      const h = await home.homeFor('mara', { now });
+      assert.ok(h.posts.every((p) => p.unanswered === null), 'unanswered was listed without the agent\'s name: ' + keys);
+      assert.equal(home.owedCount(h), null);
+      assert.equal(home.nudgeLine(h), null);
+    }
+  } finally { await be.close(); }
+});
+
+test('review 1: past the deadline nothing more is read, and what was not read is unknown, not zero', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const h = await home.homeFor('mara', { now, deadline: Date.now() - 1 });
+    assert.deepEqual(be.st.seen, [], 'a read went out past the deadline');
+    assert.ok(h.posts.length && h.posts.every((p) => p.unanswered === null && p.score === null));
+    assert.equal(h.following, null);
+    assert.equal(home.owedCount(h), null);
+  } finally { await be.close(); }
+});
