@@ -35,4 +35,4 @@ the owner instead of 'could not open'.
 ## Control
 engine/fedseats.test.js '#5197': rotate at R; an old-key post at R+89 s shows, one at R+91 s
 does not, and is refused with the 'retired' note. Clock skew both ways; a member that joined
-after a rotation is not told a key was retired. Perturbed: the old 10 min grace turns it red.
+after a rotation is not told a key was retired. Perturbed: a 10 minute member grace in graceAfter turns it red.

@@ -801,7 +801,7 @@ function onKeyFrame(projectId, s, frame) {
       // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
       // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
-      s.behind = null;   // caught up: a hold armed by a forged higher epoch ends here too
+      if (s.behind && got.epoch >= s.behind.epoch) s.behind = null;   // caught up to what armed the hold
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
@@ -996,10 +996,11 @@ function post(projectId, { from, kind, text }) {
         : 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
       return false;
     }
-    // #5197: past the hold, still behind: the post goes out under the old key, which the
-    // other boards refuse once the rotation is 90 s old. Said once per seat run.
+    // #5197: past the hold and maybe still behind (the epoch that armed it is unauthenticated):
+    // the post goes out under the old key, which the other boards refuse once the rotation is
+    // 90 s old. Said once per seat run.
     if (s.behind && s.behind.epoch > sealed.epoch) {
-      noteOnce(projectId, s, 'behindSent', 'This computer is still behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
+      noteOnce(projectId, s, 'behindSent', 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
