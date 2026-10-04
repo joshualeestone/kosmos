@@ -834,9 +834,9 @@ board_log_tail() {
       else
         log "the board on :$port is GONE (refuses connections); the last 20 lines of its server log ($logf):"
       fi
-      tail -20 "$logf" 2>/dev/null | sed 's/^/    | /'
+      tail -20 "$logf" 2>/dev/null | cut -c1-300 | sed 's/^/    | /'   # review: one huge line (a heap dump) stays readable
     else
-      log "the board on :$port refused connections, and this run has no server log for that port"
+      log "port :$port refused connections; it is not a board this run booted, so there is no server log to show"
     fi
   done
   return 0

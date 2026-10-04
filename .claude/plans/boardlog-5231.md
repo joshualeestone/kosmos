@@ -28,6 +28,13 @@ nothing. Mutations, each red: the Playwright spelling dropped from the pattern; 
 call after the retry removed. Existing harness tests green: test-wait-up-collision-1073, test-bc-quarantine (39/39),
 test-browser-checks-workflow.
 
+## Review 1 (opus, blind)
+No WARNING+ (shell safety checked: set -uo pipefail, no -e, so nothing here can abort the run or change a verdict).
+NITs FIXED: each printed line is cut at 300 characters (one huge heap-dump line stays readable); a refused port that is
+not a board (e.g. a stub's 127.0.0.1:9 relayed in an error) is said as "not a board this run booted"; two arms added
+(a re-booted port shows the later board's log; a board that answers again is not called GONE). NIT ACCEPTED: when a
+board died during attempt 1, attempt 2 prints the same tail again.
+
 ## Weakest premise
 That a dying board's server.log holds its cause. An OOM kill by the OS (SIGKILL) writes nothing to it; the line
 "is GONE" with an ordinary tail would then point at the OS, which is still more than today's nothing.
