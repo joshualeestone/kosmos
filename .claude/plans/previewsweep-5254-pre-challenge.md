@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: previewsweep-5254
-diff_hash: c582f37bd1232d178f14e6d2a8b8be2fc5bae8045db445862bcf2db98943fa00
+diff_hash: afc0287a460a1e2a2642f9c712c77c91c60388a0cd81545c2e5cd4a775a5bd47
 validation: passed (D3, stacked on #5119 ddef70dae: focused 1092/1092, 26 related files + every file-scanning guard); a full suite before the after-Monday merge
 subdir_audit: passed
-timestamp: 2026-10-04T14:43:27Z
+timestamp: 2026-10-04T14:43:49Z
 iterations: 1
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Fixed:** 1 BLOCKER + 3 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 #5254, stacked on #5119: a cached PDF first page is swept when its PDF, project or agent is gone.
-NOTE: diff_hash is over origin/filespreview-4997...HEAD (this PR's base), not origin/main.
+NOTE: diff_hash is over origin/main...HEAD (the gate hashes against main), so it includes #5119 under it.
 
 ## Round 1 (opus): 1 BLOCKER, 1 WARNING, 4 NITs
 - [BLOCKER] a sweep during a first render took the folder (no record yet), so a good PDF failed to preview: FIXED.
