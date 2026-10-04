@@ -1813,9 +1813,14 @@ cmd_msg() {
   # delivery, unconfirmed means the text may already be in their composer
   # (do NOT re-send), could_not names why.
   case "$body" in
-    *'"state":"placed"'*)
+    *'"state":"placed"'*|*'"state":"queued"'*)
       case "$body" in
-        *'"duplicate":true'*) say "Placed with $to (it had arrived the first time; it was not sent twice)." ;;
+        *'"duplicate":true'*)
+          case "$body" in
+            *'"queued":true'*|*'"queued": true'*) say "Queued with $to (it had arrived the first time; it was not sent twice)." ;;
+            *) say "Placed with $to (it had arrived the first time; it was not sent twice)." ;;
+          esac ;;
+        *'"queued":true'*|*'"queued": true'*) say "Queued with $to (they are mid-task, so they will not read this until it finishes)." ;;
         *) say "Placed with $to." ;;
       esac ;;
     *'"state":"unconfirmed"'*)

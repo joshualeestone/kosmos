@@ -378,7 +378,14 @@ async function verbMsg(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.')); return 0; }
+  if (d.state === 'placed' || d.state === 'queued') {
+    if (d.queued === true || d.state === 'queued') {
+      ctx.out('Queued with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : ' (they are mid-task, so they will not read this until it finishes).'));
+      return 0;
+    }
+    ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.'));
+    return 0;
+  }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
   ctx.err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused msg is a could_not delivery

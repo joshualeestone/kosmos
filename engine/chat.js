@@ -1680,8 +1680,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
     };
   }
-    return { state: DELIVERY.PLACED, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
-  };
+  const isQueued = paneState === status.STATE.WORKING && !paneBackgroundWait && (allowed.card.runner === 'antigravity');
+  return { state: DELIVERY.PLACED, queued: isQueued, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+};
   if (asynchronousGap) {
     if (pauser) return Promise.resolve(pauser(gapMs)).then(finishSubmit);
     if (!runner) return new Promise((resolve) => setTimeout(resolve, gapMs)).then(finishSubmit);
@@ -1812,7 +1813,7 @@ function deliverThroughChannel(card, wire, ctx) {
   catch (e) { got = { ok: false, unsure: true, because: 'something went wrong while we were handing it over (' + ((e && e.code) || 'unknown') + '), so we cannot tell whether it arrived' }; }
 
   if (got && got.ok === true) {
-    return { state: DELIVERY.PLACED, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+    return { state: DELIVERY.PLACED, queued: false, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
   }
   if (got && got.unsure === true) {
     return { state: DELIVERY.UNCONFIRMED, because: got.because || 'we cannot tell whether it arrived', at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
