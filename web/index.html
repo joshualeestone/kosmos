@@ -36828,7 +36828,9 @@ async function paintAgentWork(sessionName) {
   if (!list.children.length) msg.textContent = 'Reading this agent’s work…';   // the first read can take a few seconds
   let body = null;
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/receipts?limit=10', { cache: 'no-store' });
+    /* A read that never answers becomes the could-not-read line, not a reading line left forever (review 2). */
+    const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined;
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/receipts?limit=10', { cache: 'no-store', signal });
     body = res.ok ? await res.json() : null;
   } catch { body = null; }
   if (epoch !== AGENT_WORK_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;   // another agent now

@@ -41,3 +41,12 @@ per event, and only `limit` receipts are worked out). A board with thousands of 
 - NITs taken: an unreadable close time is dropped, not sorted as NaN; the date in the page test is this machine's own
   wording. Not taken: archived projects are listed (a finished task on an archived project is still work done; a row
   opens it); a deleted task opens its project; holds match the agent's name, as slice 1's do.
+
+## Review 2 (sonnet): 1 WARNING, taken; NIT taken
+- One task whose receipt could not be worked out failed the whole list (500, every row lost): each row catches its own
+  failure and is shown as unreadable; the rest stay. Test: five held tasks, the slowest newest, one failing: order by
+  close, the failed one a row with no receipt, never more than three at once (mutants: no catch, ten at once, one at a
+  time each fail it).
+- NIT taken: the read gives up after 20 seconds, so the reading line becomes the could-not-read line instead of
+  staying. Not taken: the Tasks tab check is made at paint time (a tab revealed later shows the link on the next open;
+  fails safe); the source-pinned link test (the file's house pattern).
