@@ -24,8 +24,9 @@ MONDAY (main is frozen until the 07:00 pin).
   - a point answered by another control OUTSIDE that control's drawn box (1px slack for a snapped shared edge) is a
     cover: a hit area taking a neighbour's tap
   - a point INSIDE another control's box counts too (padding taken back by a negative margin is a hit area), unless
-    that control sits in its own layer (fixed, absolute, sticky, an open dialog: an open menu is stacking) or is drawn
-    inside this one (a label's own input); 1.5px of a snapped shared edge is ignored
+    the two sit in different layers (each one's nearest ANCESTOR that is fixed, absolute, sticky or an open dialog:
+    an open menu over the page is stacking; two absolute siblings in one layer are not) or the other is drawn inside
+    this one (a label's own input); 1.5px of a snapped shared edge is ignored
   - labels are scanned (a label row takes a tap for its control), and a DESCENDANT's hit area over its own card counts
     (Angel's review: both were false greens); only an ancestor answering inside a control is skipped
 
@@ -56,6 +57,11 @@ MONDAY (main is frozen until the 07:00 pin).
   tablet's one-screen list, carded as #5225 (scope here is the phone).
 - Synthetic covers cases: label, nested and padded caught; honest label and an absolute menu not; real screens 48
   shots, 0; the room header at 44 still caught.
+
+- Round 3 (blind): the check's name-area line passed on the unresolved text of an unrendered ::after, and
+  includes('44px') matched 144px (fixed: areas read as numbers on the board, where names are laid out; #tsk-back shown
+  for the read; a 44x10 name area now reds it by name); two absolute siblings overlapping were exempted as
+  stacking (fixed: layers by ancestor; synthetic case 6 caught, the open menu still exempt); :popover-open guarded.
 
 ## Weakest premise
 - WebKit ran on Mortals in Angel's review (AI settings and names clean); not re-run here after round 2's changes,

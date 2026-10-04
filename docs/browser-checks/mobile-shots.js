@@ -1131,16 +1131,18 @@ async function fitOf(page) {
        every control's own box (every 3px, its edges included), a tap must land on that control. A point
        answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
     const covers = [];
-    // Is `top` in its own layer over `under`: it, or an ancestor not shared with `under`, is positioned out of the
-    // flow (fixed, absolute, sticky) or is an open dialog / popover? Then a point it answers inside its box is
-    // stacking (a menu over the page), not a hit area.
-    const layered = (top, under) => {
-      for (let n = top; n && !n.contains(under); n = n.parentElement) {
+    // The nearest ANCESTOR in its own layer: positioned out of the flow (fixed, absolute, sticky) or an
+    // open dialog / popover. Two controls answer each other's points as STACKING only when they sit in different
+    // layers (a menu over the page); two in the same layer overlapping is a hit area, however positioned (round 3).
+    const layerOf = (n) => {
+      for (n = n && n.parentElement; n && n.nodeType === 1; n = n.parentElement) {   // ancestors only: a positioned control is in its container's layer
         const pos = getComputedStyle(n).position;
-        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky' || (n.matches && n.matches('dialog[open], :popover-open'))) return true;
+        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') return n;
+        try { if (n.matches('dialog[open]') || n.matches(':popover-open')) return n; } catch { /* an engine without :popover-open */ }
       }
-      return false;
+      return null;
     };
+    const layered = (top, under) => layerOf(top) !== layerOf(under);
     // label too: a label row takes a tap for its control, so it can be covered (Angel, #5218 review).
     const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
     const controlOf = (n) => (n && n.closest ? n.closest(SEL) : null);
