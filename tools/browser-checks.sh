@@ -1086,6 +1086,12 @@ run_one "render-picture-fit-4885" env ENGINES=chromium,webkit node docs/browser-
 # lines run with the default engine only.
 run_one "render-file-preview-4930" env ENGINES=chromium,webkit node docs/browser-checks/render-file-preview-4930.js
 
+# --- #4997: the same preview from the three Files lists ----------------------
+# Boots its OWN sandboxed board (temp data roots; the reveal/open runner and the PDF renderer stubbed in-process, so
+# nothing opens on the machine) because what it proves is the board's Files routes, which a stub cannot. Chromium
+# and WebKit inside the check itself.
+run_one "render-files-preview-4997" node docs/browser-checks/render-files-preview-4997.js
+
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
 # board above is needed. The slice is the frame, the accounts page and the

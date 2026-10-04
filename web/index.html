@@ -36837,6 +36837,7 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
+  if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image or PDF opens the full-page preview
   const msg = document.getElementById(msgId);
   if (kplusRemote()) {   // #5165: download it to this device
     kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
@@ -59597,6 +59598,7 @@ document.getElementById('docs-finder').addEventListener('click', async () => {
 document.getElementById('docs-list').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
+  if (filesPvOpen(row, { project: PJ_CURRENT }, e)) return;   // #4997
   const msg = document.getElementById('docs-msg');
   if (kplusRemote()) {   // #5165: download it to this device
     const forProject = PJ_CURRENT;
@@ -60580,7 +60582,7 @@ function pvOpen(id, from) {
   } else {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = pvRevealWord();
-    b.addEventListener('click', () => pvReveal(a.id));
+    b.addEventListener('click', () => (typeof a.reveal === 'function' ? a.reveal() : pvReveal(a.id)));   // #4997: a Files-list file reveals through its own route (Mona's OK)
     act.replaceWith(b);
   }
   back.querySelector('#pv-x').addEventListener('click', pvClose);
@@ -60627,9 +60629,63 @@ function pvClose() {
   back.remove();
   let to = PV_OPENER;
   if (to && !document.contains(to) && PV_OPENER_ID) to = document.querySelector('a.att[data-att="' + PV_OPENER_ID + '"]');
+  if ((!to || !document.contains(to)) && PV_OPENER_ID === FILES_PV_ID) to = filesPvRow();   // #4997 (Mona's OK): a redrawn Files row
   PV_OPENER = null;
   PV_OPENER_ID = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+/* #4997 (the Files-lists half of #4930): a plain click on an image or PDF row in a Files list (an agent's Files, a
+   project's Files panel, the Files screen) opens the same full-page preview. The file is named by its LISTED name and
+   served by the board's Files routes (engine/filepreview.js: only a file the list itself would show), never by a path. Any other row,
+   and a modifier-click, keeps opening the file on the computer. One record under one plain id, so pvClose's selector
+   never carries a file's name. `where` is { agent } or { project }. Returns true when the preview opened. */
+const FILES_PV_ID = 'files-preview';
+let FILES_PV_AT = null;   // { list, name }: where the row was, so pvClose can find it again if the list redrew
+/* Review 1: the row a Files preview was opened from, found again by its listed name after a redraw (an agent saving a
+   file rebuilds the list). Compared as a value, never put into a selector. */
+function filesPvRow() {
+  const at = FILES_PV_AT;
+  const list = at && document.getElementById(at.list);
+  if (!list) return null;
+  return [...list.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === at.name) || null;
+}
+function filesPvOpen(row, where, e) {
+  if (!row || !row.dataset || typeof row.dataset.doc !== 'string' || !row.dataset.doc) return false;
+  if (e && (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return false;
+  const name = row.dataset.doc;
+  const ext = (name.match(/\.([^./]+)$/) || [])[1];
+  const lower = ext ? ext.toLowerCase() : '';
+  /* Review 2: only what the preview can show here. A browser draws png, jpeg, gif and webp; heic and avif may not
+     decode, and a PDF's first page is drawn by macOS alone, so on Windows a PDF (and everywhere heic and avif) keeps
+     opening on the computer rather than becoming a card that cannot open it. */
+  const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf' : null);
+  if (!kind) return false;
+  let base;
+  if (where && where.agent) base = { preview: '/api/agent/' + encodeURIComponent(where.agent) + '/files/preview', download: '/api/agent/' + encodeURIComponent(where.agent) + '/files/download' };
+  else if (where && where.project) base = { preview: '/api/project/' + encodeURIComponent(where.project) + '/file-preview', download: '/api/project/' + encodeURIComponent(where.project) + '/file-download' };
+  else return false;
+  const q = '?name=' + encodeURIComponent(name);
+  const shown = name.split('/').pop();
+  const sizeEl = row.querySelector('.pj-doc-w');
+  PV_ATTS.set(FILES_PV_ID, {
+    id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
+    url: base.download + q, preview: base.preview + q,
+    reveal: async () => {
+      const msg = document.getElementById('pv-msg');
+      if (msg) msg.textContent = '';
+      try {
+        const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) };
+        const res = where.agent
+          ? await fetch('/api/agent/' + encodeURIComponent(where.agent) + '/files/reveal-file', init)
+          : await fetch('/api/project/' + encodeURIComponent(where.project) + '/reveal-file', init);
+        // The board's own sentence: its 404 here is the agent or project gone, a refused or vanished file is a 409.
+        if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = asSentence(out.because || out.error || 'That did not open.'); }
+      } catch { if (msg) msg.textContent = 'Kosmos could not be reached.'; }
+    },
+  });
+  const list = row.closest ? row.closest('.pj-docs') : null;
+  FILES_PV_AT = list && list.id ? { list: list.id, name } : null;
+  return pvOpen(FILES_PV_ID, row);
 }
 /* A plain click on a file card opens the preview; a modifier-click (or a middle click) keeps the download. */
 document.addEventListener('click', (e) => {
@@ -60675,6 +60731,7 @@ function pjSize(bytes) {
 document.getElementById('pj-docs').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
+  if (filesPvOpen(row, { project: PJ_CURRENT }, e)) return;   // #4997
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
