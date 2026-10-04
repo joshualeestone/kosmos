@@ -464,3 +464,19 @@ test('an agent\'s receipts: the closed tasks it held, newest close first, its ow
   assert.deepEqual([two.receipts.length, two.more], [2, true]);
   assert.deepEqual((await receipt.forAgent('nobody-here', { now: ms('15:00') })).receipts, []);
 });
+
+test('an agent\'s receipts leave out a task put back (open again) and one whose close time cannot be read', async () => {
+  const projects = require('./projects');
+  worker('uma');
+  const pc = 'sc' + (++pn);
+  projects.writeAll([...projects.readAll(), { id: pc, name: 'Gamma', agents: ['uma'], tasks: [
+    { number: 1, sentence: 'put back', closedAt: null },
+    { number: 2, sentence: 'garbled close', closedAt: 'not a date' },
+    { number: 3, sentence: 'done', closedAt: T('12:00') },
+  ] }]);
+  activity(pc, 1, [{ at: '10:00', kind: 'created', who: 'uma' }, { at: '11:00', kind: 'closed' }, { at: '11:30', kind: 'reopened' }]);
+  activity(pc, 2, [{ at: '10:00', kind: 'created', who: 'uma' }, { at: '11:00', kind: 'closed' }]);
+  activity(pc, 3, [{ at: '10:00', kind: 'created', who: 'uma' }, { at: '12:00', kind: 'closed' }]);
+  const r = await receipt.forAgent('uma', { now: ms('15:00') });
+  assert.deepEqual(r.receipts.map((x) => x.number), [3]);
+});

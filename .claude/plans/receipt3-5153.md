@@ -28,3 +28,16 @@ so): the phone shots decide.
 ## Weakest premise
 That reading the activity file of every closed task on every project on each open is cheap (they are small, one line
 per event, and only `limit` receipts are worked out). A board with thousands of closed tasks would want an index.
+
+## Review 1 (opus): 3 WARNINGs, taken
+- "Open the Tasks page" used showTab directly, skipping the Tasks page's own door (an unloaded or misplaced panel in the
+  consolidated layout, a project scope left from an earlier visit): it goes through openProjectTasks(null), and shows
+  only while the Tasks tab is in the bar. Source-pinned in the page test.
+- Opening Profile worked out up to ten receipts one after another with a blank list: three at a time, in order, and
+  "Reading this agent's work..." while the first read runs. Not taken: a per-agent cache of the closed-task scan (the
+  activity files are small; recorded as the weakest premise).
+- Tests that could not fail on the risky paths: a task put back (open again) and an unreadable close time are left out
+  (engine); the route carries a real receipt (server). Mutants for each.
+- NITs taken: an unreadable close time is dropped, not sorted as NaN; the date in the page test is this machine's own
+  wording. Not taken: archived projects are listed (a finished task on an archived project is still work done; a row
+  opens it); a deleted task opens its project; holds match the agent's name, as slice 1's do.

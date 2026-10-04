@@ -36825,6 +36825,7 @@ async function paintAgentWork(sessionName) {
   const more = document.getElementById('d-work-more');
   if (!list || !msg) return;
   const epoch = (AGENT_WORK_EPOCH += 1);
+  if (!list.children.length) msg.textContent = 'Reading this agent’s work…';   // the first read can take a few seconds
   let body = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/receipts?limit=10', { cache: 'no-store' });
@@ -36837,7 +36838,10 @@ async function paintAgentWork(sessionName) {
   if (!items.length) { list.innerHTML = ''; msg.textContent = 'Nothing finished yet.'; return; }
   msg.textContent = '';
   list.innerHTML = items.map((x) => dWorkRowHtml(x)).join('');
-  if (more) more.hidden = !body.more;
+  /* Only while the Tasks tab is in the bar (it appears once a board has enough tasks): a link to a page with no tab
+     would leave the person somewhere they cannot see how they got to (review 1). */
+  const tab = document.querySelector('.tab[data-tab="tasks"]');
+  if (more) more.hidden = !(body.more && !(tab && tab.hidden));
 }
 /* A row opens its task's page, on its own project (the Tasks page's way there: read, show, open). */
 document.getElementById('d-work-list').addEventListener('click', async (e) => {
@@ -36849,7 +36853,9 @@ document.getElementById('d-work-list').addEventListener('click', async (e) => {
   openProject(b.dataset.project);
   openTaskPage(Number(b.dataset.task));
 });
-document.getElementById('d-work-more').addEventListener('click', () => showTab('tasks'));
+/* Through the Tasks page's own door for all tasks (review 1): it resets a project scope left from an earlier visit and
+   places the panel in either layout. */
+document.getElementById('d-work-more').addEventListener('click', () => openProjectTasks(null));
 async function paintAgentFiles(sessionName) {
   const section = document.getElementById('d-files');
   const list = document.getElementById('d-files-list');
