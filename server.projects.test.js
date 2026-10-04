@@ -1163,6 +1163,29 @@ test('a card that says "Needs you" over a screen we cannot read SAYS so, rather 
   } finally { restoreEng(); }
 });
 
+test('#5223: a Windows agent asking with no words says there is no screen, never could-not-read', async () => {
+  const restoreEng = withEngMode(true);
+  reset();
+  // The fixture cannot build a REPORTED needs_you (how a Windows agent asks), so the engine's
+  // Windows answer stands in for chat.viewport here; engine/chat.test.js pins where that answer
+  // comes from (the reachedByChannel card). This pins that the route honours the flag rather than
+  // falling through to the could-not-read clause on a null text.
+  const real = chat.viewport;
+  chat.viewport = () => ({ text: null, noWindow: true, because: 'on Windows an agent runs without a window, so there is no screen to show here; what it says to you is in its conversations' });
+  try {
+  await withThread(fleet.agent('zeta', { state: 'needs_you' }),
+    [{ ran: true, status: 1, out: '', err: 'no server running' }],
+    async ({ project }) => {
+      const body = json(await req(`/api/project/${project.id}/thread/zeta`));
+      assert.equal(body.asking, true);
+      assert.equal(body.question, null);
+      assert.match(body.questionBecause, /on Windows there is no screen to read the question from/);
+      assert.doesNotMatch(body.questionBecause, /could not read/);
+      assert.equal(body.viewport.noWindow, true);
+    });
+  } finally { chat.viewport = real; restoreEng(); }
+});
+
 test('a "Needs you" card over a READABLE screen missing the markers says that, not could-not-read', async () => {
   const restoreEng = withEngMode(true);
   reset();

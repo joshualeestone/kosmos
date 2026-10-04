@@ -1118,7 +1118,7 @@ function keysAllowed(sessionName, roster) {
     return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
   }
   if (allowed.card.reachedByChannel === true) {
-    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
+    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; to stop what it is doing, use Restart under its AI Settings' };
   }
   /* #4589 round 2: Stop now's keys obey the same Codex rule as a message (Escape and C-x C-k are keys too, and
      C-x C-k on Codex's hook dialog is unmeasured). */
@@ -1256,7 +1256,7 @@ const CODEX_HOOK_STEPS = {
 };
 async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card, seen) {
   if (card.runner !== 'codex') return no('that is not a Codex agent');
-  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
+  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet');
   const t = paneTarget(card);
   const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
   const look = () => {
@@ -1868,9 +1868,11 @@ function viewport(sessionName, roster) {
      supervisor, the same fact `send` branches on above, read off the same card mark. The tmux
      capture below could only fail, and its sentence ("could not reach the agents on this computer")
      told every Windows user, on every agent page, that a working agent was unreachable. Said as
-     the fact it is, before tmux is asked, so nothing is spawned for an answer that is known. */
+     the fact it is, before tmux is asked, so nothing is spawned for an answer that is known.
+     `noWindow` lets a caller that words its own sentence off a null `text` (the routes' question
+     clause) tell "there is no window" from "we could not read it" without matching this wording. */
   if (card.reachedByChannel === true) {
-    return { text: null, because: 'on Windows an agent runs without a window, so there is no screen to show here. What it says to you is in its Direct Message' };
+    return { text: null, noWindow: true, because: 'on Windows an agent runs without a window, so there is no screen to show here; what it says to you is in its conversations' };
   }
   if (!card.target) {
     return { text: null, because: 'we cannot tell where this agent is running' };

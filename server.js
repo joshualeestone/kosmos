@@ -94,6 +94,12 @@ const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
 
+/* #5223: the question clause for an agent that is asking with no words of its own, when the viewport
+   said it has NO window (a Windows agent, `view.noWindow`). Both routes compose it after "<name> is
+   waiting on an answer, and", so it is a clause; "could not read its screen" told a Windows user a
+   working agent was unreachable. One sentence for the agent thread and the project page. */
+const NO_WINDOW_QUESTION_BECAUSE = 'it did not say what it is asking, and on Windows there is no screen to read the question from';
+
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
    when some running/known agent actually needs Claude -- NOT merely because a
@@ -14771,7 +14777,9 @@ const server = http.createServer(async (req, res) => {
     // its screen and the question is not in the capture" is not "we could not
     // read its screen at all". Null too once a reported question stands in.
     const questionBecause = (asking && !question)
-      ? ((!view || view.text == null)
+      ? ((view && view.noWindow === true)
+        ? NO_WINDOW_QUESTION_BECAUSE
+        : (!view || view.text == null)
         ? 'we could not read its screen just now to show the question'
         : 'we cannot find the question on its screen right now')
       : null;
@@ -18859,7 +18867,9 @@ const server = http.createServer(async (req, res) => {
     // asking something, and we could not read..." doubled back on itself on
     // screen (round 15). One derivation of the sentence, on this side.
     const questionBecause = (asking && !question)
-      ? (view.text == null
+      ? (view.noWindow === true
+        ? NO_WINDOW_QUESTION_BECAUSE
+        : view.text == null
         ? 'we could not read its screen just now to show the question'
         : 'we cannot find the question on its screen right now')
       : null;
