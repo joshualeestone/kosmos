@@ -463,6 +463,32 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
   } },
+  /* #5153 slice 3: Profile's Recent work. Only this page's read of the agent's receipts is faked (the throwaway board
+     has no transcripts); nothing on the board changes. Task names and numbers are invented. */
+  { name: 'agent-recent-work', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 20 });
+    const day = (d) => new Date(Date.now() - d * 86400e3).toISOString();
+    const mine = (files, commands, models) => ({ who: data.chatAgent, provider: 'claude', available: true, transcriptsWithWork: 1, files, filesMore: 0, commands, models });
+    const receipts = [
+      { project: data.projectId, projectName: 'Launch the spring catalogue', number: 1, sentence: 'Draft the product copy for every page', closedAt: day(0.2),
+        receipt: mine(['copy/home.md', 'copy/linen.md', 'copy/checkout.md'], 14, { 'claude-fable-5': b(48210, 21877, 310224, 4180552) }) },
+      { project: data.projectId, projectName: 'Launch the spring catalogue', number: 2, sentence: 'Check the prices against the spreadsheet', closedAt: day(1),
+        receipt: mine(['prices/spring.csv'], 3, { 'claude-fable-5': b(9120, 2210, 40500, 610000) }) },
+      { project: data.projectId, projectName: 'Launch the spring catalogue', number: 3, sentence: 'Book the photographer', closedAt: day(3),
+        receipt: { who: data.chatAgent, provider: 'claude', available: true, transcriptsWithWork: 0, files: [], commands: 0, models: {} } },
+    ];
+    await page.route('**/api/agent/*/receipts**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, receipts, more: true }) }));
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-work-list .dwork-row', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('d-work').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('d-work').innerText);
+    for (const want of ['Recent work', '3 files · 14 commands', 'at API prices', 'no activity found', 'See all on the Tasks page']) {
+      if (!t.includes(want)) throw new Error('Recent work does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });

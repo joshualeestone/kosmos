@@ -179,3 +179,42 @@ test('slice 2: a Codex or Gemini agent with no activity names its own tool', () 
   assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'gemini', transcriptsWithWork: 0, models: {} }, 'Lu')), /No Gemini CLI activity found/);
   assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'claude', transcriptsWithWork: 0, models: {} }, 'Ann')), /No Claude Code activity found/);
 });
+
+/* ---- slice 3: Profile's Recent work ---- */
+function workBundle() {
+  // eslint-disable-next-line no-new-func
+  return new Function(
+    page.liftConst(SCRIPT, 'USAGE_MODEL_PRICES') + '\n' + page.liftConst(SCRIPT, 'TKR_PROVIDER') + '\n'
+    + ['esc', 'usageNum', 'usageAbbr', 'usageUsd', 'usageRowTokenTotal', 'usageModelPrice', 'usageApiCost', 'dWorkMeta', 'dWorkRowHtml'].map(lift).join('\n')
+    + '\nreturn { dWorkMeta, dWorkRowHtml };',
+  )();
+}
+const WB = workBundle();
+const NOW = Date.parse('2026-10-03T20:00:00Z');
+
+test('a Recent work row: the task\'s sentence over "closed <date> · files · commands · tokens · about $ at API prices"', () => {
+  const item = { project: 'p1', number: 7, sentence: 'Write the <launch> notes', closedAt: '2026-10-02T15:00:00Z',
+    receipt: { who: 'ann', available: true, transcriptsWithWork: 1, files: ['a.md', 'b.md'], filesMore: 0, commands: 1,
+      models: { 'claude-fable-5': buckets(1e6, 0, 0, 0) } } };
+  const meta = WB.dWorkMeta(item, NOW);
+  assert.match(meta, /^closed Oct 2 · 2 files · 1 command · 1(\.0)?M tokens · about \$10 at API prices$/);
+  const html = WB.dWorkRowHtml(item, NOW);
+  assert.ok(html.includes('Write the &lt;launch&gt; notes'), 'the sentence is escaped');
+  assert.ok(html.includes('data-project="p1"') && html.includes('data-task="7"'));
+  assert.ok(html.startsWith('<button type="button"'), 'a row is a button: reachable from the keyboard');
+});
+
+test('a Recent work row for an agent that cannot be read, or did nothing, says so instead of zeros', () => {
+  const base = { project: 'p1', number: 1, sentence: 's', closedAt: '2026-10-02T15:00:00Z' };
+  assert.match(WB.dWorkMeta({ ...base, receipt: { available: false, because: 'provider', provider: 'grok' } }, NOW), /not available for Grok agents yet$/);
+  assert.match(WB.dWorkMeta({ ...base, receipt: { available: true, transcriptsWithWork: 0, models: {} } }, NOW), /no activity found$/);
+  assert.doesNotMatch(WB.dWorkMeta({ ...base, receipt: { available: true, transcriptsWithWork: 0, models: {} } }, NOW), /0 files/);
+  assert.match(WB.dWorkMeta({ ...base, closedAt: '2025-01-05T15:00:00Z', receipt: null }, NOW), /2025/, 'another year names its year');
+});
+
+test('Recent work sits inside Profile, not in the nav (Mona Lisa\'s placement)', () => {
+  const profile = RAW.slice(RAW.indexOf('id="d-sec-profile"'), RAW.indexOf('id="d-sec-instr"'));
+  assert.ok(profile.includes('id="d-work"') && profile.includes('>Recent work<'));
+  const nav = RAW.slice(RAW.indexOf('class="dnav-pack"'), RAW.indexOf('class="dnav-pack"') + 2000);
+  assert.ok(!/Recent work|data-go="work"/.test(nav), 'a nav entry was added');
+});

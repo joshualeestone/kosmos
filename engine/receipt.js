@@ -455,4 +455,38 @@ async function work(projectId, task, { now = Date.now() } = {}) {
   return receipt;
 }
 
-module.exports = { forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION };
+/**
+ * #5153 slice 3: an agent's receipts, newest close first: every closed task (on any project) whose activity shows this
+ * agent holding a part, with this agent's own part of that task's receipt. At most `limit` tasks are worked out per
+ * call (a receipt not yet kept reads transcripts), and `more` says whether older ones exist. Each task's receipt is
+ * the same one its task page shows (forTask: shared, kept once settled), so the two never disagree.
+ */
+async function forAgent(who, { limit = 10, now = Date.now() } = {}) {
+  const lim = Math.max(1, Math.min(50, Number(limit) || 10));
+  let all = [];
+  try { all = require('./projects').readAll() || []; } catch { return { ok: false, receipts: [], more: false }; }
+  const closed = [];
+  for (const proj of all) {
+    if (!proj || !proj.id) continue;
+    for (const task of proj.tasks || []) {
+      const iso = closedAtOf(task);
+      if (iso) closed.push({ proj, task, iso, at: Date.parse(iso) });
+    }
+  }
+  closed.sort((x, y) => y.at - x.at || String(x.proj.id).localeCompare(String(y.proj.id)) || x.task.number - y.task.number);
+  const out = [];
+  let more = false;
+  for (const c of closed) {
+    /* Held by this agent? The task's own activity says, before any transcript is read. */
+    const holds = holdsFrom(taskchat.read(c.proj.id, c.task.number), c.at);
+    if (!holds[who]) continue;
+    if (out.length >= lim) { more = true; break; }
+    const r = await forTask(c.proj.id, c.task, { now });
+    const mine = (r && Array.isArray(r.agents) ? r.agents : []).find((x) => x && x.who === who) || null;
+    out.push({ project: c.proj.id, projectName: c.proj.name || c.proj.id, number: c.task.number, sentence: c.task.sentence || '',
+      closedAt: c.iso, retries: (r && r.retries) || null, receipt: mine });
+  }
+  return { ok: true, receipts: out, more };
+}
+
+module.exports = { forAgent, forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION };

@@ -62,3 +62,14 @@ test('an open task has none yet; a closed one has a receipt; an agent\'s token i
   res = await fetch(base + '/api/project/' + encodeURIComponent(id) + '/task/99/receipt');
   assert.equal(res.status, 404);
 });
+
+test('an agent\'s receipts route: a list for the page, an agent\'s token refused, a bad name refused', async () => {
+  let res = await fetch(base + '/api/agent/someone/receipts');
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual([body.ok, Array.isArray(body.receipts), body.more], [true, true, false]);
+  res = await fetch(base + '/api/agent/someone/receipts', { headers: { 'x-kosmos-agent-token': 'any-agent-token' } });
+  assert.equal(res.status, 403);
+  res = await fetch(base + '/api/agent/%E0%A4%A/receipts');
+  assert.equal(res.status, 400);
+});

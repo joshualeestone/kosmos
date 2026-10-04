@@ -430,3 +430,37 @@ test('files are shown by their short path under either spelling of a linked agen
   const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
   assert.deepEqual(a.files, ['in.md', fs.realpathSync(real) + '2/sibling.md', path.join('..cache', 'x')]);
 });
+
+/* ---- slice 3: an agent's receipts ---- */
+test('an agent\'s receipts: the closed tasks it held, newest close first, its own part of each, a limit with "more"', async () => {
+  const projects = require('./projects');
+  const sam = worker('sam');
+  worker('tia');
+  const pa = 'sa' + (++pn);
+  const pb = 'sb' + (++pn);
+  projects.writeAll([
+    { id: pa, name: 'Alpha', agents: ['sam'], tasks: [
+      { number: 1, sentence: 'first', closedAt: T('11:00') },
+      { number: 2, sentence: 'still open', closedAt: null },
+      { number: 3, sentence: 'by parts', closedAt: null, parts: [{ id: 1, who: 'sam', closedAt: T('13:00') }] },
+      { number: 4, sentence: 'tia only', closedAt: T('14:00') },
+    ] },
+    { id: pb, name: 'Beta', agents: ['sam'], tasks: [{ number: 1, sentence: 'on beta', closedAt: T('12:00') }] },
+  ]);
+  activity(pa, 1, [{ at: '10:00', kind: 'created', who: 'sam' }, { at: '11:00', kind: 'closed' }]);
+  activity(pa, 2, [{ at: '10:00', kind: 'created', who: 'sam' }]);
+  activity(pa, 3, [{ at: '12:30', kind: 'created', who: 'sam' }, { at: '13:00', kind: 'part-closed', partId: 1 }, { at: '13:00', kind: 'closed' }]);
+  activity(pa, 4, [{ at: '13:30', kind: 'created', who: 'tia' }, { at: '14:00', kind: 'closed' }]);
+  activity(pb, 1, [{ at: '11:30', kind: 'created', who: 'sam' }, { at: '12:00', kind: 'closed' }]);
+  fs.writeFileSync(path.join(claudeDir(sam), 's.jsonl'), assistant('10:30', { id: 's1', usage: use(5, 5), tools: [{ id: 'st1', name: 'Bash' }] }) + '\n');
+  const all = await receipt.forAgent('sam', { now: ms('15:00') });
+  assert.equal(all.ok, true);
+  assert.deepEqual(all.receipts.map((x) => [x.projectName, x.number]), [['Alpha', 3], ['Beta', 1], ['Alpha', 1]],
+    'newest close first; the open task and the task sam never held are left out');
+  assert.equal(all.receipts[2].receipt.who, 'sam');
+  assert.equal(all.receipts[2].receipt.commands, 1, 'its own part of the same receipt the task page shows');
+  assert.equal(all.more, false);
+  const two = await receipt.forAgent('sam', { limit: 2, now: ms('15:00') });
+  assert.deepEqual([two.receipts.length, two.more], [2, true]);
+  assert.deepEqual((await receipt.forAgent('nobody-here', { now: ms('15:00') })).receipts, []);
+});

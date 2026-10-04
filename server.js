@@ -6226,6 +6226,24 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 405, { ok: false, because: verb ? 'use POST for that' : 'the Files list is read-only; use open or reveal' });
     return;
   }
+  /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
+     with its own part of each task's receipt. For the person's page, so an agent's token is refused, as on the task
+     receipt route. ?limit= (1..50, default 10); `more` says older ones exist. */
+  const agentReceipts = pathname.match(/^\/api\/agent\/([^/]+)\/receipts$/);
+  if (agentReceipts && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'an agent\'s receipts are for the person, not for agents' }); return; }
+    const name = decodeSegment(agentReceipts[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const limit = Number(new URL(req.url, 'http://x').searchParams.get('limit')) || 10;
+    require('./engine/receipt').forAgent(name, { limit })
+      .then((out) => sendJson(res, 200, out))
+      .catch((err) => {
+        console.error('receipts: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { ok: false, because: 'we could not work out the receipts just now' });
+      });
+    return;
+  }
+
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
   if (agentSkills && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(agentSkills[1]);
