@@ -499,11 +499,12 @@ const REVOKE_GRACE_MS = 90 * 1000;
    check first, so a revoke is found then rather than at the next 60 s pass. One
    check per room per this long, however many posts arrive (they wait on the same one). */
 const EDGE_FRESH_MS = 15 * 1000;
-/* A held post gets the grace of a rotation its own check made only when that rotation came
-   within one check of its arrival (EDGE_FRESH_MS plus a request's round trip). Held longer
-   (an unreadable record, a slow check), it is judged at its arrival, so posts held across a
-   long gap do not all open in one burst under the grace after the revoke is found. */
-const HELD_ROTATION_LAG_MS = EDGE_FRESH_MS + 20 * 1000;
+/* A held post gets the grace of a rotation made after it arrived only when that rotation
+   came within one 60 s pass plus a request's round trip of its arrival (its own check may
+   fail; the pass is the next). Held longer (an unreadable record for minutes), it is judged
+   at its arrival, so posts held across a long gap do not all open in one burst under the
+   grace after the revoke is found; an honest one held that long is refused with them. */
+const HELD_ROTATION_LAG_MS = 60 * 1000 + 20 * 1000;
 /* Posts held per room while a check is out: the room's minute COUNT budget
    (INBOUND_PER_WINDOW), so past it a post is treated as over that budget. */
 const HELD_MAX = INBOUND_PER_WINDOW;

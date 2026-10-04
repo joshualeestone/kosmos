@@ -66,9 +66,19 @@ doubled (N5); selfShared owner (N4).
   {checked:false, unreadable:true} when the save throws, and checkRoom releases at the pass only
   on a defined, readable answer. The test is red only with BOTH reverted (each guard alone holds).
 - W2: posts held across a long gap all opened under the grace of the rotation that ended it. A held
-  post now gets a rotation's grace only if it came within HELD_ROTATION_LAG_MS (35 s) of arrival.
+  post now gets a rotation's grace only if it came within HELD_ROTATION_LAG_MS (80 s: a pass plus a
+  round trip, widened in the post-review round so an honest post whose own check failed survives the
+  pass that rotates) of arrival. Held longer, an honest post is refused with the rest (cost stated).
 - W3: an owner rotatedAt in the future (clock was fast) is closed in revokeCheck.
 - W4: the residual is relay-bounded with members left (owner side alone about 15 s + 20 s + 90 s),
   and while Kosmos+ cannot answer the pass shows held posts unchecked: comment says so.
 - Unverified premise (Angel): detection needs the coordinator to keep listing a revoked edge with a
   non-active status; if it deletes the edge nothing rotates (the coordinator is not in this repo).
+
+## Post-review blind round (22:06)
+- Lag widened 35 s -> 80 s (honest post held through one failed check, rotated at the next pass).
+- A coordinator answer that lists none of the pinned edges counts as checked (as #3728 always did: an
+  edge it does not list is not taken as revoked); with the unverified premise above, a deleted edge
+  is never detected. Stated, not changed.
+- With no members left, a post that joins a check already out can be shown if the revoke landed after
+  that check was asked: bounded by about 15 s plus a round trip (N3), not the members-left 75 s.

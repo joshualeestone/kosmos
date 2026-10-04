@@ -1789,3 +1789,17 @@ test('#5191: a rotation time ahead of the clock is closed, so the old key does n
   await settle();
   assert.deepStrictEqual(shown(h), [], 'the old key reopened when the clock caught up with a future rotation time');
 });
+
+test('#5191: an honest post held through a failed check is still shown when the next pass rotates', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T10:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-onefail', 'rof', 2);
+  t.mock.timers.tick(20 * 1000);
+  h.edges = null;                        // the post's own check fails
+  post('from the member who stays');
+  await settle();
+  t.mock.timers.tick(60 * 1000);
+  revoke(0);                              // the pass's check succeeds and rotates
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), ['from the member who stays'], 'an honest post held through one failed check was refused');
+});
