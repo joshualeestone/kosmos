@@ -2174,8 +2174,8 @@ test('#5192: posts held while a member is behind go out, in order, when the new 
   void h;
 });
 
-test('#5192: a clock stepped back a few seconds keeps held posts; one stepped back past the skew drops them', async (t) => {
-  for (const [back, sent] of [[2 * 1000, true], [6 * 60 * 1000, false]]) {
+test('#5192: a clock set back just under the 5 minute skew keeps held posts; just over it drops them, and the note names the clock', async (t) => {
+  for (const [back, sent] of [[4 * 60 * 1000 + 59 * 1000, true], [5 * 60 * 1000 + 1000, false]]) {
     t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T23:00:00Z') });
     const id = 'proj-5192-step-' + back;
     const sk = fedseal.randomSecret();
@@ -2188,6 +2188,9 @@ test('#5192: a clock stepped back a few seconds keeps held posts; one stepped ba
     await settle();
     fedseats.post(id, { from: 'Ana', kind: 'person', text: 'held across a step back' });
     t.mock.timers.setTime(Date.now() - back);
+    await fedseats.ensureAll();   // the pass ages held posts: a step back inside the skew drops nothing
+    await settle();
+    assert.strictEqual(h.notes.some((n) => /not sent: held for more than an hour, or this computer's clock was set back/.test(n.text)), !sent, 'the pass after a step back of ' + back + ' ms: ' + JSON.stringify(h.notes));
     const before = lines(seat).length;
     const owner = fedseal.newKeyPair();
     const roomKey = fedseal.randomSecret();

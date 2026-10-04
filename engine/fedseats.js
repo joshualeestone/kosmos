@@ -1099,7 +1099,7 @@ function ageHeld(projectId, s) {
   s.outbox = s.outbox.filter((h) => !heldStale(h));
   const n = before - s.outbox.length + (s.staleHeld || 0);
   s.staleHeld = 0;
-  if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
+  if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour, or this computer\'s clock was set back.');
 }
 /** #5192: a seat that ends with posts still held says so, once, instead of losing them
     silently after its hold note promised they would go. */
@@ -1160,7 +1160,7 @@ function flushHeld(projectId, s) {
   if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent' : sent + ' messages held on this computer were sent')
     + (oldKey ? (oldKey === sent ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '; ' + oldKey + ' of them under the key this computer has, which the others may not show.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
-  if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
+  if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour, or this computer\'s clock was set back.');
   const lost = s.lostHeld || 0;
   s.lostHeld = 0;
   if (lost) say(projectId, lost + (lost === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + (lost === 1 ? 'it' : 'they') + ' no longer fit what this room can send, or who it includes could not be read.');

@@ -40,7 +40,7 @@ the next one. The byte cap keeps a flush well inside the receiver's minute but i
 other posts in that minute share it.
 At most 30 held per seat (half the receiving board's minute count budget, INBOUND_PER_WINDOW / 2), and at most 3/4 of the receiving board's minute byte budget (a flush sends them
 in one go; past either: "stayed on this computer ... as many messages as Kosmos sends at once");
-one held more than an hour is not sent, and no longer counts against the cap; the room says how many. Sealed at send time, so the
+one held more than an hour is not sent (a clock set back by less than 5 min, a wake or a time sync, keeps them and so adds up to 5 min to the hour; set back further drops them, and the note says the clock may be why), and no longer counts against the cap; the room says how many. Sealed at send time, so the
 receivers' freshness checks see a fresh time.
 
 ## Rejected
