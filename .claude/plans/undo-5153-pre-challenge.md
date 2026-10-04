@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: undo-5153
-diff_hash: 52da2ba246b16f2c24834d28eb2c68bfcad84b4c1059403b5c61784827158393
-validation: passed (Mortals full suite at a70f388fe with slices 1-3 below it, 15009 tests 0 fail, both browser-check gates, hash c0c66adf803e, 2026-10-03 21:07 CDT; since then only docs/browser-checks/mobile-shots.js screens and the merge of slice 1's CSS-only 44px toggle fix, both gates rc 0; design shots 8/8 on Mortals at 1e75b6c7b; then Mona Lisa's design review (page, and plan's shown/savedRoot fields): web 2356/2356, undo 31/31, gates rc 0; then the Undo button sized as Send (CSS only): undo 32/32, gates rc 0)
+diff_hash: 128f7af0cd19e76ad3c2449ca82ffbc26754792c3d445450b2799801244daaad
+validation: passed (Mortals full suite at a70f388fe with slices 1-3 below it, 15009 tests 0 fail, both browser-check gates, hash c0c66adf803e, 2026-10-03 21:07 CDT; since then only docs/browser-checks/mobile-shots.js screens and the merge of slice 1's CSS-only 44px toggle fix, both gates rc 0; design shots 8/8 on Mortals at 1e75b6c7b; then Mona Lisa's design review (page, and plan's shown/savedRoot fields): web 2356/2356, undo 31/31, gates rc 0; then the Undo button sized as Send (CSS only): undo 32/32, gates rc 0; then Cancel 44px on touch (CSS + class): undo 32/32, gates rc 0, phone audit flags no undo control in Chromium or WebKit)
 subdir_audit: passed
-timestamp: 2026-10-04T02:13:23Z
+timestamp: 2026-10-04T02:56:05Z
 iterations: 4
 converged: true
 ---
