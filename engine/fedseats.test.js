@@ -1216,3 +1216,150 @@ test('#3728: a member two rotations behind holds its posts too', async () => {
   await settle();
   assert.strictEqual(fedseats.post('proj-two-behind', { from: 'Ana', kind: 'person', text: 'on the old key' }), false, 'a member two rotations behind kept posting on the old key');
 });
+
+// ---- #5191: an owner refuses a revoked member's posts within seconds ----
+
+/** An owner room with `n` pinned members (invites tagged tag-0, tag-1...), seat connected. */
+async function pinnedRoom(id, tag, n, link = {}) {
+  const invs = Array.from({ length: n }, (_, i) => newInvite(tag + '-' + i));
+  const ref = 'ref-' + tag;
+  const room = 'room-' + tag;
+  const { h, seat } = await ownerRoom(id, ref, room, invs);
+  if (Object.keys(link).length) federation.recordLink(id, Object.assign({ role: 'owner', ref }, link));
+  for (const inv of invs) say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) });
+  await settle();
+  assert.strictEqual(Object.keys(fedseal.roomState(id).peers).length, n, 'fixture: members pinned');
+  const revoke = (i) => { h.edges = invs.map((inv, j) => ({ id: 'edge-' + inv.invite, project_ref: ref, status: j === i ? 'revoked' : 'active', invite_id: inv.invite })); };
+  const post = (text, epoch = 0, at = Date.now()) => say(seat, { event: 'message', data: fedseal.seal(fedseal.roomState(id).keys[epoch], epoch, room, { from: 'Guest', kind: 'person', text }, at) });
+  return { h, seat, ref, room, revoke, post };
+}
+const shown = (h) => h.recorded.map((r) => r.text);
+
+test('#5191: revoking the only member: its old-key post is refused at once, and the same post before the revoke shows', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-one', 'r1', 1);
+  post('before the revoke');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['before the revoke']);
+  // The card's control: the coordinator has the revoke, the owner's 60 s pass has not
+  // run, and the member posts 10 s later. The post waits for an edge check (the last
+  // one, for the post above, is older than EDGE_FRESH_MS), the check finds the revoke,
+  // and with nobody left the old key opens nothing.
+  t.mock.timers.tick(20 * 1000);
+  revoke(0);
+  t.mock.timers.tick(10 * 1000);
+  post('10 s after the revoke');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['before the revoke'], 'a revoked member\'s post was shown');
+  const st = fedseal.roomState('proj-5191-one');
+  assert.strictEqual(st.epoch, 1, 'the post\'s edge check did not rotate the room');
+  assert.strictEqual(st.rotatedFor, 'revoke');
+  assert.deepStrictEqual(st.peers, {});
+});
+
+test('#5191: with a member left, the old key opens for 90 s after a revoke (in flight), then never', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-two', 'r2', 2);
+  revoke(0);
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5191-two', federation.linkFor('proj-5191-two'), null), true);
+  const rotatedAt = fedseal.roomState('proj-5191-two').rotatedAt;
+  // Sealed 1 s BEFORE the rotation, arriving just after it: shown (clock rounding).
+  t.mock.timers.tick(1000);
+  post('sealed 1 s before', 0, rotatedAt - 1000);
+  await settle();
+  t.mock.timers.tick(60 * 1000);
+  post('inside the grace');
+  await settle();
+  t.mock.timers.tick(30 * 1000);   // 91 s after the rotation
+  post('after the grace');
+  post('current key', 1);
+  await settle();
+  assert.deepStrictEqual(shown(h), ['sealed 1 s before', 'inside the grace', 'current key'], 'the old epoch opened past the owner\'s 90 s grace');
+});
+
+test('#5191: the revoke reason survives a restart, and a record with no reason reads as a revoke', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { revoke } = await pinnedRoom('proj-5191-restart', 'rr', 1);
+  revoke(0);
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5191-restart', federation.linkFor('proj-5191-restart'), null), true);
+  for (const legacy of [false, true]) {
+    if (legacy) {
+      const st = Object.assign({}, fedseal.roomState('proj-5191-restart'));
+      delete st.rotatedFor;
+      fedseal.setRoomState('proj-5191-restart', st);
+    }
+    // A restarted board: a fresh seat manager reading the rooms file, 30 s after the
+    // rotation. Its seat rides another active edge of the project (one never pinned).
+    const h = harness({ edges: [{ id: 'edge-inv-rr-0', project_ref: 'ref-rr', status: 'revoked', invite_id: 'inv-rr-0' }, { id: 'edge-spare', project_ref: 'ref-rr', status: 'active' }] });
+    await fedseats.ensure('proj-5191-restart');
+    const seat = h.spawned[0];
+    say(seat, { event: 'connected', room: 'room-rr', expires_at: 9 });
+    await settle();
+    t.mock.timers.tick(30 * 1000);
+    say(seat, { event: 'message', data: fedseal.seal(fedseal.roomState('proj-5191-restart').keys[0], 0, 'room-rr', { from: 'Guest', kind: 'person', text: 'after a restart' }) });
+    await settle();
+    assert.deepStrictEqual(shown(h), [], (legacy ? 'a record with no reason' : 'a restart') + ' reopened the old key for a revoked member');
+  }
+});
+
+test('#5191: an edge check that fails holds the post, and a later check shows it exactly once', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post } = await pinnedRoom('proj-5191-fail', 'rf', 1);
+  h.gate = Promise.reject(new Error('Kosmos+ is unreachable'));
+  h.gate.catch(() => {});
+  post('during an outage');
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'a post was shown before any edge check');
+  h.gate = null;
+  await fedseats.ensureAll();   // the 60 s pass: its check succeeds
+  await settle();
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), ['during an outage'], 'the held post was lost or shown twice');
+});
+
+test('#5191: a check still failing at the 60 s pass shows the held post unchecked (today\'s behaviour, never worse)', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post } = await pinnedRoom('proj-5191-down', 'rd', 1);
+  h.edges = null;   // Kosmos+ answers, but not with edges
+  post('while Kosmos+ is down');
+  await settle();
+  assert.deepStrictEqual(shown(h), []);
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), ['while Kosmos+ is down']);
+});
+
+test('#5191: fifty posts in a second make one edge check, and a fresh check holds nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post } = await pinnedRoom('proj-5191-flood', 'rfl', 1);
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const asked = h.asked;
+  for (let i = 0; i < 50; i++) post('post ' + i);
+  await settle();
+  // A slow coordinator: a post after EDGE_FRESH_MS joins the check still out, not a second one.
+  t.mock.timers.tick(16 * 1000);
+  post('post 50');
+  await settle();
+  release();
+  h.gate = null;
+  await settle();
+  assert.strictEqual(h.asked - asked, 1, 'a flood made more than one edge check');
+  assert.strictEqual(h.recorded.length, 51);
+  post('right after');
+  await settle();
+  assert.strictEqual(h.asked - asked, 1, 'a post inside EDGE_FRESH_MS asked again');
+  assert.strictEqual(shown(h).pop(), 'right after');
+});
+
+test('#5191: an owner shared with its own computers still counts only member peers: revoking the only guest refuses its old key', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-self', 'rs', 1, { selfShared: true });
+  revoke(0);
+  t.mock.timers.tick(5000);
+  post('guest after the revoke');
+  await settle();
+  assert.deepStrictEqual(shown(h), []);
+  assert.deepStrictEqual(fedseal.roomState('proj-5191-self').peers, {});
+});

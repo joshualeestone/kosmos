@@ -112,7 +112,7 @@ function clean(v, max) {
 /* One event line from a seat. Unknown shapes are ignored; a message is recorded
    only if it carries text, and its `from`/`kind` are taken as the sender's own
    claim about themselves, stored as data. */
-function onEvent(projectId, line) {
+function onEvent(projectId, line, checked) {
   let ev;
   try { ev = JSON.parse(line); } catch { return; }
   if (!ev || typeof ev !== 'object') return;
@@ -159,6 +159,9 @@ function onEvent(projectId, line) {
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
+      // #5191: an owner opens a post only after a recent enough edge check (holdForCheck).
+      // `checked`: this is a held post being let through after its check.
+      if (!checked && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, line, now)) return;
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
       // re-send arrives it holds its posts (a revoked member may still hold its key).
       // Any epoch ahead counts (a member may have missed several rotations), but the
@@ -454,8 +457,24 @@ const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 /* After a rotation, the previous epoch still opens for this long (a message sealed
    just before it, still in flight), then never again: a revoked member cannot keep
-   posting under the key it was rotated out of. */
+   posting under the key it was rotated out of. This is a MEMBER's grace: a member is
+   not told why the owner rotated. */
 const EPOCH_GRACE_MS = 10 * 60 * 1000;
+/* #5191: the OWNER's grace after a rotation. An owner rotates only when a member is
+   revoked, and during a grace the revoked member's old-key posts open too (a sealed post
+   does not say which member sealed it), so the owner's is short: in-flight posts plus
+   the relay's room-ticket life (about 60 s). With no member left it is none at all:
+   an old-key post can then only come from the revoked member. So with members left a
+   revoked member can still be shown for about min(this, the ticket life) plus
+   EDGE_FRESH_MS, about 75 s; this narrows the window, it does not close it. */
+const REVOKE_GRACE_MS = 90 * 1000;
+/* #5191: a sealed post to an owner whose last edge check is older than this waits for a
+   check first, so a revoke bites within seconds rather than at the next 60 s pass. One
+   check per room per this long, however many posts arrive (they wait on the same one). */
+const EDGE_FRESH_MS = 15 * 1000;
+/* Posts held per room while a check is out. A room's minute budget (INBOUND_PER_WINDOW)
+   keeps no more than this anyway, so past it a post is treated as over that budget. */
+const HELD_MAX = INBOUND_PER_WINDOW;
 /* How long a member holds its posts after seeing a message sealed one epoch ahead of
    its own (it missed a rotation; the owner re-sends each pass). The epoch on an
    envelope cannot be checked before it opens, so a forged one must cost no more than
@@ -485,13 +504,26 @@ function isSealedRoom(st, link) {
   }
   return false;
 }
-/** The epochs this board opens now: the current one, and the one before it for
-    EPOCH_GRACE_MS after a rotation. */
+/** The epochs this board opens now: the current one, and the one before it for a
+    grace after a rotation (graceAfter). */
 function acceptedKeys(st, now) {
   const keys = { [st.epoch]: st.keys[st.epoch] };
   const prev = st.epoch - 1;
-  if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < EPOCH_GRACE_MS) keys[prev] = st.keys[prev];
+  if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < graceAfter(st)) keys[prev] = st.keys[prev];
   return keys;
+}
+/** #5191: how long the previous epoch opens after this room's last rotation. A member:
+    EPOCH_GRACE_MS. An owner: its record says why it rotated (`rotatedFor`, kept with the
+    epoch in the rooms file, so a restart inside the grace cannot forget it). The only
+    reason an owner rotates today is a revoke, and a missing or unreadable reason reads
+    as a revoke too, so a record from before #5191, or a damaged one, never gets the long
+    grace: every owner rotation gets REVOKE_GRACE_MS while a member remains, and none once
+    nobody does. "A member" is a pinned member PEER only: the owner's own other computers
+    are never pinned (a room shared with a guest is sealed against them, #4693), and when
+    #4658 lets them in they must count as the owner, never here. */
+function graceAfter(st) {
+  if (st.role !== 'owner') return EPOCH_GRACE_MS;
+  return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
 }
 /** The link for the seal decisions: null when there is none, undefined when the record
     cannot be read (safeLink turns that into null, which would read as "not sealed"). */
@@ -559,30 +591,79 @@ function sendRotates(projectId, s) {
     bound at pin time from the coordinator's own list (the invite the member redeemed),
     never from anything the member said. */
 function rotateForRevoked(projectId, link, edges) {
+  return revokeCheck(projectId, link, edges).then((r) => !!(r && r.rotated));
+}
+/** rotateForRevoked's step, also saying whether the edges were checked at all:
+    { checked, rotated }, or undefined when the step threw. A room with no pinned member
+    has nothing to revoke, so it counts as checked without asking. */
+function revokeCheck(projectId, link, edges) {
   return sealStep(projectId, async () => {
     const first = roomSeal(projectId);
-    if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return false;
+    if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return { checked: true, rotated: false };
     let r;
-    try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return false; }
-    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return false;
+    try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return { checked: false, rotated: false }; }
+    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return { checked: false, rotated: false };
     const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
     const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
-    if (!hasKey(st) || st.role !== 'owner') return false;
+    if (!hasKey(st) || st.role !== 'owner') return { checked: true, rotated: false };
     const peers = st.peers || {};
     // Only an edge the coordinator names as no longer active counts; an edge it does not
     // list is not taken as revoked (a partial answer must not lock a member out).
     const gone = Object.keys(peers).filter((pub) => peers[pub] && status.has(peers[pub].edge) && status.get(peers[pub].edge) !== 'active');
-    if (!gone.length) return false;
+    if (!gone.length) return { checked: true, rotated: false };
     const epoch = st.epoch + 1;
     const keep = {};
     for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
+    // #5191: why it rotated is kept with the epoch (graceAfter).
     fedseal.setRoomState(projectId, Object.assign({}, st, {
-      peers: keep, epoch, rotatedAt: Date.now(), keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }),
+      peers: keep, epoch, rotatedAt: Date.now(), rotatedFor: 'revoke', keys: Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() }),
     }));
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
-    return true;
+    return { checked: true, rotated: true };
   });
+}
+/** #5191: check an owner room's edges, then let the posts held for that check through.
+    They are opened AFTER the check, under the keys it leaves: a revoke it found has
+    rotated the room, so an old-key post opens only inside graceAfter. When the check
+    could not be made the posts stay held, except on the 60 s pass (`pass`): then they
+    are shown unchecked, which is how every post was shown before #5191, so a check that
+    keeps failing is never worse than that. */
+async function checkRoom(projectId, link, edges, pass) {
+  const r = await revokeCheck(projectId, link, edges);
+  const s = seats.get(projectId);
+  if (!s) return r;
+  if (r && r.checked) s.edgesCheckedAt = Date.now();
+  if (s.held && s.held.length && ((r && r.checked) || pass)) {
+    const held = s.held;
+    s.held = [];
+    for (const line of held) onEvent(projectId, line, true);
+  }
+  return r;
+}
+/** #5191: hold a sealed post to an owner whose edges were not checked in the last
+    EDGE_FRESH_MS, and ask: once per room per EDGE_FRESH_MS, so posts arriving while a
+    check is out, or soon after one failed, wait with it (for the pass at the latest).
+    True when the post was taken. A held post is never dropped, except past HELD_MAX,
+    where the room's minute budget would refuse it anyway, and the room says so the same
+    way. */
+function holdForCheck(projectId, s, sealed, line, now) {
+  if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
+  if (now - (s.edgesCheckedAt || 0) < EDGE_FRESH_MS) return false;
+  s.held = s.held || [];
+  if (s.held.length >= HELD_MAX) {
+    if (!s.heldNoted) { s.heldNoted = true; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept.'); }
+    return true;
+  }
+  s.held.push(line);
+  if (!s.edgeAsk && now - (s.edgeAskedAt || 0) >= EDGE_FRESH_MS) {
+    const link = safeLink(projectId);
+    if (link && link.role === 'owner') {
+      s.edgeAskedAt = now;
+      s.edgeAsk = checkRoom(projectId, link, null, false).catch(() => {}).then(() => { s.edgeAsk = null; });
+    }
+  }
+  return true;
 }
 /** Owner: a member's hello. A pinned member is answered again from its own invite. A
     new one is pinned only when its hello checks against an invite this board made AND
@@ -785,7 +866,7 @@ async function ensureAll() {
   for (const id of Object.keys(links)) {
     const link = links[id];
     if (!link || link.role !== 'owner') continue;
-    try { await rotateForRevoked(id, link, edges); } catch { /* retried on the next pass */ }
+    try { await checkRoom(id, link, edges, true); } catch { /* retried on the next pass */ }
   }
 }
 
