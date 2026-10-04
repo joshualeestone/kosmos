@@ -37,5 +37,3 @@ for a version with no file. Reasoned from server.js, not exercised on a Windows 
   and the committed file read as each board reads it.
 - Sabotage: dropping the filter turns 3 red. Main's untagged file is refused by the cut check (exit 3).
 - 52 related and audit test files: 2342 tests, 2258 pass, 0 fail, 84 skipped.
-
-Held for after Monday (main is frozen until the 07:00 pin).

@@ -46,7 +46,9 @@ function main(argv) {
       + 'Fix it and commit it before cutting, or set KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "Kosmos has been updated" window.\n');
     return NOT_READY;
   }
-  process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + '\n');
+  const per = whatsnew.countsByPlatform(obj);   // #5224: a Mac-only highlight is not shown on Windows
+  process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + ' ('
+    + Object.entries(per).map(([p, c]) => p + ' ' + c).join(', ') + ')\n');
   return 0;
 }
 

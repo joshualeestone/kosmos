@@ -124,6 +124,9 @@ test('#5224: when every highlight is for another platform there is no window (nu
   assert.equal(whatsnew.read('0.6.98', f, 'win32'), null);
   assert.equal(whatsnew.readFull('0.6.98', f, 'win32'), null);
   assert.deepEqual(whatsnew.read('0.6.98', f, 'darwin').map((h) => h.title), ['Keeps stopping'], 'CONTROL: the Mac still sees it');
+  assert.equal(whatsnew.key('0.6.98', f, 'win32'), null, 'a dismissal on Windows records no words it never showed');
+  assert.equal(whatsnew.key('0.6.98', f, 'darwin'), '0.6.98');
+  assert.deepEqual(whatsnew.countsByPlatform(o), { mac: 1, windows: 0 });
 });
 
 test('#5224: a title or line that names a platform must carry a "platforms" tag naming only platforms it names', () => {
@@ -131,7 +134,12 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
   assert.match(one({ line: 'On a Mac set to another language, agents are told your language.' }).join(' '), /names mac but has no "platforms"/,
     'the #5224 sentence itself, untagged');
   assert.match(one({ title: 'Windows PCs' }).join(' '), /names windows but has no "platforms"/);
-  assert.match(one({ line: 'Works on macOS.', platforms: ['mac', 'windows'] }).join(' '), /is for mac and windows but names only mac/);
+  assert.match(one({ line: 'Works on macOS.', platforms: ['mac', 'windows'] }).join(' '), /is for mac and windows but names mac:/);
+  assert.match(one({ line: 'On a Mac, like Windows already did.', platforms: ['mac'] }).join(' '), /is for mac but names mac and windows/,
+    'a Mac-tagged line that names Windows too');
+  assert.match(one({ line: 'On a MacBook or an iMac.' }).join(' '), /names mac but has no "platforms"/);
+  assert.match(one({ title: 'Windows that remember their size' }).join(' '), /or reword it if it is not about one/,
+    'a word list cannot tell the platform from the UI word, so the refusal offers both ways out');
   assert.match(one({ platforms: 'mac' }).join(' '), /"platforms" is not a list/);
   assert.match(one({ platforms: [] }).join(' '), /"platforms" is not a list/);
   assert.match(one({ platforms: ['linux'] }).join(' '), /"platforms" is not a list/);
@@ -147,8 +155,11 @@ test('#5224: the committed file never tells one platform about another (checked 
   if (!fs.existsSync(whatsnew.FILE)) return;
   const obj = JSON.parse(fs.readFileSync(whatsnew.FILE, 'utf8'));
   for (const [node, other] of [['darwin', 'windows'], ['win32', 'mac']]) {
-    for (const h of whatsnew.read(obj.version, whatsnew.FILE, node) || []) {
-      assert.ok(!whatsnew.platformsNamed(h.title + ' ' + h.line).includes(other), node + ' would show "' + h.line + '"');
+    const shown = whatsnew.read(obj.version, whatsnew.FILE, node);
+    assert.ok(Array.isArray(shown), node + ' would show no window for the committed file');
+    for (const h of shown) {
+      const named = whatsnew.platformsNamed(h.title + ' ' + h.line);
+      assert.ok(!named.length || named.includes(node === 'darwin' ? 'mac' : 'windows'), node + ' would show "' + h.line + '" (about ' + other + ')');
     }
   }
 });
