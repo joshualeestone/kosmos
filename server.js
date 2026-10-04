@@ -3870,7 +3870,7 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
         catch { sendJson(res, 400, { ok: false, because: 'we could not read that' }); return; }
         const shown = filepreview.reveal(folder, named, where, opts);
         if (shown && shown.ok) { sendJson(res, 200, { ok: true }); return; }
-        sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'Finder did not open' });
+        sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return true;

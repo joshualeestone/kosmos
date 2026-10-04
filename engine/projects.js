@@ -1721,6 +1721,13 @@ function resolveListedFile(folder, name, where = 'this project', opts = null) {
      shows, so any other spelling differs from the walked path. Measured on APFS. It replaced a per-segment folder read
      that had no bound on a huge folder. */
   if (walked && !sameListedPath(target, path.join(state.real, given))) return { ok: false, because: 'that is not a file in ' + where };
+  /* The folders of the ON-DISK path (realpath's spelling, which is what the list walks) must not be ones the list skips.
+     The walk above checks the name as given; on Windows sameListedPath is case-blind, so NODE_MODULES/x.png would pass
+     it and resolve into node_modules, which the list never shows. Off Windows the exact comparison already refuses
+     another spelling; this check is the same rule read from the disk, on every platform. */
+  if (walked && path.relative(state.real, target).split(path.sep).slice(0, -1).some((d) => LIST_SKIP_DIRS.has(d))) {
+    return { ok: false, because: 'that is not a file in ' + where };
+  }
   /* #5165: sameOpenedFile, so a drive that reports inode 0 (Windows FAT, exFAT) compares size and times, not 0 === 0. */
   if (walked && !sameOpenedFile(walked, st)) return { ok: false, because: 'that file changed while it was being opened' };
   return { ok: true, target, st, given };
