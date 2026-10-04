@@ -6,7 +6,8 @@ it after slice 2. Stacked on slice 2 (receipt2-5153, PR #5198). Merges after Mon
 ## What finished looks like
 An agent's Profile section ends with "Recent work": its newest 10 closed tasks, each a row with the task's sentence over a
 muted line "closed <date> · <n> files · <n> commands · <tokens> tokens · about $<x> at API prices"; a row opens the task's
-page (its full receipt, slice 1). More than 10: "See all on the Tasks page". None: "Nothing finished yet."
+page (its full receipt, slice 1). More than 10: "Open the Tasks page" (Mona Lisa 19:12: not "See all", since the page takes no agent filter and
+would show everyone's; back to "See all", filtered, when it does). None: "Nothing finished yet."
 
 ## Placement: Mona Lisa's call (her reply 2026-10-03 19:08)
 Inside Profile, a block at its bottom, not a nav entry: the nav pack is a deliberate pair (a third tile breaks it; a

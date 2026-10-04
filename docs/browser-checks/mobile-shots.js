@@ -512,7 +512,7 @@ const SCREENS = [
     await page.waitForTimeout(300);
   }, verify: async (page) => {
     const t = await page.evaluate(() => document.getElementById('d-work').innerText);
-    for (const want of ['Recent work', '3 files · 14 commands', 'at API prices', 'no activity found', 'See all on the Tasks page']) {
+    for (const want of ['Recent work', '3 files · 14 commands', 'at API prices', 'no activity found', 'Open the Tasks page']) {
       if (!t.includes(want)) throw new Error('Recent work does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
   } },

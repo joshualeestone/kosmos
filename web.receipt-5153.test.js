@@ -231,3 +231,9 @@ test('Recent work sits inside Profile, not in the nav (Mona Lisa\'s placement)',
   const nav = RAW.slice(RAW.indexOf('class="dnav-pack"'), RAW.indexOf('class="dnav-pack"') + 2000);
   assert.ok(!/Recent work|data-go="work"/.test(nav), 'a nav entry was added');
 });
+
+test('the link under Recent work does not promise this agent\'s tasks while the Tasks page cannot filter by agent', () => {
+  const box = RAW.slice(RAW.indexOf('id="d-work"'), RAW.indexOf('id="d-work"') + 1500);
+  assert.match(box, />Open the Tasks page</);
+  assert.doesNotMatch(box, />See all/);
+});
