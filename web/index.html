@@ -61657,7 +61657,14 @@ function pvOpen(id, from) {
   }
   back.querySelector('#pv-name').textContent = a.name;
   const act = back.querySelector('#pv-act');
-  if (kplusRemote()) {
+  if (kplusRemote() && typeof a.download === 'function') {
+    /* #4997: a Files-list file downloads through kplusDownload, so a refusal (renamed, moved, a gate) is said in the
+       bar rather than answered with nothing (a navigation's refusal is a silent 204, #5165). */
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
+    b.addEventListener('click', () => a.download());
+    act.replaceWith(b);
+  } else if (kplusRemote()) {
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
     act.replaceWith(dl);
@@ -61752,6 +61759,8 @@ function filesPvOpen(row, where, e) {
   PV_ATTS.set(FILES_PV_ID, {
     id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
     url: base.download + q, preview: base.preview + q,
+    download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
+      kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
     reveal: async () => {
       const msg = document.getElementById('pv-msg');
       if (msg) msg.textContent = '';

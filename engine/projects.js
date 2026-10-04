@@ -1486,8 +1486,8 @@ function revealFolder(folder) {
  * #4930: show one file selected in its folder (Finder's `open -R`; File Explorer's /select), never opening it. The
  * path is the caller's, already resolved from a stored record. Same runner seam and error rule as revealFolder.
  */
-function revealFile(file) {
-  if (revealOnWindows()) return win32explorer.revealFile(file);
+function revealFile(file, opts) {
+  if (revealOnWindows()) return win32explorer.revealFile(file, opts);   // #4997: opts.namedAs, as openFile
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
     execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
