@@ -262,11 +262,14 @@ function handleEvent(projectId, line, heldAt) {
     // Runs inside the child's stdout 'data' handler, where a throw (a full disk)
     // has nothing above it to catch it and would take the board down.
     try {
-      deps.recordExternal(projectId, {
+      deps.recordExternal(projectId, Object.assign({
         from: fromKept,
         fromKind: ev.data.kind === 'agent' ? 'agent' : 'person',
         text: ev.data.text,
-      });
+      /* #4649 slice 3: the poster's room member as the RELAY stamped it, top-level beside `data` (the connector never
+         takes it from `data`, as #4657's same_account). Anything the sender wrote inside `data` is ignored;
+         messages.externalPost keeps only a well-shaped value. Absent from an older relay, and then no key at all. */
+      }, typeof ev.member === 'string' ? { member: ev.member } : {}));
     } catch {
       say(projectId, 'A message from ' + farSide(projectId) + ' could not be saved on this computer.');
     }

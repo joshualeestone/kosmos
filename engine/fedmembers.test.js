@@ -104,6 +104,9 @@ test('#4649: Members joins this board\'s record with the coordinator\'s connecti
   ]);
   const joined = out.body.invites.find((r) => r.invite_id === 'i-joined');
   assert.deepStrictEqual([joined.edge_id, joined.joined_at, joined.label], ['e-joined', sec - 10, 'Dana Ruiz']);
+  // #4649 slice 3: the account that joined, which the relay stamps on its posts, so the screen can group them.
+  assert.strictEqual(joined.member, 'acct-dana');
+  assert.strictEqual(out.body.invites.find((r) => r.invite_id === 'i-pending').member, null);
   assert.strictEqual(out.body.invites.find((r) => r.invite_id === 'i-pending').edge_id, null, 'another project\'s connection was shown in this list');
   // The coordinator cannot be asked: the record still answers, and says it was not checked.
   const down = await fedmembers.members(stubRemote({}), 'book', now);

@@ -249,6 +249,9 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
     return {
       invite_id: row.invite_id, label: row.label || null, kind: row.kind, made_at: row.made_at, expires_at: row.expires_at,
       state, edge_id: edge ? edge.id : null, joined_at: edge ? edge.created_at : null,
+      // #4649 slice 3: the account that joined, which the relay stamps on its posts as `member`: the screen groups
+      // a post under this row's label by it.
+      member: edge && typeof edge.member_account_id === 'string' ? edge.member_account_id : null,
     };
   });
   /* Review round 3: a connection with no row here (its code was made on the create screen, or on another of this
@@ -257,7 +260,8 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
     const known = new Set(rows.map((r) => r.invite_id));
     const extra = edges.filter((e) => !known.has(e.invite_id))
       .map((e) => ({ invite_id: e.invite_id, label: null, kind: e.member_kind || null, made_at: null, expires_at: null,
-        state: e.status === 'active' ? 'joined' : 'removed', edge_id: e.id, joined_at: e.created_at }));
+        state: e.status === 'active' ? 'joined' : 'removed', edge_id: e.id, joined_at: e.created_at,
+        member: typeof e.member_account_id === 'string' ? e.member_account_id : null }));
     out.push(...extra);
     /* One order for both kinds of row, newest first (review round 4): by when someone joined, else when the code was
        made; a row with neither sorts last. Rows from codes not recorded here can share an invite_id (several people,

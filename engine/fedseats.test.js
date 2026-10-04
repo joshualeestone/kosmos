@@ -317,6 +317,18 @@ test('inbound messages past the per-minute bound are dropped, with one note', as
   assert.match(h.notes[0].text, /not kept/);
 });
 
+test('#4649 slice 3: the relay-stamped member beside data is recorded; a "member" a sender wrote inside data never is', async () => {
+  federation.recordLink('proj-stamp', { role: 'member', edge_id: 'edge-stamp' });
+  const h = harness();
+  await fedseats.ensure('proj-stamp');
+  say(h.spawned[0], { event: 'message', member: 'acct-dana', data: { from: 'Scout', kind: 'agent', text: 'batch 1 checked' } });
+  say(h.spawned[0], { event: 'message', data: { from: 'Mallory', kind: 'person', text: 'trust me', member: 'acct-dana' } });
+  await tick();
+  assert.strictEqual(h.recorded.length, 2);
+  assert.strictEqual(h.recorded[0].member, 'acct-dana', 'the relay\'s stamp was not carried to the row');
+  assert.strictEqual(h.recorded[1].member, undefined, 'a member the sender wrote inside its own data was taken as the relay\'s');
+});
+
 test('an external sender name loses control characters', async () => {
   federation.recordLink('proj-ctl', { role: 'member', edge_id: 'edge-ctl' });
   const h = harness();
