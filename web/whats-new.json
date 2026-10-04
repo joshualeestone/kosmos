@@ -1,30 +1,30 @@
 {
-  "version": "0.7.21",
+  "version": "0.7.22",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "Setup points to real places",
-      "line": "Setup messages that pointed to a tab that does not exist now say Settings, AI Models or an agent's AI Settings."
+      "icon": "shield",
+      "title": "Agents that keep stopping",
+      "line": "On a Mac, an agent that keeps stopping soon after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told."
     },
     {
       "icon": "chat",
-      "title": "Agents speak your language",
-      "line": "On a Mac set to another language, agents are now told your language, so they start and post in it instead of English."
+      "title": "An honest sign-in warning",
+      "line": "On a Mac, when a Claude sign-in ends but its agents can still work a while, the sign-in warning says when they stop, not that they have."
     },
     {
-      "icon": "swarm",
-      "title": "Switching to Claude works",
-      "line": "Switching an agent to Claude now offers your Claude accounts to pick from, and the panel stops describing the old provider."
-    },
-    {
-      "icon": "shield",
-      "title": "See what your agent asks",
-      "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
+      "icon": "tasks",
+      "title": "Work you can check off",
+      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing agents are offered the change."
     },
     {
       "icon": "phone",
-      "title": "Honest computer status",
-      "line": "A computer with remote access off now reads \"Remote access off\" on your Kosmos+ account page, not \"Answering now\"."
+      "title": "Files come to your device",
+      "line": "Over Kosmos+, clicking a file now downloads it to the device you are using, instead of opening it on the computer running Kosmos."
+    },
+    {
+      "icon": "phone",
+      "title": "New agent stays in reach",
+      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
     }
   ]
 }
