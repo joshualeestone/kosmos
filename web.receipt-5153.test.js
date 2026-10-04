@@ -183,5 +183,6 @@ test('the files are the page\'s own toggle ("N files", a plain list, the folder 
   assert.match(html, /<ul class="tkr-files" hidden><li>a\.md<\/li><li>b\.md<\/li><li class="tkr-where">In \/w\/x<\/li><\/ul>/);
   const na = B.tkReceiptAgentHtml({ available: false, because: 'provider', provider: 'codex' }, 'Cleo');
   assert.ok(na.includes('class="tkr-line tkr-muted"') && !na.includes('dhint'), 'the not-available line is the numbers line\'s size, muted');
-  assert.match(RAW, /@media \(max-width: 40rem\) \{ \.tkr-files-btn \{ display: flex; width: 100%; min-height: 44px; \} \}/);
+  assert.match(RAW, /@media \(max-width: 40rem\) \{ \.linkish\.tkr-files-btn \{ display: flex; width: 100%; min-height: 44px; \} \}/);
+  // The rendered height is measured by the phone shots' tap audit (mobile-shots task-receipt: taps<44 must read 0).
 });

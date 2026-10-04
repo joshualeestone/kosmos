@@ -6333,7 +6333,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkr-files-btn[aria-expanded="true"] .tkr-chev { transform: rotate(90deg); }
 .tkr-files { list-style: none; margin: 4px 0 0; padding: 0; }
 .tkr-files li, .tkr-where { color: var(--k-ink-3, var(--label-2)); overflow-wrap: anywhere; }
-@media (max-width: 40rem) { .tkr-files-btn { display: flex; width: 100%; min-height: 44px; } }   /* the whole line taps */
+/* .linkish.tkr-files-btn, not .tkr-files-btn: the later .linkish rule (min-height 24px, the WCAG 2.5.8 floor) has the
+   same weight and would win, leaving the toggle 24px tall on a phone (Mona Lisa measured it, 2026-10-03). */
+@media (max-width: 40rem) { .linkish.tkr-files-btn { display: flex; width: 100%; min-height: 44px; } }   /* the whole line taps */
 /* ⚠️ THE ADD ROW HAD TO BE SIZED DOWN, and rendering is the only thing that
    showed it: `.frow` gives the input `flex: 1` and `.btn-quiet` is a
    full-weight control, so at this column's width the pair WRAPPED and Add
