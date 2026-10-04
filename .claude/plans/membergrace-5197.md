@@ -35,7 +35,7 @@ clock runs behind the owner's: then it runs from receipt, lengthening the grace 
 
 A member refusing an older epoch's post it held now gets a 'key was retired' note instead of
 'could not open'. That note (shared with the owner, reworded here) names both causes, someone
-removed or a computer still catching up; a member's also names its own clock running ahead.
+removed or a computer still catching up; a member's also says its own clock may be off.
 A member past its 3 minute behind hold is told once that a post may not be shown.
 
 ## Control

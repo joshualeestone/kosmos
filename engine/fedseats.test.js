@@ -1764,7 +1764,7 @@ test('#5197: a remaining member opens a revoked member\'s old key for 90 s after
   await settle();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['at 89 s'], 'a member opened the old key past 90 s');
   assert.ok(h.notes.some((n) => /earlier key arrived after that key was retired/.test(n.text)), 'refused for some other reason: ' + JSON.stringify(h.notes));
-  assert.ok(h.notes.some((n) => /clock may be ahead of the owner/.test(n.text)), 'a member\'s note does not name its clock: ' + JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /clock may be off/.test(n.text)), 'a member\'s note does not name its clock: ' + JSON.stringify(h.notes));
 });
 
 test('#5197: a member that joined after a rotation is not told a key was retired for an epoch it never held', async (t) => {

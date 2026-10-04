@@ -203,7 +203,7 @@ function handleEvent(projectId, line, heldAt) {
         }
         if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
           && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : '. Or this computer\'s clock may be ahead of the owner\'s.'));
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : '. Or this computer\'s clock may be off.'));
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -1014,7 +1014,8 @@ function post(projectId, { from, kind, text }) {
   // #5197: past the hold, still on the epoch it held when the hold armed (the armed epoch is
   // unauthenticated, so a member that has rotated since is not warned): the post goes out
   // under the old key, which the other boards refuse once the rotation is 90 s old. Said
-  // once per epoch that armed a hold, so a forged one cannot use up the note.
+  // once per epoch that armed a hold: a forged envelope claiming another epoch does not use
+  // up the note for a real miss, one that guesses the next epoch does (the #5192 class).
   if (sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) {
     noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
