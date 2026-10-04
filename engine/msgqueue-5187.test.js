@@ -14,6 +14,8 @@
  * 7. Folded duplicate sends preserve queued: true.
  */
 
+require('../test-support/tmpscope');
+
 const os = require('node:os');
 const path = require('node:path');
 
@@ -29,6 +31,10 @@ const status = require('./status');
 const chat = require('./chat');
 const messages = require('./messages');
 const fleet = require('../test-support/fleet');
+
+test.after(() => {
+  try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* clean */ }
+});
 
 test('#5187 antigravityQueued parses pane text for queued messages', () => {
   assert.equal(status.antigravityQueued(null), null);
