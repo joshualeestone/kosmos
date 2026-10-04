@@ -327,17 +327,14 @@ func isBoardURL(_ url: URL, board: (host: String, port: Int)?) -> Bool {
 }
 
 /// #5169: PURE, for --kosmos-app-mode-selftest. A run computer's main-frame navigations: this computer's
-/// own board in the window; about:blank for the page's own use; any other https site in the browser;
-/// plain http only from a click, and then in the browser; mail, phone and text links only from a click;
-/// every other scheme refused. So another site can never REPLACE the window's page with a fake
-/// Kosmos screen, and a redirect to another origin stays out of the window.
+/// own board in the window; about:blank for the page's own use; foreign https or http sites in the browser
+/// only from a click; mail, phone and text links only from a click; every other scheme refused. So
+/// another site can never REPLACE the window's page with a fake Kosmos screen, and an unclicked or
+/// scripted navigation to a foreign origin is refused.
 func boardLinkDecision(for url: URL, board: (host: String, port: Int)?, clicked: Bool) -> ConnectLink {
     if isBoardURL(url, board: board) { return .inApp }
     switch url.scheme?.lowercased() ?? "" {
-    case "https":
-        guard let host = url.host, !host.isEmpty else { return .block }
-        return .browser
-    case "http":
+    case "https", "http":
         guard let host = url.host, !host.isEmpty else { return .block }
         return clicked ? .browser : .block
     case "mailto", "tel", "sms":
@@ -5532,7 +5529,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     boardNav("http://127.0.0.1:80/", false, .block, "loopback on another port is not the board")
     boardNav("http://localhost:16180/", false, .block, "the board is the host it was loaded as")
     boardNav("https://evil.example/", true, .browser, "an external https site goes to the browser")
-    boardNav("https://evil.example/", false, .browser, "any other site goes to the browser, even from a redirect")
+    boardNav("https://evil.example/", false, .block, "an unclicked or scripted https navigation is refused")
     boardNav("http://example.com/", true, .browser, "plain http, clicked, goes to the browser")
     boardNav("http://example.com/", false, .block, "plain http, scripted, is refused")
     boardNav("https://login.kosmosplus.com/", true, .browser, "Kosmos Plus on a run computer goes to the browser")

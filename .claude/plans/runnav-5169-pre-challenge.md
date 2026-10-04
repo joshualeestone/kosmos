@@ -2,29 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: runnav-5169
-diff_hash: 234993cee8c7e01ef5c9953f905318e0d4b62946365db36ccf597de8bd38e940
+diff_hash: 4c3a3eee45bf8d0f80e5c6408be2ef50817cf539f7b79c2e77af9754a8e2d6bc
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-03T23:36:00Z
-iterations: 2
+timestamp: 2026-10-04T04:17:00Z
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
+**Iterations:** 3
 **Converged:** Yes
-**Total findings:** 0 (0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs)
-**Fixed:** 0 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 2 (0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 0 NITs)
+**Fixed:** 2 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Validation:
-Focused light validation passed on Mortals:
-- native-app.runnav-5169.test.js (7/7 PASS)
-- native-app.computer-mode-4356.test.js (30/30 PASS)
-- tools.windows-computer-mode-4381.test.js (10/10 PASS, 5 skip)
-- cli.exit-code-mapping-3628.test.js (6/6 PASS)
-- cli.sandbox-data-4796.test.js (3/3 PASS)
-- Compiled Swift selftest `--kosmos-app-mode-selftest` passed all 59 rows (59/59 PASS, exit 0).
+- native-app.runnav-5169.test.js: verified pure reference logic, source regex assertions, dedicated unclicked https block test, and t.skip when KOSMOS_APP_BIN is unset.
 - Zero em dashes across all files.
 - Marked Tuesday-ready (held for merge until after Monday's release).
 
@@ -42,4 +36,6 @@ Focused light validation passed on Mortals:
 - Checked doctrine rules: light runs only on Mortals, zero em dashes.
 - Findings: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 0 NIT.
 
-Converged: iteration 2 surfaced no new findings.
+#### Iteration 3 (Renet and Angel Review Warnings)
+- [WARNING 1] native-app/main.swift: unclicked or scripted https navigation to foreign origins opened the browser, contradicting #5169's Expected and risking launching universal-link apps -> FIXED: require clicked for https in boardLinkDecision (clicked ? .browser : .block), update selftest row 5532 to expect .block, and add dedicated test in native-app.runnav-5169.test.js.
+- [WARNING 2] native-app.runnav-5169.test.js: compiled binary test passed silently when KOSMOS_APP_BIN was unset -> FIXED: accept test context (t) and call t.skip('no KOSMOS_APP_BIN available...') when binary is missing.

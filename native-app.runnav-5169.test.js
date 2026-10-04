@@ -40,8 +40,7 @@ test('#5169: boardLinkDecision keeps the board and about:blank in-app, routes fo
   assert.match(SRC, /\/\/\/ #5169: PURE, for --kosmos-app-mode-selftest\. A run computer's main-frame navigations/);
   const fn = SRC.slice(SRC.indexOf('func boardLinkDecision('), SRC.indexOf('\n}\n', SRC.indexOf('func boardLinkDecision(')));
   assert.match(fn, /if isBoardURL\(url, board: board\) \{ return \.inApp \}/);
-  assert.match(fn, /case "https":\n\s+guard let host = url\.host, !host\.isEmpty else \{ return \.block \}\n\s+return \.browser/);
-  assert.match(fn, /case "http":\n\s+guard let host = url\.host, !host\.isEmpty else \{ return \.block \}\n\s+return clicked \? \.browser : \.block/);
+  assert.match(fn, /case "https", "http":\n\s+guard let host = url\.host, !host\.isEmpty else \{ return \.block \}\n\s+return clicked \? \.browser : \.block/);
   assert.match(fn, /case "mailto", "tel", "sms":\n\s+return clicked \? \.browser : \.block/);
   assert.match(fn, /case "about":\n\s+return url\.absoluteString == "about:blank" \? \.inApp : \.block/);
   assert.match(fn, /default:\n\s+return \.block/);
@@ -66,7 +65,7 @@ test('#5169: mode selftest contains boardNav checks and expects 59 rows', () => 
   assert.match(selftest, /boardNav\("http:\/\/127\.0\.0\.1:16180\/api\/attachment\/1", false, \.inApp, "a same-origin download stays in the window"\)/);
   assert.match(selftest, /boardNav\("http:\/\/127\.0\.0\.1:3000\/", false, \.block, "ANOTHER LOCAL SERVER IS NEVER LOADED by a script or redirect"\)/);
   assert.match(selftest, /boardNav\("http:\/\/localhost:16180\/", false, \.block, "the board is the host it was loaded as"\)/);
-  assert.match(selftest, /boardNav\("https:\/\/evil\.example\/", false, \.browser, "any other site goes to the browser, even from a redirect"\)/);
+  assert.match(selftest, /boardNav\("https:\/\/evil\.example\/", false, \.block, "an unclicked or scripted https navigation is refused"\)/);
   assert.match(selftest, /boardNav\("http:\/\/example\.com\/", false, \.block, "plain http, scripted, is refused"\)/);
   assert.match(selftest, /let expected = 59/);
 });
@@ -94,7 +93,6 @@ test('#5169: reference logic matches all 19 board navigation rules', () => {
       const scheme = u.protocol.replace(':', '').toLowerCase();
       switch (scheme) {
         case 'https':
-          return u.hostname ? 'browser' : 'block';
         case 'http':
           return (u.hostname && clicked) ? 'browser' : 'block';
         case 'mailto':
@@ -120,7 +118,7 @@ test('#5169: reference logic matches all 19 board navigation rules', () => {
   assert.equal(boardLinkDecision('http://127.0.0.1:80/', board, false), 'block');
   assert.equal(boardLinkDecision('http://localhost:16180/', board, false), 'block');
   assert.equal(boardLinkDecision('https://evil.example/', board, true), 'browser');
-  assert.equal(boardLinkDecision('https://evil.example/', board, false), 'browser');
+  assert.equal(boardLinkDecision('https://evil.example/', board, false), 'block');
   assert.equal(boardLinkDecision('http://example.com/', board, true), 'browser');
   assert.equal(boardLinkDecision('http://example.com/', board, false), 'block');
   assert.equal(boardLinkDecision('https://login.kosmosplus.com/', board, true), 'browser');
@@ -133,9 +131,51 @@ test('#5169: reference logic matches all 19 board navigation rules', () => {
   assert.equal(boardLinkDecision('http://127.0.0.1:16180/', null, false), 'block');
 });
 
-test('#5169: if a compiled app binary is available, mode selftest runs all 59 rows and passes exit 0', () => {
+test('#5169: unclicked or scripted https navigation to foreign origin is blocked, not opened in browser', () => {
+  function isBoardURL(urlStr, board) {
+    if (!board) return false;
+    try {
+      const u = new URL(urlStr);
+      if (u.username || u.password) return false;
+      const scheme = u.protocol.replace(':', '').toLowerCase();
+      if (scheme !== 'http' && scheme !== 'https') return false;
+      const host = u.hostname.toLowerCase();
+      const port = u.port ? parseInt(u.port, 10) : (scheme === 'https' ? 443 : 80);
+      return host === board.host.toLowerCase() && port === board.port;
+    } catch {
+      return false;
+    }
+  }
+
+  function boardLinkDecision(urlStr, board, clicked) {
+    if (isBoardURL(urlStr, board)) return 'inApp';
+    try {
+      const u = new URL(urlStr);
+      const scheme = u.protocol.replace(':', '').toLowerCase();
+      switch (scheme) {
+        case 'https':
+        case 'http':
+          return (u.hostname && clicked) ? 'browser' : 'block';
+        default:
+          return 'block';
+      }
+    } catch {
+      return 'block';
+    }
+  }
+
+  const board = { host: '127.0.0.1', port: 16180 };
+  assert.equal(boardLinkDecision('https://evil.example/', board, false), 'block');
+  assert.equal(boardLinkDecision('https://login.kosmosplus.com/', board, false), 'block');
+  assert.equal(boardLinkDecision('https://evil.example/', board, true), 'browser');
+});
+
+test('#5169: if a compiled app binary is available, mode selftest runs all 59 rows and passes exit 0', (t) => {
   const bin = process.env.KOSMOS_APP_BIN;
-  if (!bin || !fs.existsSync(bin)) return;
+  if (!bin || !fs.existsSync(bin)) {
+    t.skip('no KOSMOS_APP_BIN available: the compiled binary selftest was not run');
+    return;
+  }
   const res = spawnSync(bin, ['--kosmos-app-mode-selftest'], { encoding: 'utf8' });
   assert.equal(typeof res.status, 'number', 'status must be numeric');
   assert.equal(res.status, 0, 'mode selftest failed: ' + res.stderr + '\n' + res.stdout);
