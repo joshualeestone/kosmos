@@ -199,3 +199,15 @@ test('SAFETY 1 through the project route: an agent-written .bat is SHOWN, never 
     assert.deepEqual(calls, [['/select,' + q(path.join(dir, 'Q3 report.pdf.bat'))]], 'the .bat was not SHOWN (/select) under the name its record gives (#4257)');
   });
 });
+
+test('#4997 + #5165: a document in a project on a mapped drive (Z:\\ resolving to \\\\server\\share) passes the LISTED gates the download route uses (the walk reads through the same world) (CONTROL: a name not in the folder is refused)', () => {
+  mappedDriveWorld('Z:\\proj', '\\\\server\\share\\proj', ['a.pdf']);
+  try {
+    const got = projects.resolveListedFile('Z:\\proj', 'a.pdf', 'this project', { listed: true, act: 'download' });
+    assert.equal(got.ok, true, 'a mapped-drive document was refused by the listed gates: ' + got.because);
+    assert.equal(projects.resolveListedFile('Z:\\proj', 'gone.pdf', 'this project', { listed: true, act: 'download' }).ok, false, 'CONTROL');
+  } finally {
+    projects.setFsWorldForTests(null);
+    explorer.setStatForTests(null);
+  }
+});

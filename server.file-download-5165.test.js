@@ -287,3 +287,35 @@ test('on a board that enforces its token, both download routes refuse without it
     boardAuthState.token = was.token;
   }
 });
+
+test('#4997 + #5165: a file swapped for a link, or for a FIFO, at the download\'s own open is refused with no bytes (CONTROL: no swap downloads it)', async () => {
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'projects', 'swap-'));
+  const outside = fs.mkdtempSync(path.join(SANDBOX, 'outside-swap-'));
+  fs.writeFileSync(path.join(outside, 'secret.pptx'), 'not yours');
+  const target = path.join(folder, 'deck.pptx');
+  const p = projects.create({ name: 'Swap Room 4997', folder, agents: [], roster: [] });
+  const dl = () => fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=deck.pptx');
+  const realOpen = fs.open;
+  for (const [what, swap] of [
+    ['a link out of the folder', () => fs.symlinkSync(path.join(outside, 'secret.pptx'), target)],
+    ['a FIFO', () => require('node:child_process').execFileSync('/usr/bin/mkfifo', [target])],
+  ]) {
+    fs.writeFileSync(target, PPTX);
+    const control = await dl();
+    assert.equal(control.status, 200, 'CONTROL: no swap downloads it (' + what + ')');
+    await control.arrayBuffer();
+    let swapped = false;
+    fs.open = function (file, ...rest) {
+      if (!swapped && String(file) === fs.realpathSync(target)) { swapped = true; fs.rmSync(target); swap(); }
+      return realOpen.call(fs, file, ...rest);
+    };
+    let r;
+    try { r = await dl(); } finally { fs.open = realOpen; }
+    const body = await r.text();
+    assert.ok(swapped, 'the swap never happened, so this arm proved nothing (' + what + ')');
+    assert.equal(r.status, 404, what + ': ' + body);
+    assert.match(JSON.parse(body).because, /not there any more, or it was moved/, what);
+    assert.doesNotMatch(body, /not yours/, what + ' leaked the file');
+    fs.rmSync(target, { force: true });
+  }
+});
