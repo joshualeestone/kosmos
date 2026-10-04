@@ -19411,19 +19411,20 @@ function federateOut(projectId, delivery, operator) {
       if (m && m.name && m.present && m.nameDerived && m.name !== m.sessionName) from = m.name;
     } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
   }
-  let sent = false;
-  try { sent = fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }) === true; } catch { /* a seat is best-effort */ }
   // Files never leave this computer. When the words went and a file did not, say
-  // so here, or "see the attached plan" arrives with nothing attached and nobody
-  // on this side knows.
-  if (sent) {
-    let hadFiles = false;
-    try {
-      const row = messages.record().rows.find((m) => m && m.id === delivery.id);
-      hadFiles = !!(row && (row.attachment || (Array.isArray(row.attachments) && row.attachments.length)));
-    } catch { hadFiles = false; }
-    if (hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
+  // so, or "see the attached plan" arrives with nothing attached and nobody on this
+  // side knows. #5192: the seat is told too, so a post it holds for the room key and
+  // sends later says the same when it goes.
+  // From the delivery when it carries the fields (no caller does today), else from the record.
+  const filesOf = (r) => !!(r && (r.attachment || (Array.isArray(r.attachments) && r.attachments.length)));
+  let hadFiles = false;
+  if (Object.prototype.hasOwnProperty.call(delivery, 'attachment') || Object.prototype.hasOwnProperty.call(delivery, 'attachments')) hadFiles = filesOf(delivery);
+  else {
+    try { hadFiles = filesOf(messages.record().rows.find((m) => m && m.id === delivery.id)); } catch { hadFiles = false; }
   }
+  let sent = false;
+  try { sent = fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text, files: hadFiles }) === true; } catch { /* a seat is best-effort */ }
+  if (sent && hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
 }
 
 function start(port = PORT) {
