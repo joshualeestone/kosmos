@@ -831,6 +831,10 @@ function boardTokenRefusal(req, tail) {
    registry on disk is still read so a world hidden since start stops counting, but no file written after start, a
    registry entry or a token, widens what the gate accepts. A world switch restarts the board (#2346), so the
    switched-to board snapshots then, and the world it left (booted, so it has a token) is in it (#3055).
+   AS OF START (Kitty's review): a token written BEFORE a restart is what the next board snapshots, so this backs up
+   #4491's file protections (which stop a token-only agent writing it), it does not replace them. Hiding is not
+   revoking: a world hidden after start and un-hidden later (there is no un-hide; a hand edit) counts again with its
+   start-time token.
    null until start() takes it: before that the gate accepts the active token only (fail-closed). */
 let KNOWN_WORLD_TOKENS = null;
 function snapshotWorlds() {
