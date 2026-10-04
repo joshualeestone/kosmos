@@ -11,13 +11,19 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
   field nothing read, and the restart safety comes from the record, not from it.
 - "A member" is a pinned member peer only (N4).
 
-## B. A post waits for a fresh edge check (holdForCheck, checkRoom)
+## B. A post waits for an edges answer asked for in the last 15 s (holdForCheck, checkRoom)
 - A sealed post to an owner room with pinned members, whose last edge check is older than
   EDGE_FRESH_MS (15 s), is held and one room-keyed check is asked (N5: one per room per 15 s, and
   never a second while one is out).
 - On a check: the held posts open under the keys it leaves (a found revoke has rotated the room).
 - On a failed check they stay held (W2), and the 60 s pass shows them unchecked if its own check also
-  fails: today's behaviour, never worse.
+  fails. That shows the same posts as before #5191, but up to one pass (60 s) later while Kosmos+ is
+  unreachable: a member's posts lag during a coordinator outage. Kept as Renet's W2 asked (hold,
+  then show at the pass), not released early, because releasing on a failed check would let a
+  revoked member through whenever Kosmos+ is slow.
+- A shared answer asked for at T counts the room as checked from T, so a revoke landing just after T
+  is seen at the first check asked after T + 15 s.
+- An age below zero (the clock stepped back) is never fresh. A replay of a held post takes no place.
 - Only a post that opens NOW is held (a check can only narrow what opens), so junk takes no place.
   Held count is capped at INBOUND_PER_WINDOW; past it the room's minute-budget note.
 - Post-triggered checks share one Mac-wide edges answer per 15 s (sharedEdges), so busy rooms do

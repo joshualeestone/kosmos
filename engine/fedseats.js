@@ -113,7 +113,12 @@ function clean(v, max) {
 /* One event line from a seat. Unknown shapes are ignored; a message is recorded
    only if it carries text, and its `from`/`kind` are taken as the sender's own
    claim about themselves, stored as data. */
-function onEvent(projectId, line, checked) {
+function onEvent(projectId, line) {
+  handleEvent(projectId, line, false);
+}
+/* `checked` (#5191): a post held for an edge check being let through after it. Not exported,
+   so no outside caller can skip the hold. */
+function handleEvent(projectId, line, checked) {
   let ev;
   try { ev = JSON.parse(line); } catch { return; }
   if (!ev || typeof ev !== 'object') return;
@@ -188,7 +193,9 @@ function onEvent(projectId, line, checked) {
         // #5191: an owner refusing an older epoch's post re-sends the current key now (at most
         // once per EDGE_FRESH_MS), so a remaining member that missed a rotation catches up
         // without waiting for the next pass. The refused post itself is not resent (#5192).
-        if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && now - (s.rotatesResentAt || 0) >= EDGE_FRESH_MS) {
+        // The epoch is unauthenticated, so a forger can trigger this too: the limit bounds it,
+        // and it only re-sends sealed frames to pinned members.
+        if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && !isFresh(s.rotatesResentAt, now)) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
         }
@@ -633,8 +640,14 @@ function revokeCheck(projectId, link, edges) {
     so the number of busy rooms does not set how often this Mac asks Kosmos+. A failed
     answer is not reused. */
 let macEdges = null;
+/** Whether something done at `at` is less than EDGE_FRESH_MS old. A time ahead of the
+    clock (the clock stepped back) is not fresh, so the hold cannot be switched off by it. */
+function isFresh(at, now) {
+  const age = now - (Number.isFinite(at) ? at : 0);
+  return age >= 0 && age < EDGE_FRESH_MS;
+}
 function sharedEdges(now) {
-  if (macEdges && now - macEdges.askedAt < EDGE_FRESH_MS) return macEdges;
+  if (macEdges && isFresh(macEdges.askedAt, now)) return macEdges;
   const ask = { askedAt: now, promise: null };
   try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_EDGES, {})); } catch (err) { ask.promise = Promise.reject(err); }
   const drop = () => { if (macEdges === ask) macEdges = null; };
@@ -659,9 +672,8 @@ async function checkRoom(projectId, link, edges, pass, askedAt) {
   if (s.held && s.held.length && ((r && r.checked) || pass)) {
     const held = s.held;
     s.held = [];
-    s.heldNoted = false;
     for (const line of held) {
-      try { onEvent(projectId, line, true); } catch (err) {
+      try { handleEvent(projectId, line, true); } catch (err) {
         console.error('#5191: a held post for ' + JSON.stringify(projectId) + ' could not be handled: ' + String((err && err.message) || err));
       }
     }
@@ -675,15 +687,17 @@ async function checkRoom(projectId, link, edges, pass, askedAt) {
     live in this seat's memory: a board restart while they wait loses them. */
 function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
-  if (now - (s.edgesCheckedAt || 0) < EDGE_FRESH_MS) return false;
+  if (isFresh(s.edgesCheckedAt, now)) return false;
   if (!s.room || !fedseal.open(acceptedKeys(sealed, now), s.room, env)) return false;
   s.held = s.held || [];
   if (s.held.length >= HELD_MAX) {
-    if (!s.heldNoted) { s.heldNoted = true; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept.'); }
+    const day = new Date(now).toISOString().slice(0, 10);
+    if (s.heldNotedOn !== day) { s.heldNotedOn = day; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
     return true;
   }
+  if (s.held.includes(line)) return true;   // a replay of a held post: it would be refused as seen
   s.held.push(line);
-  if (!s.edgeAsk && now - (s.edgeAskedAt || 0) >= EDGE_FRESH_MS) {
+  if (!s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const link = safeLink(projectId);
     if (link && link.role === 'owner') {
       s.edgeAskedAt = now;

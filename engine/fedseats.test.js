@@ -1449,3 +1449,47 @@ test('#5191: an owner refusing an older epoch\'s post re-sends the current key a
   assert.strictEqual(lines(seat).filter((f) => f.t === 'key-rotate').length, before + 1, 'the key was not re-sent once');
   assert.deepStrictEqual(shown(h), []);
 });
+
+test('#5191: a clock stepped back does not switch the hold off', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-clock', 'rcl', 1);
+  post('checked now');
+  await settle();
+  t.mock.timers.setTime(Date.parse('2026-10-03T19:00:00Z'));   // an hour back
+  revoke(0);
+  post('after the revoke');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['checked now'], 'a check stamped in the future counted as fresh');
+});
+
+test('#5191: the held-cap note is said once a day, not once per check', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post } = await pinnedRoom('proj-5191-capday', 'rcd', 1);
+  for (let round = 0; round < 2; round++) {
+    let release;
+    h.gate = new Promise((r) => { release = r; });
+    for (let i = 0; i <= fedseats.INBOUND_PER_WINDOW; i++) post('r' + round + 'p' + i);
+    await settle();
+    release();
+    h.gate = null;
+    await settle();
+    t.mock.timers.tick(61 * 1000);   // past the minute and the check
+  }
+  assert.strictEqual(h.notes.filter((n) => /more messages than Kosmos keeps in a minute/.test(n.text)).length, 1);
+});
+
+test('#5191: a replayed held post takes no second place, and the exported onEvent cannot skip the hold', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, room } = await pinnedRoom('proj-5191-replay', 'rrp', 1);
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const line = JSON.stringify({ event: 'message', data: fedseal.seal(fedseal.roomState('proj-5191-replay').keys[0], 0, room, { from: 'Guest', kind: 'person', text: 'once' }) });
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) fedseats.onEvent('proj-5191-replay', line, true);
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'a third argument skipped the hold');
+  release();
+  h.gate = null;
+  await settle();
+  assert.deepStrictEqual(shown(h), ['once']);
+  assert.ok(!h.notes.some((n) => /more messages than Kosmos keeps in a minute/.test(n.text)), 'replays filled the held places');
+});
