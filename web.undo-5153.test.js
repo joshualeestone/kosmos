@@ -81,3 +81,7 @@ test('the list follows the design review: a kicker, short paths, the undo folder
   assert.match(html, /<button class="linkish" type="button" data-undo="cancel">Cancel<\/button>/);
   assert.match(RAW, /@media \(hover: none\), \(pointer: coarse\) \{\n  #pj-task-view #tku-go \{ min-height: 44px; \}/);
 });
+
+test('"Undo the chosen files" is sized exactly as Send: the same rule gives both their font size and padding', () => {
+  assert.match(RAW, /\.tkcompose \.btn-quiet, #pj-task-view #tku-go \{ flex: 0 0 auto; font-size: \.875rem;\n\s+padding: calc\(\.5em - 1px\) calc\(1\.05em - 1px\); \}/);
+});
