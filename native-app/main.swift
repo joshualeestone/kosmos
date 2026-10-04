@@ -2913,7 +2913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // was given for a page no longer there, and the waiting downloads are not saved.
         if asked, committedPageURL?.host?.lowercased() != host || pageCommits != commitsBefore {
             logLine("#5167: the page changed while \(host) was asked about, so its downloads were not saved")
-            for waiting in downloadAsks.removeValue(forKey: host) ?? [] { waiting(false) }
+            answer(false)   // counted as Don't Allow for the run: a page that keeps reloading cannot keep asking (View > Reload asks again)
             return
         }
         answer(asked)
