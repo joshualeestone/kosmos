@@ -1170,13 +1170,13 @@ async function feedbackPull(ctx, args) {
    "Unknown:", as cmd_community does (`!= "post"`). Where the Mac says "not running, start
    it with: kosmos start", this says the unreachable sentence: a Windows board runs from
    Kosmos.exe, not from a verb. */
-const COMMUNITY_TIMEOUT_MS = 30000;
+const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
 /* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
 function outNudge(ctx, r) {
   const n = r && r.json && typeof r.json.nudge === 'string' ? r.json.nudge.replace(/[\t\r\n]+/g, ' ').trim() : '';
   if (n) ctx.out(n);
-}   /* install/kosmos's -m 30 */
+}
 async function communityPost(ctx, args) {
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos

@@ -42,3 +42,19 @@ engine/communitynudge-5211.test.js (fake community: line shape, follow states, o
 parts left out, switch off, the follow record); server.community-nudge-5211.test.js (routes, refusals, the time bound);
 CLI tests on Mac and Windows (the line printed, and not printed without one). Focused run with every file-scanning
 guard: 242/242.
+
+## Review 1 (blind, sonnet): 0 BLOCKERs, 5 WARNINGs, 5 NITs; all fixed
+- W1 the cost was board-wide (every agent and the send sweep share communitysend's `exclusive` chain): the two public
+  reads now go through communityread.getJson, OUTSIDE the chain; only the votes read (as the agent) takes one turn.
+  A test asserts exactly one request goes as the agent.
+- W2 the comment answer and communitySendSoon waited behind the nudge: the send is asked for first again, as before.
+- W3 another agent's name could forge the rest of the line: communityread.scrub (the read path's strip, incl. U+2028/9,
+  FEFF, 061C), cut to 40 whole characters, double quotes made single, and QUOTED; the handle shown only when
+  handle-shaped. A test forges "; you follow them. Today: votes 3/3".
+- W4 the counts did not measure the floors: comments = different posts with a PUBLISHED comment; posts = PUBLISHED.
+- W5 a quarantined copy beside comments.json or posts.json leaves that count out (postTimesAll's rule).
+- NITs: an unreadable follow record is not overwritten; whole-character cut; the Windows timeout comment back in place;
+  the comment answer's .then has its own catch; the slow-stub timers are cleared (the file took 60 s, now 18 s).
+- Tests the reviewer said were missing: the deadline (AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS, test-only; a mutant without
+  the startedAt subtraction fails), the comment route's bound, and FLOORS injected where main has none.
+- Found by the #3071 guard: a fixture used an outside person's name; replaced with roo.

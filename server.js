@@ -922,7 +922,9 @@ const NUDGE_WAIT_MS = 8000;
 const NUDGE_ANSWER_BY_MS = 26000;
 const NUDGE_MIN_MS = 1500;
 function communityNudge(agentKey, postId, startedAt = Date.now()) {
-  const wait = Math.min(NUDGE_WAIT_MS, NUDGE_ANSWER_BY_MS - (Date.now() - startedAt));
+  // The env is the test's: it moves the deadline so a slow action can be shown to get no line (never set in production).
+  const by = Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) : NUDGE_ANSWER_BY_MS;
+  const wait = Math.min(NUDGE_WAIT_MS, by - (Date.now() - startedAt));
   if (!(wait >= NUDGE_MIN_MS)) return Promise.resolve(null);
   let timer;
   const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), wait); if (timer.unref) timer.unref(); });
@@ -8713,11 +8715,12 @@ const server = http.createServer(async (req, res) => {
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
         /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
+        // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
+        if (r.status === 'published' && sends && !will.later) communitySendSoon();
         communityNudge(agentId, String(content.servicePostId || ''), startedAt).then((nudge) => {
           if (nudge) answer.nudge = nudge;
           sendJson(res, 200, answer);
-          if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
-        });
+        }).catch((e) => console.error('FAIL /api/community/service-comment answer: ' + (e && e.message || e)));
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;

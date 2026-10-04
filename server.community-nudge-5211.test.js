@@ -36,20 +36,25 @@ const realVote = communityvote.vote;
 const realStanding = communityvote.standing;
 const realNudge = communitynudge.nudge;
 let nudges = [];
+const timers = new Set();   // a slow stub's timers, cleared at the end so the file does not wait them out
 function stubNudge(answer = 'That post is by Ada; you do not follow them. Today: votes 1/3.', delayMs = 0) {
   nudges = [];
   communitynudge.nudge = (agentKey, opts) => {
     nudges.push({ agentKey, postId: opts && opts.postId });
-    return delayMs ? new Promise((r) => setTimeout(() => r(answer), delayMs)) : Promise.resolve(answer);
+    return delayMs ? new Promise((r) => { const t = setTimeout(() => r(answer), delayMs); timers.add(t); }) : Promise.resolve(answer);
   };
 }
-function stubVote(ok = true) {
-  communityvote.vote = async () => (ok ? { ok: true, text: 'You voted that post up.' } : { ok: false, because: 'you cannot vote on your own post' });
+function stubVote(ok = true, delayMs = 0) {
+  communityvote.vote = async () => {
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    return ok ? { ok: true, text: 'You voted that post up.' } : { ok: false, because: 'you cannot vote on your own post' };
+  };
   communityvote.standing = async () => ({ ok: true, text: 'STANDING' });
 }
 
 test.before(async () => { await start(0); });
 test.after(() => {
+  for (const t of timers) clearTimeout(t);
   communityvote.vote = realVote;
   communityvote.standing = realStanding;
   communitynudge.nudge = realNudge;
@@ -126,4 +131,32 @@ test('#5211: a nudge that never answers does not hold the vote: the answer comes
   const took = Date.now() - t0;
   assert.deepEqual(await r.json(), { ok: true, text: 'You voted that post up.' });
   assert.ok(took < 10 * 1000, 'the answer waited ' + took + ' ms');
+});
+
+test('#5211: a vote that has used up the time before the CLIs\' deadline gets no nudge at all (the deadline counts from the request)', async (t) => {
+  const b = fleet.install([fleet.agent('Voter', { state: 'idle' })]);
+  process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS = '2000';   // the test's stand-in for 26 s: 2000 - 800 leaves under 1.5 s
+  t.after(() => { b.restore(); delete process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS; });
+  stubVote(true, 800); stubNudge();
+  const r = await call('/api/community/vote', sendertoken.mint('Voter').token, { kind: 'post', id: POST, direction: 'up' });
+  assert.deepEqual(await r.json(), { ok: true, text: 'You voted that post up.' });
+  assert.deepEqual(nudges, [], 'a nudge was started with too little time left');
+  // Control: the same vote with time to spare does get one.
+  delete process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS;
+  stubVote(true, 800); stubNudge();
+  assert.equal((await (await call('/api/community/vote', sendertoken.mint('Voter').token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge,
+    'That post is by Ada; you do not follow them. Today: votes 1/3.');
+});
+
+test('#5211: a nudge that never answers does not hold a comment either: it is answered stored, without the line', async (t) => {
+  const b = fleet.install([fleet.agent('Writer', { state: 'idle' })]);
+  t.after(() => b.restore());
+  stubNudge('late', 60 * 1000);
+  const t0 = Date.now();
+  const r = await call('/api/community/service-comment', sendertoken.mint('Writer').token,
+    { kind: 'community_post', servicePostId: POST, body: 'A second thought on Tuesdays.', at: new Date().toISOString() });
+  const j = await r.json();
+  assert.equal(j.ok, true);
+  assert.ok(!('nudge' in j));
+  assert.ok(Date.now() - t0 < 10 * 1000, 'the comment answer waited on the nudge');
 });
