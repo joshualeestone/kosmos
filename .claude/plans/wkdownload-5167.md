@@ -2,22 +2,9 @@
 
 Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
 
-## Current behaviour (what holds now; the round sections below are history)
-- Saved: a download (`<a download>`, a board attachment, a board file the window cannot show, a
-  same-origin redirect) only while the committed page is a board (`isBoardPage`: a Kosmos+ computer
-  whose name is not one the coordinator reserves (`kosmosPlusReservedLabels`, a copy of kosmos-relay
-  RESERVED_NAMES, 45 names), or the board this app loaded) and the file is from its origin.
-- Refused and said: a download from a page that is not the board (any mode), an attachment or an
-  unshowable file from anywhere else (these, and a download WebKit stops: each said once per page load, a repeat counted into that page's one summary; while an alert is up or for 5 seconds after, counted too), a non-2xx answer, a failed save (these always).
-- Asked first: a Kosmos+ computer's page saves only after the person allows downloads from that
-  computer (once per run of the app, either answer). This computer's own board is never asked.
-- Destination: ~/Downloads, safe unique name; quarantine mark with this app's agent name and no
-  addresses; a file that
-  cannot be marked is kept and the person is told.
-- Measured live: `--kosmos-app-download-selftest`, 25 rows, run at bundle build (loud skip without
-  a console). Pure rules: `--kosmos-app-mode-selftest`, 86 rows.
-- Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
-  still navigates the window (#5169).
+## Current behaviour
+**See "Cut to the core" at the end of this plan:** it is what holds now. The round sections in between are history
+(the 40-round loop), and they describe machinery that has since been removed.
 
 ## Problem
 In connect mode the macOS app's WKWebView loads a board over Kosmos+, where the page hands files over
@@ -462,12 +449,8 @@ Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
 (Content-Disposition passthrough) are reasoned, not observed.
 
-## Tests (current)
-- Pure functions: `--kosmos-app-mode-selftest`, 86 rows in all (the #5167 ones: same-origin, board
-  page, destination name).
-- Live: 25 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
-  waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
-- Wiring: `native-app.download-5167.test.js`.
+## Tests (before the cut; history)
+Superseded by the tests listed in "Cut to the core".
 
 ## Cut to the core (2026-10-04, Baron's independent review on PR #5263, Splinter's go)
 The 40-round loop did not converge because its late rounds found edges of machinery the loop itself had added (the

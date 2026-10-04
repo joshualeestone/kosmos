@@ -76,8 +76,6 @@ test('#5167: a saved file is marked as downloaded, so Gatekeeper checks it when 
   assert.match(b, /try marked\.setResourceValues\(values\)/);
 });
 
-
-
 test('#5167: two downloads of the same name at once never get the same destination', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /let taken = Set\(downloadsInFlight\.values\.map/);
@@ -170,8 +168,6 @@ test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file me
     'a kept file is reported under a title saying it was not saved');
 });
 
-
-
 test('#5167 review 11: a run where nothing saves is judged, not timed out (the watchdog sits above the worst case, the gate above the watchdog)', () => {
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{\n[^\n]*\n\s+print\("download selftest TIMED OUT"\)/) || [])[1]);
@@ -181,7 +177,7 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
   assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
 });
 
-test('#5167 review 12: a foreign file the window cannot show is said; an early stop is not blamed on a cause', () => {
+test('#5167 review 12: a foreign file the window cannot show is refused and logged; an early stop is not blamed on a cause', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n[^\n]*\n\s+if committedPageURL != nil \{ tellDownloadFailed\(isBoardPage[^\n]*\n[^\n]*not opened or saved\."\n[^\n]*not opened or saved\.", quiet: true\)/,
     'a foreign file the window cannot show is cancelled with nothing said');
@@ -215,21 +211,12 @@ test('#5167 review 16: every early exit of the live selftest cleans up', () => {
   assert.ok(exits >= 4);
 });
 
-
-
-
-
-
-
-
 test('#5167 review 26: the "already said" record is weak, so a later download at a reused address never inherits it', () => {
   assert.match(SRC, /private let downloadsTold = NSHashTable<WKDownload>\.weakObjects\(\)/);
   assert.doesNotMatch(SRC, /downloadsTold[^\n]*ObjectIdentifier/);
 });
 
-
-
-test('#5167 review 29: a sign-in page is not saved as the file; a 4xx over Kosmos+ is said once (by the page); Reload asks again', () => {
+test('#5167 review 29: a sign-in page is not saved as the file; a 4xx over Kosmos+ is said by the page, not twice; Reload asks again', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /if response\.mimeType\?\.lowercased\(\) == "text\/html", !wantsPage \{/, 'an expired sign-in\'s page is saved under the file\'s name');
   assert.match(b, /if pageSaysDownloadRefusal\(http\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
@@ -238,16 +225,6 @@ test('#5167 review 29: a sign-in page is not saved as the file; a 4xx over Kosmo
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.ok(hatch.includes('nor a sign-in page answered for a .pptx'));
 });
-
-
-
-
-
-
-
-
-
-
 
 /* #5167, cut to the core (Baron's review on PR #5263): what the four real defects need, and nothing the loop added on
    top of it. Each test reads the shipped Swift. */
