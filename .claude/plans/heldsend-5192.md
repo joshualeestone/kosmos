@@ -54,9 +54,13 @@ An owner's post held before its first member is pinned goes to that member when 
 hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
 is sent to the first computer that joins with its key, if one joins within the hour.
 
+A seat stopped (unshared, project removed) or ended (member removed) with posts held says how many
+were not sent. A post held on no edge (an owner's own room, before any guest) still goes when the seat
+moves onto a guest's edge: that is the same room.
+
 ## Weakest premise
-Held posts live in the seat's memory: a board restart, or the seat being stopped, loses them (the
-room's own copy of each stays). A post held more than an hour is treated as no longer wanted. What
+Held posts live in the seat's memory: a board restart loses them silently (the room's own copy of
+each stays); a stop or an end says so. A post held more than an hour is treated as no longer wanted. What
 would change my mind: evidence that keys routinely take more than an hour to arrive, or that boards
 restart while posts wait.
 

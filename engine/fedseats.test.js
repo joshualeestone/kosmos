@@ -2451,3 +2451,50 @@ test('#5192: a forged epoch that armed a behind hold does not make a later flush
   assert.ok(h.notes.some((n) => /held on this computer was sent/.test(n.text)), 'fixture: flushed');
   assert.ok(!h.notes.some((n) => /under the key this computer has/.test(n.text)), 'a forged epoch made a flush under the current key claim the old one: ' + JSON.stringify(h.notes));
 });
+
+test('#5192: a seat stopped or ended with posts held says they were not sent', async () => {
+  for (const how of ['stop', 'ended']) {
+    const id = 'proj-5192-gone-' + how;
+    federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
+    fedseal.setRoomState(id, { role: 'member', s: fedseal.randomSecret(), code: 'code-' + id, peer: null, epoch: null, keys: {} });
+    const h = harness();
+    await fedseats.ensure(id);
+    const seat = h.spawned[0];
+    say(seat, { event: 'connected', room: 'room-' + id, expires_at: 9 });
+    await settle();
+    fedseats.post(id, { from: 'Ana', kind: 'person', text: 'held' });
+    if (how === 'stop') fedseats.stop(id); else seat.emit('exit', 3);
+    await settle();
+    assert.ok(h.notes.some((n) => /1 held message was not sent/.test(n.text)), how + ': ' + JSON.stringify(h.notes));
+  }
+});
+
+test('#5192: an owner\'s post held in its own room still goes when the seat moves onto a guest\'s edge', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const inv = newInvite('5192own');
+  fedseal.stashInvite('ref-5192-own', inv);
+  federation.recordLink('proj-5192-own', { role: 'owner', ref: 'ref-5192-own', selfShared: true });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-5192-own');
+  const own = h.spawned[0];
+  assert.deepStrictEqual(own.edge, { own: 'ref-5192-own' }, 'fixture: own room');
+  say(own, { event: 'connected', room: 'room-5192-own', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-own', { from: 'Josh', kind: 'person', text: 'before the guest' });
+  h.edges = [{ id: 'edge-inv-5192own', project_ref: 'ref-5192-own', status: 'active', invite_id: 'inv-5192own' }];
+  own.emit('exit', 1);
+  t.mock.timers.tick(2000);
+  await settle(); await settle();
+  const guestSeat = h.spawned[h.spawned.length - 1];
+  assert.strictEqual(guestSeat.edge, 'edge-inv-5192own', 'fixture: moved onto the guest edge');
+  say(guestSeat, { event: 'connected', room: 'room-5192-own', expires_at: 10 });
+  await settle();
+  const member = fedseal.newKeyPair();
+  say(guestSeat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5192-own') });
+  await settle();
+  const frames = lines(guestSeat);
+  const share = frames.find((f) => f.t === 'key-share');
+  const got = fedseal.openShare(inv.s, inv.code, member, share, 'room-5192-own');
+  const posts = frames.map((f) => fedseal.open({ [got.epoch]: got.roomKey }, 'room-5192-own', f)).filter(Boolean);
+  assert.deepStrictEqual(posts.map((p) => p.m.text), ['before the guest']);
+});

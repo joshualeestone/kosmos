@@ -295,6 +295,7 @@ function setStatus(projectId, status) {
   const s = seats.get(projectId);
   if (!s) return;
   s.status = status;
+  if (status === 'ended') dropHeld(projectId, s, 'the connection has ended');
   if (deps && typeof deps.onStatus === 'function') {
     try { deps.onStatus(projectId, status); } catch { /* status is furniture */ }
   }
@@ -914,6 +915,7 @@ function letGo(child, ms = STOP_KILL_MS) {
 function stop(projectId) {
   const s = seats.get(projectId);
   if (!s) return;
+  dropHeld(projectId, s, 'this project is no longer shared from here');
   s.stopped = true;
   if (s.timer) clearTimeout(s.timer);
   if (s.child) letGo(s.child);
@@ -1013,6 +1015,14 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
 }
+/** #5192: a seat stopped or ended with posts still held says so, once, instead of losing
+    them silently after its hold note promised they would go. */
+function dropHeld(projectId, s, why) {
+  const n = (s.outbox ? s.outbox.length : 0);
+  s.outbox = [];
+  s.staleHeld = 0;
+  if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + why + '.');
+}
 /** Send the posts held for the key, oldest first, now that it may have arrived. One that
     still cannot go is held again, with everything after it, in order. */
 function flushHeld(projectId, s) {
@@ -1036,7 +1046,9 @@ function flushHeld(projectId, s) {
   try {
     for (; i < held.length; i++) {
       if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
-      if (held[i].edge !== s.edge) { moved += 1; continue; }
+      // Held on no edge (an owner's own room, before any guest): any edge it moves to is still
+      // that room. Held on an edge that has since ended: not sent through another.
+      if (held[i].edge && held[i].edge !== s.edge) { moved += 1; continue; }
       if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
       // Held again (it is now at the end of the outbox): everything after it waits too, in
       // order. Not held again: refused for good (its own line said why); carry on.
