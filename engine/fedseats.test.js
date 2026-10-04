@@ -1739,3 +1739,53 @@ test('#5191: a forged post claiming the previous epoch inside its grace is not c
   assert.ok(!h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
   assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
 });
+
+test('#5191: a revoke found but not saved keeps posts held; the pass does not show them unchecked', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T07:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-nosave', 'rns', 1);
+  t.mock.timers.tick(20 * 1000);
+  revoke(0);
+  const broken = t.mock.method(fedseal, 'setRoomState', () => { throw new Error('ENOSPC'); });
+  post('from the revoked member');
+  await settle();
+  await fedseats.ensureAll();   // the pass: the revoke is found again and still cannot be saved
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'a pass showed a held post while the revoke could not be saved');
+  broken.mock.restore();
+  await fedseats.ensureAll();   // saved now: rotated with nobody left, the old key closed
+  await settle();
+  assert.deepStrictEqual(shown(h), []);
+  assert.strictEqual(fedseal.roomState('proj-5191-nosave').epoch, 1);
+});
+
+test('#5191: posts held across a long gap do not all open under the grace of the rotation that ends it', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T07:10:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-gap', 'rgp', 2);
+  t.mock.timers.tick(20 * 1000);
+  const broken = t.mock.method(federation, 'linkFor', () => { throw new Error('EIO'); });
+  post('held while the link record cannot be read');
+  await settle();
+  broken.mock.restore();
+  t.mock.timers.tick(2 * 60 * 1000);
+  revoke(0);
+  await fedseats.ensureAll();   // the check rotates two minutes after the post arrived
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'a post held for two minutes opened under the new rotation\'s grace');
+});
+
+test('#5191: a rotation time ahead of the clock is closed, so the old key does not reopen later', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T07:20:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-fast', 'rft', 2);
+  revoke(0);
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5191-fast', federation.linkFor('proj-5191-fast'), null), true);
+  // The clock was an hour fast at the rotation and has since been corrected.
+  fedseal.setRoomState('proj-5191-fast', Object.assign({}, fedseal.roomState('proj-5191-fast'), { rotatedAt: Date.now() + 60 * 60 * 1000 }));
+  await fedseats.ensureAll();
+  await settle();
+  t.mock.timers.tick(60 * 60 * 1000 + 10 * 1000);
+  await fedseats.ensureAll();   // a fresh check, so the post below is not held
+  await settle();
+  post('old key an hour later', 0);
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'the old key reopened when the clock caught up with a future rotation time');
+});

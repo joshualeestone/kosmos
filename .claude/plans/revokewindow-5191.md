@@ -59,3 +59,16 @@ only-member revoke + post 10 s later refused / same post before shown; two membe
 a post sealed 1 s before the rotation (N6); restart with two members keeps the 90 s grace (W1); junk takes no held place; the cap; two rooms one request; freshness from the ask; key re-sent once on an old-epoch refusal; failing then succeeding
 check shows once (W2); failing at the pass shows unchecked; 50 posts = 1 check, slow check not
 doubled (N5); selfShared owner (N4).
+
+## Cross-agent review (Angel, 21:56, card #5191), after convergence
+- W1 (confirmed): a revoke found but not saved (setRoomState throws) resolved undefined and the
+  pass released held posts unchecked. Fixed twice over: revokeCheck returns
+  {checked:false, unreadable:true} when the save throws, and checkRoom releases at the pass only
+  on a defined, readable answer. The test is red only with BOTH reverted (each guard alone holds).
+- W2: posts held across a long gap all opened under the grace of the rotation that ended it. A held
+  post now gets a rotation's grace only if it came within HELD_ROTATION_LAG_MS (35 s) of arrival.
+- W3: an owner rotatedAt in the future (clock was fast) is closed in revokeCheck.
+- W4: the residual is relay-bounded with members left (owner side alone about 15 s + 20 s + 90 s),
+  and while Kosmos+ cannot answer the pass shows held posts unchecked: comment says so.
+- Unverified premise (Angel): detection needs the coordinator to keep listing a revoked edge with a
+  non-active status; if it deletes the edge nothing rotates (the coordinator is not in this repo).

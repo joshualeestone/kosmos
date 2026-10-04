@@ -176,7 +176,8 @@ function handleEvent(projectId, line, heldAt) {
       const ahead = sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch > sealed.epoch;
       // A held post is judged at the later of its arrival and the room's last rotation, so a
       // rotation the check made still applies.
-      const keysAt = heldAt ? Math.max(heldAt, Number.isFinite(sealed && sealed.rotatedAt) ? sealed.rotatedAt : 0) : now;
+      const rotAt = Number.isFinite(sealed && sealed.rotatedAt) ? sealed.rotatedAt : 0;
+      const keysAt = !heldAt ? now : (rotAt > heldAt && rotAt - heldAt <= HELD_ROTATION_LAG_MS ? rotAt : heldAt);
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, keysAt), s.room, ev.data) : null;
       if (!opened && ahead) {
         if (s.behindArmedAt !== sealed.epoch) {
@@ -490,13 +491,19 @@ const EPOCH_GRACE_MS = 10 * 60 * 1000;
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
-   EDGE_FRESH_MS, about 75 s, and up to one 60 s pass more while Kosmos+ cannot answer
-   (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it. */
+   EDGE_FRESH_MS, about 75 s, relying on the relay to cut the revoked member at its ticket.
+   Owner-side alone it is about 15 s + a 20 s round trip + this grace. While Kosmos+ cannot
+   answer, the pass shows held posts unchecked: then only the relay's ticket bounds it. */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One
    check per room per this long, however many posts arrive (they wait on the same one). */
 const EDGE_FRESH_MS = 15 * 1000;
+/* A held post gets the grace of a rotation its own check made only when that rotation came
+   within one check of its arrival (EDGE_FRESH_MS plus a request's round trip). Held longer
+   (an unreadable record, a slow check), it is judged at its arrival, so posts held across a
+   long gap do not all open in one burst under the grace after the revoke is found. */
+const HELD_ROTATION_LAG_MS = EDGE_FRESH_MS + 20 * 1000;
 /* Posts held per room while a check is out: the room's minute COUNT budget
    (INBOUND_PER_WINDOW), so past it a post is treated as over that budget. */
 const HELD_MAX = INBOUND_PER_WINDOW;
@@ -622,6 +629,11 @@ function revokeCheck(projectId, link, edges) {
     const first = roomSeal(projectId);
     // A record that cannot be read is not a check (nothing could have been rotated).
     if (first === undefined) return { checked: false, rotated: false, unreadable: true };
+    // A rotation time ahead of the clock (it was fast, then corrected) would reopen the old
+    // key later: closed now instead.
+    if (hasKey(first) && first.role === 'owner' && Number.isFinite(first.rotatedAt) && first.rotatedAt > Date.now()) {
+      try { fedseal.setRoomState(projectId, Object.assign({}, first, { rotatedAt: Date.now() - REVOKE_GRACE_MS })); } catch { /* next check */ }
+    }
     if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return { checked: true, rotated: false };
     let r;
     try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return { checked: false, rotated: false }; }
@@ -642,7 +654,11 @@ function revokeCheck(projectId, link, edges) {
     // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
     // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it.
     if (!Object.keys(keep).length) delete keys[st.epoch];
-    fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys }));
+    // A revoke found but not saved is not a check: the posts it holds stay held (the pass must
+    // not show them unchecked under the key the revoked member still holds).
+    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys })); } catch {
+      return { checked: false, rotated: false, unreadable: true };
+    }
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
     return { checked: true, rotated: true };
@@ -685,7 +701,8 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
   }
   // The pass shows them unchecked, but not while the rooms record is unreadable: then every
   // one would be refused for that, so they wait for a pass that can read it.
-  if (s.held && s.held.length && ((r && r.checked) || (pass && !(r && r.unreadable)))) {
+  // r undefined: the step threw, nothing is known, and nothing is released.
+  if (s.held && s.held.length && ((r && r.checked) || (pass && r && !r.unreadable))) {
     const held = s.held;
     s.held = [];
     s.heldIds = new Set();
