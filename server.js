@@ -9066,6 +9066,11 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* #4794 (review, Kitty): the code is there for a PERSON to compare, so only a person at the screen can
+           confirm it. Without this a local caller holding the board token, an agent included, could read the code
+           from GET /api/remote/join and finish the pairing with nobody comparing. ADVISORY like every isViaScreen
+           (#3595): it stops the default path an agent would take, not a process faking the browser header. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can confirm the code.' }); return; }
         const got = await remote.joinConfirm(typeof body.code === 'string' ? body.code : '');
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         sendJson(res, 200, { ok: true, ...(got.data || {}) });
@@ -9094,8 +9099,12 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const id = typeof body.device_id === 'string' ? body.device_id : '';
         const verb = deviceVerb[1];
+        /* #4794 (review, Kitty): Allow lets a device in, and for a joining computer it carries the code a person
+           compared, so it is screen-only for the same reason as join/confirm. Deny and Remove only take access
+           away, so a local agent may still use them. ADVISORY (#3595), as above. */
+        if (verb === 'allow' && !isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can allow a device.' }); return; }
+        const id = typeof body.device_id === 'string' ? body.device_id : '';
         const got = verb === 'allow' ? await remote.deviceAllow(id, body.name, body.code)
           : verb === 'deny' ? await remote.deviceDeny(id)
             : await remote.deviceRemove(id);

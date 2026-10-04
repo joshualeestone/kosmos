@@ -11515,13 +11515,33 @@ test('kosmos#4794: the pairing routes are served: GET join answers not-held when
   assert.deepEqual(JSON.parse(st.body), { supported: true, held: false }, 'an unenrolled board is not joining');
   const head = await req('/api/remote/join', { method: 'HEAD' });
   assert.equal(head.status, 200);
-  const bad = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: 'AB-12' }) });
+  const bad = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ code: 'AB-12' }) });
   assert.equal(bad.status, 400);
   assert.match(JSON.parse(bad.body).error, /not the code on this screen/);
   /* A six-digit code reaches joinConfirm's own gate (this board is not enrolled), which proves the route is wired to it. */
-  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '482 915' }) });
+  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ code: '482 915' }) });
   assert.equal(wired.status, 400);
   assert.match(JSON.parse(wired.body).error, /finish the Plus sign-up first/);
+});
+
+test('kosmos#4794 (review): confirming a code and allowing a device are screen-only; deny and remove are not', async () => {
+  /* The code exists for a person to compare. A caller that is not a browser page (no Sec-Fetch-Site, no page
+     Origin), or one presenting an agent token even with the page header, is refused before the code is looked at. */
+  const notPage = { 'content-type': 'application/json' };
+  const agentPage = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'f'.repeat(64) };
+  for (const headers of [notPage, agentPage]) {
+    const c = await req('/api/remote/join/confirm', { method: 'POST', headers, body: JSON.stringify({ code: '482 915' }) });
+    assert.equal(c.status, 403, 'join/confirm let a process through: ' + c.body);
+    assert.match(JSON.parse(c.body).error, /Only a person at the Kosmos screen can confirm the code/);
+    const a = await req('/api/remote/devices/allow', { method: 'POST', headers, body: JSON.stringify({ device_id: 'dev1', code: '482 915' }) });
+    assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
+    assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
+  }
+  /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route. */
+  for (const verb of ['deny', 'remove']) {
+    const r = await req('/api/remote/devices/' + verb, { method: 'POST', headers: notPage, body: JSON.stringify({ device_id: '../evil' }) });
+    assert.equal(r.status, 400, verb + ' was refused as not-a-person: ' + r.body);
+  }
 });
 
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
@@ -11530,7 +11550,7 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
   assert.equal(pending.snapshot, false);
   for (const verb of ['allow', 'deny', 'remove']) {
     const r = await req('/api/remote/devices/' + verb, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ device_id: '../evil' }),
     });
     assert.equal(r.status, 400, verb + ' accepted an id that is not an id');
