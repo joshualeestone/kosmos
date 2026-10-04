@@ -162,12 +162,12 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
 
 test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its tab says, "Starting this agent" on Windows (#5239)', () => {
   /* The tab's visible label and the section's accessible name are one fact, so they come
-     from one key: a screen reader must not announce "Terminal" under a "Live output" tab. */
+     from one key: a screen reader must not announce "Terminal" under a "Starting this agent" tab (#5239; "Live output" before). */
   // #2916 (Josh 6.59) renamed this nav PILL's Mac label "Terminal" -> "Advanced". #3500 made the
   // pill an icon+label box, so the data-win-copy="terminalTab" key now lives on the .dnav-lab span
   // (applyPlatformCopy sets the span's innerHTML, leaving the icon intact), and the Advanced pill's
   // aria-controls gained d-sec-remove because Remove folded under it. The one-key win32 consistency
-  // this test guards (the pill reads "Live output" on Windows, matching the section) is preserved.
+  // this test guards (the pill read the Windows name, matching the section) is preserved.
   // #4550: the Advanced pill is gone (the Terminal section folds into AI Settings), so no pill label
   // carries the key now; the section's own accessible name still reads it, and no stale pill may.
   assert.doesNotMatch(PAGE, /<button type="button" data-go="term"/, 'an Advanced pill is back; #4550 folds Terminal into AI Settings');
