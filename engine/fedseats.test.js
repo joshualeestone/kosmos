@@ -431,6 +431,8 @@ test('#5193: one ending sentence per seat: a second ended line, or the revoke ch
   await settle();
   const told = h.notes.filter((n) => n.projectId === 'proj-5193-once' && /no longer connected|removed this computer/.test(n.text));
   assert.strictEqual(told.length, 1, JSON.stringify(told));
+  // The link keeps the words the room was told, not the revoke check's (round 4).
+  assert.strictEqual(federation.readLinks()['proj-5193-once'].ended, 'Kosmos+ refused this Mac: no such connection');
 });
 
 test('#5193: a seat that connects again after an ending can be told about a later one', async () => {
