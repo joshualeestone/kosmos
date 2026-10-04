@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: wnplatform-5224
 diff_hash: f34f871b44dcba5672da8fcd8256adb65724736540ec119d83f7c7a5d2b2dfb7
-validation: passed (focused, not the full suite; see below)
+validation: passed (full suite on Mortals, hash f34f871b44dc, 07:12 CDT; plus the focused runs below)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
 timestamp: 2026-10-04T09:10:19Z
 iterations: 14
