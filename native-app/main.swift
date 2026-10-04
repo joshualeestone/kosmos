@@ -2866,6 +2866,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var refusedDownloadHosts: Set<String> = []
     fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
     private var downloadAsks: [String: [(Bool) -> Void]] = [:]
+    private var pageCommits = 0   // main-frame commits; the Allow answer counts only for the page that asked
 
     fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {
         guard let page = committedPageURL, let host = page.host?.lowercased(),
@@ -2902,10 +2903,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         NSApp.activate(ignoringOtherApps: true)   // in front, where the person can read it
+        let commitsBefore = pageCommits
         let asked = alert.runModal() == .alertFirstButtonReturn
         // The page may have changed while it was asked (a switch to connect clears it): the waiting downloads
         // are not saved, and nothing is recorded, since the person answered for a page no longer there.
-        guard committedPageURL?.host?.lowercased() == host else {
+        guard committedPageURL?.host?.lowercased() == host, pageCommits == commitsBefore else {
             logLine("#5167: the page changed while \(host) was asked about, so its downloads were not saved")
             for waiting in downloadAsks.removeValue(forKey: host) ?? [] { waiting(false) }
             return
@@ -4508,6 +4510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         voice?.hostCancel("new page loaded")
         committedPageURL = webView.backForwardList.currentItem?.url   // #5167: the origin a download must share (moves only at a commit)
+        pageCommits += 1   // #5167: an Allow asked before this commit does not count for the new page
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

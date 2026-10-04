@@ -487,3 +487,4 @@ kosmos#120 pattern). Cut back to what the card and its four real defects need:
     a not-a-board page cannot save, a dangling symlink is taken).
   - The 68 related and audit test files: 2835 tests, 0 fail.
   - The mode selftest: 86/86.
+- Fresh-loop round 2: an Allow counts only for the page that asked: a main-frame commit during the question (pageCommits) voids the answer, so a switch to connect and back to the same host cannot record an Allow for a page the person never saw. A same-host reload during the question now fails safe (not saved).
