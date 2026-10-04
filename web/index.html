@@ -6258,6 +6258,10 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   .namego, .utoast .ux { position: relative; }
   :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
   :is(.apphead .tab, #agent-sort) { min-height: 44px; }
+  /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
+     its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
+     10px to the left for a short name's area; nothing drawn moves. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { padding: 14px 0 14px 10px; margin: -14px 0 -14px -10px; }
   /* #5219, a project's room: a document row and Try again grow to 44. The header's small controls keep their 36px
      areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
      answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
