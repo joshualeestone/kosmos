@@ -1131,7 +1131,8 @@ async function fitOf(page) {
        every control's own box (every 3px, its edges included), a tap must land on that control. A point
        answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
     const covers = [];
-    const SEL = 'button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
+    // label too: a label row takes a tap for its control, so it can be covered (Angel, #5218 review).
+    const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
     const controlOf = (n) => (n && n.closest ? n.closest(SEL) : null);
     for (const el of document.querySelectorAll(SEL)) {
       if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
@@ -1151,7 +1152,9 @@ async function fitOf(page) {
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
         const hit = document.elementFromPoint(x, y);
         const other = controlOf(hit);
-        if (!other || other === el || el.contains(other) || other.contains(el)) continue;
+        // An ANCESTOR answering inside this control is skipped (this control is part of it). A DESCENDANT is not: a
+        // child's hit area reaching over its own card is a cover like any other (Angel, #5218 review).
+        if (!other || other === el || other.contains(el)) continue;
         // Only a hit area counts: the point lies OUTSIDE the other control's drawn box (a ::after, or padding taken
         // back, reaching past it). A point inside its box is a control drawn on top (an open menu over the page),
         // which is stacking, not a tap area too big.

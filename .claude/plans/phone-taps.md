@@ -16,12 +16,16 @@ MONDAY (main is frozen until the 07:00 pin).
     answering as Back, and View All as + New task on a tablet; reverted to 36
   - the composer's file, emoji and Post: #4108's row
   - the reaction chips (36): repeated in every message
-  - Answer (about 40): a 44 area reaches the next row (its own comment)
+  - Answer (button.ansgo, box 63x24, hit area about 75x40 from its ::after inset -8px -6px): a 44 area reaches the
+    next row (its own comment). Its BOX is what the audit lists (63x24); its reach is about 40 (Angel's review corrected
+    an earlier "about 40" that read as the box).
 - docs/browser-checks/mobile-shots.js gains a covers audit beside taps:
   - across every control's own box (every 3px, edges included), a tap must land on that control
   - a point answered by another control OUTSIDE that control's drawn box (1px slack for a snapped shared edge) is a
     cover: a hit area taking a neighbour's tap
   - a control drawn on top (an open menu) is stacking and does not count
+  - labels are scanned (a label row takes a tap for its control), and a DESCENDANT's hit area over its own card counts
+    (Angel's review: both were false greens); only an ancestor answering inside a control is skipped
 
 ## Measured
 - mobile-shots, 9 screens x SE and iPhone 15 x light and dark (36 shots):
@@ -39,6 +43,9 @@ MONDAY (main is frozen until the 07:00 pin).
   - against main: 8 FAILs (names, Sort agents, the 15px terminal box, 34px buttons)
   - a 600px name area: covers FAIL (the scan can fail)
   - names have no control within even a 160x120 area (0 covers in both datasets), so 44 is safe there
+- Synthetic page (fitOf lifted): a label row under a neighbour's ::after and a child's ::after over its card now
+  read as covers (the previous version missed the nested one and caught the label only via its checkbox); an honest
+  label beside a button reads 0. Real screens, 12 incl. the three Settings ones, 48 shots: covers 0.
 - render-room-msgbox-2806 passes (the room header kept at 36). Wiring 12/12.
 
 ## Weakest premise

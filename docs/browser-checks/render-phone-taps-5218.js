@@ -65,7 +65,7 @@ const REACH = (sel) => {
 // not on a neighbour's hit area reaching over it (the same scan as mobile-shots' covers audit). A point inside the
 // other control's drawn box, with 1px of slack for a snapped shared edge, is stacking, not a hit area.
 const COVERS = () => {
-  const SEL = 'button, a[href], select, summary, [role="button"], [role="tab"], input:not([type="hidden"]), textarea';
+  const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], input:not([type="hidden"]), textarea';
   const out = [];
   for (const el of document.querySelectorAll(SEL)) {
     if (el.disabled || !el.checkVisibility()) continue;
@@ -82,7 +82,7 @@ const COVERS = () => {
       if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
       const hit = document.elementFromPoint(x, y);
       const other = hit && hit.closest ? hit.closest(SEL) : null;
-      if (!other || other === el || el.contains(other) || other.contains(el)) continue;
+      if (!other || other === el || other.contains(el)) continue;   // an ancestor; a descendant's hit area still counts
       const o = other.getBoundingClientRect();
       if (x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1) continue;
       out.push((el.id || el.className) + ' <- ' + (other.id || other.className)); break;
