@@ -516,8 +516,8 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    still under the old key, is past the grace and refused on the other boards (those whose
    clock is not behind the owner's). It arms once per epoch this member holds, so a forged
    envelope that armed it leaves a real miss of the next rotation, at that epoch, unheld
-   (nothing resends a post that went out and was refused; #5192 holds only posts not yet sent): holding until the key arrives would let a forger pause a member
-   indefinitely. */
+   (nothing resends a refused post). Holding until the key arrives would let a forger pause
+   a member indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
@@ -1069,6 +1069,8 @@ function flushHeld(projectId, s) {
   // Only through this seat while it is the project's live, connected seat: a seat replaced
   // (an id reused) or not up keeps its posts held rather than sending or dropping them.
   if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child || !s.child.stdin) return;
+  // A project no longer linked (unshared, not yet stopped) sends nothing held.
+  if (!safeLink(projectId)) return;
   const held = s.outbox;
   s.outbox = [];
   s.flushing = true;
@@ -1078,6 +1080,7 @@ function flushHeld(projectId, s) {
   s.staleHeld = 0;
   let moved = 0;
   let unmeant = 0;
+  let keyless = 0;
   let unknownWho = 0;
   // A member past a behind hold with no new key sends under the key it has (#5197).
   const st0 = roomSeal(projectId);
@@ -1089,6 +1092,8 @@ function flushHeld(projectId, s) {
       // Held on no edge (an owner's own room, before any guest): any edge it moves to is still
       // that room. Held on an edge that has since ended: not sent through another.
       if (held[i].edge && held[i].edge !== s.edge) { moved += 1; continue; }
+      // Held while behind: still behind once the hold ran out, it is not sent under the old key.
+      if (held[i].msg.behindHeld && st0 && st0.role === 'member' && s.behind && s.behind.epoch > st0.epoch && s.behindArmedAt === st0.epoch && Date.now() >= s.behind.until) { keyless += 1; continue; }
       if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
         // Pinned members exist and not all came from an invite live when it was written.
         if (pinnedAny(projectId)) { if (held[i].msg.invitesUnknown) unknownWho += 1; else unmeant += 1; continue; }
@@ -1116,6 +1121,7 @@ function flushHeld(projectId, s) {
     + (oldKey ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '.')
     + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
+  if (keyless) say(projectId, keyless + (keyless === 1 ? ' held message was' : ' held messages were') + ' not sent: the new key did not arrive in time, and ' + (keyless === 1 ? 'it was' : 'they were') + ' not sent under the old one.');
   if (unmeant) say(projectId, unmeant + (unmeant === 1 ? ' held message was' : ' held messages were') + ' not sent: the computer that joined came from an invite made after ' + (unmeant === 1 ? 'it was' : 'they were') + ' written.');
   if (unknownWho) say(projectId, unknownWho + (unknownWho === 1 ? ' held message was' : ' held messages were') + ' not sent: this computer could not read who the shared project included when ' + (unknownWho === 1 ? 'it was' : 'they were') + ' written.');
   if (moved) say(projectId, moved + (moved === 1 ? ' held message was' : ' held messages were') + ' not sent: the connection ' + (moved === 1 ? 'it was' : 'they were') + ' written for has ended.');
@@ -1131,9 +1137,9 @@ function pinnedAny(projectId) {
   const st = roomSeal(projectId);
   return !!(st && st.peers && Object.keys(st.peers).length);
 }
-function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown, sealedHeld }, heldAt) {
+function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown, sealedHeld, behindHeld }, heldAt) {
   // sealedHeld: held while the room was known to be sealed (then it never goes in the clear).
-  const msg = { from, kind, text, files: files === true, invites, invitesUnknown: invitesUnknown === true, sealedHeld: sealedHeld === true };
+  const msg = { from, kind, text, files: files === true, invites, invitesUnknown: invitesUnknown === true, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has
@@ -1172,7 +1178,10 @@ function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown,
   if (sealedRoom) {
     msg.sealedHeld = true;
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
-      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or within about four minutes, when this computer stops waiting for it (then under the key it has, which the others may not accept)', heldAt);
+      // #5192: marked, so it goes only under the new key: if the hold runs out first it is
+      // dropped, never sent under a key a removed member may still hold.
+      msg.behindHeld = true;
+      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives; if it has not arrived within a few minutes, it is not sent', heldAt);
     }
     if (!hasKey(sealed) || !s.room) {
       return holdPost(projectId, s, msg, hasKey(sealed)
@@ -1203,6 +1212,7 @@ function sendPost(projectId, { from, kind, text, files, invites, invitesUnknown,
   if (!heldAt && s.outbox && s.outbox.length) {
     flushHeld(projectId, s);
     if (s.outbox.length) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
+    if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child || !s.child.stdin) return false;
   }
   try { s.child.stdin.write(line + '\n'); } catch {
     if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held

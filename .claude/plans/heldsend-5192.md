@@ -18,8 +18,8 @@ accepted key-rotate, an owner pinning a member (after the share frame), a seat's
 that is held again keeps everything after it held, in order; one refused for good (too long, could
 not seal) says why and the rest carry on. The room says how many were sent, and whether any had a
 file (the server tells the seat: `files`), since files never leave this computer.
-A post held because a member is behind goes, when that hold runs out with no new key, under the key
-the member has; the hold note says so (the others may not accept it, #5197).
+A post held because a member is behind goes only under the new key: if the hold runs out first it is
+dropped with a note, never sent under the old key a removed member may still hold (round 16).
 
 ## Bounds
 A post that meets an unreadable rooms record is held too (it goes once the record reads and says
