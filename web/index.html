@@ -66409,13 +66409,14 @@ function pjFedMessage(body, fallback, opts) {
   // Kosmos too old, try again). The board picks the sentence (federation.js uncheckedRefusal, which
   // writes every one of them itself), so it is shown as given.
   if (reason === 'unchecked' && typeof body.error === 'string' && body.error) return body.error;
+  // Withdraw's 409 `joined`: the board's own sentence, as given; the map below is only for a body without one.
+  if (reason === 'joined' && typeof body.error === 'string' && body.error) return body.error;
   /* kosmos#4649 slice B: Withdraw's 409 `unsupported` (a coordinator older than the withdraw route).
      The board's sentence ends "...stops working on its own when it lapses."; the screen adds the date
      (Kitty's Q-K2), passed as opts.lapses ("Oct 11"). Shown as given when there is no date. */
-  // Withdraw's 409 `joined`: the board's own sentence, as given; the map below is only for a body without one.
-  if (reason === 'joined' && typeof body.error === 'string' && body.error) return body.error;
   if (reason === 'unsupported' && typeof body.error === 'string' && body.error) {
-    return (opts && opts.lapses) ? body.error.replace(/\.\s*$/, '') + ' on ' + opts.lapses + '.' : body.error;
+    // Only a sentence that ends "...lapses." takes the date; any other wording is shown as given.
+    return (opts && opts.lapses && /lapses\.\s*$/.test(body.error)) ? body.error.replace(/\.\s*$/, '') + ' on ' + opts.lapses + '.' : body.error;
   }
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
@@ -67767,7 +67768,9 @@ function fedOutsidePaint(tabOnly) {
   if (el && el.__fedHtml !== html) { el.__fedHtml = html; el.innerHTML = html; }
   if (tabOnly) return;
   // The consolidated rail draws the section inside its own list, so it repaints that list while it groups.
-  if (AGENTS_GROUPED && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function') paintAgentList();
+  // Only when the section's markup changed: the 60 s refetch would otherwise rebuild the whole rail every minute.
+  if (AGENTS_GROUPED && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
+    && fedOutsidePaint.rail !== html) { fedOutsidePaint.rail = html; paintAgentList(); }
 }
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;
@@ -67776,12 +67779,15 @@ async function fedMembersLoad(project) {
   FED_MEMBERS_ASKING = project;
   let entry;
   try {
-    // A request that never settles must not stop every later ask (FED_MEMBERS_ASKING): give up after 20 s.
+    // A request that never settles must not stop every later ask (FED_MEMBERS_ASKING): give up after 20 s. The
+    // timer covers the body too (aborting also ends a stalled body read), so it is cleared only once it is read.
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : 0;
-    const res = await fetch('/api/federation/members?project=' + encodeURIComponent(project), { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
-      .finally(() => { if (timer) clearTimeout(timer); });
-    const body = await res.json().catch(() => null);
+    let res, body;
+    try {
+      res = await fetch('/api/federation/members?project=' + encodeURIComponent(project), { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+      body = await res.json().catch(() => null);
+    } finally { if (timer) clearTimeout(timer); }
     // 404: a board without the members route ("no such endpoint", before #5266 merges) or a project that is not
     // on this computer. Either way there is nobody from outside to show, and no "could not check" line to say.
     entry = res.status === 404 ? { project, ok: true, body: {}, at: Date.now() }
@@ -67900,6 +67906,11 @@ async function fedRemoveGo() {
   if (still) go.disabled = false;
   if (!said && res.ok) {
     delete FED_MSGS[f.key];
+    // The kept answer (a failed refetch keeps it) must not bring back the person just removed.
+    const fm = FED_MEMBERS;
+    if (fm && fm.ok && fm.project === f.project && fm.body && Array.isArray(fm.body.invites)) {
+      fm.body.invites = fm.body.invites.map((r) => (r && r.edge_id === f.edge_id ? Object.assign({}, r, { state: 'removed' }) : r));
+    }
     if (still) fedRemoveDone();
     fedMembersLoad(f.project);
     return;
