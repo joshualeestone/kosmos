@@ -271,3 +271,10 @@ test('#5167 core: a dangling symlink at the destination is taken, never written 
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'),
     /FileManager\.default\.attributesOfItem\(atPath: \$0\.path\)/);
 });
+
+test('#5167 core: an Allow counts only for the page that asked (a commit during the question voids the answer)', () => {
+  const b = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
+  assert.match(b, /let commitsBefore = pageCommits\n\s+let asked = alert\.runModal\(\)/);
+  assert.match(b, /guard committedPageURL\?\.host\?\.lowercased\(\) == host, pageCommits == commitsBefore else \{/);
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {'), /pageCommits \+= 1/);
+});
