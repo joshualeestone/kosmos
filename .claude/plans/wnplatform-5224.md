@@ -13,9 +13,11 @@ main has the same problem, with two highlights that start "On a Mac".
   - If no highlight is left, it returns null: no window.
 - `problems()` refuses:
   - a malformed tag;
-  - a title or line that names a platform (whole word, case-sensitive: Mac, Macs, macOS, MacBook(s), iMac(s), Windows, PC, PCs) with
-    no tag;
-  - a tag listing a platform the text does not name.
+  - a title or line that names a platform (`PLATFORM_WORDS`, any case except the lower-case "mac", "macs" and "windows";
+    "OS X" as a pair) with no tag;
+  - a tag that differs from the platforms the text names, when it names any (a tag on a line naming none is allowed).
+  - The cut passes `--platform=mac` (release.sh) or `--platform=windows` (the Windows build), and the check refuses a
+    file with no highlight for that platform (exit 3).
   - The cut check (`tools/whats-new-check.js`) uses `problems()`, so an untagged "On a Mac" line now stops a cut
     instead of reaching Windows.
 - `web/whats-new.json` (0.7.22): the two "On a Mac" highlights are tagged `["mac"]`. The wording is unchanged.

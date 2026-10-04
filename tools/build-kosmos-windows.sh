@@ -213,10 +213,10 @@ else
   command -v node >/dev/null 2>&1 || {
     echo "node is needed to check the What's new highlights for $_ver (#4928); install it, or set KOSMOS_CUT_NO_WHATS_NEW=1" >&2; exit 1; }
   _wn=0
-  node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" || _wn=$?
+  node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" --platform=windows || _wn=$?
   case "$_wn" in
     0) ;;
-    3) echo "the Windows build stops: web/whats-new.json is not for $_ver. When this is the same release as the Mac's, add \"$_ver\" to its \"also\" list and COMMIT it on the release branch (the board does not open the same words twice), or set KOSMOS_CUT_NO_WHATS_NEW=1 (#4928)" >&2; exit 1 ;;
+    3) echo "the Windows build stops: web/whats-new.json is not ready for $_ver (the reason is above; #5224: it may have no highlight for Windows). If it is not for $_ver: when this is the same release as the Mac's, add \"$_ver\" to its \"also\" list and COMMIT it on the release branch (the board does not open the same words twice), or set KOSMOS_CUT_NO_WHATS_NEW=1 (#4928)" >&2; exit 1 ;;
     *) echo "the Windows build stops: the highlights check could not run (exit $_wn), so whether $_ver shows a window is not known (#4928)" >&2; exit 1 ;;
   esac
 fi

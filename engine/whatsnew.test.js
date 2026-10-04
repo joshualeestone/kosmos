@@ -153,7 +153,7 @@ test('#5224: a title or line that names a platform must carry a "platforms" tag 
   assert.deepEqual(one({ line: 'On a Mac, it says so.', platforms: ['mac'] }), []);
   assert.deepEqual(one({ line: 'On a Mac or a Windows PC.', platforms: ['mac', 'windows'] }), []);
   assert.deepEqual(one({ line: 'A smaller download.', platforms: ['windows'] }), [], 'a tag needs no platform word');
-  assert.deepEqual(one({ line: 'The machine shows its windows and a mac address.' }), [], 'whole words, case-sensitive');
+  assert.deepEqual(one({ line: 'The machine shows its windows and a mac address.' }), [], 'the lower-case window and MAC-address words are not platforms');
 });
 
 test('#5224: the committed file never tells one platform about another (checked as each board reads it)', () => {

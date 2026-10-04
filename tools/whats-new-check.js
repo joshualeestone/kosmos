@@ -15,13 +15,21 @@ const path = require('node:path');
 
 const NOT_READY = 3;   // the file is not ready for this version (every other nonzero means the check could not run)
 
-function main(argv) {
+function main(argvIn) {
   const whatsnew = require('../engine/whatsnew');   // inside main, so a broken module is a thrown error below (exit 2)
+  // #5224: --platform=mac|windows names the platform being cut; that platform must show at least one highlight.
+  const flags = argvIn.filter((a) => a.startsWith('--platform='));
+  const argv = argvIn.filter((a) => !a.startsWith('--platform='));
+  const platform = flags.length ? flags[flags.length - 1].slice('--platform='.length) : null;
+  if (platform !== null && !whatsnew.PLATFORMS.includes(platform)) {
+    process.stderr.write('usage: --platform must be one of ' + whatsnew.PLATFORMS.join(', ') + '\n');
+    return 2;
+  }
   const version = argv[0];
   const file = argv[1] || whatsnew.FILE;
   const name = path.relative(process.cwd(), file) || file;   // the file actually read, in the messages
   if (!version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-check.js <version like 0.6.98> [file]\n');
+    process.stderr.write('usage: node tools/whats-new-check.js <version like 0.6.98> [file] [--platform=mac|windows]\n');
     return 2;
   }
   let raw;
@@ -49,6 +57,11 @@ function main(argv) {
   const per = whatsnew.countsByPlatform(obj);   // #5224: a Mac-only highlight is not shown on Windows
   process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + ' ('
     + Object.entries(per).map(([p, c]) => p + ' ' + c).join(', ') + ')\n');
+  if (platform !== null && !per[platform]) {
+    process.stderr.write(name + ' has no highlight for ' + platform + ': every one is tagged for another platform, so ' + platform
+      + ' would show no "Kosmos has been updated" window. Tag one for ' + platform + ', or set KOSMOS_CUT_NO_WHATS_NEW=1 to cut with none.\n');
+    return NOT_READY;
+  }
   for (const [p, c] of Object.entries(per)) {
     if (!c) process.stderr.write('note: every highlight is for another platform, so ' + p + ' shows no "Kosmos has been updated" window.\n');
   }
