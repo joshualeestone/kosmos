@@ -220,7 +220,10 @@ async function readCard(pg) {
         window.__updPaints = [];
         window.paintUpdateCard = function (...a) {
           const r = orig.apply(this, a);
-          window.__updPaints.push({ reached: !!(a[2] && a[2].reached), line: document.getElementById('upd-line').textContent });
+          /* Only a call that painted: while a press is in flight paintUpdateCard returns early and the line still reads
+             "Checking.", and a poll answered then already carries the press's look (iteration 2). */
+          const line = document.getElementById('upd-line').textContent;
+          if (!/Checking\.$/.test(line)) window.__updPaints.push({ reached: !!(a[2] && a[2].reached), line });
           return r;
         };
       });
@@ -232,14 +235,14 @@ async function readCard(pg) {
         return i >= 0 ? i + 1 : 0;
       }, null, { timeout: 12000 }).then((h) => h.jsonValue()).then((n) => n - 1).catch(() => -1);
       const press = pressAt >= 0 ? await pg.evaluate((i) => window.__updPaints[i], pressAt) : null;
-      chk(press && press.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', JSON.stringify(press));
+      chk(press && press.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', press ? JSON.stringify(press) : 'no press paint seen within 12 s');
       chk(press && !/Up to date/.test(press.line), 'unread: never "Up to date."', JSON.stringify(press));
       /* Then the second paint after the press: by then a full status poll has been answered since it, so it carries the
          press's look on a real board (one cache, engine/update.js checkNow and lastLook). This guards the fixture's
          agreement with that; the paint just after the press may still be a poll answered before it. */
       const later = pressAt >= 0 ? await pg.waitForFunction((i) => window.__updPaints.length >= i + 3, pressAt, { timeout: 20000 })
         .then(() => pg.evaluate((i) => window.__updPaints[i + 2], pressAt)).catch(() => null) : null;
-      chk(later && later.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', JSON.stringify(later));
+      chk(later && later.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', later ? JSON.stringify(later) : 'no second paint after the press within 20 s');
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-unread.png') });
     } else if (state === 'rollback') {

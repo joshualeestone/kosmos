@@ -54,3 +54,4 @@ carry the reachable look), and the poll assertion reads the second paint after t
 named FAIL instead of an unhandled rejection; the stale "wait for one" comment is gone; the header says the poll
 assertion guards the fixture's agreement. Re-proven: fixed PASSES 2 of 2; old fixture FAILS only the poll assertion
 (its recorded paint: reached:true, "Could not read"), while the press assertion passes, as it should.
+Iteration 2 (sonnet): WARNING taken. paintUpdateCard returns early while a press is in flight (line still "Checking."), and a poll answered then already carries the press's look, so the recorder logged a non-paint that findIndex could take for the press. The recorder now logs only calls that painted (line not ending "Checking."); stalls print a named message. Re-proven: fixed PASSES 2 of 2; old fixture FAILS only the poll assertion. Not forced in a test: the in-flight skipped call itself (reasoned from web/index.html:21618).
