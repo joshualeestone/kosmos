@@ -32,8 +32,10 @@ test('it passes every gate: live execution, the community switch, the Prompter\'
 });
 
 test('an agent counts as in the community only when its instructions carry exactly one community block', () => {
-  assert.match(w, /projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)/);
-  assert.match(w, /f\.ambiguous !== true/);
+  // #5212: the check is one function above the call, shared by the turn and the home read-ahead.
+  const pre = SRC.slice(SRC.lastIndexOf('const communityTurnTick', at), at);
+  assert.match(pre, /const inCommunity = \(session\) => \{[\s\S]*?projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)[\s\S]*?f\.ambiguous !== true/);
+  assert.match(w, /\binCommunity,/, 'the turn is not given the shared check');
   assert.match(w, /postTimes:\s*\(session\)\s*=>\s*\{ const all = allPosts\(\);/);
 });
 
