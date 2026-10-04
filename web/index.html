@@ -22754,6 +22754,8 @@ let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project
 let FED_MEMBERS_ASKING = null;   // the project an ask is in flight for (fedGateMembers asks once)
 let FED_MSGS = {};               // row key -> the sentence a Withdraw or Remove left, kept across repaints
 const FED_BUSY = new Set();      // row keys with a Withdraw or Remove in flight
+const FED_NOT_CHECKED = 'Kosmos could not check who has joined just now. This list may be out of date.';
+const FED_UNREACHABLE = 'Kosmos could not reach the connection service. Try again in a moment.';
 
 /* #3387: reflect the grouped state onto the TOP rail head. The static HTML keeps
    `railname">Agents` (the layout-picker test asserts that markup); the LABEL is set
@@ -67583,6 +67585,7 @@ async function fedInviteMake() {
   pjFieldOk('fedinv-label', 'fedinv-msg');
   const kind = document.getElementById('fedinv-kind-agent').checked ? 'agent' : 'person';
   const seq = ++FEDINV_SEQ;
+  const askedFor = FEDINV_PROJECT;
   make.disabled = true;
   msg.textContent = 'Making a code…';
   const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
@@ -67592,7 +67595,12 @@ async function fedInviteMake() {
       body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }),
     });
     const body = await res.json().catch(() => null);
-    if (seq !== FEDINV_SEQ) return;
+    if (seq !== FEDINV_SEQ) {
+      // The sheet was closed or reopened meanwhile, but the board may still have made the code: the
+      // owner's From outside list asks again so the new pending row is not missing (slice B).
+      if (res.ok && body && typeof body.code === 'string' && body.code && PJ_CURRENT === askedFor) fedMembersLoad(askedFor);
+      return;
+    }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
       msg.textContent = res.status === 403 ? fallback
@@ -67664,8 +67672,6 @@ document.addEventListener('keydown', (e) => {
 /* The section's state (FED_MEMBERS, FED_MEMBERS_SEQ, FED_MEMBERS_ASKING, FED_MSGS, FED_BUSY) is declared
    beside AGENTS_GROUPED, above: paintAgentList and fedGateStamp read it, and a `let` read before its
    line runs throws. */
-const FED_NOT_CHECKED = 'Kosmos could not check who has joined just now. This list may be out of date.';
-const FED_UNREACHABLE = 'Kosmos could not reach the connection service. Try again in a moment.';
 // "Oct 11" (shot 07's rows) from unix seconds; '' when there is no usable time.
 function fedShortDate(sec) {
   if (typeof sec !== 'number' || !Number.isFinite(sec) || sec <= 0) return '';
@@ -67716,6 +67722,7 @@ function fedOutsideRowHtml(r, unchecked) {
   const wait = r.state === 'joined' ? '' : ' fedout-wait';
   const btn = act
     ? '<button class="fedout-act" type="button" data-fed-act="' + act + '" data-fed-key="' + esc(key) + '"'
+      + ' aria-label="' + esc(label + ' ' + name) + '"'
       + (FED_BUSY.has(key) ? ' disabled' : '') + '>' + label + '</button>'
     : '';
   const said = FED_MSGS[key];
@@ -67817,7 +67824,7 @@ function fedRemoveOpen(btn, r) {
   document.getElementById('mem-title').textContent = who
     ? 'Remove ' + who + ' from this project?' : 'Remove someone you invited from this project?';
   document.getElementById('mem-small').textContent = first
-    ? 'Confirm that you want to remove ' + who + ' from ' + pjName + '. ' + first + "'s computer stops getting new messages from this room. What " + first + " already received stays on " + first + "'s computer."
+    ? 'Confirm that you want to remove ' + who + ' from ' + pjName + '. ' + first + "\u2019s computer stops getting new messages from this room. What " + first + " already received stays on " + first + "\u2019s computer."
     : 'Confirm that you want to remove ' + (who || 'them') + ' from ' + pjName + '. Their computer stops getting new messages from this room. What they already received stays on their computer.';
   document.getElementById('mem-keep').textContent = 'Cancel';
   const go = document.getElementById('mem-go');
@@ -67919,10 +67926,19 @@ async function fedWithdraw(r) {
   }
   FED_MSGS[key] = said;
   fedOutsidePaint(false);
+  fedRefocus(key);
   // 409 joined: someone used the code meanwhile, so the row is now a joined one; ask again to show it.
   if (res && res.status === 409 && body && body.reason === 'joined') fedMembersLoad(project);
   // 404: the code is not known any more; let the board say what the row is now.
   else if (res && res.status === 404) fedMembersLoad(project);
+}
+// The repaint replaces the pressed button: focus goes to the same row's button if it is still shown, else to the
+// Members "+" (as fedRemoveDone does), never to <body>.
+function fedRefocus(key) {
+  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent);
+  const plus = [document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((x) => x && x.offsetParent);
+  const to = b || plus;
+  if (to) to.focus();
 }
 // The rows' actions, delegated: both lists are rebuilt from markup on every paint.
 document.addEventListener('click', (e) => {

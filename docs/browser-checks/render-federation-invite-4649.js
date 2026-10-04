@@ -59,6 +59,10 @@
  *       body says "Dana's computer".
  *  B10b another project opened while a Remove is asked: the dialog closes, nothing is said, and the old
  *       project's list is not asked again. Control: B2, where the same 200 does ask again.
+ *  B11a consolidated layout: Withdraw pressed in the RAIL asks the board and says its 409 unsupported sentence
+ *       there. Control: B4, the same answer in the tab layout.
+ *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
+ *       just before.
  *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
  *       checked answer is not asked again after the same 30 s.
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
@@ -446,7 +450,7 @@ const closeAll = (page) => page.evaluate(() => {
     msg: document.getElementById('mem-msg') ? document.getElementById('mem-msg').textContent : 'MISSING',
   }));
   const act = (page, key) => page.click('#pj-fed-outside .fedout-row[data-fed-key="' + key + '"] .fedout-act');
-  const DANA_BODY = "Confirm that you want to remove Dana Ruiz from Spring launch. Dana's computer stops getting new messages from this room. What Dana already received stays on Dana's computer.";
+  const DANA_BODY = 'Confirm that you want to remove Dana Ruiz from Spring launch. Dana\u2019s computer stops getting new messages from this room. What Dana already received stays on Dana\u2019s computer.';
 
   /* B1, B1b, B6, B8 controls: the list itself. */
   {
@@ -638,9 +642,10 @@ const closeAll = (page) => page.evaluate(() => {
     await act(page, 'e:edge-dana');
     const dana = await body();
     check('B10a a label that is not a name gets the they/their body (control: Dana\'s body names her)',
-      /remove my sister from Spring launch\. Their computer/.test(sis) && !/my's/.test(sis) && /Dana's computer/.test(dana), JSON.stringify({ sis, dana }));
+      /remove my sister from Spring launch\. Their computer/.test(sis) && !/my['\u2019]s/.test(sis) && /Dana\u2019s computer/.test(dana), JSON.stringify({ sis, dana }));
     // B10b: hold the Remove in flight, open another project, then let it answer.
-    const before = await gets(page);
+    const getsK = () => page.evaluate(() => window.__memberUrls.filter((u) => /project=k(&|$)/.test(u)).length);
+    const before = await getsK();
     await page.evaluate(() => { window.__answerDelay = 300; window.__remove = { status: 200, body: { removed: true } }; });
     await page.click('#mem-go');
     await page.evaluate(() => { PJ_CURRENT = 'elsewhere'; });
@@ -648,7 +653,7 @@ const closeAll = (page) => page.evaluate(() => {
     const m = await modal(page);
     const loose = await page.evaluate(() => Object.keys(FED_MSGS).length);
     check('B10b another project opened mid-Remove: the dialog closes, nothing is said, the old list is not asked again (control: B2 asks again)',
-      !m.open && loose === 0 && (await gets(page)) === before, JSON.stringify({ open: m.open, loose, before, after: await gets(page) }));
+      !m.open && loose === 0 && (await getsK()) === before, JSON.stringify({ open: m.open, loose, before, after: await getsK() }));
     await page.evaluate(() => { window.__answerDelay = 0; PJ_CURRENT = 'k'; });
     // B10c: an unchecked answer is asked again after 30 s; a checked one is not.
     const ask = async (ans) => {
@@ -728,6 +733,30 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(150);
     const gone = await page.evaluate(() => !document.getElementById('alist-fed-outside'));
     check('B9 control: an empty answer adds nothing to the rail', gone === true, 'absent=' + gone);
+    await ctx.close();
+  }
+
+  /* B11: a click in the consolidated rail, and the gate leaving "show" under an open outside Remove. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'consolidated');
+    await page.evaluate(() => { window.__withdraws.length = 0; window.__withdraw = { status: 409, body: { error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.', reason: 'unsupported' } }; });
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
+    await page.waitForTimeout(250);
+    const sent = await page.evaluate(() => window.__withdraws.slice());
+    const f = await readFed(page, '#alist-fed-outside');
+    check('B11a rail: Withdraw asks the board for Lee and says the lapse sentence in the rail (control: B4 in the tab layout)',
+      sent.length === 1 && sent[0].body && sent[0].body.invite_id === 'inv-lee' && f.msgs.some((t) => /lapses on Oct 11/.test(t)) && f.rows.some((r) => r.key === 'i:inv-lee'),
+      JSON.stringify({ sent, msgs: f.msgs }));
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
+    await page.waitForTimeout(100);
+    const openBefore = (await modal(page)).open;
+    await page.evaluate(() => fedGateMembers(false));
+    await page.waitForTimeout(100);
+    const openAfter = (await modal(page)).open;
+    check('B11b the gate leaving "show" closes an open outside Remove (control: open just before)', openBefore === true && openAfter === false,
+      JSON.stringify({ openBefore, openAfter }));
     await ctx.close();
   }
 
