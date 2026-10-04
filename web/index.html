@@ -3498,6 +3498,9 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 .dsec[data-tied="0"] #d-term-empty { display: block; }
 .dsec[data-tied="gone"] #d-term-gone { display: block; }
 #d-window-box:not([hidden]) ~ .dterm-note { display: none; }
+/* #5223: a Windows agent has no window, so the box's send-into-this-window composer is not offered
+   (the Direct Message composer is the way to reach it); see setWindowBoxNoWindow. */
+#d-window-box.nowin #d-term-composer, #d-window-box.nowin #d-term-say-msg { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
    boxes. The inner one speaks at sentence size. */
@@ -34700,6 +34703,16 @@ function paintBusy(fresh, name) {
    project pages only since agent-page-nav); a refusal is said
    in the engine's own sentence, never rendered as an empty terminal. */
 let WINDOW_LOAD = 0;
+/* #5223: the ONE writer of the box's no-window state. A Windows agent has no window (the engine says so with
+   `noWindow`, per agent, from the card's own mark), so the heading stops naming one and the
+   send-into-this-window composer is hidden (CSS on `.nowin`). Every arm that answers calls it (capture,
+   refusal, thrown fetch), and so do the 404 arm that hides the box and the agent switch, so a Mac agent opened after a Windows one never
+   inherits the state; the arms that only hide the box leave it, since nothing hidden is drawn. Each answer
+   decides afresh: a tick that fails for another reason says so for that tick, which is true. */
+function setWindowBoxNoWindow(on) {
+  document.getElementById('d-window-box').classList.toggle('nowin', on === true);
+  document.getElementById('d-window-label').textContent = on === true ? 'No window to show' : 'The window it is running in';
+}
 /* A COUNTER: two rapid opens overlap their refreshes. DORMANT since
    agent-page-nav (every caller passes the cached flag); kept with the
    uncached branch it guards, to be deleted with it. */
@@ -34764,6 +34777,7 @@ async function paintAgentWindow(sessionName, opts) {
          stand until a tick flipped the tie, so the section says the bare
          thing now: no window to show. */
       detailSection('term').dataset.tied = 'gone';
+      setWindowBoxNoWindow(false);   // #5223: nothing is established about a window the route refused
       box.hidden = true; return;
     }
     if (r.text != null) {
@@ -34771,13 +34785,17 @@ async function paintAgentWindow(sessionName, opts) {
       pre.hidden = false;
       document.getElementById('d-window-hint').textContent = 'As it looks right now. It is not a transcript, and it is not what the agent said to you.';
       msg.hidden = true;
+      setWindowBoxNoWindow(false);
       box.hidden = false;
       detailSection('term').dataset.tied = '1';
     } else {
       pre.hidden = true;
       document.getElementById('d-window-hint').textContent = '';
-      msg.textContent = r.because || r.error || 'We could not read its window just now.';
+      /* #5223: a Windows agent's answer is a lasting fact, not a refusal, and it is the sentence every Windows
+         agent page shows, so it is set as a sentence. Other refusals keep their raw clause. */
+      msg.textContent = (r.noWindow === true ? pjSentence(r.because) : r.because) || r.error || 'We could not read its window just now.';
       msg.hidden = false;
+      setWindowBoxNoWindow(r.noWindow === true);
       box.hidden = false;
     }
   } catch {
@@ -34792,6 +34810,7 @@ async function paintAgentWindow(sessionName, opts) {
     document.getElementById('d-window-hint').textContent = '';
     msg.textContent = 'We could not read its window just now.';
     msg.hidden = false;
+    setWindowBoxNoWindow(false);
     box.hidden = false;
     box.dataset.gone = '';   // an answer of sorts: not the 404 the marker records
   }
@@ -37272,6 +37291,7 @@ function openDetail(sessionName, section, fromProject) {
     document.getElementById('d-withdrawn').hidden = true;           // and the last agent's absence
     document.getElementById('d-window-hint').textContent = '';
     document.getElementById('d-window-msg').hidden = true;
+    setWindowBoxNoWindow(false);   // #5223: the last agent's no-window state is not this one's
     // The box itself too: a bare heading standing over nothing for two
     // round-trips is the same misattribution family, one notch quieter.
     document.getElementById('d-window-box').hidden = true;
@@ -64878,16 +64898,21 @@ function paintThread(body) {
       + 'It is not a transcript, and it is not what the agent said to you.';
   } else {
     // The non-claiming static heading: naming the agent here would still
-    // promise a screen the next line says we could not read.
-    document.getElementById('pj-screen-label').textContent = 'Its screen';
+    // promise a screen the next line says we could not read. #5223: a
+    // Windows agent has none, so its heading says so rather than promise one.
+    document.getElementById('pj-screen-label').textContent = (body.viewport && body.viewport.noWindow === true)
+      ? 'No screen to show' : 'Its screen';
     screen.hidden = true;
     // ⚠️ The reason, in place of the screen. An empty box would read as an
     // agent sitting at a blank terminal, which is a claim about its screen we
     // did not make.
     // The clause becomes its own pjSentence rather than a raw splice
     // (round 25): a stderr line ending in a stop would double it.
-    hint.textContent = 'We cannot see its screen right now.'
-      + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
+    // #5223: a Windows agent has no screen at all, so "right now" would call a lasting fact a passing failure.
+    hint.textContent = (body.viewport && body.viewport.noWindow === true)
+      ? pjSentence(body.viewport.because)
+      : 'We cannot see its screen right now.'
+        + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
   }
 }
 

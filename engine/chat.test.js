@@ -749,6 +749,46 @@ test('a viewport we could not capture says so, and never comes back as an empty 
   });
 });
 
+test('#5223: a Windows agent has no window, so the viewport says so and never asks tmux', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    board.card('casey').reachedByChannel = true;
+    const tmux = arm([refused('no server running')]);
+    const view = chat.viewport('casey', board.agents);
+    assert.equal(view.text, null);
+    assert.equal(view.because, chat.NO_WINDOW_BECAUSE);
+    assert.match(view.because, /^on Windows an agent runs without a window/);
+    assert.equal(view.noWindow, true, 'the fact is flagged, so a caller never has to match the wording');
+    assert.doesNotMatch(view.because, /could not/, 'a working Windows agent is not reported as unreachable');
+    assert.equal(tmux.calls.length, 0, 'nothing is captured for an answer that is known');
+  });
+});
+
+test('#5223: Stop now on a Windows agent presses nothing, says it was not stopped, and points at Restart, never at a window', () => {
+  withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
+    board.card('casey').reachedByChannel = true;
+    const tmux = arm([ok('')]);
+    const r = chat.interrupt('casey', board.agents);
+    assert.equal(r.ok, false);
+    assert.equal(r.because, chat.WIN32_NO_KEYS_SENTENCE);
+    assert.match(r.because, /so it was not stopped/, 'the outcome, said plainly to the person who pressed Stop now');
+    assert.match(r.because, /Restart under its AI Settings/);
+    assert.match(r.because, /nothing in its memory/, 'Restart is heavier than the key asked for, and says so');
+    assert.doesNotMatch(r.because, /own window|its window|the window/i, 'a Windows agent has no window to send the person to');
+    assert.equal(tmux.sends().length, 0, 'no key reaches a Windows agent');
+  });
+});
+
+test('#5223 CONTROL: a Mac agent (no channel mark) is still captured from its pane', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    assert.notEqual(board.card('casey').reachedByChannel, true);
+    const tmux = arm([ok('on screen')]);
+    const view = chat.viewport('casey', board.agents);
+    assert.equal(view.text, 'on screen');
+    assert.notEqual(view.noWindow, true);
+    assert.equal(tmux.calls.length, 1);
+  });
+});
+
 test('an untied pane’s screen is not shown under this agent’s name', () => {
   withFleet([fleet.stranger('casey', { state: 'working' })], (board) => {
     const tmux = arm([ok('somebody else’s work')]);
