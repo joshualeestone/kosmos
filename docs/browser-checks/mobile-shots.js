@@ -682,8 +682,8 @@ const SCREENS = [
     await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
     await page.waitForSelector('#tk-receipt:not([hidden]) .tkr-agent', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => {
-      const d = document.querySelector('#tk-receipt details');
-      if (d) d.open = true;
+      const b = document.querySelector('#tk-receipt .tkr-files-btn');
+      if (b) b.click();   // the files list open, as a person would have it
       document.getElementById('tk-receipt').scrollIntoView({ block: 'start' });
     });
     await page.waitForTimeout(300);

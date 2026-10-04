@@ -60,9 +60,11 @@ test('another provider, no activity, and a missing folder each say so in words, 
 test('the whole receipt: names escaped, the basis stated, put-backs and hand-offs counted', () => {
   const html = B.tkReceiptHtml({ retries: { reopened: 1, handoffs: 2 }, agents: [{ who: 'ann', available: true, transcriptsWithWork: 0, models: {} }] }, {});
   assert.ok(html.includes('Ann &lt;Lee&gt;'), 'the display name is escaped');
-  assert.match(text(html), /Anything else it did in that time is included/);
+  assert.match(text(html), /including anything else it did in that time\. A file changed by a command counts as a command\./);
+  assert.ok(html.indexOf('This task was put back') < html.indexOf('>Receipt<'), 'the put-back line comes first, then the receipt (Mona Lisa)');
+  assert.ok(html.includes('<h3 class="dlab">Receipt</h3>'), 'the column\'s kicker heading');
   assert.match(text(html), /This task was put back 1 time and handed on 2 times\./);
-  assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {})), /Nobody held this task.*Done without being put back or handed on\./);
+  assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {})), /^Done without being put back or handed on\. Receipt .*Nobody held this task/);
 });
 
 test('two unpriced models read "which have"', () => {
@@ -229,4 +231,14 @@ test('the link under Recent work does not promise this agent\'s tasks while the 
 test('Open the Tasks page goes through the Tasks page\'s own door for all tasks, and only while its tab is in the bar', () => {
   assert.match(SCRIPT, /getElementById\('d-work-more'\)\.addEventListener\('click', \(\) => openProjectTasks\(null\)\)/);
   assert.match(SCRIPT, /more\.hidden = !\(body\.more && !\(tab && tab\.hidden\)\)/);
+});
+
+test('the files are the page\'s own toggle ("N files", a plain list, the folder as its foot), and every line one size', () => {
+  const html = B.tkReceiptAgentHtml({ available: true, transcriptsWithWork: 1, models: {}, files: ['a.md', 'b.md'], filesMore: 0, commands: 0, folder: '/w/x' }, 'Ann');
+  assert.ok(!html.includes('<details'), 'the browser\'s own toggle');
+  assert.match(html, /<button type="button" class="linkish tkr-files-btn" aria-expanded="false">2 files<svg/);
+  assert.match(html, /<ul class="tkr-files" hidden><li>a\.md<\/li><li>b\.md<\/li><li class="tkr-where">In \/w\/x<\/li><\/ul>/);
+  const na = B.tkReceiptAgentHtml({ available: false, because: 'provider', provider: 'codex' }, 'Cleo');
+  assert.ok(na.includes('class="tkr-line tkr-muted"') && !na.includes('dhint'), 'the not-available line is the numbers line\'s size, muted');
+  assert.match(RAW, /@media \(max-width: 40rem\) \{ \.tkr-files-btn \{ display: flex; width: 100%; min-height: 44px; \} \}/);
 });
