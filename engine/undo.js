@@ -100,6 +100,8 @@ function ownerOf(cwd, session, now) {
   let canon = '';
   try { canon = cwd ? canonicalOnDisk(cwd) : ''; } catch { canon = ''; }
   for (const [name, ids] of byAgent) if (session && ids.has(session)) return name;
+  /* By folder too: an agent's session whose transcript is not on disk yet. A person running Claude by hand IN an
+     agent's own folder is taken for that agent (review 3: noted, copies stay private and local). */
   for (const [name, folder] of folders) if (canon && canon === folder) return name;
   return null;
 }
@@ -272,7 +274,8 @@ function plan(projectId, task, { now = Date.now() } = {}) {
    remove the original. If anything differs the original stays where it was. */
 function moveAside(from, to) {
   try { fs.renameSync(from, to); return; } catch (err) { if (!err || err.code !== 'EXDEV') throw err; }
-  fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+  try { fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL); }
+  catch (err) { try { fs.unlinkSync(to); } catch { /* not made */ } throw err; }   // no half copy left behind (review 3)
   if (sha(fs.readFileSync(from)) !== sha(fs.readFileSync(to))) { try { fs.unlinkSync(to); } catch { /* left */ } throw new Error('copy differs'); }
   fs.unlinkSync(from);
 }
@@ -305,10 +308,17 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         if (cur.kind !== 'file') { skipped.push({ path: f.path, why: 'gone' }); continue; }
         moveAside(f.path, keepAs);                         // the created file, moved aside: never deleted
       } else {
-        if (cur.kind === 'file') fs.copyFileSync(f.path, keepAs);   // the current version, saved first
+        /* The kept copy must still be what was kept, and the current version must be saved whole, before anything is
+           written (review 3). */
+        const blobPath = path.join(blobsDir(), rec.hash);
+        if (sha(fs.readFileSync(blobPath)) !== rec.hash) { skipped.push({ path: f.path, why: 'copy-missing' }); continue; }
+        if (cur.kind === 'file') {
+          fs.copyFileSync(f.path, keepAs);                 // the current version, saved first
+          if (sha(fs.readFileSync(f.path)) !== sha(fs.readFileSync(keepAs))) throw new Error('save differs');
+        }
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
         try {
-          fs.copyFileSync(path.join(blobsDir(), rec.hash), tmp, fs.constants.COPYFILE_EXCL);
+          fs.copyFileSync(blobPath, tmp, fs.constants.COPYFILE_EXCL);
           if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
           fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
         } catch (err) {

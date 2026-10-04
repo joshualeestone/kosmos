@@ -283,3 +283,19 @@ test('moving aside across disks copies, checks and then removes; a failed restor
   assert.deepEqual(fs.readdirSync(ov).filter((n) => n.startsWith('.kosmos-undo-')), [], 'the old content was left beside the file');
   assert.equal(fs.readFileSync(f, 'utf8'), 'AGENT', 'nothing changed');
 });
+
+test('a stored copy that no longer matches what was kept is never restored', () => {
+  const project = 'p' + (++pn);
+  const pa = worker('pa');
+  const f = path.join(pa, 'rot.md');
+  original(f, 'ORIGINAL');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'pa' }, { at: '11:00', kind: 'closed' }]);
+  edit(f, 'AGENT', '10:10', pa);
+  const blobs = path.join(store.ROOT, 'undo', 'blobs');
+  const want = require('node:crypto').createHash('sha256').update('ORIGINAL').digest('hex');
+  fs.writeFileSync(path.join(blobs, want), 'DAMAGED');
+  const r = undo.apply(project, task(), [f], { now: ms('12:00') });
+  assert.deepEqual(r.skipped.map((x) => x.why), ['copy-missing']);
+  assert.equal(fs.readFileSync(f, 'utf8'), 'AGENT');
+  fs.writeFileSync(path.join(blobs, want), 'ORIGINAL');
+});
