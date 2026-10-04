@@ -67784,8 +67784,11 @@ function fedGateMembers(show) {
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
     return;
   }
-  // A failed load is asked again on a later stamp, at most every 30 s, so the could-not-check line can clear.
-  const stale = FED_MEMBERS && FED_MEMBERS.project === PJ_CURRENT && !FED_MEMBERS.ok && Date.now() - (FED_MEMBERS.at || 0) > 30000;
+  // A failed or unchecked load is asked again on a later stamp, at most every 30 s, so the line can clear.
+  // So is an answer the board could not check (checked_at not a number): the coordinator may be back.
+  const fmNow = FED_MEMBERS;
+  const unsure = fmNow && (!fmNow.ok || (fmNow.body && typeof fmNow.body.checked_at !== 'number' && Array.isArray(fmNow.body.invites) && fmNow.body.invites.length > 0));
+  const stale = unsure && fmNow.project === PJ_CURRENT && Date.now() - (fmNow.at || 0) > 30000;
   if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT || stale) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
 }
 // The shared dialog back to its #761 self: no danger look, no error, both buttons live.
@@ -67802,14 +67805,20 @@ function fedRemoveOpen(btn, r) {
   const p = pjById(PJ_CURRENT);
   const pjName = (p && p.name) || 'this project';
   const who = r.label || '';
-  const first = who ? who.split(/\s+/)[0] : '';
+  // The body names the person by first name ("Dana's computer") only when the label reads as a name: one
+  // capitalised word first, no apostrophe anywhere, not an article or title. "my sister", "The Smiths" and
+  // "Lee's laptop" get the they/their sentence instead (the title still uses the label as typed).
+  const word = who ? who.split(/\s+/)[0] : '';
+  const first = (/^\p{Lu}\p{Ll}+$/u.test(word) && !/['\u2019]/.test(who)
+    && !/^(The|My|Our|Your|Their|His|Her|A|An|Mr|Mrs|Ms|Mx|Dr)$/.test(word)) ? word : '';
+  if (FED_BUSY.has(fedRowKey(r))) return;   // a Remove for this row is still being asked
   fedRemoveReset();
   MEM_PENDING = { btn, fed: { project: PJ_CURRENT, edge_id: r.edge_id, key: fedRowKey(r) } };
   document.getElementById('mem-title').textContent = who
     ? 'Remove ' + who + ' from this project?' : 'Remove someone you invited from this project?';
-  document.getElementById('mem-small').textContent = who
+  document.getElementById('mem-small').textContent = first
     ? 'Confirm that you want to remove ' + who + ' from ' + pjName + '. ' + first + "'s computer stops getting new messages from this room. What " + first + " already received stays on " + first + "'s computer."
-    : 'Confirm that you want to remove them from ' + pjName + '. Their computer stops getting new messages from this room. What they already received stays on their computer.';
+    : 'Confirm that you want to remove ' + (who || 'them') + ' from ' + pjName + '. Their computer stops getting new messages from this room. What they already received stays on their computer.';
   document.getElementById('mem-keep').textContent = 'Cancel';
   const go = document.getElementById('mem-go');
   go.textContent = who ? 'Remove ' + who : 'Remove them';
@@ -67843,6 +67852,7 @@ async function fedRemoveGo() {
   go.disabled = true;
   msg.textContent = 'Removing…';
   FED_BUSY.add(f.key);
+  fedOutsidePaint(false);   // the row's Remove shows disabled while this is asked (Cancel does not end it)
   let res = null;
   let body = null;
   let said = '';
@@ -67857,7 +67867,7 @@ async function fedRemoveGo() {
   }
   FED_BUSY.delete(f.key);
   // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
-  if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) fedRemoveReset(); return; }
+  if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) memConfirmClose(); return; }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   if (!said && res.ok) {

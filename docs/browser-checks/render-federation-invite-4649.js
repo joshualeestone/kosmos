@@ -44,7 +44,9 @@
  *      "Someone already joined with this code. Remove them instead." and asks again (the row is now joined).
  *      Control: each is the other's (one refetches, the other does not). 200: asked again, the row gone.
  *  B5  checked_at null: the one plain line "Kosmos could not check who has joined just now. This list may be out
- *      of date.", rows kept, Remove enabled. Control: B1 (a number) has no such line. The GET failing (500):
+ *      of date.", rows kept with no Withdraw and no Make a new code (the board then reports a joined person as
+ *      pending or expired, and sends no joined rows). Control: B1 (a number) has no such line and offers both.
+ *      A 404 draws nothing at all. The GET failing (500):
  *      no outside rows, the same line, and the project's own agents still listed.
  *  B6  the outside disc is dashed and untinted (computed border-top-style dashed, transparent background), in
  *      light AND dark, including the row labelled "Ada", the name of a local agent (#3851). Control: the local
@@ -53,6 +55,12 @@
  *      "Make an invite code"; making it asks the list again, and the expired row goes once a pending one has
  *      the same label. Control: before the new code, the expired row is listed (B1).
  *  B8  gate not "show": the members route is never asked and the section draws nothing. Control: B1.
+ *  B10a a label that is not a name ("my sister") gets the they/their body, never "my's computer". Control: Dana's
+ *       body says "Dana's computer".
+ *  B10b another project opened while a Remove is asked: the dialog closes, nothing is said, and the old
+ *       project's list is not asked again. Control: B2, where the same 200 does ask again.
+ *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
+ *       checked answer is not asked again after the same 30 s.
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
  *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
@@ -106,6 +114,7 @@ function initStub(cfg) {
   window.__removes = [];
   window.__withdraw = { status: 200, body: { withdrawn: true } };
   window.__withdraws = [];
+  window.__answerDelay = 0;
   const a = (s, name) => ({ sessionName: s, name, role: '', running: false, state: 'stopped', context: null });
   window.__agents = [a('ada', 'Ada'), a('basil', 'Basil'), a('cleo', 'Cleo')];
   const enc = (status, o) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
@@ -127,6 +136,7 @@ function initStub(cfg) {
       let body = null;
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window[log].push({ method, body });
+      if (window.__answerDelay) await new Promise((r) => setTimeout(r, window.__answerDelay));   // B10b holds one in flight
       return enc(window[key].status, window[key].body);
     }
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
@@ -612,6 +622,49 @@ const closeAll = (page) => page.evaluate(() => {
     const own = await page.evaluate(() => [...document.querySelectorAll('#pj-one-agents .pj-member')].map((r) => r.dataset.agent));
     check('B5 the GET failing: no outside rows, the same line, and the project\'s own agents still listed',
       f.rows.length === 0 && f.notes.length === 1 && f.notes[0] === NOTE && own.join(',') === 'ada,basil', JSON.stringify({ f, own }));
+    await ctx.close();
+  }
+
+  /* B10: names in the confirm body, a project switch mid-Remove, and the 30 s retry of an unchecked answer. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    const SIS = row({ invite_id: 'inv-sis', label: 'my sister', made_at: D(OCT, 1), expires_at: D(OCT, 8), state: 'joined', edge_id: 'edge-sis', joined_at: D(OCT, 2) });
+    await page.evaluate((a) => { window.__members = a; }, answer([DANA, SIS]));
+    await openProjectIn(page, 'tabs');
+    const body = () => page.evaluate(() => document.getElementById('mem-small').textContent);
+    await act(page, 'e:edge-sis');
+    const sis = await body();
+    await page.click('#mem-keep');
+    await act(page, 'e:edge-dana');
+    const dana = await body();
+    check('B10a a label that is not a name gets the they/their body (control: Dana\'s body names her)',
+      /remove my sister from Spring launch\. Their computer/.test(sis) && !/my's/.test(sis) && /Dana's computer/.test(dana), JSON.stringify({ sis, dana }));
+    // B10b: hold the Remove in flight, open another project, then let it answer.
+    const before = await gets(page);
+    await page.evaluate(() => { window.__answerDelay = 300; window.__remove = { status: 200, body: { removed: true } }; });
+    await page.click('#mem-go');
+    await page.evaluate(() => { PJ_CURRENT = 'elsewhere'; });
+    await page.waitForTimeout(500);
+    const m = await modal(page);
+    const loose = await page.evaluate(() => Object.keys(FED_MSGS).length);
+    check('B10b another project opened mid-Remove: the dialog closes, nothing is said, the old list is not asked again (control: B2 asks again)',
+      !m.open && loose === 0 && (await gets(page)) === before, JSON.stringify({ open: m.open, loose, before, after: await gets(page) }));
+    await page.evaluate(() => { window.__answerDelay = 0; PJ_CURRENT = 'k'; });
+    // B10c: an unchecked answer is asked again after 30 s; a checked one is not.
+    const ask = async (ans) => {
+      await page.evaluate((a) => { window.__members = a; }, ans);
+      await page.evaluate(() => fedMembersLoad('k'));
+      const n0 = await gets(page);
+      await page.evaluate(() => fedGateMembers(true));
+      const soon = (await gets(page)) - n0;
+      await page.evaluate(() => { const real = Date.now; Date.now = () => real() + 31000; fedGateMembers(true); Date.now = real; });
+      await page.waitForTimeout(150);
+      return { soon, later: (await gets(page)) - n0 - soon };
+    };
+    const unchecked = await ask(answer([LEE], { checked_at: null }));
+    const checked = await ask(answer([LEE]));
+    check('B10c unchecked: not asked again at once, asked again after 30 s (control: a checked answer is not)',
+      unchecked.soon === 0 && unchecked.later === 1 && checked.soon === 0 && checked.later === 0, JSON.stringify({ unchecked, checked }));
     await ctx.close();
   }
 
