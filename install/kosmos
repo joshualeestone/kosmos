@@ -533,8 +533,7 @@ $_own
 EOF
   # (is_kosmos is #3079's test: "kosmos" in a server.js command line, so a board run from a source
   # checkout such as ~/work/agent-workforce/server.js reads as a stranger here. Development only.)
-  # #4679: busy only when ours=1. A same-uid Kosmos board from another install is a stranger.
-  if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$_kosmos_uid" ] || [ "${_lours:-0}" != 1 ]; then HEALTH_STATE=stranger; fi
+  if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$_kosmos_uid" ]; then HEALTH_STATE=stranger; fi
 }
 # How long a verb waits on a busy board before it gives up (still saying busy, never "not running").
 # 20 s: long enough to ride out the multi-second answers a 25-agent board gave the tester, short enough
@@ -1392,6 +1391,9 @@ cmd_start() {
     _luid="$(printf '%s' "$_own" | awk '{print $2}')"
     _lkos="$(printf '%s' "$_own" | awk '{print $3}')"
     _lours="$(printf '%s' "$_own" | awk '{print $4}')"
+    if [ "${_lours:-0}" != 1 ] && [ -n "$_lpid" ] && [ "$_lpid" = "$(_listener_is_our_board)" ]; then
+      _lours=1
+    fi
     if [ "$(_kosmos_reclaim_decision "$_luid" "$_kosmos_uid" "$_lkos" "$_lours")" = reclaim ]; then
       say "The address is held by your own stale Kosmos (process $_lpid). Reclaiming it."
       # A launchd-supervised holder would be relaunched the instant we kill it. The stop

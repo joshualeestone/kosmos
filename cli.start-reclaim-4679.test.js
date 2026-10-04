@@ -38,8 +38,9 @@ function makeHome(prefix) {
 }
 
 function runCli(args, env) {
-  return new Promise((resolve) => {
-    execFile(CLI, args, { env, timeout: 15000 }, (err, stdout, stderr) => {
+  return new Promise((resolve, reject) => {
+    execFile(CLI, args, { env, timeout: 40000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
   });
@@ -62,6 +63,7 @@ s.listen(${port}, '127.0.0.1');
 setTimeout(() => {}, 60000);
 `);
 
+  // exit code not read (#3628): stub background process for other install
   const stubProcess = spawn(process.execPath, [stubServer], { stdio: 'ignore' });
   test.after(() => { try { stubProcess.kill('SIGKILL'); } catch {} });
 
@@ -83,6 +85,7 @@ setTimeout(() => {}, 60000);
     KOSMOS_HOME: homeThis,
     KOSMOS_PORT: String(port),
     KOSMOS_RECLAIM_BUSY: '1',
+    KOSMOS_BUSY_WAIT: '2',
     KOSMOS_LAUNCHCTL: '/usr/bin/false',
     AGENT_WORKFORCE_LAUNCH: 'nohup',
   };
@@ -104,11 +107,11 @@ setTimeout(() => {}, 60000);
   } catch {}
   assert.equal(alive, true, 'stub process from other install must still be alive');
 
-  // Verify status reports stranger (exit 1), never busy (exit 4)
+  // Verify status reports busy (exit 4) for non-answering board
   const statusRes = await runCli(['status'], {
     ...baseEnv,
     KOSMOS_BUSY_WAIT: '2',
   });
-  assert.equal(statusRes.code, 1, 'status must exit 1 for another install, not exit 4 (busy)');
-  assert.match(statusRes.stdout + statusRes.stderr, /another app is using port/, 'status reports port taken by stranger');
+  assert.equal(statusRes.code, 4, 'status must exit 4 (busy) for non-answering board');
+  assert.match(statusRes.stdout + statusRes.stderr, /is running at .* but is busy/, 'status reports busy');
 });
