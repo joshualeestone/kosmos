@@ -37,7 +37,8 @@ improvement it gained would have died with the session that wrote it.
    line that uses one of the platform words in `engine/whatsnew.js` `PLATFORM_WORDS`
    (Mac, macOS, Windows, PC and their spellings) must carry a tag listing exactly
    those platforms, or the check refuses the file. It is a word list, not a guarantee:
-   all-lower-case "mac", "macs" and "windows" are not caught (a window on screen), so
+   all-lower-case "mac", "macs" and "windows" are not caught (a window on screen; every
+   other platform word counts in any case), so
    capitalise the platform; upper-case "MAC" counts as the Mac, so reword "MAC
    address". Read each line as a user of the other platform. If every highlight is for
    one platform, the other platform's cut stops (release.sh and the Windows build each

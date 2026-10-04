@@ -15422,7 +15422,8 @@ const server = http.createServer(async (req, res) => {
           fs.mkdirSync(store.ROOT, { recursive: true });
           const tmp = path.join(store.ROOT, 'seen-version.json.tmp');
           /* #4928: also which highlights this dismissed (the file's main version), kept from before when
-             this version has none, so the same words are not opened again under another number. */
+             this version has none (#5224: or none for this platform), so the same words are not opened again under
+             another number. */
           let highlightsFor = null;
           try { highlightsFor = require('./engine/whatsnew').key(v); } catch { highlightsFor = null; }
           if (!highlightsFor) {
