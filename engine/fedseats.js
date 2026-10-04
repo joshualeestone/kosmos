@@ -1221,7 +1221,8 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
   // that armed it) was promised the new key, whatever it is held for first (an unreadable record
   // here), so it is marked now and dropped, not sent under the old key, if the hold runs out
   // before the key arrives. Round 29: a member that caught up while the hold runs is not marked;
-  // with the record unreadable it cannot tell, so it is marked (the drop is the safe side).
+  // with the record unreadable it cannot tell, so it is marked (the drop is the safe side). The
+  // `!hasKey(sealed)` term is what covers an unreadable (undefined) or keyless record; keep it.
   if (!heldAt && s.behind && Date.now() < s.behind.until && (sealed === undefined || !hasKey(sealed) || s.behind.epoch > sealed.epoch)) msg.behindHeld = true;
   if (sealedRoom === undefined) {
     // #5192: held, not dropped (a held one met here is held again): it goes once the record
