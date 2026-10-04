@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 7. Round 1 was Angel's cross-review (Mortals, Chromium and WebKit); rounds 2-7 were fresh blind reviewers. Each ran the check and its own synthetic harnesses.
 **Converged:** Yes. Round 7 raised no new issues.
-**Fixed:** 9 WARNING, 8 NIT | **Kept, named:** 2 known false greens in the covers audit (case 11, overlapping fixed controls); the tablet one-screen name target, carded as #5225
+**Fixed:** 10 WARNING (2+2+2+2+1+1; one more carded as #5225), 8 NIT | **Kept, named:** 2 known false greens in the covers audit (case 11, overlapping fixed controls); the tablet one-screen name target, carded as #5225
 
 #### Iteration 1 (5738328, Angel): 2 false greens, 1 wording
 - [WARNING] covers never scanned a LABEL row --> FIXED (labels scanned)
