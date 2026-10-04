@@ -6335,6 +6335,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* On a touch screen the action and each file's whole line are 44px targets (the #5200 gate, Mona Lisa). */
 @media (hover: none), (pointer: coarse) {
   #pj-task-view #tku-go { min-height: 44px; }
+  #pj-task-view .tku-cancel { min-height: 44px; }   /* Cancel too (it measured 46x24 in the #5206 audit) */
   #pj-task-view .tku-list label { min-height: 44px; padding: 6px 0; box-sizing: border-box; }
 }
 /* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
@@ -58253,7 +58254,7 @@ function tkUndoListHtml(plan) {
     + '<p class="tkr-intro">These files go back to how they were before this task. Kosmos saves each one’s current version first.</p>'
     + '<ul class="tku-list">' + rows + '</ul>'
     + '<div class="frow"><button class="btn-quiet" type="button" id="tku-go" data-undo="go">Undo the chosen files</button> '
-    + '<button class="linkish" type="button" data-undo="cancel">Cancel</button></div>';
+    + '<button class="linkish tku-cancel" type="button" data-undo="cancel">Cancel</button></div>';
 }
 /* After an undo: what was done, what was not, and where the saved versions are. Pure. */
 function tkUndoDoneLine(out) {

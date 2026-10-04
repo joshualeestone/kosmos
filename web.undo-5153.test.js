@@ -78,7 +78,7 @@ test('the list follows the design review: a kicker, short paths, the undo folder
   assert.match(text(html), /\/elsewhere\/x\.md goes back/, 'a file outside the agent folder keeps its full path');
   assert.ok(html.indexOf('data-undo="go"') < html.indexOf('data-undo="cancel"'));
   assert.match(html, /<button class="btn-quiet" type="button" id="tku-go" data-undo="go">/);
-  assert.match(html, /<button class="linkish" type="button" data-undo="cancel">Cancel<\/button>/);
+  assert.match(html, /<button class="linkish tku-cancel" type="button" data-undo="cancel">Cancel<\/button>/);
   assert.match(RAW, /@media \(hover: none\), \(pointer: coarse\) \{\n  #pj-task-view #tku-go \{ min-height: 44px; \}/);
 });
 
