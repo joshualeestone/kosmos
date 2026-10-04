@@ -202,7 +202,7 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
       // (12 px) on every row without the tag, and on every phone row (the tag moves under the name there). The name's
       // track ends exactly one 12 px space before the count: on a row with no tag, and on the tag row on a phone.
       const oneGap = (a, b) => Math.abs((b.l - a.r) - 12) <= 1;
-      ok(`#5070 roadmap @${vw}: an empty "Done not set" track costs the name no room (one 12 px space before the count)`,
+      ok(`#5070 roadmap @${vw}: an empty "Done not set" track costs the name no room (one 12 px space before the first item on the right, and between count and status)`,
         m.found && m.noTag && Math.abs(m.noTag.faces.mid - m.noTag.name.mid) <= 3 && oneGap(m.noTag.name, m.noTag.faces)
           && m.noTag.pillOnly && Math.abs(m.noTag.pillOnly.pill.mid - m.noTag.pillOnly.name.mid) <= 3 && oneGap(m.noTag.pillOnly.name, m.noTag.pillOnly.pill)
           && oneGap(m.full.faces, m.full.pill) && (!m.phone || oneGap(m.full.name, m.full.faces)),
