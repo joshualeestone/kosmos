@@ -45,7 +45,9 @@ const cp = require('node:child_process');
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js'];
-const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js'];
+// test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
+// shims file before the helper moved.
+const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'test-support.remove-tree.test.js'];
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
@@ -55,6 +57,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'engine/sendertoken.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
+  'server.remote-bind-1112.test.js': 'its win32 branch (#4845) only picks which created-agent source a test puts back, mirroring server.js (createdroster off Windows); the file was never run on Windows and boots the Mac board',
   'server.engine-restart-4408.test.js': 'its win32 branch only skips the restart arm, whose stubs pin the Mac arms (launchctl, the installed CLI); the Windows arm is boardrestart-2238.test.js\'s',
 };
 

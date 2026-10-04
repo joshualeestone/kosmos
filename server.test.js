@@ -3293,7 +3293,9 @@ test('the suggested default role is the project manager, by name and not by posi
   // 'import'. The DEFAULT is still 'pm', pinned by the ternary's else, and
   // pickMode(mode) arms it. Both halves are asserted so that neither a changed
   // default (the mutation this test exists to stop) nor a dropped pickMode passes.
-  assert.match(script, /const mode = initialMode === 'import' \? 'import' : 'pm';/,
+  // #4556: the Swarm path opens on the role menu ('list'), so 'list' passes through too; every other value still
+  // falls to 'pm', the default this pins.
+  assert.match(script, /const mode = initialMode === 'import' \|\| initialMode === 'list' \? initialMode : 'pm';/,
     'the create-form default mode is no longer pinned to pm; a changed default '
     + 'silently changes what mode the form opens on');
   assert.match(script, /pickMode\(mode\)/,
@@ -3408,9 +3410,8 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
   assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
   assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
-  /* #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero and
-     only there. Nonzero keeps it shown; a floored count keeps it shown too, because
-     hiding would claim "none working" on a read that cannot stand behind it. */
+  /* #2157, #4736: the Working tile (chip + its .act animation) hides whenever it reads zero, "0+"
+     included (Josh 2026-09-30). Nonzero keeps it shown. */
   assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
   assert.equal(known['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown');
   const zeroKnown = drive(
@@ -3421,10 +3422,15 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const zeroFloor = drive(
     [{ state: 'idle' }, { state: 'unknown' }],
     { total: 2, needsYou: 0, notRunning: 0 });
-  assert.equal(zeroFloor['st-working-tile'].hidden, false,
-    'zero working WITH an unknown is a floor, so the tile stays shown -- hiding would claim none working');
+  assert.equal(zeroFloor['st-working-tile'].hidden, true,
+    '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
-    'and the floored zero renders as 0+, not hidden');
+    'the number underneath is still the floored 0+ (only the tile is hidden)');
+  /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
+  const zeroUnread = drive([{ state: 'idle' }], { total: 1, needsYou: 0, notRunning: 0, unreadableLines: 1 });
+  assert.equal(zeroUnread['st-working'].textContent, '0+', 'fixture: unreadable lines floor the zero');
+  assert.equal(zeroUnread['st-working-tile'].hidden, true,
+    '#4736: a zero floored by unreadable lines hides the Working tile too');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
   /* #653 (Josh, 2026-08-24): the Not-running tile is gone. The painter must
@@ -6604,10 +6610,10 @@ test('the reveal-app route opens Finder through the engine and honours nothing f
 test('the tab icons are served as images, and a wrong icon path cannot fall through to the page', async () => {
   // The page fallthrough serves HTML for every unmatched path, so without
   // the explicit route an icon URL would answer HTML at 200 -- a browser
-  // shows a broken tab icon while the server reports success. The four
-  // shipped sizes answer as PNGs; anything else under /icons/ is a JSON
+  // shows a broken tab icon while the server reports success. The shipped
+  // icons answer as PNGs; anything else under /icons/ is a JSON
   // 404, never the page dressed as an image.
-  for (const size of [16, 32, 48, 180]) {
+  for (const size of [16, 32, 48, 180, 'touch-180', 'maskable-192', 'maskable-512']) {   // kosmos#4798: the full-bleed three
     const res = await req(`/icons/kosmos-${size}.png`);
     assert.equal(res.status, 200, `kosmos-${size}.png`);
     assert.equal(res.type, 'image/png');
@@ -7133,24 +7139,24 @@ test('an attributed refusal is an event: logged once per window with its because
 });
 
 test('the project pill claims only what the counts support', () => {
-  /* Pack view C's state pill, driven at its honesty boundaries: "Nothing
-     running" is a CLAIM made only when every member was actually seen; a
-     blind roster or unseen members get the unsure treatment, never a
-     reassurance. */
+  /* Pack view C's state pill. Since #4730 (Josh, 2026-09-30) it shows only while something runs:
+     "if there's nothing running or we can't tell, let's just not display a badge". So nothing
+     running, an unseen member and a blind roster all give NO pill, and a blind roster never keeps
+     claiming Working or Issue. */
   const pjPillOf = pageFunction('pjPillOf');
   assert.equal(pjPillOf({ summary: { total: 3, needsYou: 1, working: 1 } }, false).label, 'Issue');
   assert.equal(pjPillOf({ summary: { total: 3, working: 2 } }, false).label, 'Working');
-  assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, 'Nothing running');
+  assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, '', 'nothing running shows a badge again');
   /* ⚠️ WAS 'No agents yet' UNTIL #1303 E. Josh: "On the Projects tab I don't want
      to show 'no agents' as a status for a project." An empty label is the signal
      the row builder reads to omit the pill entirely, so the assertion is that
      there is NO status rather than that the status is empty-looking. */
   assert.equal(pjPillOf({ summary: { total: 0 } }, false).label, '');
-  assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, 'Can’t tell',
-    'an unseen member let the card claim nothing is running');
-  assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, 'Can’t tell',
+  assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, '',
+    'an unseen member shows a badge again');
+  assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, '',
     'a blind roster let the card keep claiming Working');
-  assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, 'Can’t tell',
+  assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, '',
     'a blind roster let the card keep claiming Issue, the strongest reassurance it could leak');
 });
 
@@ -7944,7 +7950,8 @@ test('the project notice is wired into paintOneProject, not just extractable', (
   // level (the notice is built, written to its box, and the box shown only when non-empty),
   // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
-  assert.ok(/const notice = pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice for this project');
+  // #4583: the coordinator warning (two coordinating roles on one project) leads the same notice.
+  assert.ok(/const notice = pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice (the #4583 coordinator warning, then the member notice) for this project');
   assert.ok(/setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not written into its region');
   assert.ok(!/noticeBox\.hidden/.test(src), 'the live region is hidden again: a notice written into a hidden region is not announced on its first appearance');
   assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
@@ -11243,11 +11250,11 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
   fs.rmSync(communityEngine.FILE, { force: true });
   const put = (on) => req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
   try {
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null, noticeSeen: true },
-      'the community switch is not ON by default with an unmeasured share and no notice owed (only migrate owes one; #4288 part B)');
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null },
+      'the community switch is not ON by default with an unmeasured share (and, #4820, no notice field)');
     const off = await put(false);
     assert.equal(off.status, 200, off.body);
-    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null, noticeSeen: true });
+    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null });
     assert.equal(JSON.parse((await req('/api/community-setting')).body).on, false, 'OFF did not persist');
     assert.equal(communityEngine.participating(), false, 'the gate the send layer reads still says participating');
     const on = await put(true);
@@ -11260,30 +11267,31 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
     // draws could-not-read, never a confident Off (review 2: a route that always said ok passed before).
     fs.rmSync(communityEngine.FILE, { force: true });
     fs.mkdirSync(communityEngine.FILE, { recursive: true });
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null, noticeSeen: false },
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null },
       'an unreadable community setting did not reach the page as could-not-read');
   } finally {
     fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
   }
 });
 
-/* #4288 part B: the one-time notice is recorded once, keeps the switch where it was, and GET reports it. */
-test('community: POST /api/community-setting/notice-seen records the notice and never flips the switch', async () => {
+/* #4820 (Josh, 2026-09-30): no one-time notice. An existing install (migrate with no file) is simply ON, the
+   answer carries no notice field (a page from an older build opened the notice only on noticeSeen === false),
+   and the route that recorded the notice is gone. */
+test('community: #4820 an existing install is ON with no notice field, and notice-seen is no longer a route', async () => {
   const communityEngine = require('./engine/communityswitch');
   fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
-  const seen = () => req('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   try {
-    // Start from a notice that is OWED (an existing install's migrate), or recording it proves nothing:
-    // no file already reads as nothing owed.
-    communityEngine.migrate({ existingInstall: true });
-    assert.equal(JSON.parse((await req('/api/community-setting')).body).noticeSeen, false, 'precondition: the notice is owed');
-    const r = await seen();
-    assert.equal(r.status, 200, r.body);
-    assert.deepEqual(JSON.parse(r.body), { on: true, ok: true, share: null, noticeSeen: true }, 'marking the notice moved the switch off its default, or did not record the notice');
-    assert.equal(JSON.parse((await req('/api/community-setting')).body).noticeSeen, true, 'the notice was not recorded');
-    await req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
-    const again = await seen();
-    assert.deepEqual(JSON.parse(again.body), { on: false, ok: true, share: null, noticeSeen: true }, 'marking the notice again moved the switch the person had turned OFF');
+    assert.deepEqual(communityEngine.migrate(), { ok: true, wrote: true });
+    const got = JSON.parse((await req('/api/community-setting')).body);
+    assert.deepEqual(got, { on: true, ok: true, share: null }, 'an existing install is not simply ON');
+    assert.equal('noticeSeen' in got, false, 'the answer still carries the notice field');
+    // A file an older board wrote while the notice was owed: still ON, still no field.
+    fs.writeFileSync(communityEngine.FILE, JSON.stringify({ on: true, autopublishNoticeSeen: false }));
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null });
+    const seen = await req('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.notEqual(seen.status, 200, 'POST /api/community-setting/notice-seen still answers: ' + seen.body);
+    // CONTROL: the route next to it still answers, so the refusal above is the removal, not a dead board.
+    assert.equal((await req('/api/community-setting')).status, 200);
   } finally {
     fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
   }
@@ -11492,6 +11500,15 @@ test('the Plus state route says configured through the production default, and t
   }
 });
 
+test('kosmos#4648: /api/remote/computers is served, and when no signed list can be read it answers 200 { ok: false } with a reason, never a list (the not-signed-in gate itself is pinned in engine/account-computers.test.js)', async () => {
+  const r = await req('/api/remote/computers');
+  assert.equal(r.status, 200, 'the page hides the section on { ok: false }; an error status would read as broken');
+  const body = JSON.parse(r.body);
+  assert.equal(body.ok, false, 'a board with Plus off listed computers: ' + r.body);
+  assert.equal(body.computers, undefined, r.body);
+  assert.match(body.because, /\w/, 'no reason given');
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');
@@ -11506,6 +11523,38 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
   }
   const list = JSON.parse((await req('/api/remote/devices')).body);
   assert.deepEqual(list.allowed, [], 'an unenrolled Mac lists devices');
+});
+
+test('#4824: the Remove route hands the page every field of the connector answer, unchanged', async () => {
+  /* The page's wording (removedWords) is decided by these fields alone, so a route that dropped or renamed one
+     would put every Remove into the wrong sentence. The engine is stubbed at the one function the route calls. */
+  const remoteEngine = require('./engine/remote');
+  const orig = remoteEngine.deviceRemove;
+  const answers = [
+    { removed: true, device_id: 'dev-1', local_cutoff: true, signed_out: true },
+    { removed: true, device_id: 'dev-1', local_cutoff: false, signed_out: false },
+    { removed: true, device_id: 'dev-1' },
+    { timed_out: true },
+  ];
+  try {
+    for (const data of answers) {
+      remoteEngine.deviceRemove = async () => ({ ok: true, because: null, data });
+      const r = await req('/api/remote/devices/remove', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: 'dev-1' }),
+      });
+      assert.equal(r.status, 200, r.body);
+      assert.deepEqual(JSON.parse(r.body), { ok: true, ...data }, 'the route changed the answer');
+    }
+    // CONTROL: a refusal is still a 400 with the engine's sentence.
+    remoteEngine.deviceRemove = async () => ({ ok: false, because: 'no such device here' });
+    const no = await req('/api/remote/devices/remove', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: 'dev-1' }),
+    });
+    assert.equal(no.status, 400);
+    assert.equal(JSON.parse(no.body).error, 'no such device here');
+  } finally {
+    remoteEngine.deviceRemove = orig;
+  }
 });
 
 test('the leftover routes (#514): a name with nothing left is refused in words, and a bad name never reaches the engine', async () => {
@@ -11654,6 +11703,73 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
   });
   assert.equal(empty.status, 400);
   assert.match(JSON.parse(empty.body).error, /code from the email/);
+});
+
+test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers the rows without the token, and refuses another website', async () => {
+  const http = require('node:http');
+  const sb = fs.realpathSync(mkTemp('signin-addr-'));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    'const a = process.argv.slice(2);',
+    "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
+    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-addr', account_address: 'first.kosmos.invalid' })); process.exit(0); }",
+    // The list through the binary, the session on stdin (recorded, so the test can see where it went).
+    "if (a[0] === 'signin' && a[1] === 'addresses' && process.env.FAKE_ADDR_OLD) { process.stderr.write(\"error: unrecognized subcommand 'addresses'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n\"); process.exit(2); }",
+    "if (a[0] === 'signin' && a[1] === 'addresses') { const t = require('node:fs').readFileSync(0, 'utf8').trim(); require('node:fs').writeFileSync(process.env.FAKE_ADDR_TOKEN, t); console.log(JSON.stringify({ addresses: [{ name: 'first', address: 'first.kosmos.invalid', state: 'in_use' }, { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' }], buy_url: 'https://login.kosmos.invalid/signin#add-computer' })); process.exit(0); }",
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const seen = [];
+  const coord = http.createServer((q, s2) => {
+    seen.push({ url: q.url, auth: q.headers.authorization || null });
+    s2.writeHead(200, { 'content-type': 'application/json' });
+    s2.end(JSON.stringify(q.url === '/v1/meta' ? { bought_addresses: true } : {}));
+  });
+  await new Promise((r) => coord.listen(0, '127.0.0.1', r));
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_COORDINATOR', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_ADDR_TOKEN', 'FAKE_ADDR_OLD'];
+  const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + coord.address().port + '/';
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  process.env.FAKE_ADDR_TOKEN = nodePath.join(sb, 'addr-token');
+  try {
+    await postJson('/api/remote/signin-cancel', {});
+    const early = await req('/api/remote/signin-addresses');
+    assert.equal(early.status, 400, early.body);
+    assert.match(JSON.parse(early.body).error, /finish the code steps first/);
+    assert.equal(seen.length, 0, 'called the coordinator with no sign-in');
+    await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    const v = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    assert.equal(JSON.parse(v.body).stage, 'session', v.body);
+    const got = await req('/api/remote/signin-addresses');
+    assert.equal(got.status, 200, got.body);
+    const body = JSON.parse(got.body);
+    assert.equal(body.ok, true);
+    assert.equal(body.live, true, 'the route dropped live, which would send every page down the old path');
+    assert.deepEqual(body.addresses.map((r) => [r.name, r.state]), [['first', 'in_use'], ['spare', 'free']]);
+    assert.equal(body.buy_url, 'https://login.kosmos.invalid/signin#add-computer');
+    assert.ok(!/kst1\.route-addr/.test(got.body), 'the session token crossed the HTTP boundary');
+    assert.equal(fs.readFileSync(process.env.FAKE_ADDR_TOKEN, 'utf8'), 'kst1.route-addr', 'the session did not reach the binary on stdin');
+    assert.equal(seen.some((x) => x.auth), false, 'a credential went to the coordinator outside the binary');
+    const before = seen.length;
+    fs.rmSync(process.env.FAKE_ADDR_TOKEN, { force: true });
+    const foreign = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'cross-site' } });
+    assert.equal(foreign.status, 403, foreign.body);
+    assert.equal(seen.length, before, 'another website made the engine call the coordinator');
+    assert.equal(fs.existsSync(process.env.FAKE_ADDR_TOKEN), false, 'another website made the engine spend the session');
+    const same = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'same-origin' } });
+    assert.equal(same.status, 200, 'the same-origin control was refused too; the 403 above proves nothing: ' + same.body);
+    assert.equal(JSON.parse(same.body).unsupported, undefined, 'control: a list that worked carries unsupported');
+    // A tunnel program older than the verb: the page must be told, so it stops offering a re-read that cannot work.
+    process.env.FAKE_ADDR_OLD = '1';
+    const old = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'same-origin' } });
+    assert.equal(old.status, 400, old.body);
+    assert.equal(JSON.parse(old.body).unsupported, true, 'the route dropped unsupported: ' + old.body);
+    assert.match(JSON.parse(old.body).error, /update Kosmos/);
+  } finally {
+    await postJson('/api/remote/signin-cancel', {});
+    for (const k of keys) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; }
+    coord.closeAllConnections(); await new Promise((r) => coord.close(r));
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14049,6 +14165,39 @@ test('#3955: /api/whats-new serves the release highlights only when web/whats-ne
   assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a file the window cannot draw was served');
 });
 
+test('#4928: a platform number in "also" shows the highlights once; the same words are not opened again under another number', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const store2 = require('./engine/store');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-also-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  const seenFile = nodePath.join(store2.ROOT, 'seen-version.json');
+  let before = null;
+  try { before = fs2.readFileSync(seenFile, 'utf8'); } catch { before = null; }
+  whatsnew.setFileForTests(file);
+  t.after(() => {
+    whatsnew.setFileForTests(null);
+    fs2.rmSync(dir, { recursive: true, force: true });
+    if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
+  });
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const h = [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }];
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.9', also: [current], highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'a version in "also" was shown nothing');
+  const r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'which highlights were dismissed was not recorded');
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'the same words were offered again after they were dismissed');
+  // A dismissal on a version with no highlights keeps which words were last dismissed.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.7', highlights: h }));
+  await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'a version with no highlights erased the record');
+  // CONTROL: new words (another main version) are offered.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.8', also: [current], highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');
+});
+
 /* ------------------------------------------------------------------------- *
  * #539: the working rules, consented. The GET plans, only the click writes,
  * and a fleet click never overrides a per-agent Not now.
@@ -15196,6 +15345,8 @@ test('#2811 PARITY: the live branch that HAS an account carries `name` too, or t
 
     assert.ok('name' in out.account,
       'the live-with-account branch dropped `name`, so the three account constructions return different field sets');
+    assert.ok('keyTail' in out.account,
+      'the live-with-account branch dropped `keyTail` (#4603), so the three account constructions return different field sets');
     assert.equal(out.account.name, null,
       'a Claude dir carries no sidecar, so `name` must be present and NULL here -- a non-null means it is reading the wrong dir');
 
@@ -15929,4 +16080,138 @@ test('#4006: an agent whose restart did not come back reads needs_you, and its t
     disruption.clear('zeta');
     board.restore();
   }
+});
+
+test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, download the catalogue', async () => {
+  const http = require('node:http');
+  const crypto = require('node:crypto');
+  const catalogue = require('./engine/catalogue');
+  const roles = require('./engine/roles');
+  const { FIXTURE } = require('./test-support/catalogue-fixture');
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const body = fs.readFileSync(FIXTURE, 'utf8').replace(/"serial": \d+/, `"serial": ${catalogue.MIN_SERIAL + 1}`);
+  const sig = crypto.sign(null, Buffer.from(body), privateKey).toString('base64');
+  let asked = 0;
+  const srv = http.createServer((q, r) => {
+    asked += 1;
+    const name = q.url.split('?')[0];
+    if (name === '/catalogue.json') r.end(body); else if (name === '/catalogue.json.sig') r.end(sig); else { r.writeHead(404); r.end(); }
+  });
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  const was = process.env.KOSMOS_CATALOGUE_BASE;
+  process.env.KOSMOS_CATALOGUE_BASE = `http://127.0.0.1:${srv.address().port}/`;
+  require('./test-support/data-root-sandbox').assertSandboxedDataRoot(SANDBOX, [require('./engine/store').ROOT]);
+  const reset = () => {
+    try { fs.rmSync(catalogue.cacheFile(), { force: true }); } catch { /* none */ }
+    catalogue.useKeyForTest(publicKey.export({ type: 'spki', format: 'pem' }));
+    roles.remerge();
+    asked = 0;
+  };
+  try {
+    reset();
+    const plain = JSON.parse((await req('/api/roles')).body);
+    assert.equal(asked, 0, 'a plain /api/roles downloaded the catalogue');
+    assert.equal(plain.catalogue.loaded, false);
+    assert.ok(!plain.roles.some((r) => r.key === 'cmo'), 'CONTROL: no catalogue role before a download');
+    await req('/api/roles', { method: 'HEAD' });
+    assert.equal(asked, 0, 'a HEAD downloaded the catalogue');
+
+    const picked = JSON.parse((await req('/api/roles?catalogue=1')).body);
+    assert.equal(asked, 2, 'the picker\'s request did not fetch the file and its signature');
+    assert.equal(picked.catalogue.loaded, true, JSON.stringify(picked.catalogue));
+    assert.ok(picked.roles.some((r) => r.key === 'cmo'), 'the downloaded roles did not reach the answer');
+
+    reset();
+    // A create for a role the board does not hold asks the catalogue first (it is refused here for
+    // its missing name, after the download).
+    await postJson('/api/agents', { role: 'cmo' });
+    assert.equal(asked, 2, 'a create for a catalogue role not held did not ask the catalogue');
+    assert.ok(roles.byKey('cmo'), 'the downloaded role is not there for the create');
+    asked = 0;
+    await postJson('/api/agents', { role: ' pm ' });
+    assert.equal(asked, 0, 'CONTROL: a create for a built-in role asks nothing (its key read trimmed, as create reads it)');
+
+    // /api/team: how agents and both CLIs make agents (`kosmos agent create`). Refused here for
+    // lack of credentials or a name, after the download.
+    reset();
+    await postJson('/api/team', { purpose: 'x', members: [{ name: 'Nova', role: 'cmo' }] });
+    assert.equal(asked, 2, 'a team create naming a catalogue role not held did not ask the catalogue');
+    asked = 0;
+    reset();
+    await postJson('/api/team', { purpose: 'x', members: [{ name: 'Nova', role: 'pm' }] });
+    assert.equal(asked, 0, 'CONTROL: a team create with built-in roles asks nothing');
+  } finally {
+    if (was === undefined) delete process.env.KOSMOS_CATALOGUE_BASE; else process.env.KOSMOS_CATALOGUE_BASE = was;
+    try { fs.rmSync(catalogue.cacheFile(), { force: true }); } catch { /* none */ }
+    catalogue.useKeyForTest(null);
+    roles.remerge();
+    await new Promise((ok) => srv.close(ok));
+  }
+});
+
+test('#4771: a task is put on hold and taken off through its route; a project is paused and resumed through its edit', async () => {
+  const projects = require('./engine/projects');
+  const tasks = require('./engine/tasks');
+  const p = projects.create({ name: 'Hold Route 4771' });
+  const t = tasks.create(p.id, { sentence: 'wait for the person', made: { via: 'screen' } });
+  const url = '/api/project/' + encodeURIComponent(p.id) + '/task/' + t.number + '/hold';
+  const on = await postJson(url, { onHold: true });
+  assert.equal(on.status, 200, on.body);
+  assert.equal(JSON.parse(on.body).task.onHold, true);
+  assert.equal(tasks.isOnHold(tasks.byNumber(projects.readAll().find((x) => x.id === p.id), t.number)), true, 'the route did not store the hold');
+  const bad = await postJson(url, { onHold: 'yes' });
+  assert.equal(bad.status, 400, bad.body);
+  const none = await postJson('/api/project/' + encodeURIComponent(p.id) + '/task/9999/hold', { onHold: true });
+  assert.equal(none.status, 404, none.body);
+  const off = await postJson(url, { onHold: false });
+  assert.equal(off.status, 200, off.body);
+  assert.equal('onHold' in JSON.parse(off.body).task, false, 'off hold left the field on the task');
+  // Who did it: a request with no page headers is a process (an agent); the page's own request is the person.
+  const screen = await req(url, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ onHold: true }) });
+  assert.equal(screen.status, 200, screen.body);
+  const vias = require('./engine/taskchat').read(p.id, t.number).filter((e) => /^hold-/.test(e.kind)).map((e) => e.via);
+  assert.deepEqual(vias, ['agent', 'agent', 'screen'], 'the route did not record who put the task on hold');
+  // The person's hold: a process (an agent) cannot take it off; the screen can.
+  const agentLift = await postJson(url, { onHold: false });
+  assert.equal(agentLift.status, 403, agentLift.body);
+  assert.match(JSON.parse(agentLift.body).error, /only they can take it off/);
+  const personLift = await req(url, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ onHold: false }) });
+  assert.equal(personLift.status, 200, personLift.body);
+  const put = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const paused = await put({ paused: true });
+  assert.equal(paused.status, 200, paused.body);
+  assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'the edit did not pause the project');
+  const wrong = await put({ paused: 'true' });
+  assert.equal(wrong.status, 400, 'a non-boolean paused was accepted: ' + wrong.body);
+  const resumed = await put({ paused: false });
+  assert.equal(resumed.status, 200, resumed.body);
+  assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), false, 'the edit did not resume the project');
+
+  /* The agents' instructions mark held work (projects.blockBody), so a hold re-tells the task's assignees and a pause
+     re-tells the project's members, as close and rename already do. syncAgent is recorded, not run. */
+  projects.mutate(p.id, (rec) => ({ ...rec, agents: ['ada', 'max'],
+    tasks: (rec.tasks || []).map((x) => (x.number === t.number ? { ...x, who: 'ada' } : x)) }));
+  const realSync = projects.syncAgent;
+  const synced = [];
+  projects.syncAgent = (name) => { synced.push(name); return { state: projects.TOLD.TOLD }; };
+  try {
+    const h = await postJson(url, { onHold: true });
+    assert.equal(h.status, 200, h.body);
+    assert.deepEqual(synced, ['ada'], 'a hold did not re-tell the task\'s assignee');
+    synced.length = 0;
+    await put({ description: 'no pause here' });
+    assert.deepEqual(synced, [], 'control: a save that changes neither the name nor the pause re-told the members');
+    await put({ paused: true });
+    assert.deepEqual(synced.sort(), ['ada', 'max'], 'a pause did not re-tell the project\'s members');
+    synced.length = 0;
+    await put({ paused: false });
+    assert.deepEqual(synced.sort(), ['ada', 'max'], 'a resume did not re-tell the project\'s members');
+    // The person's pause (from the page) is resumed only from the page.
+    const screenPut = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
+    assert.equal((await screenPut({ paused: true })).status, 200);
+    const agentResume = await put({ paused: false });
+    assert.equal(agentResume.status, 403, agentResume.body);
+    assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'a refused resume still resumed');
+    assert.equal((await screenPut({ paused: false })).status, 200, 'the person could not resume their own pause');
+  } finally { projects.syncAgent = realSync; }
 });

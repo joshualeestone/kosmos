@@ -54,6 +54,7 @@ if (args[0] === 'setup' && args[1] === 'start') {
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (mode.includes('setup-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a computer on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this computer, it is already set up and there is nothing more to do here. If it is a different computer, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
   if (flag('--code') === '000000') {
@@ -150,6 +151,21 @@ if (args[0] === 'signin') {
     console.log(JSON.stringify({ stage: 'session', token: 'kst1.enrol-session-fake' }));
     process.exit(0);
   }
+  if (verb === 'addresses') {
+    // kosmos#4756: the session token on stdin (never argv); the answer is the coordinator's JSON, from a file a test writes.
+    // 'OLDBIN' in that file plays a tunnel binary older than the verb (clap's own two-part error).
+    let first = '';
+    try { first = fs.readFileSync(${JSON.stringify(RECORD)} + '.addresses', 'utf8'); } catch { first = ''; }
+    if (first === 'OLDBIN') { process.stderr.write("error: unrecognized subcommand 'addresses'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n\\nFor more information, try '--help'.\\n"); process.exit(2); }
+    const token = fs.readFileSync(0, 'utf8').trim();
+    fs.writeFileSync(${JSON.stringify(RECORD)} + '.addresses-token', token);
+    if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
+    let ans = '';
+    try { ans = fs.readFileSync(${JSON.stringify(RECORD)} + '.addresses', 'utf8'); } catch { ans = ''; }
+    if (ans.startsWith('ERR ')) { process.stderr.write(ans.slice(4) + '\\n'); process.exit(1); }
+    console.log(ans || JSON.stringify({ addresses: [] }));
+    process.exit(0);
+  }
   if (verb === 'register') {
     // A child that exits BEFORE reading stdin, so the engine's EPIPE-swallow path
     // (setupRun's stdin.on('error')) is exercised rather than crashing the write.
@@ -168,6 +184,7 @@ if (args[0] === 'signin') {
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
+    if (mode.includes('register-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a computer on this account, at ' + name + '.kosmos.invalid. If that is this computer, it is already signed in. If it is a different computer, turn it off there first, or pick another name.\\n'); process.exit(1); }
     if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
     // A rename whose certificate step fails: the new key, id and address are
     // written (write_registration), then the fetch fails.
@@ -237,8 +254,28 @@ if (args[0] === 'devices') {
     process.stderr.write('the coordinator said no (404): no such pending device\\n');
     process.exit(1);
   }
+  if (verb === 'list' && mode === 'list-allowed-on') { console.log(JSON.stringify({ devices: [
+    { device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M', allowed_on: 'windowsbox' },
+    { device_id: 'dev-2', name: 'iPad', allowed_at: 1756000000, last_seen: 0, code: 'Q2-8P', allowed_on: null },
+    { device_id: 'dev-3', name: 'Mac', allowed_at: 1756000000, last_seen: 0, code: 'Z9-4T', allowed_on: 42 },
+    { device_id: 'dev-4', name: 'Pixel', allowed_at: 1756000000, last_seen: 0, code: 'W3-1N', allowed_on: '   ' },
+    { device_id: 'dev-5', name: 'Phone', allowed_at: 1756000000, last_seen: 0, code: 'R5-6V', allowed_on: 'x'.repeat(80) },
+  ] })); process.exit(0); }
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
+  // #4824: a connector from before kosmos#4803 (clap's own words and exit code, measured on that build).
+  if (verb === 'remove' && mode.includes('flag-words-exit1') && args.includes('--coordinator')) {
+    process.stderr.write("error: unexpected argument '--coordinator' found\\n");
+    process.exit(1);
+  }
+  if (verb === 'remove' && mode.includes('old-remove') && args.includes('--coordinator')) {
+    process.stderr.write((mode.includes('ansi') ? "\\u001b[1m\\u001b[31merror:\\u001b[0m unexpected argument '\\u001b[33m--coordinator\\u001b[0m' found\\n" : "error: unexpected argument '--coordinator' found\\n") + "\\nUsage: kosmos-tunnel devices remove --state-dir <STATE_DIR> --device-id <DEVICE_ID>\\n\\nFor more information, try '--help'.\\n");
+    process.exit(2);
+  }
+  if (verb === 'remove' && args.includes('--coordinator')) {
+    console.log(JSON.stringify({ removed: true, device_id: flag('--device-id'), local_cutoff: !mode.includes('remove-no-cutoff'), signed_out: !mode.includes('remove-not-told') }));
+    process.exit(0);
+  }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
@@ -275,11 +312,15 @@ if (args[0] === 'run') {
   } else if (mode.includes('retry-loop')) {
     const w = (o) => fs.writeFileSync(statusFile, JSON.stringify(Object.assign({ address: null, pid: process.pid }, o)) + '\\n');
     w({ state: 'connecting', because: null });
-    setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), 100);
+    setTimeout(() => w({ state: 'restarting', because: process.env.FAKE_TUNNEL_BECAUSE || 'relay refused the tunnel: bad ticket' }), 100);
     setTimeout(() => w({ state: 'connecting', because: null }), 2500);
+    // kosmos#4640: a later, different failure from the same process. The #4640 runs (FAKE_TUNNEL_BECAUSE set) get a wider
+    // gap after the second connecting, so asserting the wait is kept there is not a race against a busy machine.
+    const late = process.env.FAKE_TUNNEL_BECAUSE ? 4500 : 2900;
+    if (mode.includes('then-fail')) setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), late);
     if (mode.includes('then-up')) {
       const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
-      setTimeout(() => w({ state: 'up', address, because: null }), 2900);
+      setTimeout(() => w({ state: 'up', address, because: null }), late);
     }
     setInterval(() => {}, 1000);
     process.on('SIGTERM', () => process.exit(0));
@@ -656,7 +697,8 @@ test('#4277: a restart timer firing into an unwanted board counts nothing, and a
 });
 
 test('#4277: the report names the same enrolment files enrolled() checks', () => {
-  assert.deepEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
+  // kosmos#4737: the SAME array, from engine/enrolment.js, so neither module can drift into its own list.
+  assert.strictEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
     'the not-enrolled report would name files enrolled() does not check');
 });
 
@@ -818,6 +860,72 @@ test('#4277: the remembered failure belongs to one tunnel process: a new process
   } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 
+const ALLOW_SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
+const ALLOW_LINE = 'Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket';
+test('kosmos#4640: the waiting-to-be-allowed refusal is recognised in both spellings; another code or an ordinary refusal is not', () => {
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE + ', code own_lineage)'), ALLOW_SAID, 'retirehold-4681 ticket tunnel (with the code)');
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE + ')'), ALLOW_SAID, 'relay main tunnel (no code)');
+  // The device word is not read: the relay's line may say "this computer" once it follows the app's rename.
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), ALLOW_SAID, 'the relay line after its own rename');
+  // Review: case is matched exactly, as remote-report.js's waiting-allow row now also does (pinned there with this line).
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE.replace(': this computer', ': This computer') + ', code own_lineage)'), null, 'a recased sentence read as the wait');
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), null, 'CONTROL: a line with no "this <device>:" is not the relay\'s shape');
+  // CONTROLS: each must stay an ordinary refusal.
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE + ', code standing_lapsed)'), null, 'the same words with another code');
+  // CONTROLS (#4640 review): own_lineage's two FINAL sentences stay refusals.
+  for (const final of ['this computer was not allowed on your account; retire this computer and set it up again',
+    'this computer is still waiting to be allowed, and no other computer on your account is left to allow it; retire this computer and set it up again']) {
+    assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: ' + final + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), null, 'a final own_lineage refusal read as a wait: ' + final);
+  }
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/standing)'), null, 'the same words on another path, no code');
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket)'), null, 'an ordinary refusal');
+  assert.equal(remote.allowWaitSentence('relay refused the tunnel: bad ticket'), null);
+  assert.equal(remote.allowWaitSentence(null), null);
+});
+
+test('kosmos#4640: status() reads a waiting computer as waiting-allow, keeps it through the retry, and drops it on up or another failure', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9458';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
+  const waiting = () => until(() => remote.status().state === 'waiting-allow', 'the refusal to read as waiting-allow', 15000);
+  try {
+    for (const spelling of [ALLOW_LINE + ', code own_lineage)', ALLOW_LINE + ')']) {
+      remote.resetForTests();
+      process.env.FAKE_TUNNEL_MODE = 'retry-loop then-up';
+      process.env.FAKE_TUNNEL_BECAUSE = spelling;
+      remote.ensure(4390);
+      await waiting();
+      const st = remote.status();
+      assert.equal(st.because, ALLOW_SAID, 'the reason is not the coordinator\'s sentence alone');
+      assert.ok(!/refused|HTTP|\/v1\//.test(st.because), 'the reason carries refusal words or a path');
+      await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the tunnel to retry (connecting, no reason)', 15000);
+      assert.equal(remote.status().state, 'waiting-allow', 'the wait was lost while the tunnel dialled again');
+      await until(() => remote.status().state === 'up', 'the tunnel to come up once allowed', 15000);
+      assert.equal(remote.status().because, null);
+    }
+    // Another failure from the same process replaces the wait.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop then-fail';
+    process.env.FAKE_TUNNEL_BECAUSE = ALLOW_LINE + ', code own_lineage)';
+    remote.ensure(4390);
+    await waiting();
+    await until(() => remote.status().because === 'relay refused the tunnel: bad ticket', 'the later failure to show', 15000);
+    assert.equal(remote.status().state, 'restarting', 'a different failure still read as waiting');
+    // CONTROL: the same words with another code are an ordinary restart, as before.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop';
+    process.env.FAKE_TUNNEL_BECAUSE = ALLOW_LINE + ', code standing_lapsed)';
+    remote.ensure(4390);
+    await until(() => remote.status().state !== 'connecting', 'the control refusal to be seen', 15000);
+    assert.equal(remote.status().state, 'restarting', 'another code read as waiting');
+    assert.match(remote.lastTunnelFailure(), /code standing_lapsed/, 'fixture: the control refusal was not the one sampled');
+    await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the control tunnel to retry', 15000);
+    assert.equal(remote.status().state, 'connecting', 'another code was kept as a wait through the retry');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_TUNNEL_BECAUSE; remote.resetForTests(); }
+});
+
 test('#4419: status says the connector admits webhooks only when the running connector wrote admits_hooks: true', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9455';
   remote.setOn(true);
@@ -944,6 +1052,21 @@ test('pending is a FILE the tunnel writes: read, never spawned, and empty while 
   assert.ok(!recorded().some((a) => a[0] === 'devices'), 'reading pending spawned the binary');
 });
 
+test('#4637: a pending row carries joining_computer for another of the person\'s computers, null for a phone or a bad value', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-pc', name: 'windowsbox', first_seen: 1756000000, code: 'X3-P2', joining_computer: 'windowsbox' },
+    { device_id: 'dev-ph', name: 'iPhone', first_seen: 1756000000, code: 'K7-4M' },
+    { device_id: 'dev-bad', name: 'odd', first_seen: 1756000000, code: 'Q1-Z9', joining_computer: '<b>x</b>' },
+    { device_id: 'dev-up', name: 'Josh-PC', first_seen: 1756000000, code: 'A1-B2', joining_computer: 'Josh-PC' },
+    { device_id: 'dev-short', name: 'PC', first_seen: 1756000000, code: 'C3-D4', joining_computer: 'PC' },
+  ] }));
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.joining_computer]));
+  assert.deepEqual(by, { 'dev-pc': 'windowsbox', 'dev-ph': null, 'dev-bad': null, 'dev-up': 'josh-pc', 'dev-short': null });
+});
+
 test('allow drives the binary with the Mac-first verb, the id and the kind; a bad id is refused in words without spawning', async () => {
   enrol();
   const bad = await remote.deviceAllow('../evil', 'iPhone');
@@ -971,16 +1094,77 @@ test('deny remembers the No, so a re-ask from the same id carries when this Mac 
   assert.ok(remote.pendingDevices().devices[0].denied_at > 1700000000, 'the re-ask does not know it was said no to');
 });
 
-test('remove has no coordinator (the Mac list is the authority) and the binary’s refusal surfaces as its last sentence', async () => {
+test('#4824: remove tells the coordinator, so the device stops at the sign-in site too; the binary’s refusal surfaces as its last sentence', async () => {
   enrol();
   const ok = await remote.deviceRemove('dev-1');
   assert.equal(ok.ok, true, ok.because);
-  const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'remove');
-  assert.ok(call && !call.includes('--coordinator'), 'remove asked the coordinator, which is not where the list lives');
+  assert.equal(ok.data.signed_out, true);
+  assert.equal(ok.data.local_cutoff, true);
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.equal(calls.length, 1, 'a connector that knows the flag was asked twice');
+  assert.ok(calls[0].includes('--coordinator'), 'remove did not tell the coordinator');
+  assert.equal(calls[0][calls[0].indexOf('--coordinator') + 1], remote.COORDINATOR());
   process.env.FAKE_TUNNEL_MODE = 'devices-fail';
   const no = await remote.deviceDeny('dev-1');
   assert.equal(no.ok, false);
   assert.match(no.because, /no such pending device/);
+});
+
+test('#4824: a connector from before kosmos#4803 refuses the flag; remove is asked again without it and still removes', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'old-remove';
+  const r = await remote.deviceRemove('dev-1');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.removed, true);
+  assert.equal(r.data.signed_out, undefined, 'an old connector cannot have told the sign-in site');
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].includes('--coordinator') && !calls[1].includes('--coordinator'));
+  // Coloured (CLICOLOR_FORCE): clap's escape codes do not hide its refusal.
+  process.env.FAKE_TUNNEL_MODE = 'old-remove,ansi';
+  const nA = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const coloured = await remote.deviceRemove('dev-1');
+  assert.equal(coloured.ok, true, coloured.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, nA + 2, 'a coloured refusal was not retried');
+  // CONTROL: the same words with another exit code are not clap's refusal; not retried.
+  process.env.FAKE_TUNNEL_MODE = 'flag-words-exit1';
+  const n0 = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, n0 + 1, 'a non-clap refusal quoting the flag was retried');
+  // CONTROL: any other refusal is not retried; it surfaces as before.
+  process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+  const before = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const no = await remote.deviceRemove('dev-1');
+  assert.equal(no.ok, false);
+  assert.match(no.because, /no such pending device/);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, before + 1, 'a refusal that is not the flag was retried');
+});
+
+test('#4824: a Remove whose connector is killed on the timeout is not reported as a failed Remove', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '2000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '400';
+  try {
+    const r = await remote.deviceRemove('dev-1');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.data.timed_out, true);
+    // CONTROL: a refusal that is not a timeout still fails.
+    process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+    assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  } finally {
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});
+
+test('#4824: what the connector could not do reaches the page in its answer', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'remove-not-told,remove-no-cutoff';
+  const r = await remote.deviceRemove('dev-1');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.signed_out, false);
+  assert.equal(r.data.local_cutoff, false);
 });
 
 test('list joins the sidecar for the screen, and unenrolled is an empty list without a spawn', async () => {
@@ -992,6 +1176,23 @@ test('list joins the sidecar for the screen, and unenrolled is an empty list wit
   assert.equal(got.ok, true, got.because);
   assert.equal(got.data.devices[0].name, 'iPhone');
   assert.equal(got.data.devices[0].code, 'K7-3M');
+  /* #4794: a tunnel without part C sends no allowed_on, and the list reads it as this computer (null). */
+  assert.equal(got.data.devices[0].allowed_on, null);
+});
+
+test('#4794: allowed_on carries the name of the computer that allowed a device, null for this computer or a bad value', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'list-allowed-on';
+  try {
+    const got = await remote.devicesList();
+    assert.equal(got.ok, true, got.because);
+    const by = Object.fromEntries(got.data.devices.map((d) => [d.device_id, d.allowed_on]));
+    assert.equal(by['dev-1'], 'windowsbox');
+    assert.equal(by['dev-2'], null, 'null is this computer');
+    assert.equal(by['dev-3'], null, 'a number is not a computer name');
+    assert.equal(by['dev-4'], null, 'a blank name is not a computer name');
+    assert.equal(by['dev-5'], 'x'.repeat(60), 'a long name is cut to its first 60 characters, like a device name');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#648: with nothing set, the Mac dials the real relay and coordinator, and bakes no CA', () => {
@@ -1850,6 +2051,11 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     assert.match(stranded.because, /earlier sign-in on this computer/, 'a stranded attempt read as another Mac: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
+    // #4645: the same answer in the wording the coordinator can move to reads the same.
+    const strandedNew = await halfThen('retire-refused,register-409-computer');
+    assert.equal(strandedNew.ok, false, 'fixture (computer wording): the coordinator still holds the name');
+    assert.match(strandedNew.because, /earlier sign-in on this computer/, '"a computer on this account" read as another computer: ' + strandedNew.because);
+    assert.doesNotMatch(strandedNew.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + strandedNew.because);
     // A definite refusal is final, not "try again": with the name free, it registers.
     // Each arm below ends set up at "hers"; start the next from a forgotten Mac.
     const fresh = async () => {
@@ -2088,6 +2294,19 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     assert.equal(r.ok, false, 'fixture: the name is still held');
     assert.match(r.because, /The name hers may be held by an earlier sign-in on this computer/, r.because);
     assert.doesNotMatch(r.because, /nothing more to do/, 'the setup sentence (false here) was kept');
+    // #4645: the same in the wording the coordinator can move to, from the same stranded start.
+    process.env.FAKE_TUNNEL_MODE = '';
+    await remote.forget();
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture (computer wording): the register was killed by its bound');
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+    await remote.setupStart('her@example.com');
+    process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409-computer';
+    const rNew = await remote.setupComplete('123456', 'hers');
+    assert.match(rNew.because, /The name hers may be held by an earlier sign-in on this computer/, rNew.because);
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
@@ -2132,6 +2351,69 @@ test('#3827: a set-up Mac missing only its address file is not treated as half r
   await remote.signinVerify('her@example.com', '111111');
   await remote.signinRegister('hers');
   assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a Mac with its certificate was retired as half registered');
+  await remote.forget();
+});
+
+/* kosmos#4737: a computer registered while it waits for the older computer's Allow holds its identity and the
+   tunnel's `held` mark, and no certificate yet. It is set up, and a sign-in on it never retires it. The
+   control is the same folder without the mark: a register cut off before its certificate, which IS retired. */
+async function heldShaped(withMark, withoutAddress = false) {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  for (const f of ['tls.crt', 'tls.key']) fs.rmSync(nodePath.join(dir, f), { force: true });
+  if (withMark) fs.writeFileSync(nodePath.join(dir, 'held'), 'hers\n');
+  if (withoutAddress) fs.rmSync(nodePath.join(dir, 'address'), { force: true });
+  assert.ok(fs.existsSync(nodePath.join(dir, 'mac_id')), 'fixture: the identity is there');
+  return dir;
+}
+
+test('#4737: a computer waiting to be allowed is set up and a sign-in on it does not retire it', async () => {
+  await heldShaped(true);
+  assert.equal(remote.enrolled(), true, 'a waiting computer (identity + held, no certificate) read as not set up: its tunnel never starts');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  // A DIFFERENT name: the same name takes the #1010 "already set up" path and never reaches clearHalfIdentity() (review 1).
+  await remote.signinRegister('hers-too');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a computer waiting to be allowed was retired as half registered');
+  await remote.forget();
+});
+
+/* kosmos#4737 review 2: the one shape halfRegistered()'s own held clause decides. With its address the folder is enrolled()
+   and the clause is never read; without it, the mark alone keeps the folder from being retired (as #3827 keeps a missing
+   address beside a certificate). The control is the same folder without the mark, which IS retired. */
+test('#4737: a waiting computer missing only its address file is not retired', async () => {
+  await heldShaped(true, true);
+  assert.equal(remote.enrolled(), false, 'fixture: without its address the folder is not enrolled, so the clause is what decides');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a waiting computer missing its address file was retired');
+  await remote.forget();
+});
+
+test('#4737 control: the same folder, no address and no mark, is retired', async () => {
+  await heldShaped(false, true);
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(recorded().some((c) => c[0] === 'retire'), 'control: a key and id with no certificate, address or mark was not retired');
+  await remote.forget();
+});
+
+test('#4737 control: the same folder without the held mark is half registered and is retired', async () => {
+  await heldShaped(false);
+  assert.equal(remote.enrolled(), false, 'fixture: no certificate and no mark is not set up');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(recorded().some((c) => c[0] === 'retire'), 'a register cut off before its certificate was not retired: the control cannot tell the two apart');
   await remote.forget();
 });
 
@@ -2726,4 +3008,386 @@ test('#3827: the hosted assistant is refused while this computer is being forgot
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
+});
+
+/* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "This computer (Kosmos app)" asked him
+   to approve it, and the new account was shown an older request. */
+test('#4610 this Mac\'s own in-app sign-in is never listed as a request; another device still is (CONTROL)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('selfmac');
+  assert.equal(reg.ok, true, reg.because);
+  const self = remote.read().device_id;
+  assert.ok(self, 'the sign-in minted no device id, so the arm below measures nothing');
+  const dir = nodePath.join(DATA_ROOT, 'remote');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: self, name: 'Josh Mac (Kosmos app)', first_seen: 1756000000, code: 'W6-M4' },
+    { device_id: 'dev-safari', name: 'Mac · Safari', first_seen: 1756000100, code: 'VR-D6' },
+  ] }));
+  const got = remote.pendingDevices();
+  assert.deepEqual(got.devices.map((d) => d.device_id), ['dev-safari'], 'this Mac asked to approve itself');
+  remote.setOn(false);
+});
+
+test('#4610 a new identity drops the old account\'s pending snapshot; the same identity keeps it (CONTROL)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const pend = () => nodePath.join(DATA_ROOT, 'remote', 'pending.json');
+  const plant = () => fs.writeFileSync(pend(), JSON.stringify({ devices: [{ device_id: 'dev-old', name: 'Old account phone', first_seen: 1756000000, code: 'K7-3M' }] }));
+  const signIn = async (name, code) => { await remote.signinStart('her@example.com'); await remote.signinVerify('her@example.com', code); return remote.signinRegister(name); };
+  assert.equal((await signIn('olduser', '111111')).ok, true);
+  plant();
+  assert.equal(remote.pendingDevices().devices.length, 1, 'CONTROL: the planted snapshot reads before any change');
+  /* The same name is the same identity (the fake keeps mac-<name>): nothing is dropped. */
+  assert.equal((await signIn('olduser', '111111')).ok, true);
+  assert.ok(fs.existsSync(pend()), 'a re-register of the SAME identity threw away a live snapshot');
+  /* A different name is a new identity at the coordinator: the old snapshot goes. */
+  const before = fs.readFileSync(nodePath.join(DATA_ROOT, 'remote', 'mac_id'), 'utf8');
+  assert.equal((await signIn('newuser', '111111')).ok, true);
+  assert.notEqual(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote', 'mac_id'), 'utf8'), before, 'the fake did not change identity, so the arm measures nothing');
+  assert.ok(!fs.existsSync(pend()) || !JSON.parse(fs.readFileSync(pend(), 'utf8')).devices.some((d) => d.device_id === 'dev-old'),
+    'the new account was still shown the old account\'s request');
+  remote.setOn(false);
+});
+
+test('#4610 Josh\'s ruling: a sign-in grants THIS Mac\'s own device at once, by the id this board minted; no other device is granted', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const already = allows().length;
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('grantmac');
+  assert.equal(reg.ok, true, reg.because);
+  const self = remote.read().device_id;
+  assert.ok(self, 'no device id was minted, so there is nothing to grant');
+  await until(() => allows().length > already, 'the automatic Allow for this Mac\'s own sign-in');
+  assert.deepEqual(allows().slice(already), [self], 'the grant went to something other than this Mac\'s own minted id');
+  /* The stranger case is proven through the supervisor tick, the one path that grants from a snapshot (round 2:
+     an arm here that only READ the snapshot could not fail). */
+  remote.setOn(false);
+});
+
+test('#4610 reading pending never spawns, even while this Mac\'s own sign-in is still listed (the retry lives in ensure)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('readmac')).ok, true);
+  const self = remote.read().device_id;
+  /* Round 3: wait for the sign-in's own grant to be recorded, not a fixed time (a loaded runner flaked). */
+  await until(() => recorded().some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self)), 'the sign-in\'s own grant to run');
+  await new Promise((r) => setImmediate(r));
+  /* Clear the once-a-minute throttle that grant just set, or a spawn from the read path would be blocked by the
+     throttle and this test could not tell the two apart (measured: it passed with the read-path call put back). */
+  remote.resetForTests();
+  remote.setOn(true);
+  const before = recorded().filter((a) => a[0] === 'devices').length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+  for (let i = 0; i < 5; i += 1) remote.pendingDevices();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(recorded().filter((a) => a[0] === 'devices').length, before, 'reading pending spawned the tunnel program');
+  remote.setOn(false);
+});
+
+test('#4610 a Mac whose own sign-in was never granted (signed in before this change) is granted by the supervisor tick', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('tickmac')).ok, true);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const self = remote.read().device_id;
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  await until(() => allows().includes(self), 'the sign-in\'s own grant');
+  /* Round 2: no second register (its own grant raced the tick's). A reset alone stands for a Mac that signed in
+     before this change and was never granted; only the tick can grant it now. */
+  remote.resetForTests();
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back up');
+  const before = allows().length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+  remote.ensure(4600);
+  await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
+  assert.deepEqual(allows().slice(before), [self]);
+  remote.setOn(false);
+});
+
+test('#4610 round 1: through the supervisor tick, ONLY this Mac\'s own id is granted, never a stranger in the same snapshot', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('strangermac')).ok, true);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const self = remote.read().device_id;
+  /* Round 3: wait for the sign-in's own grant to be recorded, not a fixed time (a loaded runner flaked). */
+  await until(() => recorded().some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self)), 'the sign-in\'s own grant to run');
+  await new Promise((r) => setImmediate(r));
+  remote.resetForTests();                          // clear the throttle and the granted mark, as a later tick would find it
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back up');
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const before = allows().length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-stranger', name: 'This computer (Kosmos app)', first_seen: 1756000000, code: 'AA-11' },
+    { device_id: self, name: 'x', first_seen: 1756000100, code: 'W6-M4' },
+  ] }));
+  remote.ensure(4600);
+  await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(allows().slice(before), [self], 'the tick granted something other than this Mac\'s own minted id');
+  assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), ['dev-stranger'], 'the stranger was hidden');
+  remote.setOn(false);
+});
+
+test('#4610 round 2: a grant still out when the identity changes cannot mark the next identity granted', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '1500';
+  try {
+    assert.equal((await remote.signinRegister('epochmac')).ok, true);
+    const self = remote.read().device_id;
+    const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+    await until(() => allows().includes(self), 'the slow grant to start');
+    remote.resetForTests();          // an identity change while that grant is still out (device_id survives, by design)
+    remote.setOn(true);
+    delete process.env.FAKE_TUNNEL_MODE;
+    await until(() => recorded().some((a) => a[0] === 'devices-done'), 'the old grant to land after the change');
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    const before = allows().length;
+    fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+    remote.ensure(4600);
+    await until(() => allows().length > before, 'the tick to grant it again: the old answer must not count for the new identity');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_DEVICE_HANG_MS; remote.setOn(false); }
+});
+
+/* ---- kosmos#4756: a second computer signs in to a BOUGHT address (#4754 contract) ------------------ */
+// The switch (/v1/meta) is a plain request, so a local server answers it; the list comes through the fake binary.
+async function withMetaServer(meta, fn) {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url, auth: req.headers.authorization || null });
+    if (req.url === '/v1/meta' && meta) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(meta)); return; }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no"}');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + server.address().port + '/';
+  try { return await fn(seen); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    server.closeAllConnections(); await new Promise((r) => server.close(r));
+  }
+}
+const ADDR_ANSWER = RECORD + '.addresses';
+const ADDR_TOKEN = RECORD + '.addresses-token';
+const addressesArgv = () => fs.readFileSync(RECORD, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((a) => a[0] === 'signin' && a[1] === 'addresses');
+const BOUGHT = { addresses: [
+  { name: 'first', address: 'first.kosmos.invalid', state: 'in_use', computer: { name: 'first', last_seen: 1 } },
+  { name: 'spare', address: 'spare.kosmos.invalid', state: 'free', computer: null },
+  { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending', computer: null },
+  { name: 'Bad Name', address: 'bad.kosmos.invalid', state: 'free' },
+  { name: 'other', address: 'notother.kosmos.invalid', state: 'free' },
+  { name: 'weird', address: 'weird.kosmos.invalid', state: 'retired' },
+], buy_url: 'https://login.kosmos.invalid/signin#add-computer', price: null };
+async function signedIn() { remote.resetForTests(); await remote.signinStart('her@example.com'); await remote.signinVerify('her@example.com', '262626'); }
+
+test('#4756: with bought addresses switched off, signinAddresses answers live:false and never reads the list', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    for (const meta of [{ bought_addresses: false }, { build: 'x' }]) {
+      const before = addressesArgv().length;
+      await withMetaServer(meta, async (seen) => {
+        const r = await remote.signinAddresses();
+        assert.deepEqual(r, { ok: true, because: null, data: { live: false } });
+        assert.equal(addressesArgv().length, before, 'read the list with the switch off');
+        assert.equal(seen.some((x) => x.url === '/v1/meta'), true, 'never asked /v1/meta; the zero above proves nothing');
+        assert.equal(seen.some((x) => x.auth), false, 'the switch read carried a credential');
+      });
+    }
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756 review: a switch read that fails is not the switch off: the read fails, and the list is not asked', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    const before = addressesArgv().length;
+    await withMetaServer(null, async (seen) => {   // /v1/meta answers 404
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false, JSON.stringify(r));
+      assert.match(r.because, /could not be reached to check for bought addresses/);
+      assert.equal(seen.some((x) => x.url === '/v1/meta'), true, 'never asked /v1/meta; the failure above proves nothing');
+    });
+    const r2 = await remote.signinAddresses({ fetch: async () => { throw new Error('offline'); } });
+    assert.equal(r2.ok, false, 'a switch read that threw read as off');
+    assert.equal(addressesArgv().length, before, 'read the list with the switch unknown');
+    assert.equal(await remote.fetchMetaFlag('bought_addresses', { fetch: async () => { throw new Error('offline'); } }), null, 'a caller that passes no unread still gets null');
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756: live, the list is read through the tunnel binary with the session on stdin (never argv), and rows pass only in their own shapes', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    remote.resetForTests();
+    await withMetaServer({ bought_addresses: true }, async (seen) => {
+      const none = await remote.signinAddresses();
+      assert.equal(none.ok, false);
+      assert.match(none.because, /finish the code steps first/);
+      assert.equal(seen.length, 0, 'called the coordinator with no session');
+      await remote.signinStart('her@example.com');
+      await remote.signinVerify('her@example.com', '262626');
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify(Object.assign({}, BOUGHT, { buy_url: 'javascript:alert(1)' })));
+      fs.rmSync(ADDR_TOKEN, { force: true });
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(fs.readFileSync(ADDR_TOKEN, 'utf8'), 'kst1.session-owned', 'the session did not reach the binary on stdin');
+      const argv = addressesArgv().pop();
+      assert.ok(argv, 'the binary was not asked');
+      assert.ok(!argv.join(' ').includes('kst1.session-owned'), 'the session token was on argv');
+      assert.equal(seen.filter((x) => x.url !== '/v1/meta').length, 0, 'the list was fetched directly, not through the binary');
+      assert.deepEqual(r.data.addresses, [
+        { name: 'first', address: 'first.kosmos.invalid', state: 'in_use', first_free: false },
+        { name: 'spare', address: 'spare.kosmos.invalid', state: 'free', first_free: false },
+        { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending', first_free: false },
+      ], 'a row with a bad name, a mismatched address or an unknown state was passed through');
+      assert.equal(r.data.buy_url, '', 'a buy link that is not https was passed to the page');
+    });
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756 review: first_free reaches the page, from the server field when sent, else only from bought_at null and grandfathered false', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  const r = (name, extra) => Object.assign({ name, address: name + '.kosmos.invalid', state: 'in_use' }, extra);
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [
+      r('unbought', { bought_at: null, grandfathered: false }),
+      r('bought', { bought_at: 1790000000, grandfathered: false }),
+      r('kept', { bought_at: null, grandfathered: true }),
+      r('halfsaid', { bought_at: null }),
+      r('unsaid', {}),
+      r('serveryes', { bought_at: 1790000000, grandfathered: false, first_free: true }),
+      r('serverno', { bought_at: null, grandfathered: false, first_free: false }),
+      r('serverodd', { bought_at: 1790000000, grandfathered: false, first_free: 'yes' }),
+    ] }));
+    await withMetaServer({ bought_addresses: false }, async () => {
+      const got = await remote.signinAddresses();
+      assert.equal(got.ok, true, got.because);
+      const seen = Object.fromEntries(got.data.addresses.map((x) => [x.name, x.first_free]));
+      assert.deepEqual(seen, { unbought: true, bought: false, kept: false, halfsaid: false, unsaid: false, serveryes: true, serverno: false, serverodd: false });
+      assert.equal(got.data.addresses.some((x) => 'bought_at' in x || 'grandfathered' in x), false, 'the raw fields were passed through beside first_free');
+    });
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756 review: two callers of the same sign-in share one read of the list; the next call after it ends reads again', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    const before = addressesArgv().length;
+    const [one, two] = await Promise.all([remote.signinAddresses(), remote.signinAddresses()]);
+    assert.equal(one.ok && two.ok, true, JSON.stringify([one, two]));
+    assert.deepEqual(one, two, 'the second caller got a different answer from the shared read');
+    assert.equal(addressesArgv().length - before, 1, 'two callers of one sign-in each ran the binary');
+    await remote.signinAddresses();
+    assert.equal(addressesArgv().length - before, 2, 'control: a call after the shared read ended did not read again');
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756 review: the switch read, the list read and the close grace together leave a second of the page timeout', () => {
+  const page = fs.readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const m = /const PLUS_ASK_TIMEOUT_MS = (\d+);/.exec(page);
+  assert.ok(m, 'PLUS_ASK_TIMEOUT_MS not found in web/index.html');
+  assert.ok(remote.ADDR_META_MS + remote.ADDR_READ_MS + remote.SETUP_CLOSE_GRACE_MS + 1000 <= Number(m[1]),
+    remote.ADDR_META_MS + ' + ' + remote.ADDR_READ_MS + ' + ' + remote.SETUP_CLOSE_GRACE_MS + ' leaves under a second of ' + m[1]);
+});
+
+test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordinator; a refusal keeps its sentence; a list that is not a list gives no rows', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    await withMetaServer({ bought_addresses: false }, async () => {
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(r.data.live, true);
+      assert.equal(r.data.buy_url, 'https://login.kosmos.invalid/signin#add-computer');
+      fs.writeFileSync(ADDR_ANSWER, 'ERR Kosmos+ said no (401): your sign-in has ended; start again from the email');
+      const refused = await remote.signinAddresses();
+      assert.equal(refused.ok, false);
+      assert.match(refused.because, /your sign-in has ended; start again from the email/);
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: 'first,spare' }));
+      const odd = await remote.signinAddresses();
+      assert.equal(odd.ok, true);
+      assert.deepEqual(odd.data.addresses, []);
+    });
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756: a sign-out during the switch read stops before the binary is asked', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const before = addressesArgv().length;
+      const cancelDuring = (url, o) => { remote.signinCancel(); return fetch(url, o); };
+      const r = await remote.signinAddresses({ fetch: cancelDuring });
+      assert.equal(r.ok, false);
+      assert.match(r.because, /sign-in ended/);
+      assert.equal(addressesArgv().length, before, 'asked the binary with a session that had ended');
+    });
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756: a computer already set up says which of the account\'s addresses it holds (this_name)', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+  try {
+    remote.resetForTests();
+    await remote.setupStart('her@example.com');
+    const set = await remote.setupComplete('123456', 'spare');
+    assert.equal(set.ok, true, set.because);
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '262626');
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(r.data.this_name, 'spare');
+    });
+    await remote.forget();
+    // Control: after the forget nothing is set up here, so the same read names no address.
+    await signedIn();
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.data.this_name, '', 'named an address for a computer that holds none');
+    });
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756: a tunnel binary older than the verb reads as "update Kosmos", not clap\'s usage line', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, 'OLDBIN');
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false);
+      assert.equal(r.unsupported, true);
+      assert.equal(r.because, 'this version of Kosmos cannot list your addresses yet; update Kosmos');
+      assert.doesNotMatch(r.because, /--help/);
+    });
+  } finally { fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [] })); remote.resetForTests(); }
 });

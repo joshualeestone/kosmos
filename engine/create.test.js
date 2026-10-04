@@ -56,6 +56,9 @@ process.on('exit', () => {
 });
 
 const create = require('./create');
+// #4632: the ready-made roles are downloaded, not shipped; store the signed fixture as a download
+// would, so the caution and count checks below see the same catalogue a board does.
+require('../test-support/catalogue-fixture').install(SANDBOX);
 
 /**
  * ⚠️ The programs an agent is made of, pinned to something that exists
@@ -678,8 +681,8 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // survives every wording of it: the PM does not attempt work outside
     // its skill -- it briefs the agent who has it.
     pm: /brief the agent who\s+has\s+it rather than attempting it badly/i,
-    // #4555: the seeded catalogue's cautioned roles (engine/catalogue-roles.js, generated
-    // from tools/catalogue/roles-source.js). Each states its boundary once in its own
+    // #4555: the seeded catalogue's cautioned roles (joshualeestone/kosmos-catalogue, stored here
+    // from test-support/catalogue-published/catalogue.json). Each states its boundary once in its own
     // instructions; the patterns allow the line wrap between words.
     cos: /draft,\s+never\s+send\s+or\s+accept/i,
     officemgr: /draft,\s+never\s+send/i,
@@ -1669,7 +1672,10 @@ test('the startup script, actually run, hands the pane its account and its board
       `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
       `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`,
       // #4466: always, so the CLI can tell an agent from a person (the session is the claim above).
-      'KOSMOS_AGENT_SESSION=probe'];
+      'KOSMOS_AGENT_SESSION=probe',
+      // #4491 slice 9: always pinned EMPTY, so a value on the shared tmux server cannot switch an unlisted agent
+      // into token-only (a listed agent's 1 comes from the one-use secrets file, never argv).
+      'KOSMOS_AGENT_TOKEN_ONLY='];
     if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
@@ -1729,6 +1735,10 @@ test('the startup script, actually run, hands the pane its account and its board
         /* #4466: the session name rides ALWAYS (it is SET by the supervisor, like the token), so the
            CLI can tell an agent from a person. Excluded by its exact value, not a prefix. */
         && v !== 'KOSMOS_AGENT_SESSION=probe'
+        /* #4491 slice 9: the token-only switch rides ALWAYS, pinned EMPTY, so a value on the shared tmux server
+           cannot switch an unlisted agent on. Excluded by its exact empty value (a 1 here would still fail), and
+           pinned present just below. */
+        && v !== 'KOSMOS_AGENT_TOKEN_ONLY='
         /* #3383c: HOME rides ALWAYS (see the set-case comment) -- it is $HOME, always
            non-empty here, and re-injected so a default-account agent reads the trust we
            wrote rather than parking on the folder-trust prompt. An always-on rider like
@@ -1748,6 +1758,8 @@ test('the startup script, actually run, hands the pane its account and its board
         `${label}: PATH ${isClaude ? 'reached a claude pane' : 'stopped reaching the codex pane'}: ` + JSON.stringify(r.newSession));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+      assert.ok(passed.includes('KOSMOS_AGENT_TOKEN_ONLY='),
+        `${label}: the empty KOSMOS_AGENT_TOKEN_ONLY pin stopped reaching the pane (#4491): ` + JSON.stringify(r.newSession));
       assert.ok(passed.includes('KOSMOS_WORLD='),
         `${label}: the KOSMOS_WORLD override stopped reaching the pane, so a default agent could inherit a named world: ` + JSON.stringify(r.newSession));
       assert.ok(passed.some((v) => /^HOME=/.test(v)),
@@ -2313,6 +2325,132 @@ test('#4289: an agent created with the Community switch OFF gets no community bl
   }
 });
 
+test('#5023: a new agent is asked to introduce itself at birth; one whose key already has a post is not', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const communitystore = require('./communitystore');
+  fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
+  const made = create.createAgent({ ...BINS, name: 'intro-new', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  assert.match(fs.readFileSync(create.instructionFile('intro-new'), 'utf8'), /You have not posted to the community yet/,
+    'a newly made agent was not asked to introduce itself until its first restart');
+  communitystore.insertPost({ status: 'published', agent: 'intro-old', topic: 'Hello', body: 'Already here.' });
+  const again = create.createAgent({ ...BINS, name: 'intro-old', role: 'pm' });
+  assert.equal(again.outcome, create.OUTCOME.CREATED, again.because);
+  const text = fs.readFileSync(create.instructionFile('intro-old'), 'utf8');
+  const communityblock = require('./communityblock');
+  assert.ok(require('./projects').findBlock(text, communityblock.START, communityblock.END), 'CONTROL: the block itself is still written');
+  assert.ok(!/You have not posted to the community yet/.test(text), 'an agent whose key already has a post was asked to introduce itself');
+});
+
+test('#5023: at birth, near the size limit, the introduction gives way and the community block still lands', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const cb = require('./communityblock');
+  const { MAX_BYTES } = require('./instructions');
+  fs.rmSync(sw.FILE, { force: true });   // ON
+  const probe = create.createAgent({ ...BINS, name: 'size-probe', role: 'pm', instructions: 'A planning agent for tests.' });
+  assert.equal(probe.outcome, create.OUTCOME.CREATED, probe.because);
+  const probeLen = Buffer.byteLength(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), 'utf8');
+  assert.match(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), /You have not posted to the community yet/, 'fixture: the probe got the introduction');
+  const extra = Buffer.byteLength(cb.blockBody({ introduce: true }), 'utf8') - Buffer.byteLength(cb.blockBody(), 'utf8');
+  // With the introduction the file would be over by half the line; without it, under by half.
+  const pad = MAX_BYTES - probeLen + Math.floor(extra / 2);
+  const made = create.createAgent({ ...BINS, name: 'size-fit', role: 'pm', instructions: 'A planning agent for tests.' + 'x'.repeat(pad) });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const text = fs.readFileSync(create.instructionFile('size-fit'), 'utf8');
+  assert.ok(require('./projects').findBlock(text, cb.START, cb.END), 'the optional introduction cost a new agent its whole community block');
+  assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
+  assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_BYTES, 'the file is over the limit');
+});
+
+test('#5050: on a Spanish Mac the new agent file ENDS with the language block; on an English one it has none', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  try {
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'es-MX';
+    pl._resetForTests();
+    const made = create.createAgent({ ...BINS, name: 'lang-es', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const text = fs.readFileSync(create.instructionFile('lang-es'), 'utf8');
+    assert.ok(text.trimEnd().endsWith(pl.END), 'the language block is not the last thing in the new file');
+    assert.match(text, /reads Spanish \(es-MX, from this computer's language setting\)/);
+    assert.ok(Array.isArray(made.steps), 'createAgent returned no steps, so the check below would be vacuous');
+    assert.ok(!made.steps.some((st) => /language/.test(st.label || '') && st.ok === false), 'the language step reported a failure');
+
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'en-US';
+    pl._resetForTests();
+    const plain = create.createAgent({ ...BINS, name: 'lang-en', role: 'pm' });
+    assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-en'), 'utf8').includes(pl.START), 'an English Mac wrote a language block');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
+test('#5050 review 13: pasted instructions with two language blocks are left alone and the step says it failed', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  const two = `You are **{{NAME}}**, with instructions pasted from another computer.\n\n${pl.START}\nold one\n${pl.END}\n\n${pl.START}\nolder one\n${pl.END}\n`;
+  try {
+    for (const [tag, name] of [['es-MX', 'lang-two-es'], ['en-US', 'lang-two-en']]) {
+      process.env.AGENT_WORKFORCE_PERSON_LOCALE = tag;
+      pl._resetForTests();
+      const made = create.createAgent({ ...BINS, name, role: 'pm', instructions: two });
+      assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+      assert.ok(Array.isArray(made.steps));
+      assert.ok(made.steps.some((st) => /found two language sections/.test(st.label || '') && st.ok === false), tag + ': the two-block case was not reported');
+      const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+      assert.equal(text.split(pl.START).length - 1, 2, tag + ': the two pasted blocks were changed');
+      assert.match(text, /old one/);
+      assert.match(text, /older one/);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
+test('#5050 review 14: a read that is not sure (a Mac whose defaults failed, Spanish region) writes and reports nothing', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  try {
+    pl._resetForTests({ env: {}, platform: 'darwin', run: () => { throw new Error('timed out'); }, intl: 'es-ES' });
+    assert.equal(pl.read().sure, false, 'CONTROL: the read really is a fallback');
+    const made = create.createAgent({ ...BINS, name: 'lang-unsure', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-unsure'), 'utf8').includes(pl.START), 'an unsure read wrote a language block');
+    assert.ok(Array.isArray(made.steps) && !made.steps.some((st) => /language/.test(st.label || '')), 'an unsure read reported a language step');
+  } finally { pl._resetForTests(); }
+});
+
+test('#5050 review 20: on an English Mac a pasted language section is taken out, and the step says so', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  try {
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'en-US';
+    pl._resetForTests();
+    const pasted = `You are **{{NAME}}**, with instructions pasted from a Spanish Mac.\n\n${pl.START}\nold one\n${pl.END}\n`;
+    const made = create.createAgent({ ...BINS, name: 'lang-paste-en', role: 'pm', instructions: pasted });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-paste-en'), 'utf8').includes(pl.START), 'CONTROL: the section was taken out');
+    assert.ok(made.steps.some((st) => /took out a language section from its instructions, because this computer's language is English/.test(st.label || '') && st.ok === true), 'the removal was silent');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
   recorder();
   create.setDryRun(false);
@@ -2375,8 +2513,13 @@ test('custom instructions are written verbatim with a trailing newline, and the 
   const defaults = require('./defaults');
   assert.ok(without.startsWith(mine + '\n'), 'the person\'s own words were not written verbatim and first');
   const rest = without.slice((mine + '\n').length);
-  assert.equal(rest.trim(), defaults.block().trim(),
+  // #4890: the rules are born inside the managed span, so nothing but that span follows the person's words.
+  const doctrine = require('./doctrine');
+  const span = projects.findBlock(rest, doctrine.START, doctrine.END);
+  assert.ok(span && !span.ambiguous, 'the working rules were not written inside the managed span at birth');
+  assert.equal(projects.removeBlock(rest, doctrine.START, doctrine.END).trim(), '',
     'something other than the operating defaults, under their own heading, followed the person\'s words');
+  assert.ok(rest.slice(span.start, span.end).includes('\n' + defaults.block() + '\n'), 'the span does not hold the current rules whole');
   assert.ok(!text.includes('project manager'),
     'the role template leaked into instructions the person replaced');
 });
@@ -2490,6 +2633,10 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      (262,144 / 32,935), so the fits-check stays unreachable; the canary's job is to flag growth
      before it matters, and it did. Which change grew the file, and whether it is only intended new
      text, is kosmos#4021. */
+  /* Raised from / 6 to / 5 on 2026-10-01 (#4833): main measured 43,679 bytes of text, 11 bytes under the / 6 line
+     (43,690), and #4833's answer-every-reply rule adds 405 (44,084), all of it the community block's intended new
+     instructions. / 5 is 52,428, still about 5x under the real cap (262,144), so the fits-check stays unreachable.
+     The second raise in five days (32,935 then 43,679 bytes): the growth itself is kosmos#4021's to watch. */
   /* #4041: THE CANARY MEASURES THE TEXT, NOT THE CHECKOUT. The boot file embeds two absolute
      paths that belong to the machine running this test: the kosmos CLI (four times, in the
      msg/post/reply lines; on a source checkout it is <repo>/install/kosmos) and the agent's Files
@@ -2515,7 +2662,7 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
     'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 6,
+  assert.ok(measured < instructions.MAX_BYTES / 5,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
@@ -5315,6 +5462,8 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   let r = create.createAgent({ ...noClaude, codexBin: '/nonexistent-codex', name: 'cg-a', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /could not find Claude Code/);
+  // #5127: the whole sentence a person sees, ending at the place to connect (no alternative here).
+  assert.match(r.because, /Connect a Claude account in Settings, AI Models\. Kosmos will then set up Claude Code\.$/);
   assert.ok(!/OpenAI instead/.test(r.because), 'a dead-end alternative was offered in words');
   assert.equal(r.alternative.offered, false);
   assert.match(r.alternative.because, /codex runner/);
@@ -5332,7 +5481,9 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   r = create.createAgent({ ...noClaude, codexBin: CODEX_BIN, name: 'cg-c', role: 'pm' });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
-  assert.match(r.because, /or create this agent on OpenAI instead/);
+  assert.match(r.because, /or create this agent on OpenAI instead/i);
+  // #5127: the shipped sentence, joined right: the place, a full stop, then the alternative as its own sentence.
+  assert.match(r.because, /in Settings, AI Models\. Kosmos will then set up Claude Code\. Or create this agent on OpenAI instead\.$/);
   assert.equal(r.alternative.offered, true);
 
   // And nothing was half-made by any of the three refusals.
@@ -5696,7 +5847,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 5],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 6],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(
@@ -6179,16 +6330,16 @@ test('#1672: when the working-rules block cannot be added, creation SAYS SO and 
    * it something is the worse failure, and that posture is deliberate. What
    * changes is only that the loss is now named.
    *
-   * 📌 A code-level break is already caught: making `appendTo` throw reds 6 of
-   * this file's other tests. The case this step exists for is the DEPLOYMENT one,
+   * 📌 A code-level break is already caught: making `doctrine.atBirth` throw reds
+   * 7 of this file's other tests (8 with this one; measured 2026-10-01, #4890). The case this step exists for is the DEPLOYMENT one,
    * a partially synced install where the shipped code is fine and the file on
    * disk is not, which no test can see.
    */
   recorder();
   create.setDryRun(false);
-  const defaults = require('./defaults');
-  const orig = defaults.appendTo;
-  defaults.appendTo = () => { throw new Error('#1672 simulated: defaults unavailable'); };
+  const doctrine = require('./doctrine');   // #4890: birth writes the rules through doctrine.atBirth
+  const orig = doctrine.atBirth;
+  doctrine.atBirth = () => { throw new Error('#1672 simulated: defaults unavailable'); };
   try {
     const r = create.createAgent({ ...BINS, name: 'Pete Defaults', role: 'pm' });
     assert.equal(r.outcome, create.OUTCOME.CREATED,
@@ -6197,7 +6348,7 @@ test('#1672: when the working-rules block cannot be added, creation SAYS SO and 
     assert.equal(said, true,
       'creation must NAME the loss: without this the person is told it worked and the agent cannot reply');
   } finally {
-    defaults.appendTo = orig;
+    doctrine.atBirth = orig;
   }
 });
 

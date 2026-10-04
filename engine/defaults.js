@@ -195,10 +195,18 @@ const BLOCK = [
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
   'room` shows its id in brackets (for example `[m3]`); that id is the',
-  '`<postId>`. Reacting again with the same emoji takes it back.',
+  '`<postId>`. Reacting again with the same emoji takes it back. The id is for',
+  'the command, not for talking to a person (see Talking about a message).',
   '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
+  '',
+  '### Who a room post wakes',
+  '',
+  '**A room post that names nobody may not wake a colleague who is idle:** they',
+  'hear about it when something next reaches them. When you need an answer from',
+  'someone, @-name them in the post, or answer their own post with',
+  '`kosmos post --in-reply-to <id> <project>`.',
   '',
   '### Answering the person who messaged you',
   '',
@@ -224,6 +232,12 @@ const BLOCK = [
   'somewhere else. Greeting your manager in a reply to somebody else reads as',
   'not having looked at who was speaking.',
   '',
+  '### Your name is already on your message',
+  '',
+  '**Kosmos shows your name above every message you post in a room and every',
+  'reply you send the person, so never start a message with your own name**',
+  '("Dario: ..." or "**Dario:** ..."). Begin with what you have to say.',
+  '',
   '### Send readable messages, not a wall of text',
   '',
   '**A Kosmos room and your dialogue with the person both render formatting,',
@@ -239,14 +253,12 @@ const BLOCK = [
   'headings written with `#` through `######`, **bold**, *italic*,',
   '~~strikethrough~~, `inline code`, fenced code blocks, ordered and unordered',
   'lists, tables, a `---` rule, and emoji. A web address that starts with',
-  '`http://` or `https://` becomes a link on its own, so paste the whole',
-  'address rather than hiding it behind words.',
+  '`http://` or `https://` becomes a link on its own. A `[label](address)`',
+  'link shows the label with the address after it in parentheses, so the person',
+  'always sees where a link goes.',
   '',
-  '**What it does not, so do not reach for these:** a `[label](address)` link',
-  'shows only the label and drops the address in both a room and your dialogue',
-  'with the person, which is why you paste the bare address when the person',
-  'needs to open it. Anything written as raw HTML is shown the way you typed',
-  'it, not turned into a page. And a line that',
+  '**What it does not, so do not reach for these:** anything written as raw',
+  'HTML is shown the way you typed it, not turned into a page. And a line that',
   'starts with `>` becomes a quote in your dialogue with the person but stays',
   'literal text in a project room, so lean on it only there, never in a room.',
   '',
@@ -278,20 +290,15 @@ const BLOCK = [
   'KOSMOS_MSG',
   '```',
   '',
-  '**In your reply to the person,** `kosmos reply` has no `--stdin`, so read the',
-  'heredoc into a variable and pass that:',
+  '**In your reply to the person,** pipe it into `kosmos reply --stdin`:',
   '',
   '```',
-  "IFS= read -r -d '' msg <<'KOSMOS_MSG' || true",
+  "kosmos reply --stdin <<'KOSMOS_MSG'",
   '## What changed',
   '',
   '- the first point',
   'KOSMOS_MSG',
-  'kosmos reply "$msg"',
   '```',
-  '',
-  'The `|| true` matters: `read` ends non-zero when it reaches the end of the',
-  'message, which would otherwise stop a script before the reply is sent.',
   '',
   '**A message to another agent** (`kosmos msg`) is kept and delivered as one',
   'line, so formatting it changes nothing; write it plainly.',
@@ -395,6 +402,38 @@ const BLOCK = [
   '',
   'Otherwise you cannot tell finished from tired of trying.',
   '',
+  '### Put the work on a task first',
+  '',
+  '**When someone asks you for work that takes more than a reply, put it on a',
+  'task before you start,** and write on it what finished looks like: two or three',
+  'checks anyone could answer yes or no.',
+  '',
+  '`kosmos task add <project-id> "<the work, in one line>" "Done when: 1) ... 2) ... 3) ..." --who me`',
+  '',
+  'Use the project the work belongs to, from Your projects. The one line holds 200',
+  'characters; the checks can be longer. The person sees the task on that project.',
+  'If a check holds a backtick or a `$`, use single quotes, as in the trap above.',
+  '**Right after adding it, run `kosmos task list <project-id>` and note your',
+  "task's number:** you need it to mark the task built.",
+  '',
+  '**If several of you were asked in one room, add one task between you.** Run',
+  '`kosmos task list <project-id>` first; if the task is there, use it. Say its',
+  'number in the room.',
+  '',
+  '**If the work came to you as a task already, do not add another.** Put the',
+  'checks on that one:',
+  '',
+  '`kosmos task message <project-id> <task-number> "Done when: 1) ... 2) ... 3) ..."`',
+  '',
+  '**When it is done, mark it built and say how each check went,** in a short note',
+  '(it holds 300 characters):',
+  '',
+  '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
+  '',
+  'A question, a quick answer or small talk is not a task. If you are on no',
+  'project, or the work belongs to none of yours, do not guess another: write the',
+  'checks in your reply before you start, and say how each went when you finish.',
+  '',
   '### Never wait silently',
   '',
   '**If something is waiting on the person, tell them.** Never sit behind an',
@@ -468,6 +507,21 @@ const BLOCK = [
   'every agent, so use the name you were given. A message that uses their name',
   'reads as written to them; a generic word like "the operator" reads as written',
   'about them to someone else.',
+  '',
+  '### Talking about a message',
+  '',
+  '**When you write to a person, point at a message the way a colleague would:',
+  'by who said it and what it was about.** "Priya\'s message this morning about',
+  'the AtlasGrid deck" means something to them. The id you see in brackets is',
+  'for your commands (`--in-reply-to`, `kosmos react`); it is not a word to use',
+  'with a person. If you really need an exact pointer, write "message 530",',
+  'never the bare id with its letter in front.',
+  '',
+  '**A person may hand you a reference they copied from a message,** like',
+  '"message 530 in Kosmos Growth". It names the message whose id has the',
+  'number 530 (the numbers run across the whole Kosmos, so the number alone',
+  'finds it; "in Kosmos Growth" is the project room it was posted in). In your',
+  'commands use the id, or the number alone.',
   '',
   '### When someone reacts to your post',
   '',
@@ -633,7 +687,7 @@ function block() {
  *     told an agent that, so agents guessed and mostly sent flat paragraphs. A
  *     NEW section states the capability and the default: use the subset from the
  *     first message, in rooms and dialogues, with the two things that do NOT
- *     render (a `[label](url)` link shows label only; a `>` line stays literal in
+ *     render (a `[label](url)` link showed label only until #4627; a `>` line stays literal in
  *     a room) and the shell trap (backticks and `$` in a double-quoted message
  *     are eaten by the shell; single-quote instead).
  *     ⭐ NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
@@ -720,13 +774,12 @@ function block() {
  *     storeText) and a reply to the person (#1927, chat.js appendMessage) keep
  *     them; `kosmos msg` to another agent does NOT (messages.send stores
  *     cleanMessage, one line), so the section says not to format those.
- *     `kosmos post` takes `--stdin` (#3591); `kosmos reply` takes only an
- *     argument, so the heredoc is read into a variable first (`IFS= read -r
- *     -d ''`). Not `"$(cat <<'KOSMOS_MSG' ...)"`: macOS's bash 3.2 fails to parse
- *     that when the message holds an apostrophe (measured); zsh and bash 3.2
- *     both take the read form. `|| true` because read ends non-zero at the end
- *     of its input, which under `set -e` would stop the script before the reply
- *     (measured in both shells).
+ *     `kosmos post` takes `--stdin` (#3591), and since #4582 so does `kosmos
+ *     reply`, so both pipe the quoted heredoc. (Before #4582 the reply read it
+ *     into a variable with `IFS= read -r -d '' ... || true`; agents that hold
+ *     that older copy keep a form that still works.) Never `"$(cat <<'KOSMOS_MSG'
+ *     ...)"`: macOS's bash 3.2 fails to parse that when the message holds an
+ *     apostrophe (measured).
  *     Delimiter KOSMOS_MSG, not EOF: a message line that is exactly the
  *     delimiter would end the heredoc and run the rest as commands. PowerShell
  *     cannot pipe into kosmos (kosmos.ps1 never reads piped input); a
@@ -790,8 +843,66 @@ function block() {
  *     when it has none; engine/dmfiles.js spliceTop), which needs no consent because that block is Kosmos's.
  *     WEAKEST PREMISE, NAMED: that the earlier section is what the agent obeyed. It said so itself, which is the
  *     least reliable kind of evidence; the pointer above the doctrine covers the case whatever the reason.
+ *
+ *  19. kosmos#4631 (Josh, 2026-09-29 14:42): agents say "m530" to him, which means nothing to a person. A NEW
+ *     section, `### Talking about a message`, says to point at a message by who said it and what it was about,
+ *     to write "message 530" only when an exact pointer is needed, and that the bracketed id is for commands. It
+ *     also says a person may paste a copied reference ("message 530 in <project>"), which the commands now take.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason: `missingFrom` matches by heading, so
+ *     the agents Josh already talks to are re-offered it, not only new ones. defaults.test.js pins that no prose
+ *     line of the block uses a bare id as speech (ids appear only inside backticks, as command syntax).
+ *     WEAKEST PREMISE, NAMED: the envelope an agent reads still carries the id (it needs it to reply), so the
+ *     habit is fought by one instruction against every delivered line; the envelope is not reworded here.
+ *  20. kosmos#4582 (Josh's Five Families project, #4580 item 5, four of five families): `kosmos reply` now
+ *     takes `--stdin`, as `post` does, so "Formatted messages need line breaks" pipes the quoted heredoc into
+ *     `kosmos reply --stdin` instead of reading it into a variable first (`IFS= read -r -d '' msg ... || true`).
+ *     SAME HEADING: it reaches new agents and agents with a managed span; an agent holding the old copy keeps a
+ *     form that still works, so nothing breaks for it. The PowerShell here-string form is unchanged (kosmos.ps1
+ *     never reads piped input).
+ *     WEAKEST PREMISE, NAMED: that agents use the heredoc form rather than a quoted argument. The families said
+ *     the missing flag is what pushed them to the workaround; whether they switch is seen only after release.
+ *  21. kosmos#4624 follow-up (0.7.15 diagnostic, H7): a colleague's room post that names nobody is no longer typed
+ *     into a member whose turn-end hook says it is idle (engine/roomhold.js), so an agent asking the room a question
+ *     without @-naming anyone may wake nobody. A NEW section, `### Who a room post wakes`, says so and says to @-name
+ *     or answer with --in-reply-to. NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason: the agents
+ *     already posting in rooms are the ones who need it. "May not": a member that never reported, or wrote its own
+ *     idle, is still typed.
+ *     WEAKEST PREMISE, NAMED: that agents who need an answer will name someone once told. Seen only in rooms after
+ *     release.
+ *  22. kosmos#4873 (Josh, 2026-10-01 07:31): Claude, OpenAI and Gemini agents start room messages with their own
+ *     name ("Dario: ...") under a header that already says Dario. A NEW section, `### Your name is already on your
+ *     message`, says never to. NEW HEADING for the version 5/6/7/8 delivery reason (missingFrom matches by heading,
+ *     so existing agents are re-offered it). The board also hides a leading self-name when it renders a message
+ *     (web/index.html), so a message written before this lands, or one that slips through, reads cleanly.
+ *     WEAKEST PREMISE, NAMED: one instruction against a habit; the render half is what makes the room clean.
+ *  23. kosmos#4890 (Josh's five-family diagnostic, items H9 and N7): "Send readable messages" said a
+ *     `[label](address)` link drops the address. Since #4627 it shows "label (address)", so the sentence now says
+ *     that, under "What a room shows you". SAME HEADING, and this version is the first whose same-heading changes
+ *     reach EXISTING agents: an agent is now born with the rules inside the managed span (doctrine.atBirth), and an
+ *     older agent whose plain copy byte-matches an earlier version (engine/doctrine-past.js) is offered the
+ *     current rules through the same consented dialog, which puts them inside the span.
+ *     WEAKEST PREMISE, NAMED: that most existing agents carry an unedited copy. Measured on this Mac on
+ *     2026-10-01: 3 of 3 instruction files holding the rules matched an earlier version exactly (v15 twice, v18
+ *     once), none was in a span. A person who edited theirs, or whose file has Windows line endings, is offered
+ *     only missing headings, as before.
+ *  24. kosmos#5152 slice 0 (Josh, #admin 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"):
+ *     a NEW section, `### Put the work on a task first`: work that takes more than a reply goes on a task before it
+ *     starts, with "Done when:" checks, and the built note says how each check went. NEW HEADING, so existing agents
+ *     are offered it (missingFrom). MEASURED before merge with claude -p on a test agent built from this block and a
+ *     real Your projects section, a stand-in kosmos logging every call. First wording: 4/4 filed a task with "Done
+ *     when:" and reported each check when marking it built; the v23 block (control) 0/4; small talk 0/2 filed. Review
+ *     then added the existing-task case and where the number comes from; that wording: work requests 11/13 filed and
+ *     marked built (2 onboarding runs did the work without filing; 6 reruns of that request all filed), given a task
+ *     3/3 added none and messaged the checks onto it, small talk 1/1 filed nothing. The v3 wording (the 200-character
+ *     line, note the number): work requests 4/4 filed, listed and marked built; given a task 2/2 added none; small talk 1/1
+ *     filed nothing. Review round 3 then added single quotes for a check with a backtick or $, one task between agents
+ *     asked in one room, and work outside every project going in the reply. That wording: a work request 1/1 filed,
+ *     listed and marked built with each check; given a task 1/1 added none; small talk 1/1 filed nothing; work outside
+ *     every project 1/1 filed none (whether its reply held checks the stand-in cannot see). Claude only.
+ *     WEAKEST PREMISE, NAMED: Codex and Gemini agents were not measured, and nothing yet lets the person edit the
+ *     checks (the editable-checks slice waits until after the beta).
  */
-const DOCTRINE_VERSION = 18;
+const DOCTRINE_VERSION = 24;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

@@ -164,7 +164,8 @@ test('piece four: the row draws its ring only with a known memory and its warnin
   assert.match(fn, /if \(pct === null\) return '';/, 'a ring is drawn for an unknown memory');
   assert.match(fn, /class="gf \$\{band\}"/, 'the ring does not use the gauge\'s own band classes');
   assert.match(SCRIPT, /\$\{av\}\$\{lrowRing\(a\)\}\$\{m\.st === 'attn' \? LROW_WARN : ''\}/, 'the warning is not gated on the needs-you state');
-  assert.match(SCRIPT, /<div class="lav">\$\{off\}<\/div>/, 'a stopped row reads a memory the route does not emit for it');
+  /* #4823: the stopped row's .lav holds only the avatar and the phone's grey dot (.lpres off), never a ring. */
+  assert.match(SCRIPT, /<div class="lav">\$\{off\}<span class="pres lpres off" aria-hidden="true"><\/span><\/div>/, 'a stopped row reads a memory the route does not emit for it');
   assert.match(PAGE, /\.lav \.lring, \.lav \.lwarn, \.lav \.lreach \{ display: none; \}/, 'the ring, warning or cannot-reach badge shows in the tabs\' list layout');
   assert.match(PAGE, /body\.consolidated \.lrow > \.lav > \.lwarn \{ display: block/);
 });
@@ -221,11 +222,10 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
      head by a CSS inset (asserted below). */
   assert.doesNotMatch(PAGE, /id="rail-projects-fold"/,
     'the projects fold control must be gone - the column is not collapsible (#3126)');
-  /* #3559: the head may also carry the Tasks button beside the name (the consolidated view's
-     only way into Tasks, since it hides the tab bar). Still no fold control, which is what this
-     guards; the + stays alone in .railacts (next assertion). */
-  assert.match(PAGE, /<span class="lead"><span class="railname">Projects<\/span>(?:<button class="rail-tasks" type="button" id="rail-projects-tasks"[^>]*>Tasks<\/button>)?<\/span>/,
-    'the projects head should hold only the name (plus #3559\'s Tasks button) after the fold control was removed (#3126)');
+  /* The head holds only the name: no fold control (#3126) and no Tasks pill (#4595); the + stays
+     alone in .railacts (next assertion). */
+  assert.match(PAGE, /<span class="lead"><span class="railname">Projects<\/span><\/span>/,
+    'the projects head should hold only the name (#3126 took the fold control out, #4595 the Tasks pill)');
   assert.match(PAGE, /#rail-projects \.lead \{ padding-left: 29px; \}/,
     'the projects head keeps the fold-button inset so "Projects" stays aligned with "Agents" (#3126)');
   assert.match(PAGE, /<span class="railacts">\s*<button class="fold plus" type="button" id="rail-agents-new"[^>]*>\+<\/button>\s*<\/span>/,

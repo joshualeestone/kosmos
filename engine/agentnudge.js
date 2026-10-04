@@ -60,8 +60,10 @@ function openParts(session, projects) {
   const tasks = require('./tasks');
   const out = [];
   for (const p of Array.isArray(projects) ? projects : []) {
-    if (!p || p.archived === true) continue;
+    /* #4771: nothing in a paused project, and no task on hold, is the agent's work to be nudged about. */
+    if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (tasks.isOnHold(t)) continue;
       const prog = tasks.progressOf(t);
       if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
       if (require('./projects').isSwarmOff(p, session)) continue;
@@ -88,9 +90,18 @@ function plainWords(v, cap) {
 
 function nudgeText(part) {
   const words = plainWords(part.sentence, SENTENCE_CAP);
+  /* #4771 (review 2): the agent in Josh's 0.7.15 report was nudged here about a project its person had paused in the
+     room. Its instructions teach `kosmos project pause` only after they are next re-written, so the nudge, which
+     reaches a running agent at exactly that moment, names the verb too. */
+  /* Review 3: only an id in the slug set the CLIs take as it is (and at most 80 characters, a cap of this hint's own;
+     a longer id just gets no hint), so the hint can never name another
+     project; and the hint says the pause must be the person's ask, and that the room is told who paused. */
+  // Not all dots: both CLIs refuse such an id (review 4).
+  const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId) && /[^.]/.test(part.projectId)) ? part.projectId : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
-    + 'say so with: kosmos report blocked --on <what> --owner <who>';
+    + 'say so with: kosmos report blocked --on <what> --owner <who>'
+    + (id ? '. Only if your person asked in the room to pause this project: kosmos project pause ' + id + ' (the room is told you paused it)' : '');
 }
 
 /* A card the nudge may type into: the Assigner's own idleCard (ours, idle, not a paused swarm). */
@@ -149,8 +160,11 @@ function sweepOnce(o) {
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
-        try { const r = o.deliver(session, text, o.roster); state = r && r.state; }
+        let held = false;
+        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+        /* #4588 PR B: held on the shared Google quota, nothing typed: no try is spent and nothing counts toward the hour. */
+        if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because, task: p.part.n }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

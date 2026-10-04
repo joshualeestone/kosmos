@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const { trustFolder, forgetFolder, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, ONBOARDING_KEY } = require('./trust');
+const { trustFolder, forgetFolder, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY } = require('./trust');
 
 let n = 0;
 /** A folder that exists, fresh per test. */
@@ -708,19 +708,19 @@ const acctDir = () => {
 const sPath = (d) => nodePath.join(d, 'settings.json');
 const sRead = (d) => JSON.parse(fs.readFileSync(sPath(d), 'utf8'));
 
-test('#1919: preacceptBypass CREATES settings.json with only the key when absent', () => {
+test('#1919/#5039: preacceptBypass CREATES settings.json with only its two keys when absent', () => {
   const d = acctDir();
   const r = preacceptBypass(d);
   assert.equal(r.ok, true);
   assert.equal(r.already, false);
   assert.equal(r.madeFile, true);
   assert.equal(r.target, sPath(d), 'the RESOLVED path, not ~/.claude.json (a wrong path is a silent no-op)');
-  assert.deepEqual(sRead(d), { [BYPASS_KEY]: true });
+  assert.deepEqual(sRead(d), { [BYPASS_KEY]: true, [SWITCH_KEY]: true });
 });
 
 test('#1919: preacceptBypass on an already-true settings.json is already, no rewrite', () => {
   const d = acctDir();
-  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: true, defaultMode: 'bypassPermissions' }));
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: true, [SWITCH_KEY]: true, defaultMode: 'bypassPermissions' }));
   const before = fs.statSync(sPath(d)).mtimeMs;
   const r = preacceptBypass(d);
   assert.deepEqual(r, { ok: true, already: true, target: sPath(d) });
@@ -747,6 +747,39 @@ test('#1919: preacceptBypass records a displaced explicit value (e.g. a prior fa
   assert.equal(r.ok, true);
   assert.equal(r.displaced, false, 'the prior explicit value is reported (merge awareness), not silently overwritten unseen');
   assert.equal(sRead(d)[BYPASS_KEY], true);
+  assert.equal(sRead(d)[SWITCH_KEY], true, '#5039: the combined write sets the switch key in the same pass');
+});
+
+test('#5039: settings with the bypass key but no switch key gets switchModelsOnFlag, other keys kept', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: true, model: 'opus', hooks: { a: 1 } }));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false, 'an agent created before #5039 gets the key on its next launch');
+  assert.equal(r.displaced, undefined, 'the bypass key was already true, so nothing of it was displaced');
+  assert.deepEqual(sRead(d), { [BYPASS_KEY]: true, model: 'opus', hooks: { a: 1 }, [SWITCH_KEY]: true });
+});
+
+test('#5039: an explicit switchModelsOnFlag false is the person\'s choice and is kept', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: true, [SWITCH_KEY]: false }));
+  const r = preacceptBypass(d);
+  assert.deepEqual(r, { ok: true, already: true, target: sPath(d) });
+  assert.equal(sRead(d)[SWITCH_KEY], false);
+});
+
+test('#5039: a false bypass and an explicit false switch: bypass flips, the switch false is kept', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: false, [SWITCH_KEY]: false }));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false);
+  assert.equal(r.displaced, false);
+  assert.deepEqual(sRead(d), { [BYPASS_KEY]: true, [SWITCH_KEY]: false });
+});
+
+test('#5039: SWITCH_KEY is spelled switchModelsOnFlag (measured in a real settings.json; this pins the spelling only)', () => {
+  assert.equal(SWITCH_KEY, 'switchModelsOnFlag');
 });
 
 test('#1919: preacceptBypass refuses a symlinked settings target rather than sever it', () => {

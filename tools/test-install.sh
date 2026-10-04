@@ -24,6 +24,12 @@
 # under the production bundle id before that gate existed).
 
 set -euo pipefail
+# #5045: every kosmos command below plays a PERSON (or the Mac app acting for one), never an agent.
+# Since #4466, `kosmos stop` refuses an agent while the board answers, so a harness started from an
+# agent's pane (the usual way it runs on the fleet) kept boards up and failed the connect arm's
+# "board is down" control (2026-10-02 12:01, 147 passed / 10 failed). Measured as a person's run,
+# which is what it tests; no arm here tests agent behaviour. Same fix as #4619 (test-board-watchdog).
+unset KOSMOS_AGENT_SESSION KOSMOS_AGENT_TOKEN TMUX_PANE
 
 # #4498: beside a live cut or suite this run WAITS (every 30 s, up to 20 minutes) and then refuses;
 # --no-wait (or KOSMOS_NO_WAIT=1) refuses at once. Any other argument is refused, so a mistyped
@@ -86,6 +92,8 @@ _ti_box_clear() {
   if [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ] && ! kosmos_holds_machine_claim; then
     kosmos_refuse_if_suite_live "a full install-harness run" || return 1
   fi
+  # #4911: nor beside a light run's side turn (it boots a board too); it ends in minutes, so this waits.
+  kosmos_refuse_if_light_side_live "a full install-harness run" || return 1
   return 0
 }
 # #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.
@@ -297,6 +305,7 @@ export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: the harness's boards write no language block, whatever this Mac's language is
 # 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
 # installs refuses to start (#634): a sandbox with some roots live is the
 # exact thing the app now refuses, and it refused this harness at its first
@@ -366,6 +375,8 @@ chk() {
   if eval "$2"; then PASS=$((PASS + 1)); echo "PASS  $1"
   else FAIL=$((FAIL + 1)); echo "FAIL  $1"; fi
 }
+# #4641: the checks that read only repo files, also run on every PR by tools/test-install-static.sh.
+source "$HERE/tools/lib/install-static-checks.sh"
 # Exit codes read as verdicts (#785). rc_ok is "exited 0" and, when it did
 # not, says the code, naming 126 and 127 as could-not-run (a program missing
 # or not executable) rather than a failed assertion. rc_refused is "exited
@@ -731,9 +742,6 @@ echo "== #910: per-account port derivation, shell and Swift agree =="
 # <uid>`, same shape as the pre-existing `--kosmos-app-selftest` build-time
 # check) -- nothing outside a compiled Swift binary can call
 # kosmosDefaultPort() directly to compare against.
-_kosmos_expected_port() { # $1 = uid
-  if [ "$1" = 501 ]; then printf '16180'; else printf '%s' "$((16180 + 1 + ($1 % 3999)))"; fi
-}
 # kosmos#955: a bundle that PREDATES --kosmos-app-port-selftest (a stale dist/ copied
 # rather than rebuilt) does not know the flag, starts the app, and hangs this section
 # forever with no verdict -- the log's last line staying the header above, so it reads
@@ -758,55 +766,7 @@ else
   chk "the bundle implements --kosmos-app-port-selftest (a #910-aware build)" "false"
   echo "      this bundle's kosmos-app did not return the pinned uid-501 port within the bound (it hung on the flag or answered the wrong value), so dist/ predates #910: rebuild dist/ rather than copying an older build. Skipping the per-uid port checks instead of hanging on them (#955)." >&2
 fi
-chk "uid 501 is pinned to the literal, unchanged default" "[ \"\$(_kosmos_expected_port 501)\" = 16180 ]"
-chk "uid 1000 and uid 4999 wrap the same modulo to the identical port (1000 % 3999 = 4999 % 3999)" "[ \"\$(_kosmos_expected_port 1000)\" = \"\$(_kosmos_expected_port 4999)\" ]"
-chk "the derived alternate never lands back on the pinned primary port" "[ \"\$(_kosmos_expected_port 502)\" != 16180 ]"
-# ⚠️ WHAT THIS SECTION CANNOT PROVE, NAMED RATHER THAN LEFT IMPLICIT: none of
-# the checks above exercise install/kosmos's or install/setup.sh's OWN
-# embedded formula against a non-primary uid -- both call `/usr/bin/id -u`
-# by absolute path (deliberately, matching this repo's own style for
-# security-sensitive system binaries), which cannot be safely stubbed via a
-# PATH trick, and this harness has no second real macOS account to run as.
-# `_kosmos_expected_port` above is a SEPARATE, hand-written copy of the
-# formula, so a bug in the real code that also happened to make its way
-# into that copy would not be caught by it. What CAN be verified without a
-# second real account: the two shell copies stay byte-identical to each
-# other (a copy-paste drift between them would be silent otherwise, since
-# every other scenario in this file always sets KOSMOS_PORT explicitly and
-# never actually reaches either fallback).
-# Located by its own distinctive first line, not a hardcoded line number --
-# either file gaining or losing lines elsewhere would silently point a
-# line-number-based extraction at the wrong content.
-_kosmos_formula_from() { # $1 = file, reads from the anchor line through PORT=
-  awk '/^_kosmos_uid="\$\(\/usr\/bin\/id -u\)"$/{f=1} f{print} f&&/^PORT="\$\{KOSMOS_PORT:-\$_kosmos_default_port\}"$/{exit}' "$1"
-}
-chk "install/kosmos's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from "$HERE/install/kosmos")\" ]"
-chk "install/setup.sh's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from "$HERE/install/setup.sh")\" ]"
-chk "install/kosmos and install/setup.sh carry the byte-identical derivation" \
-  "diff <(_kosmos_formula_from \"$HERE/install/kosmos\") <(_kosmos_formula_from \"$HERE/install/setup.sh\") >/dev/null"
-
-# 🔑 postinstall's KOSMOS_PORT guard, EXECUTED not just diffed: unlike the
-# two shell files above (byte-identical to each other so a text diff is
-# meaningful), postinstall names its own variables and can't run through
-# setup.sh's own `sh < "$SETUP"` pipe (it needs CONSOLE_UID resolved and a
-# real console session before it would ever reach this block). Extracted
-# by its own distinctive anchors and actually sourced in a subshell with
-# CONSOLE_UID/KOSMOS_PORT set, so a regression in the REAL code is caught,
-# not a hand-copied duplicate of it.
-_postinstall_port_block() {
-  awk '/^_kosmos_port_ok=0$/{f=1} f{print} f&&/^fi$/{c++; if(c==2) exit}' "$HERE/install/pkg-scripts/postinstall"
-}
-chk "postinstall's KOSMOS_PORT guard block was found (or this check is vacuous)" "[ -n \"\$(_postinstall_port_block)\" ]"
-_postinstall_page_port() { # $1 = CONSOLE_UID, $2 = KOSMOS_PORT (may be unset/empty)
-  ( CONSOLE_UID="$1"; KOSMOS_PORT="${2:-}"; eval "$(_postinstall_port_block)"; printf '%s' "$_KOSMOS_PAGE_PORT" )
-}
-chk "a valid KOSMOS_PORT override is used as-is" "[ \"\$(_postinstall_page_port 502 8080)\" = 8080 ]"
-chk "the boundary value 65535 is accepted" "[ \"\$(_postinstall_page_port 502 65535)\" = 65535 ]"
-chk "an empty KOSMOS_PORT falls back to the derived default, not an error" "[ \"\$(_postinstall_page_port 502 '')\" = \"\$(_kosmos_expected_port 502)\" ]"
-chk "a non-numeric KOSMOS_PORT falls back to the derived default (best-effort, never exits)" "[ \"\$(_postinstall_page_port 502 abc)\" = \"\$(_kosmos_expected_port 502)\" ]"
-chk "a leading-zero KOSMOS_PORT falls back to the derived default" "[ \"\$(_postinstall_page_port 502 0070)\" = \"\$(_kosmos_expected_port 502)\" ]"
-chk "an over-65535 KOSMOS_PORT falls back to the derived default" "[ \"\$(_postinstall_page_port 502 70000)\" = \"\$(_kosmos_expected_port 502)\" ]"
-chk "an unset KOSMOS_PORT for uid 501 still pins the literal 16180" "[ \"\$(_postinstall_page_port 501)\" = 16180 ]"
+install_static_port_checks   # #4641: tools/lib/install-static-checks.sh (the formula copy, the two-file diff, postinstall's guard)
 
 echo "== update (stale file must not survive; board must restart) =="
 touch "$SB/home/app/engine/stale-marker.js"
@@ -829,8 +789,9 @@ chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# 
 
 echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
 # The installer also writes board.stopped itself when it declines to start (a run that did not pause
-# first would otherwise leave launchd free to start it); checked by a grep below, since every run here
-# is an update whose pause already wrote the marker.
+# first would otherwise leave launchd free to start it); checked by a grep in install_static_board_off_checks
+# (tools/lib/install-static-checks.sh), called below, since every run here is an update whose pause
+# already wrote the marker.
 # The Mac app writes $KOSMOS_HOME/mode and runs `kosmos stop` when a person picks "Connect to agents
 # on another computer". An install or update must not start that board again, whether it finishes
 # or fails, and an unreadable choice must not become "run" either. The controls: the same update with
@@ -845,10 +806,8 @@ chk "its summary says no board runs here, on purpose" "grep -q 'No board of this
 chk "and never tells the person to start a board on another port" "! grep -q 'Start yours on a different port' \"$SB/update-connect.log\""
 chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
 chk "the pause does not say it is pausing a board that is already off" "grep -q 'making sure Kosmos is paused for the update' \"$SB/update-connect.log\" && ! grep -q 'pausing Kosmos for the update' \"$SB/update-connect.log\""
-chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -B1 'it is not this install.s, and this install does not start a board here now, so it is left alone' | grep -q 'if _kosmos_mode_keeps_board_off; then'"
-chk "an update of a set-up install from before #4356 records run, so it is never asked (source; the run-it arm is below)" "sed -n '/^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME\/mode\" \\]/,/^fi\$/p' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n' > \\\"\\\$KOSMOS_HOME/mode.new\""
+install_static_update_checks   # #4641: tools/lib/install-static-checks.sh
 chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while this computer connects to agents on another computer' \"$SB/update-connect.log\""
-chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login \$(_kosmos_off_why)' \"$SETUP\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
 # ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
@@ -895,13 +854,7 @@ printf 'both\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
 chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
-chk "a run that declines to start writes board.stopped itself" "grep -q ': > \"\$KOSMOS_HOME/board.stopped\" 2>/dev/null || true' \"$SETUP\""
-# #4466 added --force to this restart (an install run from an agent's pane is not the agent restarting
-# the board), so the pattern takes it as optional; the check is still that the decide comes first.
-chk "the launchd bootstrap's restart reads the choice again first" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -E -B1 'restart( --force)? >/dev/null 2>&1 [|][|] true' | grep -q '_kosmos_board_decide'"
-chk "and the restart itself is held by the board-off decision (the sandbox never reaches it)" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
-chk "a marker this run wrote goes if the choice became run or both during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^elif \\[ \"\$_kosmos_board_off\" = no \\] && \\[ \"\$_kosmos_wrote_marker\" = yes \\]; then' | grep -q 'rm -f \"\$KOSMOS_HOME/board.stopped\"'"
-chk "and the run ends by stopping a board that became connect during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^if \\[ \"\$_kosmos_mode_word\" = connect \\] && \\[ \"\$BOARD_OURS\" = yes \\]; then' | grep -q 'kosmos\" stop'"
+install_static_board_off_checks   # #4641: tools/lib/install-static-checks.sh
 rm -f "$SB/home/mode"
 chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 
@@ -1070,6 +1023,41 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     chk "the run names its target version" "grep -q \"installs Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
     chk "the versioned artifact name was fetched" "grep -q \"kosmos-$BUNDLE_V-arm64.tar.gz\" \"$SB/pinned.log\""
     chk "the read-back states what is on disk" "grep -q \"on disk now: Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
+
+    echo "== a connect computer updates with no board (#4382) =="
+    # The Mac app runs `kosmos update --if-newer` on a computer that connects to agents elsewhere, whose
+    # board is stopped on purpose. The real installer, from this release host, over an install made to
+    # look older (its package.json says 0.0.1, so the pointer's $BUNDLE_V is newer). setupUrl() is the
+    # base's sibling /setup, so the installer is published there.
+    cp "$SETUP" "$SB/setup"
+    printf 'connect\n' > "$SB/home/mode"
+    # As the person: the verb refuses an agent, and this harness is often run from an agent's pane.
+    _as_person="env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE"
+    "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
+    chk "CONTROL: the connect computer's board is down before the look" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+    _pkg="$SB/home/app/package.json"
+    _older() { sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
+    _older
+    chk "CONTROL: the install now reads as older" "grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
+    # Updates off: offered, nothing installed, the board stays down.
+    mkdir -p "$SB/data/Kosmos"
+    printf '{"on":false}\n' > "$SB/data/Kosmos/autoupdate.json"
+    RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-off.err")" || RC=$?
+    chk "updates off: the look exits 0" "rc_ok $RC"
+    chk "updates off: it offers $BUNDLE_V and installs nothing" "[ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"newer $BUNDLE_V\" ] && grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
+    chk "updates off: the board stays stopped" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+    # Updates on (no file, as on a connect computer whose Settings live on the other computer): installs.
+    rm -f "$SB/data/Kosmos/autoupdate.json"
+    RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-on.err")" || RC=$?
+    chk "updates on: the look installs, exit 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"updated $BUNDLE_V\" ]"
+    chk "updates on: $BUNDLE_V is what is on disk now" "grep -q \"\\\"version\\\": *\\\"$BUNDLE_V\\\"\" \"$_pkg\""
+    chk "updates on: the installer ran on the connect path" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/home/logs/install.log\""
+    chk "updates on: the board stays stopped after the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/ && [ -e \"$SB/home/board.stopped\" ]"
+    chk "updates on: the attempt is recorded for a board started later (code 0, no in-flight marker)" "grep -q '^0 ' \"$SB/home/logs/install.status\" && [ ! -e \"$SB/home/logs/install.started\" ]"
+    # Nothing newer now: the same look says so and runs nothing.
+    RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>/dev/null)" || RC=$?
+    chk "up to date: the look says current and exits 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"current $BUNDLE_V\" ]"
+    rm -f "$SB/home/mode" "$SB/setup"
     "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
     sh -s -- --uninstall < "$SETUP" > /dev/null 2>&1 || true
     # (b) THE WEDGE ITSELF: the pointer moves ahead while the only bytes
@@ -1750,11 +1738,7 @@ chk "its target survives too" "[ -f \"$REALB2/Kosmos.app/Contents/MacOS/Kosmos\"
 chk "the link is named, not claimed" "grep -q 'could not be proven to belong to this install' \"$SB/lnk3-un.log\""
 
 echo "== the production open default is real =="
-# Every observing pass substitutes the recording stub, and command -v
-# silently no-ops on an unresolvable value, so a typo in the default
-# would disable the branch's headline behavior on every real install
-# while the suite stayed green. Pin the literal and the binary.
-chk "the served file defaults to /usr/bin/open" "grep -q 'KOSMOS_OPEN_CMD:-/usr/bin/open' \"$SETUP\""
+install_static_open_checks   # #4641: tools/lib/install-static-checks.sh
 chk "/usr/bin/open exists on this machine" "[ -x /usr/bin/open ]"
 
 echo "== the open gate's sandbox belt, and a file-shadowed Applications =="
@@ -1935,6 +1919,7 @@ RC=0; env -i \
   AGENT_WORKFORCE_CREATED_URL="$AGENT_WORKFORCE_CREATED_URL" \
   AGENT_WORKFORCE_FEEDBACK_URL="$AGENT_WORKFORCE_FEEDBACK_URL" \
   AGENT_WORKFORCE_COMMUNITY_URL="$AGENT_WORKFORCE_COMMUNITY_URL" \
+  AGENT_WORKFORCE_PERSON_LOCALE="$AGENT_WORKFORCE_PERSON_LOCALE" \
   "$PETE_HOME/bin/kosmos" start > "$SB/reboot-sim.log" 2>&1 || RC=$?
 chk "a simulated reboot (plist env only) starts the board, not #634's refusal" "rc_ok $RC"
 # ⚠️ board.log, NOT reboot-sim.log: the shell wrapper's own stdout only ever

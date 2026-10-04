@@ -184,6 +184,13 @@ function repaint() {
         chk(realRepaint.open === wantAt && realRepaint.rows > 14, `${tag} a new message arriving (the page's own repaint) keeps the bar on the same message`, JSON.stringify(realRepaint));
         // A second tap closes it.
         await lastAgent.tap(); await page.waitForTimeout(300);
+        /* The sticky hover the tap leaves comes and goes on Chromium's gesture timing, not the page's: measured,
+           the row reads :hover, then not, then :hover again within 300 ms, and on a slow runner (CPU throttled x25,
+           or CI) it is still off at 300 ms, which left the precondition below unmet with the bar correctly hidden
+           (#4536). So the pointer is put back where the tap landed: the row is :hover for certain, and what is
+           measured is whether the page lets a hovered, closed row show its bar. */
+        { const bb = await lastAgent.boundingBox(); await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); }
+        await page.waitForTimeout(200);   // longer than the bar's .12s fade, so a wrongly shown bar would read 1
         const closed = await page.evaluate(openBar, MIN_RXN_TAP_PX);
         // The row keeps the tap's sticky :hover (checked, or this proves nothing): the bar must still be hidden.
         const sticky = await page.evaluate(() => { const r = [...document.querySelectorAll('#d-dmthread .msg:not(.you)')].pop(); return { hover: r.matches(':hover'), op: getComputedStyle(r.querySelector('.rxn-quick')).opacity }; });

@@ -105,3 +105,50 @@ test('#4340: a colleague\'s kosmos msg to the agent does not put the person\'s t
     'fixture: the colleague row is not in the message log addressed to the agent, so this test proves nothing');
   assert.equal((await owes()).state, 'clear', 'a colleague\'s message made the person\'s answered thread owe');
 });
+
+test('#4612: an owed DM shows the answer the agent gave in its own window, only when that turn began after the DM', async () => {
+  const selfreport = require('./engine/selfreport');
+  const U = 'novamuse';
+  fs.mkdirSync(create.workerDir(U), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(U), 'CLAUDE.md'), `# ${U}\n`);
+  const own = async () => (await (await fetch(`${base}/api/agent/${U}/thread`)).json()).owes;
+  const heard = Date.now() - 5 * 60000;
+  chat.appendMessage(chat.DIRECT, U, { text: 'hello', at: new Date(heard).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  // CONTROL: owed, with no report at all: no answer to show.
+  let o = await own();
+  assert.equal(o.state, 'owes'); assert.equal(o.unsent, undefined);
+  // A turn that began BEFORE the DM arrived is not its answer.
+  selfreport.record(U, { state: 'idle', auto: true, final: { text: 'an older answer', startedAt: new Date(heard - 60000).toISOString() } });
+  o = await own();
+  assert.equal(o.unsent, undefined, 'an answer from before the message was shown as its answer');
+  // A turn that began after it, ended idle with words: shown.
+  selfreport.record(U, { state: 'idle', auto: true, final: { text: 'Hi Josh, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
+  o = await own();
+  assert.equal(o.state, 'owes');
+  assert.equal(o.unsent && o.unsent.text, 'Hi Josh, all good here.', JSON.stringify(o));
+  // #4612 review: an answer that arrives on a WORKING report (a turn queued behind the DM) is shown too.
+  selfreport.record(U, { state: 'working', auto: true, final: { text: 'Hi Josh, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
+  const onWorking = await own();
+  assert.equal(onWorking.unsent && onWorking.unsent.text, 'Hi Josh, all good here.', 'an answer on a working report was not shown');
+  // A room turn runs next, and ends with no DM answer: the agent still answered the person, so it is still shown.
+  selfreport.record(U, { state: 'working', auto: true });
+  const running = await own();
+  assert.equal(running.unsent && running.unsent.text, 'Hi Josh, all good here.', 'a room turn running hid the answer');
+  selfreport.record(U, { state: 'idle', auto: true });
+  const ended = await own();
+  assert.equal(ended.unsent && ended.unsent.text, 'Hi Josh, all good here.', 'a room turn ending hid the answer');
+  // A NEWER DM is not answered by that older turn: nothing is shown for it.
+  chat.appendMessage(chat.DIRECT, U, { text: 'and now?', at: new Date(Date.now() - 1000).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  assert.equal((await own()).unsent, undefined, 'an older answer was shown under a newer message');
+  // #4612 review: the newer DM's own turn ends with no words (the front sends no answer): still nothing is shown, even
+  // though the record still carries the older answer.
+  selfreport.record(U, { state: 'working', auto: true });
+  selfreport.record(U, { state: 'idle', auto: true });
+  const later = await own();
+  assert.equal(later.unsent, undefined, 'an older answer was shown under a newer DM whose own turn ended with no words');
+  // Once the agent replies here, nothing is owed and nothing is shown.
+  selfreport.record(U, { state: 'idle', auto: true, final: { text: 'Hi Josh, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
+  keepAgentReply(U, 'Hi Josh, all good here.', new Date().toISOString());
+  o = await own();
+  assert.equal(o.state, 'clear'); assert.equal(o.unsent, undefined);
+});

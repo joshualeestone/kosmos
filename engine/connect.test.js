@@ -1290,9 +1290,12 @@ driverTest('the driver walks the measured flow end to end', async () => {
   const put = connect.submitCode('abCD1234#efGH5678');
   assert.equal(put.ok, true, put.because);
 
+  const genBefore = require('./loginexpiry').loginGeneration();
   await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
   const done = connect.state();
   assert.equal(done.plan, 'Claude Max 20x', 'the plan the login produced is not reported');
+  // #5018: a finished sign-in tells the login-date caches to read again (else the expiry notice stays until restart).
+  assert.ok(require('./loginexpiry').loginGeneration() > genBefore, 'a completed sign-in did not mark the login dates stale');
 
   const literal = term.sent.find((s) => s.includes('-l'));
   assert.ok(literal && literal.includes('abCD1234#efGH5678'), 'the code was accepted but never typed');

@@ -172,6 +172,8 @@ let lastTunnelFailure = null;
    report tell a tunnel stuck on its first dial (which writes no failure) from one just started. */
 let dialingSince = null;
 let localPort = null;
+// kosmos#4640: the waiting-to-be-allowed refusal is recognised in engine/allowwait.js (pure; remote-report.js asks it too).
+const { allowWaitSentence } = require('./allowwait');
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
     and the TLS key; the binary writes those 0600, but the directory around
@@ -262,7 +264,26 @@ function fedSetStanding(standing) {
    caught within a TTL (UI off), but the fed-route 403 stays the hard security gate --
    this only keeps the UI honest. */
 const STANDING_TTL_MS = 60 * 1000;   // ICK's ~60s; deliberately not per-poll (5s) to spare the coordinator
+/* #4731: with remote access OFF an enrolled computer is still heard from, but only this often: well inside the
+   coordinator's one-day "quiet" line (#4681), and far from the minute-scale cadence of a computer that is on. */
+const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
+/* #4731 review: a ping that could not get an answer while OFF (a laptop waking before its Wi-Fi) is retried after this,
+   not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
+const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
+/* kosmos#4743: a switch flip the coordinator has not been told yet. Set by setOn when the value changes (it also asks at once),
+   by a sign-in that switches on and by a cancelled sign-in that switches off (neither asks inside the sign-in:
+   see turnOnAfterSignin). While set, the next standing poll is due whatever its stamp, and a refresh that
+   was already out re-asks when it ends. */
+let flipPending = false;
+function askAfterFlip() {
+  const cur = read();
+  // flipPending makes the refresh below due. Off (enrolled or not): the stamp is also set back, so if this
+  // ask's answer is thrown away by a Forget while it is out, the next poll asks again (a new identity comes
+  // from a sign-in, which stamps fresh; there the flag set by the sign-in paths is what re-asks).
+  if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 });
+  try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
+}
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
@@ -280,7 +301,7 @@ async function fetchStanding() {
    still reports (tested here rather than in server.js). Every ten minutes it
    runs the refresh, which is single-flighted and TTL-gated: with a tab open, /api/status already
    refreshes on its own (shorter) TTL and this timer adds nothing; with none, it is the only
-   caller, at most one standing call per ten minutes. The TTL sits under
+   caller, at most one standing call per ten minutes (with remote access OFF, one per OFF_STANDING_TTL_MS, #4731). The TTL sits under
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
    skipped every other tick. Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
@@ -316,11 +337,20 @@ async function refreshStandingIfStale(opts) {
   }
   const s = read();
   if (s.ok !== true) return;
+  // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
+  // kosmos#4743: a flip not yet told (no ask has started since it was made) is due at once, whatever stamp
+  // another writer left meanwhile. Once an ask starts the flag is cleared; if that ask then fails, the flip
+  // is retried on the ordinary cadence (OFF_RETRY_MS off, the TTL on), not at once.
+  const due = flipPending ? 0 : (s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS));
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
-  if (Math.abs(now - (s.standing_at || 0)) < ttl) return;   // still fresh
+  if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
+  // This refresh reads the switch as it is now (mac-standing reads it at send time). Cleared when an ask
+  // starts. One that then stops early is not re-asked at once, and writes no stamp of its own: the stamp
+  // already there decides the next poll.
+  flipPending = false;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
   // and it must not be written onto another (#3827).
@@ -331,10 +361,18 @@ async function refreshStandingIfStale(opts) {
     if (typeof standing === 'string') {
       fedSetStanding(standing);             // a definite answer: update the value + reset the clock
     } else {
-      write({ standing_at: Date.now() });   // could not determine: KEEP the last-known value, back the retry off to the next TTL
+      // could not determine: KEEP the last-known value, back the retry off to the next TTL; while OFF,
+      // stamped so the retry lands OFF_RETRY_MS from now rather than a whole OFF_STANDING_TTL_MS (#4731).
+      // s.on is the switch as read before the ask; a flip made meanwhile set flipPending, which re-asks below.
+      write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
-  finally { standingRefreshInFlight = false; }
+  finally {
+    standingRefreshInFlight = false;
+    // Not cleared here: the ask clears it when it really proceeds (above), so a re-ask stopped early (busy,
+    // not enrolled) leaves it pending for the next refresh rather than dropping the flip (review 5).
+    if (flipPending) askAfterFlip();
+  }
 }
 /* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its
    switch is on and it still holds a key: a board in that state never asks for a relay
@@ -385,24 +423,45 @@ function kosmosPlus() {
   return s.ok === true && s.standing === 'good';
 }
 /* The isolated coordinator read for the GLOBAL federation-live flag: true/false, or
-   null when it could not be determined (offline, or -- today -- the source is not wired
-   yet). A null NEVER changes the cache, so a transient failure keeps the last-known
-   value (no flicker) and the default stays FALSE (hidden).
-   🛑 PENDING ICK/Baron's coordinator field (routed after their wire-proof): the exact
-   endpoint/shape is theirs to confirm. Proposal: an unauthenticated global
-   `GET /v1/meta` carrying a `federation_live` bool (it already returns 200, and this is
-   a PUBLIC launch flag, so a per-account mac-signed path is wrong for it). Until that is
-   confirmed and wired here, this returns null -> refreshFederationLiveIfStale is a safe
-   no-op and federationLive() keeps the default false, so the producer behaves EXACTLY as
-   the merged #3353 env-only producer. Wiring the real fetch is then a one-function change.
-   This mirrors how fetchStanding() shipped a null stub pending ICK's standing mechanism. */
-async function fetchFederationLive() {
-  return null;
+   null when it could not be determined (offline, an error answer, or a coordinator that does
+   not publish the field yet). A null NEVER changes the cache, so a transient failure keeps the
+   last-known value (no flicker) and the default stays FALSE (hidden).
+   kosmos#4649: the source is the PUBLIC `GET /v1/meta`, field `federation_live` (a launch flag
+   for everyone, so neither signed nor per-account). A coordinator without the field answers
+   null here, which is exactly the old stub's behaviour, so this is safe to ship before it.
+   ⚠️ Switching OFF is an explicit `federation_live: false`, never a missing field or a revert: null
+   keeps the last-known value on purpose (no flicker), so a board that saw true keeps it until told false.
+   So the coordinator MUST always publish the field (false unless turned on) and never remove it;
+   that is a requirement on its /v1/meta (the relay side of kosmos#4649), not yet true today.
+   ⚠️ A plain HTTPS read, NOT through the tunnel binary and its pinned key: this flag only decides what
+   the screens OFFER, and the shared-room routes still refuse non-members on the server, so a spoofed
+   answer can show or hide screens, never grant access. Redirects are refused, and only a JSON answer
+   is parsed. `opts.fetch` and `opts.timeoutMs` are the test seam. */
+const FED_LIVE_TIMEOUT_MS = 5000;
+/* One boolean off /v1/meta, or null when it cannot tell. Shared by federation_live (#4649) and
+   bought_addresses (#4756); the rules above apply to both. */
+async function fetchMetaFlag(field, opts) {
+  opts = opts || {};
+  const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  try {
+    const url = String(COORDINATOR()).replace(/\/+$/, '') + '/v1/meta';
+    const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
+    // opts.unread (kosmos#4756): what a read that failed answers, when the caller must tell it from a field left out.
+    if (!res || !res.ok) return 'unread' in opts ? opts.unread : null;
+    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return 'unread' in opts ? opts.unread : null;
+    const body = await res.json();
+    return (body && typeof body[field] === 'boolean') ? body[field] : null;
+  } catch {
+    return 'unread' in opts ? opts.unread : null;
+  }
 }
+async function fetchFederationLive(opts) { return fetchMetaFlag('federation_live', opts); }
 /* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
    NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
-   UNLIKE refreshStandingIfStale this is NOT gated on enrolled(): the flag is global and
-   a non-member board needs it to show the signup prompt. A definite bool updates the
+   Not gated on enrolled() (unlike refreshStandingIfStale): a board with remote access ON that
+   is not signed in yet still learns it. But gated on remote access being ON (kosmos#4649,
+   decided): a board that never opted in makes no call to our servers, so it cannot use the
+   flag for a signup prompt (an open product question on #4649). A definite bool updates the
    cache + resets the clock; a null KEEPS the last-known value and backs the retry off to
    the next TTL. */
 async function refreshFederationLiveIfStale(opts) {
@@ -413,6 +472,12 @@ async function refreshFederationLiveIfStale(opts) {
   if (fedLiveRefreshInFlight) return;
   const s = read();
   if (s.ok !== true) return;                       // state file unreadable -> keep default (false), do not stamp
+  /* kosmos#4649, decided: only a board whose person turned Kosmos+ remote access ON asks the coordinator.
+     A board that never opted in makes no call to our servers (the old stub made none; a live fetch would
+     have been 1,440 calls a day from every open board, and every test suite hitting /api/status). The
+     cost: a board that never turned it on cannot learn the flag, so it cannot show a signup prompt from
+     it. Whether never-opted-in boards should ask is a product call left open on #4649. */
+  if (s.on !== true) return;
   if (now - (s.fedLive_at || 0) < ttl) return;     // still fresh
   fedLiveRefreshInFlight = true;
   try {
@@ -430,7 +495,10 @@ async function refreshFederationLiveIfStale(opts) {
    AGENT_WORKFORCE_FEDERATION_LIVE env override on top for operator/dev boards. */
 function federationLive() {
   const s = read();
-  return s.ok === true && s.fedLive === true;
+  /* kosmos#4649 round 2: the flag counts only while remote access is ON, the same gate the refresh uses.
+     Otherwise a board that cached true and then turned remote access off would stop asking and keep true
+     forever, out of reach of the coordinator's explicit false. */
+  return s.ok === true && s.on === true && s.fedLive === true;
 }
 /* #4308 (Liu Kang's ruling): an unreadable settings file must stay visible to the person until THEY repair it.
    write() rebuilds the file from read(), and read() of a damaged file is the defaults with on:false, so any
@@ -508,14 +576,14 @@ function write(patch, opts) {
 }
 
 /** Enrolled means setup finished: the state dir holds the identity and the
-    certificate. Half a state dir is not enrolled. */
+    certificate, or the identity and the tunnel's `held` mark for a computer waiting
+    to be allowed (kosmos#4737, engine/enrolment.js). Half a state dir is not enrolled. */
 /* mac_key is deliberately not listed: enrolled() asks whether the Mac can serve,
    halfRegistered() whether it holds a key the coordinator knows (#3827). */
-const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
+const { ENROL_FILES, HELD_FILE, enrolledBy } = require('./enrolment');
+const inState = (f) => fs.existsSync(path.join(STATE_DIR(), f));
 function enrolled() {
-  const dir = STATE_DIR();
-  return ENROL_FILES.every((f) =>
-    fs.existsSync(path.join(dir, f)));
+  return enrolledBy(inState);
 }
 
 function address() {
@@ -549,10 +617,20 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
+  // An unreadable file (#4308) says nothing about the old value, so a save over it counts as a flip.
+  const before = read();
+  const was = before.ok === true ? before.on === true : !on;
   const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
+  /* kosmos#4743: tell the coordinator about a real flip now, not at the next cadence (up to
+     OFF_STANDING_TTL_MS when off), or the account page reads the old state for hours ("Answering
+     now" for a computer just switched off). If a refresh is already out it carries the old state, so
+     the flip is told when it ends (flipPending). Best-effort and never awaited. Asked at once here, unlike
+     turnOnAfterSignin: this is the person's own toggle, and a Forget straight after it waits at most one
+     signed call's bound (MAC_REQUEST_TIMEOUT_MS, 20 s) for it. */
+  if (was !== on) { flipPending = true; askAfterFlip(); }
   return { ok: true };
 }
 
@@ -583,7 +661,11 @@ function ensure(port) {
     if (!wanted) { stopChild(); return; }
     // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
     // backoff is reset every tick (status() does that on `up`), not only when a page asks.
-    if (child) { status(); return; }
+    if (child) {
+      status();
+      if (selfPendingInSnapshot()) allowSelfQuietly();   // #4610, Josh's ruling: the retry, off the read path
+      return;
+    }
     if (restartTimer) return;
     // Not while a register is out (#3827): the tunnel writes the new key, id and
     // address first and fetches the certificate last, so a tunnel started in that
@@ -600,18 +682,25 @@ function ensure(port) {
    fed-room`). stdin and stdout are the interface (lines of JSON; see
    engine/fedseats.js); stderr joins the board's log like the tunnel's own. The
    same binary, relay, state dir and coordinator as the drive tunnel. */
-function spawnFedSeat(edgeId) {
+/* The connector arguments for a room seat. `target` is an edge id (a guest's link, or an
+   owner's active edge), or { own: <project_ref> } for a seat in this computer's OWN
+   account's room (kosmos#4649: `fed-room --own-project`, given instead of --edge). */
+function fedSeatArgs(target) {
+  const own = target && typeof target === 'object' && typeof target.own === 'string' ? target.own : null;
   const args = [
     'fed-room',
     '--relay', RELAY(),
     '--state-dir', STATE_DIR(),
     '--coordinator', COORDINATOR(),
-    '--edge', String(edgeId),
+    ...(own !== null ? ['--own-project', own] : ['--edge', String(target)]),
   ];
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
-  return spawn(BIN(), args, connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
+  return args;
+}
+function spawnFedSeat(target) {
+  return spawn(BIN(), fedSeatArgs(target), connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
 }
 
 function startChild() {
@@ -757,8 +846,8 @@ function status() {
         address: null,
         /* #4308: say what repairs it, here and only here. The page shows this sentence as it is (paintPlus), so the
            repair instruction has one source. Only a person's own action (the switch among them) rewrites a damaged
-           file (see write()). "Kosmos Plus" is what the pane calls the switch. */
-        because: 'your remote-access settings could not be read. Turn Kosmos Plus on again to repair them',
+           file (see write()). "Kosmos+" is what the pane calls the switch. */
+        because: 'your remote-access settings could not be read. Turn Kosmos+ on again to repair them',
       };
     }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };
@@ -797,6 +886,12 @@ function status() {
          writes it, and its absence means no internet link for webhooks. */
       return { state: 'up', address: raw.address || address(), because: null, admitsHooks: raw.admits_hooks === true };
     }
+    /* kosmos#4640: waiting for the other computer's Allow. Kept while the tunnel only says it is
+       dialling again (connecting, no reason), the same way lastTunnelFailure is, and dropped once it
+       is up or its process writes any other failure (lastTunnelFailure is replaced or cleared). */
+    const waitFor = raw.state === 'restarting' ? raw.because : (raw.state === 'connecting' && !raw.because ? lastTunnelFailure : null);
+    const waitSaid = allowWaitSentence(waitFor);
+    if (waitSaid) return { state: 'waiting-allow', address: null, because: waitSaid };
     return {
       state: raw.state === 'restarting' ? 'restarting' : 'connecting',
       address: null,
@@ -1031,6 +1126,7 @@ async function forgetNow() {
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
   write({ on: false }, { repair: true });
+  flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
   if (canRetire) {
@@ -1158,6 +1254,7 @@ async function setupComplete(code, name) {
   if (!result.ok) abandonChangedIdentity(before, addressBefore, startedAt);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
+  if (result.ok && macIdHere() !== before) forgetPendingSnapshot();   // #4610
   // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
   // while it was out; a register that fails leaves the pending relaunch for the next tick.
   if (result.ok) { registerTakesOver(); ensure(localPort); }
@@ -1178,6 +1275,77 @@ async function setupComplete(code, name) {
 const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
+/* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
+   pending snapshot. pending.json is the running tunnel's last answer for the OLD identity, and it stays until the new
+   tunnel's first poll rewrites it (up to 5s, and longer if that poll fails: a failed poll keeps the last file,
+   kosmos-relay devices.rs). Called at every place the identity changes (setupComplete, cancelledAfter,
+   signinRegister), after the old tunnel is stopped so it cannot rewrite it. A missing snapshot already reads as
+   nothing waiting (pendingDevices). */
+function forgetPendingSnapshot() {
+  try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
+  resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
+}
+/* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
+   behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
+   (every session is one) and registering the Mac records no grant for it, so it waited for an Allow from the person
+   who had just signed in. It is granted here, through the same Allow the person's button uses (deviceAllow), and
+   never shown (pendingDevices leaves it out).
+   🔑 SCOPED TO THIS COMPUTER BY A VALUE ONLY THIS BOARD HOLDS: remote.json's device_id, which this board minted
+   itself for its own sign-in (signinStart) and never takes from a request, not a name or label a device sends, so a
+   remote device cannot claim it. Every other device still asks.
+   Retried from the supervisor's 15s tick (ensure) while the running tunnel's snapshot still lists it (a failed call,
+   a register still in flight when it first ran, or a Mac signed in before this change), at most once a minute and
+   never two at once within one identity (after an identity change the old call may still be finishing; its answer is
+   ignored by epoch). NOT from pendingDevices: every open board reads that every five seconds and it must never spawn. */
+let selfAllowAt = 0;
+let selfAllowing = false;
+/* Blind review round 1: once the grant for an id succeeds it is not asked again (a tunnel whose poll keeps failing
+   keeps the old snapshot listing it, which re-spawned the grant every minute forever), and a grant that fails is
+   logged once per id rather than retried in silence. Both reset on a new identity (signinRegister). */
+let selfGrantedId = '';
+let selfGrantedAt = 0;
+let selfFailLoggedId = '';
+/* Round 2: every identity change bumps this, and a grant's answer counts only if it still matches, so a grant started
+   for one account that lands after a re-sign-in cannot mark the next account's device as granted (device_id survives a
+   Forget by design). A reported success is re-checked after SELF_REGRANT_MS if the snapshot still lists the id. */
+let selfEpoch = 0;
+const SELF_REGRANT_MS = 10 * 60 * 1000;
+function resetSelfGrant() {
+  selfEpoch += 1;
+  selfAllowAt = 0; selfAllowing = false; selfGrantedId = ''; selfGrantedAt = 0; selfFailLoggedId = '';
+}
+const SELF_ALLOW_RETRY_MS = 60000;
+/* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
+function selfPendingInSnapshot() {
+  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  if (!id) return false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8'));
+    return !!(raw && Array.isArray(raw.devices) && raw.devices.some((d) => d && String(d.device_id) === id));
+  } catch { return false; }
+}
+function allowSelfQuietly() {
+  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  if (!id || selfAllowing || !enrolled()) return false;
+  if (selfGrantedId === id && Date.now() - selfGrantedAt < SELF_REGRANT_MS) return false;
+  if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
+  const epoch = selfEpoch;
+  selfAllowing = true;
+  selfAllowAt = Date.now();
+  Promise.resolve()
+    .then(() => deviceAllow(id, thisComputerDeviceName()))
+    .then((r) => {
+      if (epoch !== selfEpoch) return;   // an identity change since this grant started: its answer is not ours
+      if (r && r.ok) { selfGrantedId = id; selfGrantedAt = Date.now(); return; }
+      if (selfFailLoggedId !== id) {
+        selfFailLoggedId = id;
+        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + String((r && r.because) || 'no answer') + '); retrying about once a minute\n');
+      }
+    })
+    .catch(() => null)
+    .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
+  return true;
+}
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -1187,13 +1355,25 @@ function pendingDevices() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  /* #4610 (Josh, 12:50: "This computer (Kosmos app)" asked him to approve it): this Mac's OWN in-app sign-in is a
+     device row at the coordinator (every session is one), and registering the Mac records no grant for it, so it
+     stays pending for good. It is never a request: the app's window loads the board on this computer, not through
+     Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
+  const self = typeof settings.device_id === 'string' ? settings.device_id : '';
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => !self || String(d.device_id) !== self)
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
       first_seen: Number(d.first_seen) || 0,
       code: typeof d.code === 'string' ? d.code : '',
+      /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
+         joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
+      // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
+      // 🛑 It softens the page's prompt ("Allow it if you just signed it in"), so the coordinator must set it from its OWN
+      // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
+      joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
       denied_at: Number(settings.denied[String(d.device_id)]) || 0,
     }));
@@ -1252,6 +1432,10 @@ async function devicesList() {
       allowed_at: Number(d.allowed_at) || 0,
       last_seen: Number(d.last_seen) || 0,
       code: typeof d.code === 'string' ? d.code : '',
+      /* #4794 (part C): the name of the computer that allowed this device, when it was another of the person's
+         computers (its signed allow reached this one). null when this computer allowed it, and for a tunnel
+         without part C, which sends nothing. */
+      allowed_on: typeof d.allowed_on === 'string' && d.allowed_on.trim() ? d.allowed_on.trim().slice(0, 60) : null,
     })) } };
 }
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
@@ -1284,12 +1468,31 @@ async function deviceDeny(id) {
   return r;
 }
 /** Take it back: off this Mac's list at once, and the tunnel drops any live
-    session for it on the next request. */
+    session for it on the next request. #4824: with the coordinator, the connector also ends the
+    device's current sign-ins at the sign-in site and on the account's other computers (kosmos#4803),
+    and answers `signed_out` and `local_cutoff` for the page to say what did not happen.
+    A connector from before kosmos#4803 refuses the flag before doing anything (clap: "unexpected
+    argument '--coordinator'", exit 2, measured on that build), so it is asked again without it: the
+    removal here works as it always did, and the answer has neither `signed_out` nor `local_cutoff`, which the
+    page (removedWords) says as how an older connector works. */
 async function deviceRemove(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+  const r = await tracked(setupRun(deviceArgs('remove', id, true), null, retireTimeoutMs()));
+  // ANSI colour codes out first: a CLICOLOR_FORCE environment makes clap colour the argument.
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(said)) {
+    // A Forget may have started between the two spawns; the same refusal as the first call then.
+    { const b = busy(); if (b) return b; }
+    return removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+  }
+  return removeAnswer(r);
+}
+/* #4824: a connector killed on the timeout answers `timed_out`, and the page points at the list. */
+function removeAnswer(r) {
+  if (!r.ok && r.timedOut) return { ok: true, because: null, data: { timed_out: true } };
+  return parseSaid(r);
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -1312,7 +1515,7 @@ async function deviceRemove(id) {
    sensitive and live in `signinSession` in this process for the seconds between
    steps -- the wizard sees only page-safe fields (never bearer material), and
    `register` spends the session token from here (piped to the CLI over stdin, off
-   argv). This is the #874 posture: the page cannot carry, replay, or leak a
+   argv), and so does `signinAddresses` (kosmos#4756, the same way). This is the #874 posture: the page cannot carry, replay, or leak a
    credential it never holds. It is memory-only on purpose -- a board restart mid-flow drops it and
    the person simply starts sign-in again, which is safe and quick.
 
@@ -1498,6 +1701,7 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 function abandonChangedIdentity(before, addressBefore, startedAt) {
   if (macIdHere() === before) return;
   stopChild();
+  forgetPendingSnapshot();   // #4610 round 1: a failed register that kept a new mac_id is a new identity too
   // The certificate belongs to the ADDRESS (the tunnel keeps it across a register
   // at the same address: setup.rs certificate_survives), so it is dropped only when
   // the address changed; then it is for a name this key no longer holds. And only
@@ -1521,10 +1725,16 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
+    // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin).
+    // Set even if the switch was already off: one extra off check-in, which also tells a new identity.
+    flipPending = true;
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
-    if (macIdHere() !== before) fedSetStanding('');
+    if (macIdHere() !== before) { fedSetStanding(''); forgetPendingSnapshot(); }   // #4610
+    // kosmos#4743: AFTER fedSetStanding (which stamps standing_at fresh): the stamp is set back past the off
+    // cadence, so the off is told by the next standing poll even after a restart (flipPending lives in memory).
+    try { write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 }); } catch { /* best-effort */ }
   }
   return SIGNIN_CANCELLED;
 }
@@ -1744,8 +1954,14 @@ const retireTimeoutMs = () => {
 // it (or meet "already owns the name"); Forget retires it.
 // Exactly that: key and id, and no certificate. A Mac with its certificate is not
 // half anything (a missing address file alone must never retire and wipe it).
+// kosmos#4737: nor is a computer waiting to be allowed. Its registration was accepted with no
+// certificate on purpose and the tunnel marked it `held`; retiring it here would remove the very
+// computer the owner is about to allow. With its address that folder is enrolled() already; this
+// clause adds only the mark beside a missing address file, which is kept, as #3827 keeps a missing
+// address beside a certificate.
 const halfRegistered = () => !enrolled()
   && holdsKey()
+  && !inState(HELD_FILE)
   // The certificate is tls.crt; the tunnel writes tls.key first, so a kill between
   // the two leaves a key and no certificate, which is still half registered.
   && !fs.existsSync(path.join(STATE_DIR(), 'tls.crt'));
@@ -1798,8 +2014,10 @@ const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this co
 function explainStranded(result, half, name) {
   const stranded = half && half.stranded;
   // Only the same-account answer: another account's name ("that name is taken")
-  // or this account's own name rule is not this computer's doing.
-  if (!stranded || !result || result.ok || !/already in use by a Mac on this account/i.test(String(result.because || ''))) return result;
+  // or this account's own name rule is not this computer's doing. #4645: "a Mac" is
+  // the coordinator's wording today and "a computer" the wording it can move to once
+  // installs carry this reader; both are the same answer.
+  if (!stranded || !result || result.ok || !/already in use by a (?:Mac|computer) on this account/i.test(String(result.because || ''))) return result;
   // Replaced, not added to: the coordinator's sentence ("If that is this Mac, it
   // is already signed in / set up") is false here. The retire's reason went to
   // the log in clearHalfIdentity.
@@ -1816,8 +2034,83 @@ function busy() {
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
 function turnOnAfterSignin() {
+  const before = read();
   const wrote = write({ on: true }, { repair: true });
-  if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
+  if (!wrote.ok) { process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n'); return; }
+  // kosmos#4743: an off-to-on flip made by signing in makes the NEXT standing poll due at once, whatever
+  // its stamp (the account page would otherwise read "Remote access off" until the next on-cadence
+  // refresh). Not asked here: a signed call started inside the sign-in would hold up a Forget right
+  // after it, which waits for signed calls in flight before it switches off. (A refresh already out when
+  // this runs still re-asks when it ends, once the register has finished: the same narrow window any
+  // signed call in flight has.)
+  if (!(before.ok === true && before.on === true)) flipPending = true;
+}
+
+/* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
+   says bought addresses are live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 to test),
+   a computer signs in to an address the account has BOUGHT and never makes one, so the wizard needs the
+   account's addresses at the session step, before register. The list (the coordinator's GET
+   /v1/account/addresses, contract on kosmos#4754) is read THROUGH THE TUNNEL BINARY, as register is: the
+   session token goes on stdin, never argv, and the binary reaches the coordinator on its pinned key. Only the
+   switch itself is a plain request (fetchMetaFlag), because it carries no credential. A binary without the
+   `signin addresses` verb fails the read, and the page then takes the step as before.
+   Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
+   shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
+const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
+// The switch read, the list read and setupRun's close grace after the binary exits, together, leave at least a second
+// of the page's PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts it against web/index.html).
+const ADDR_META_MS = 1500, ADDR_READ_MS = 10200;
+let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
+async function signinAddresses(opts) {
+  const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
+  if (token && addressesInFlight && addressesInFlight.token === token && !(opts && (opts.fetch || opts.timeoutMs))) return addressesInFlight.run;
+  const run = signinAddressesOnce(opts);
+  if (opts && (opts.fetch || opts.timeoutMs)) return run;   // a test seam neither joins nor is joined
+  const mine = { token, run };
+  addressesInFlight = mine;
+  try { return await run; } finally { if (addressesInFlight === mine) addressesInFlight = null; }
+}
+async function signinAddressesOnce(opts) {
+  opts = opts || {};
+  const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  // No session, no call at all (not even /v1/meta): there is nothing to list without one.
+  if (!signinSession || typeof signinSession.token !== 'string') return { ok: false, because: 'finish the code steps first' };
+  const token = signinSession.token;   // taken now: a Sign out during the switch read below must not throw here
+  // AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 is for testing against a coordinator whose switch is off; it only changes what the
+  // step offers (the coordinator still refuses an address not bought).
+  const flag = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' ? true
+    : await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs || ADDR_META_MS, unread: 'unread' });
+  // A switch that could not be read is not a switch that is off: the page then takes the step as before, as for a
+  // list it could not read, and keeps the way back to the list a refusal needs.
+  if (flag === 'unread') return { ok: false, because: 'Kosmos+ could not be reached to check for bought addresses' };
+  if (flag !== true) return { ok: true, because: null, data: { live: false } };
+  if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
+  const ran = await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || ADDR_READ_MS);
+  // A sign-out, or another sign-in, while the binary ran: this answer is not theirs.
+  if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
+  if (!ran.ok) {
+    /* A tunnel binary older than the verb: clap prints "unrecognized subcommand" first and its usage after, so the
+       last line alone never says so (the same reading as assistantChat's). */
+    if (/unrecognized subcommand|invalid subcommand/i.test(String(ran.stderr || '') + '\n' + String(ran.because || ''))) {
+      return { ok: false, unsupported: true, because: 'this version of Kosmos cannot list your addresses yet; update Kosmos' };
+    }
+    return { ok: false, because: String(ran.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
+  }
+  const r = parseSaid(ran);
+  if (!r.ok) return { ok: false, because: String(r.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
+  const body = r.data;
+  const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
+    .filter((x) => x && NAME_RULE.test(String(x.name)) && BOUGHT_STATES.has(x.state)
+      && typeof x.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(x.address) && x.address.split('.')[0] === x.name)
+    /* first_free: this row is the account's free first address (neither bought nor grandfathered). The server's own
+       first_free wins when it sends one; else only a row that SAYS bought_at null and grandfathered false counts. A row
+       missing either field is not counted, so the page tries the name step and the coordinator's 402 not-bought is the
+       gate, rather than telling someone to buy the address their subscription pays for. */
+    .map((x) => ({ name: x.name, address: x.address, state: x.state,
+      first_free: typeof x.first_free === 'boolean' ? x.first_free : (x.bought_at === null && x.grandfathered === false) }));
+  const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
+  const here = enrolled() ? String(address() || '').split('.')[0] : '';
+  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };
 }
 
 async function signinRegister(name) {
@@ -1911,7 +2204,11 @@ async function signinRegister(name) {
      Unless the person pressed that off while this register was out: that stands. */
   // A new identity: a tunnel still running the old one (or started on it) stops,
   // so ensure() below brings it up on the new key and certificate.
-  if (macIdHere() !== before) stopChild();
+  if (macIdHere() !== before) { stopChild(); forgetPendingSnapshot(); }   // #4610
+  /* #4610 (Josh's ruling): grant this Mac's own sign-in now. After this call returns, so the register's in-flight
+     flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
+  resetSelfGrant();
+  setImmediate(allowSelfQuietly);
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
   registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
@@ -1929,7 +2226,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
@@ -1973,6 +2270,8 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   /* kosmos#4277: the current tunnel process's last failure sentence, for
      engine/remote-report.js to classify. Never sent as text. */
   lastTunnelFailure: () => lastTunnelFailure,
+  /* kosmos#4640: the waiting-to-be-allowed refusal's sentence, or null (pure; tests pin both spellings). */
+  allowWaitSentence,
   /* How long the current tunnel process has been dialling without being up, in ms, or null. */
   dialingForMs: () => (dialingSince === null ? null : performance.now() - dialingSince),
   holdsKey,
@@ -1987,7 +2286,11 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
+  standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
+  standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

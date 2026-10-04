@@ -428,7 +428,9 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
      guard DOES run. */
   assert.match(body, /Do not\s+quote\s+the\s+bracket\s+line/i,
     'the block never warns that echoing the delivery marker is refused, so the guard reads as a silent failure');
-  assert.match(body, /own\s+words,\s+or\s+name\s+the\s+id/i,
+  /* #4631: what to do instead is now whose message it was and what it said, not the bare id ("re m12"),
+     which agents then repeated to people. */
+  assert.match(body, /own\s+words\s+instead\s+of\s+pasting\s+the\s+line:\s+whose\s+message\s+it\s+was\s+and\s+what\s+it\s+said/i,
     'the warning does not say what to do instead');
   /* CONTROL: the WARNING paragraph must DESCRIBE the marker, never carry
      one. (The block elsewhere quotes the prefix on purpose, to teach
@@ -637,10 +639,11 @@ test('#460: a verbatim requote of another author\'s earlier post is tagged with 
     assert.equal(rows[0].quotes, undefined, 'the original author\'s own words must never be marked');
     assert.deepEqual(rows[1].quotes, [{ of: first.id, from: 'mara', start: body.indexOf(QUOTE), end: body.indexOf(QUOTE) + QUOTE.length }]);
     assert.equal(body.slice(rows[1].quotes[0].start, rows[1].quotes[0].end), QUOTE);
-    // Negative control (a): the same words posted again by their original author.
+    // Negative control (a): the same words posted again by their original author (with a tail: an
+    // identical repeat inside five minutes is one post since #4580).
     armSender('mara-discord');
     arm([ok(), ok()]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE + ', as I said' }, board.agents, MEMBERS);
     // Negative control (b): a paraphrase, and a one-word overlap.
     armSender('april-discord');
     arm([ok(), ok()]);
@@ -1000,6 +1003,9 @@ test('the room valve closes across the whole thread regardless of sender, once, 
     assert.equal(sent.state, chat.DELIVERY.COULD_NOT);
     assert.match(sent.because, /asked everyone to bring you in/,
       'the room valve does not carry the ruled sentence');
+    assert.equal(sent.code, 'room_held', '#4934: the loop guard\'s refusal is not marked, so the CLI cannot say nothing was kept');
+    assert.equal(sent.id, null, '#4934: the loop guard kept a copy (the CLI says it does not)');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'one more').length, 0, '#4934: the refused post was stored');
     assert.equal(tmux.sends().length, 0);
     const valves = messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease');
     assert.equal(valves.length, 1, 'the room valve closing was not logged (or logged per retry)');
@@ -2561,13 +2567,18 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
   });
 });
 
+/* #4580: identical sends inside five minutes are one message now, so each spill brief is numbered: the
+   tests are about where a long message lands, not about repeats. */
+let briefN = 0;
+const brief = () => 'brief ' + (++briefN) + ': ' + 'the lease detail '.repeat(80);
+
 test('#4447: a long DM leaves one file, in the recipient\'s own Inbox, and nothing in the old folder or the sender\'s', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     workerFolders(['leo', 'mara']);
     const before = oldSpillFiles().length;
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const sent = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const sent = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     assert.deepEqual(messageFiles(inboxOf('mara')), [sent.id + '.txt']);
     assert.ok(!fs.existsSync(inboxOf('leo')), 'the sender got an Inbox copy of its own DM');
@@ -2581,7 +2592,7 @@ test('#4447: a recipient with no folder of its own is refused a long message, an
     fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mara'), { recursive: true, force: true });   // mara has no folder
     const before = oldSpillFiles().length;
     const tmux = arm([]);
-    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents, MEMBERS);
+    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: brief() }, board.agents, MEMBERS);
     assert.notEqual(out.state, chat.DELIVERY.COULD_NOT, 'the post reached nobody: ' + (out.because || ''));   // partial reach is the room's own "unconfirmed"
     const row = messages.record().rows.filter((m) => m.kind === 'post').pop();
     assert.equal((row.outcomes || out.outcomes || {}).mara, chat.DELIVERY.COULD_NOT, 'mara, with no folder, was reported reached');
@@ -2591,7 +2602,7 @@ test('#4447: a recipient with no folder of its own is refused a long message, an
     // DM: refused with a reason, nothing typed.
     armSender('leo-discord');
     const t2 = arm([ok(), ok()]);
-    const dm = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const dm = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(dm.state, chat.DELIVERY.COULD_NOT);
     assert.match(dm.because, /mara has no folder of its own to hold a long message/);
     assert.equal(t2.pastedSends().length, 0, 'a refused long DM was typed anyway');
@@ -2613,7 +2624,7 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     fs.symlinkSync(elsewhere, inboxOf('mara'));
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const a = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const a = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(a.state, chat.DELIVERY.COULD_NOT, 'a linked Inbox was written through');
     assert.deepEqual(fs.readdirSync(elsewhere).sort(), ['victim.txt'], 'a file appeared through the linked Inbox');
     // (b) and (c): a real Inbox with a SYMBOLIC, then a HARD, link planted at the next message's file name.
@@ -2621,18 +2632,19 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     fs.unlinkSync(inboxOf('mara'));
     fs.mkdirSync(inboxOf('mara'));
     fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*\n');   // Kosmos's own Inbox, as a first spill leaves it
-    const nextId = () => 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    // #4888: a refused send (step a) has used its id, so the next one is asked of the board, not read off the log.
+    const nextId = () => messages._nextIdForTests();
     for (const kind of ['symbolic', 'hard']) {
       const at = path.join(inboxOf('mara'), nextId() + '.txt');
       if (kind === 'symbolic') fs.symlinkSync(victim, at); else fs.linkSync(victim, at);
       armSender('leo-discord');
       arm([ok(), ok()]);
-      const b = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      const b = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
       assert.equal(b.state, chat.DELIVERY.PLACED, kind + ': ' + (b.because || ''));
       assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'a ' + kind + ' link planted at the file name redirected the board\'s write');
       const st = fs.lstatSync(at);
       assert.ok(st.isFile() && !st.isSymbolicLink() && st.nlink === 1, kind + ': the message file is not a fresh file of its own');
-      assert.match(fs.readFileSync(at, 'utf8'), /^brief: the lease detail/, kind + ': the message file does not hold the message');
+      assert.match(fs.readFileSync(at, 'utf8'), /^brief [0-9]+: the lease detail/, kind + ': the message file does not hold the message');
     }
   });
 });
@@ -2642,7 +2654,7 @@ test('#4447: a long DM to a name that is not on the board is refused for THAT re
     workerFolders(['leo', 'mara', 'marra']);   // even a folder by that name must not be written for an agent that is not there
     armSender('leo-discord');
     const tmux = arm([ok(), ok()]);
-    const out = messages.send({ fromPane: '%7', to: 'marra', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const out = messages.send({ fromPane: '%7', to: 'marra', text: brief() }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT);
     assert.match(out.because, /cannot see an agent by exactly this name/, 'a misspelt name read as something else: ' + out.because);
     assert.ok(!fs.existsSync(inboxOf('marra')), 'a long message was written for an agent that is not on the board');
@@ -2655,7 +2667,7 @@ test('#4447: the Inbox ignores itself in git, so a connected agent\'s project re
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     assert.equal(fs.readFileSync(path.join(inboxOf('mara'), '.gitignore'), 'utf8'), '*\n');
     // Measured, not assumed: git itself ignores the message file.
     const root = path.dirname(inboxOf('mara'));
@@ -2682,7 +2694,7 @@ test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos
     fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*.log\n');
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'a long message was written into the person\'s own Inbox folder');
     assert.match(out.because, /already exists and is not the Inbox Kosmos made/, 'the refusal does not say why: ' + out.because);
     assert.deepEqual(fs.readdirSync(inboxOf('mara')).sort(), ['.gitignore', 'notes.md'], 'the person\'s folder was changed');
@@ -2691,16 +2703,16 @@ test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos
     fs.rmSync(path.join(inboxOf('mara'), '.gitignore'));
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.COULD_NOT);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.COULD_NOT);
     assert.deepEqual(fs.readdirSync(inboxOf('mara')), ['notes.md'], 'a marker or message was added to the person\'s folder');
     // CONTROL: an Inbox Kosmos made (its marker in place) takes the next one.
     fs.rmSync(inboxOf('mara'), { recursive: true, force: true });
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED, 'a second message into Kosmos\'s own Inbox was refused');
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED, 'a second message into Kosmos\'s own Inbox was refused');
     assert.equal(messageFiles(inboxOf('mara')).length, 2);
   });
 });
@@ -2710,11 +2722,11 @@ test('#4447: an Inbox whose marker was removed is refused with a reason that nam
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     fs.rmSync(path.join(inboxOf('mara'), '.gitignore'));   // the agent deletes it
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT);
     assert.ok(out.because.includes(inboxOf('mara')) && /missing or changed/.test(out.because), 'the reason does not name the Inbox and what is wrong: ' + out.because);
     assert.ok(!fs.existsSync(path.join(inboxOf('mara'), '.gitignore')), 'the marker was silently put back');
@@ -2731,16 +2743,16 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     const victim = path.join(SANDBOX, 'victim-fallback-' + Date.now() + '.txt');
     fs.writeFileSync(victim, 'untouched\n');
-    const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    const nextId = messages._nextIdForTests();   // #4888: asked of the board, not read off the log
     fs.linkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
     fs.chmodSync(inboxOf('mara'), 0o555);
     try {
       armSender('leo-discord');
       arm([ok(), ok()]);
-      const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
       assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'the spill was not refused where the planted name could not be removed');
       assert.match(out.because, /could not write the file in/, out.because);
       assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the planted hard link was written through');
@@ -2755,7 +2767,7 @@ test('#4447: a plain FILE where the Inbox should be is refused as "not a folder"
     try {
       armSender('leo-discord');
       arm([ok(), ok()]);
-      const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
       assert.equal(out.state, chat.DELIVERY.COULD_NOT);
       assert.match(out.because, /is not a folder \(a file or a link is there\)/, out.because);
       assert.equal(fs.readFileSync(inboxOf('mara'), 'utf8'), 'a file named Inbox\n', 'the file was changed');
@@ -2763,3 +2775,507 @@ test('#4447: a plain FILE where the Inbox should be is refused as "not a folder"
   });
 });
 
+
+/* #4631: a person copies "message 530 in Kosmos Growth" from a message (or types "530") and pastes it to an
+   agent. Every input point runs the value through messageIdOf, so each of those shapes names m530, and
+   anything else comes back unchanged for the caller's own refusal to name. */
+test('#4631: messageIdOf reads the ways a person writes a message id', () => {
+  for (const v of ['m530', 'M530', '530', ' 530 ', 'message 530', 'Message 530',
+    'message m530', 'message 530 in Kosmos Growth', '530 in Five Families', 'm0530', 'message 530.', 'message 530 in Kosmos Growth,']) {
+    assert.equal(messages.messageIdOf(v), 'm530', JSON.stringify(v));
+  }
+  for (const v of ['', 'abc', 'message', 'message abc', 'mm530', '530x', 'message 530 about the deck', '5 30', '530..', '#530', '#4631', 'message #530',
+    '2026-09-29T19:05:01.000Z', '1234567890123456']) {
+    assert.equal(messages.messageIdOf(v), v.trim(), JSON.stringify(v));
+  }
+  assert.equal(messages.messageIdOf(null), '');
+  assert.equal(messages.messageIdOf(undefined), '');
+});
+
+/* ── #4580 / #4466: the same send, twice, is one message ────────────────── */
+
+function ageLog(ms) {
+  // Moves every logged row back in time, as if it had been sent ms ago.
+  const rows = fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  for (const r of rows) if (r.at) r.at = new Date(Date.parse(r.at) - ms).toISOString();
+  fs.writeFileSync(messages.LOG, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  messages.resetForTests();
+}
+
+test('#4580: the SAME message sent again (a retry after a timeout) is not sent twice: the first receipt comes back', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    const tmux = arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'the lease is signed' }, board.agents);
+    assert.equal(first.state, chat.DELIVERY.PLACED);
+    const pastedAfterFirst = tmux.pastedMessages().length;
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'the lease is signed' }, board.agents);
+    assert.equal(again.duplicate, true);
+    assert.equal(again.id, first.id, 'the retry gets the first message\'s id');
+    assert.equal(again.state, first.state);
+    assert.equal(tmux.pastedMessages().length, pastedAfterFirst, 'nothing was typed a second time');
+    assert.equal(messages.list('leo').length, 1, 'one message in the record');
+    // CONTROL: a different text is a new message.
+    const other = messages.send({ fromPane: '%7', to: 'mara', text: 'and the keys are in the box' }, board.agents);
+    assert.notEqual(other.id, first.id);
+    assert.equal(other.duplicate, undefined);
+  });
+});
+
+test('#4580: the same message after the window is a new message (a deliberate repeat later is sent)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'standup in five' }, board.agents);
+    ageLog(messages.SEND_DEDUP_WINDOW_MS + 5000);
+    armSender('leo-discord');   // ageLog's reset clears the armed sender
+    arm([ok(), ok()]);
+    const later = messages.send({ fromPane: '%7', to: 'mara', text: 'standup in five' }, board.agents);
+    assert.equal(later.duplicate, undefined, JSON.stringify(later));
+    assert.notEqual(later.id, first.id);
+    assert.equal(messages.list('leo').length, 2);
+  });
+});
+
+test('#4580: the SAME room post sent again is posted once; a person\'s identical posts are never folded', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    const tmux = arm([ok(), ok(), ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'draft is in the folder' }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
+    const typed = tmux.pastedMessages().length;
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'draft is in the folder' }, board.agents, MEMBERS);
+    assert.equal(again.duplicate, true, JSON.stringify(again));
+    assert.equal(again.id, first.id);
+    assert.equal(tmux.pastedMessages().length, typed, 'nobody was typed to a second time');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, 1);
+    // CONTROL: the same text from ANOTHER agent is its own post.
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const fromLeo = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'draft is in the folder' }, board.agents, MEMBERS);
+    assert.notEqual(fromLeo.id, first.id);
+    assert.equal(fromLeo.duplicate, undefined);
+  });
+});
+
+test('#4580: a retry that arrives while the first send is STILL delivering waits for it, and nothing is sent twice', async () => {
+  // The first send is held open (a busy board); the retry arrives meanwhile.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let delivered = 0;
+  const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
+  armSender('leo-discord');
+  const input = { fromPane: '%7', to: 'mara', text: 'on my way' };
+  await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
+    const p1 = messages._sendWithDelivery(input, board.agents, slow);
+    const p2 = messages._sendWithDelivery(input, board.agents, slow);
+    assert.equal(delivered, 1, 'the retry did not start a second delivery');
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
+    assert.equal(b.duplicate, true);
+    assert.equal(b.id, a.id);
+    assert.equal(messages.list('leo').length, 1);
+  });
+});
+
+test('#4580: a newer send is found even when an OLDER row was appended after it (a slow fan-out finishes late)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'recent words' }, board.agents);
+    // A row stamped 3 minutes ago lands AFTER it in the file, as a long fan-out that started earlier would.
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm99', from: 'april', to: 'leo', text: 'late row', at: new Date(Date.now() - 180000).toISOString(), state: 'placed' }) + '\n');
+    messages.resetForTests();
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'recent words' }, board.agents);
+    assert.equal(again.duplicate, true, 'the scan stopped at the out-of-order old row: ' + JSON.stringify(again));
+    assert.equal(again.id, first.id);
+  });
+});
+
+test('#4580: the same words answering a DIFFERENT message are two answers, not one', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const q1 = messages.send({ fromPane: '%7', to: 'leo', text: 'can you take the lease?' }, board.agents);
+    const q2 = messages.send({ fromPane: '%7', to: 'leo', text: 'and the keys?' }, board.agents);
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const a1 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q1.id }, board.agents);
+    // CONTROL: the same answer to the SAME message, straight after (a retry), is folded.
+    const a1again = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q1.id }, board.agents);
+    assert.equal(a1again.duplicate, true);
+    assert.equal(a1again.id, a1.id);
+    // The same words to a DIFFERENT message are a second answer.
+    const a2 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q2.id }, board.agents);
+    assert.equal(a2.duplicate, undefined, 'a second answer was folded into the first: ' + JSON.stringify(a2));
+    assert.notEqual(a2.id, a1.id);
+  });
+});
+
+test('#4580: a retry at the pair cap its own first copy reached is folded, not refused', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm(Array.from({ length: PAIR_BUDGET * 2 + 4 }, () => ok()));
+    let last;
+    for (let i = 0; i < PAIR_BUDGET; i++) last = messages.send({ fromPane: '%7', to: 'mara', text: 'note ' + i }, board.agents);
+    assert.equal(last.state, chat.DELIVERY.PLACED, 'the cap was reached on the last new message: ' + JSON.stringify(last));
+    const retry = messages.send({ fromPane: '%7', to: 'mara', text: 'note ' + (PAIR_BUDGET - 1) }, board.agents);
+    assert.equal(retry.duplicate, true, 'the retry of a delivered message was refused at the cap: ' + JSON.stringify(retry));
+    assert.equal(retry.id, last.id);
+    // CONTROL: a NEW message at the cap is refused (the valve still works).
+    const fresh = messages.send({ fromPane: '%7', to: 'mara', text: 'something new' }, board.agents);
+    assert.equal(fresh.state, chat.DELIVERY.COULD_NOT);
+  });
+});
+
+test('#4580: an agent alone on a project gets the SAME state for its post and for the folded retry', () => {
+  withFleet([fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'notes to self' }, board.agents, ['mara']);
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'notes to self' }, board.agents, ['mara']);
+    assert.equal(again.duplicate, true, JSON.stringify(again));
+    assert.equal(again.state, first.state, 'the retry read a different state than the post it folds into');
+  });
+});
+
+test('#4580: a room post retried while the first is STILL delivering waits for it, and nobody is typed to twice', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let delivered = 0;
+  const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
+  armSender('mara-discord');
+  const input = { fromPane: '%7', project: 'henderson-lease', text: 'draft is up' };
+  await withFleet(room3(), async (board) => {
+    const p1 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
+    const p2 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(delivered, MEMBERS.length - 1, 'each colleague was delivered to ONCE: ' + delivered);
+    assert.equal(b.duplicate, true, JSON.stringify(b));
+    assert.equal(b.id, a.id);
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, 1);
+  });
+});
+
+test('#4580: a folded retry of an UNCONFIRMED send says so in words, instead of dropping the reason', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    const maybe = () => ({ state: chat.DELIVERY.UNCONFIRMED, because: 'typed, with Enter unconfirmed' });
+    const first = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'maybe there' }, board.agents, maybe);
+    assert.equal(first.state, chat.DELIVERY.UNCONFIRMED);
+    const again = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'maybe there' }, board.agents, maybe);
+    assert.equal(again.duplicate, true);
+    assert.equal(again.state, chat.DELIVERY.UNCONFIRMED);
+    assert.match(again.because || '', /not confirmed then; it may already be there, so it was not sent again/);
+  });
+});
+
+test('#4580: a retry waiting on a first send that FAILED gets the failure, never marked a duplicate', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let tries = 0;
+  const failing = () => { tries++; return gate.then(() => ({ state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' })); };
+  armSender('leo-discord');
+  await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
+    const p1 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will fail' }, board.agents, failing);
+    const p2 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will fail' }, board.agents, failing);
+    release();
+    const [, b] = await Promise.all([p1, p2]);
+    // Only the injected deliver says 'the pane closed', so a sender that never resolved (a refusal is
+    // also COULD_NOT, with no duplicate flag) cannot pass this test for the wrong reason.
+    // Exactly one: the retry WAITED on the first send (the in-flight fold) rather than delivering again.
+    assert.equal(tries, 1, 'the deliver ran ' + tries + ' times: 0 = the send was refused before delivery, 2 = the retry did not wait on the first');
+    assert.equal(b.because, 'the pane closed', JSON.stringify(b));
+    assert.equal(b.state, chat.DELIVERY.COULD_NOT, JSON.stringify(b));
+    assert.equal(b.duplicate, undefined, 'nothing went out, so nothing is a duplicate');
+  });
+});
+
+test('#4580: the same words AFTER someone else spoke are a new answer, not a retry (post and message)', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'and the keys, same plan?' }, board.agents, MEMBERS);
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    assert.equal(again.duplicate, undefined, 'a real second answer was folded: ' + JSON.stringify(again));
+    assert.notEqual(again.id, first.id);
+  });
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const m1 = messages.send({ fromPane: '%7', to: 'mara', text: 'agreed' }, board.agents);
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    messages.send({ fromPane: '%7', to: 'leo', text: 'then the keys too?' }, board.agents);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const m2 = messages.send({ fromPane: '%7', to: 'mara', text: 'agreed' }, board.agents);
+    assert.equal(m2.duplicate, undefined, JSON.stringify(m2));
+    assert.notEqual(m2.id, m1.id);
+  });
+});
+
+test('#4580: a retry of a DELIVERED post is folded even if the person asked a question elsewhere in between (not "which room")', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the draft is ready', askWhichRoom: true }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
+    // The person asks mara something in ANOTHER room, just after her post landed.
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'q9', from: 'you', project: 'other-room', to: ['mara'], text: '@mara where is it?',
+      operator: true, mentioned: ['mara'], outcomes: { mara: chat.DELIVERY.PLACED }, at: new Date().toISOString() }) + '\n');
+    messages.resetForTests();
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const retry = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the draft is ready', askWhichRoom: true }, board.agents, MEMBERS);
+    assert.equal(retry.duplicate, true, 'the retry of a delivered post was held back: ' + JSON.stringify(retry));
+    assert.equal(retry.id, first.id);
+    // CONTROL: a NEW post now is asked which room it meant (the ask still works).
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const fresh = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'something new', askWhichRoom: true }, board.agents, MEMBERS);
+    assert.equal(fresh.code, 'which_room', JSON.stringify(fresh));
+  });
+});
+
+test('#4580: the sender saying something else in between breaks the quiet ("yes", "wait", "yes" is a change of mind)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm(Array.from({ length: 8 }, () => ok()));
+    const y1 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    messages.send({ fromPane: '%7', to: 'mara', text: 'wait, hold on' }, board.agents);
+    const y2 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    assert.equal(y2.duplicate, undefined, JSON.stringify(y2));
+    assert.notEqual(y2.id, y1.id);
+  });
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm(Array.from({ length: 8 }, () => ok()));
+    const p1 = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'go ahead' }, board.agents, MEMBERS);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'actually, wait for the scan' }, board.agents, MEMBERS);
+    const p2 = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'go ahead' }, board.agents, MEMBERS);
+    assert.equal(p2.duplicate, undefined, JSON.stringify(p2));
+    assert.notEqual(p2.id, p1.id);
+  });
+});
+
+test('#4580: the fold window outlasts a room post\'s own 120 s budget (a row is stamped when its send started)', () => {
+  assert.ok(messages.SEND_DEDUP_WINDOW_MS >= 2 * 120 * 1000, 'a slow post that finished near its budget would already be outside the window');
+});
+
+test('#4580: a reply that STARTED after the first copy breaks the quiet even when it sits before it in the log', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    // Mara answered one second after leo's send started, but her row landed EARLIER in the file (a busy board
+    // appends when a send finishes).
+    const rows = fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const later = new Date(Date.parse(rows[rows.length - 1].at) + 1000).toISOString();
+    rows.splice(rows.length - 1, 0, { kind: 'message', id: 'm77', from: 'mara', to: 'leo', text: 'and the keys?', in_reply_to: null, at: later, state: 'placed' });
+    fs.writeFileSync(messages.LOG, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    messages.resetForTests();
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    assert.equal(again.duplicate, undefined, 'a real second answer was folded: ' + JSON.stringify(again));
+    assert.notEqual(again.id, first.id);
+  });
+});
+
+test('#4580: an outside party speaking in a federated room (an external row) breaks the quiet', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x1', project: 'henderson-lease', from: 'their agent', fromKind: 'agent', external: true, text: 'and the price?', at: new Date(Date.now() + 1000).toISOString() }) + '\n');
+    messages.resetForTests();
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    assert.equal(again.duplicate, undefined, 'a real answer to the outside party was folded: ' + JSON.stringify(again));
+    assert.notEqual(again.id, first.id);
+  });
+});
+
+test('#4786: work moving in the project earns the room a bounded allowance; talk, old work and another room\'s work earn none, and a loop that makes tasks is still held', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room3(), (board) => {
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+          text: 'handing it on ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+        }) + '\n');
+      }
+      let seq = 0;   // each post its own words: the same words again within minutes are one post, not a new arrival
+      const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS); };
+      /* Posts until the room is held; how many got through. Each post costs 2 arrivals (3 members). */
+      const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
+      // CONTROL: over its budget with no work moving, the room is held (the loop the valve exists for).
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'the room was not held to begin with, so nothing below proves anything');
+      // Work that moved BEFORE the budget's window started earns nothing.
+      const old = taskchat.taskChatFile('henderson-lease', 3);
+      fs.mkdirSync(path.dirname(old), { recursive: true });
+      fs.writeFileSync(old, JSON.stringify({ at: new Date(now - 2 * 3600000).toISOString(), kind: 'closed' }) + '\n');
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task closed before the window released the room');
+      // Talk on a task is not progress.
+      assert.equal(taskchat.record('henderson-lease', 1, { kind: 'said', text: 'still on it' }), true);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task message released the room: talk counted as work');
+      // Work moving in ANOTHER project does not release this room.
+      assert.equal(taskchat.record('quarter-close', 1, { kind: 'closed' }), true);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'another project\'s task closing released this room');
+      // One task closed HERE earns a quarter of the cap: the room goes on, and is held again when that runs out.
+      assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
+      /* Arrivals the room now holds in its window, counted from the log itself, so nothing below assumes the
+         budget divides evenly. Each post costs 2, so a room held at `cap` holds more than cap - 2 and at most cap. */
+      // Every post in the log counts: this test's log starts empty (wiped before each test) and all of it is in the window.
+      const held = () => messages.record().rows.filter((m) => m.kind === 'post' && !m.operator
+        && m.project === 'henderson-lease').reduce((n, m) => n + m.to.length, 0);
+      const credit = Math.ceil(ROOM_BUDGET / 4);
+      assert.ok(through() > 0, 'one step of work earned nothing');
+      assert.ok(held() <= ROOM_BUDGET + credit && held() > ROOM_BUDGET + credit - 2,
+        `one step of work should earn a quarter of the cap: held at ${held()}, cap ${ROOM_BUDGET}`);
+      // A loop that keeps making tasks earns at most one more cap in all, then is held.
+      for (let k = 10; k < 30; k += 1) {
+        assert.equal(taskchat.record('henderson-lease', k, { kind: 'created', sentence: 'busywork ' + k }), true);
+      }
+      assert.ok(through() > 0, 'twenty made tasks earned nothing');
+      assert.ok(held() <= 2 * ROOM_BUDGET && held() > 2 * ROOM_BUDGET - 2,
+        `making tasks should buy at most one more cap: held at ${held()}, cap ${ROOM_BUDGET}`);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a loop that makes tasks was never held');
+    } finally {
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});
+
+test('#4786: work done BEFORE the person last spoke earns nothing after it; the same work after does', () => {
+  const taskchat = require('./taskchat');
+  const run = (stepMinutesAgo) => withFleet(room3(), (board) => {
+    try {
+      const now = Date.now();
+      const ago = (min) => new Date(now - min * 60000).toISOString();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(messages.LOG, { force: true });   // each arm starts from an empty room: the two runs share one log
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      const step = taskchat.taskChatFile('henderson-lease', 1);
+      fs.mkdirSync(path.dirname(step), { recursive: true });
+      fs.writeFileSync(step, JSON.stringify({ at: ago(stepMinutesAgo), kind: 'closed' }) + '\n');
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'op', project: 'henderson-lease', operator: true,
+        from: 'operator', to: MEMBERS, text: 'carry on', at: ago(4), outcomes: {} }) + '\n');
+      for (let i = 0; i < Math.ceil(ROOM_BUDGET / 2); i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]), text: 'on it ' + i, at: ago(1), outcomes: {} }) + '\n');
+      }
+      chat.resetForTests(); armSender('leo-discord'); arm([]);
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next' }, board.agents, MEMBERS).state;
+    } finally {
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+  assert.equal(run(2), chat.DELIVERY.PLACED, 'CONTROL: a step after the person spoke did not earn room, so the other arm proves nothing');
+  assert.equal(run(5), chat.DELIVERY.COULD_NOT, 'a step before the person spoke still earned room after they reset it');
+});
+
+test('#4786: with the limit Off, work moving changes nothing: the room still gets its told-only notice at the cap', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < 20; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: 'ghost', to: ['leo', 'mara'], text: 'round ' + i,
+          at: new Date(now - 60000).toISOString(), outcomes: {},
+        }) + '\n');
+      }
+      // A step that, with the limit on, would earn a quarter of the cap and keep this post under it.
+      assert.equal(taskchat.record('henderson-lease', 1, { kind: 'closed' }), true);
+      armSender('leo-discord');
+      arm([]);
+      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still talking' }, board.agents, MEMBERS);
+      assert.equal(post.state, chat.DELIVERY.PLACED, post.because || '');
+      const valve = messages.record().rows.find((m) => m.kind === 'valve' && m.project === 'henderson-lease');
+      assert.ok(valve, 'the told-only notice was suppressed by work moving, which only the limit-on valve should weigh');
+      assert.equal(valve.stopped, false);
+    } finally {
+      fs.rmSync(limits.FILE, { force: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});
+
+test('#4888: two DIFFERENT messages whose deliveries overlap get different ids, in the reply and in the log', async () => {
+  // Rows are appended when a delivery finishes, so the second send starts before the first is in the log.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = () => gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null }));
+  armSender('leo-discord');
+  await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
+    const p1 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'first thing' }, board.agents, slow);
+    const p2 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'second thing' }, board.agents, slow);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
+    assert.equal(b.state, chat.DELIVERY.PLACED, JSON.stringify(b));
+    assert.equal(b.duplicate, undefined, 'different words were folded as a retry: ' + JSON.stringify(b));
+    assert.notEqual(a.id, b.id, 'two overlapping messages shared one id');
+    const ids = messages.record().rows.filter((m) => m.kind === 'message').map((m) => m.id);
+    assert.equal(ids.length, 2, JSON.stringify(ids));
+    assert.equal(new Set(ids).size, 2, 'the log holds one id twice: ' + JSON.stringify(ids));
+  });
+});
+
+test('#4888: two room posts from two agents at the same moment get different ids', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = () => gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null }));
+  await withFleet(room3(), async (board) => {
+    armSender('mara-discord');
+    const p1 = messages._sendPostWithDelivery({ fromPane: '%7', project: 'henderson-lease', text: 'draft is up' }, board.agents, MEMBERS, slow, true);
+    armSender('leo-discord');
+    const p2 = messages._sendPostWithDelivery({ fromPane: '%7', project: 'henderson-lease', text: 'numbers are in' }, board.agents, MEMBERS, slow, true);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.ok(a.id && b.id, JSON.stringify([a, b]));
+    assert.notEqual(a.id, b.id, 'two overlapping posts shared one id');
+    const ids = messages.record().rows.filter((m) => m.kind === 'post').map((m) => m.id);
+    assert.equal(new Set(ids).size, ids.length, 'the log holds one id twice: ' + JSON.stringify(ids));
+    assert.equal(ids.length, 2, JSON.stringify(ids));
+  });
+});
+
+test('#4888: a send that was refused does not hand its id to the next one', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    // The refusal returns id: null, so the id it used is read from the envelope it was handed.
+    let refusedEnvelope = '';
+    const refused = (_to, envelope) => { refusedEnvelope = envelope; return { state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' }; };
+    const first = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will not land' }, board.agents, refused);
+    assert.equal(first.state, chat.DELIVERY.COULD_NOT);
+    const usedId = (refusedEnvelope.match(/ · (m\d+)[ \]]/) || [])[1];
+    assert.ok(usedId, 'the refused envelope carried no id: ' + JSON.stringify(refusedEnvelope));
+    const placed = () => ({ state: chat.DELIVERY.PLACED, because: null });
+    const next = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands' }, board.agents, placed);
+    assert.equal(next.state, chat.DELIVERY.PLACED, JSON.stringify(next));
+    assert.notEqual(next.id, usedId, 'the next send was given the id the refused one had used');
+  });
+});

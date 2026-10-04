@@ -264,6 +264,88 @@ test('POST /api/agent-token mints a resolvable token, from loopback', async () =
   assert.equal(back.key, store.safeKey(name), 'the issued token resolves to the wrong agent');
 });
 
+/* #4763: a pane agent "Mara" is running; issuing a remote token for "mara" would share Mara's token file and resolve
+   as Mara. Refused, and nothing is written. Control: the pane agent's own spelling is not refused by this rule. */
+test('#4763: POST /api/agent-token refuses a name that shares a key with a running pane agent of ours', async () => {
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('Mara4763', { state: 'idle' })]);
+  try {
+    assert.equal(board.roster.filter((r) => r.isNamedOurs === true && r.sessionName === 'Mara4763').length, 1, 'CONTROL: Mara4763 is ours on the roster');
+    const before = sendertoken.live('mara4763').length;
+    const res = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'mara4763' }),
+    });
+    const j = await res.json();
+    assert.equal(res.status, 409, 'a clashing name was issued a token: ' + JSON.stringify(j));
+    assert.equal(j.issued, false);
+    assert.match(j.because, /Mara4763 has a session on this computer/);
+    assert.equal(sendertoken.live('mara4763').length, before, 'the refusal still wrote a token into the shared file');
+    const same = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Mara4763' }),
+    });
+    assert.equal(same.status, 200, 'CONTROL: the running agent\'s own spelling was refused by the clash rule');
+  } finally { board.restore(); }
+});
+
+/* #4845: an agent CREATED on this computer and not running is listed by its key, and everything about it is keyed by
+   that key, so a remote token under that key (any spelling) would merge a second agent into it. Refused; nothing written. */
+test('#4845: POST /api/agent-token refuses a name whose key belongs to an agent created here, running or not', async () => {
+  const status = require('./engine/status');
+  const post = (name) => fetch(`${base}/api/agent-token`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+  });
+  // CONTROL: with no created agent under the key, the same name is issued, so the refusal below is the created check's.
+  status.setCreatedSource(() => []);
+  try {
+    const ok = await post('Kip4845c');
+    assert.equal(ok.status, 200, 'CONTROL: a name with no created agent under its key was refused');
+    status.setCreatedSource(() => ['kip4845']);
+    for (const name of ['Kip4845', 'kip4845']) {
+      const before = sendertoken.live('kip4845').length;
+      const res = await post(name);
+      const j = await res.json();
+      assert.equal(res.status, 409, `${name} was issued a token under a created agent's key: ` + JSON.stringify(j));
+      assert.equal(j.issued, false);
+      assert.match(j.because, /kip4845 was created on this computer/);
+      assert.equal(sendertoken.live('kip4845').length, before, 'the refusal still wrote a token');
+    }
+    // #4845 review 1: the route asks the source to include REMOVED agents (Restore brings them back under the key).
+    let asked = null;
+    status.setCreatedSource((exclude, callOpts) => { asked = callOpts; return callOpts && callOpts.includeRemoved ? ['rue4845'] : []; });
+    const removedKey = await post('Rue4845');
+    assert.equal(removedKey.status, 409, 'a removed (restorable) agent\'s key was issued a token');
+    assert.equal(asked && asked.includeRemoved, true, 'the route did not ask for removed agents');
+  } finally {
+    // Back to the real source the server wires (createdroster.make() off Windows), not the exact function it held: the
+    // two behave the same today; if setup ever wires another source, this restore must follow it. The launch folder
+    // is this file's sandbox, so it lists nothing real.
+    status.setCreatedSource(process.platform === 'win32' ? null : require('./engine/createdroster').make());
+  }
+});
+
+/* #4763 review 3: a roster that cannot be read cannot rule a clash out, so nothing is issued (as creating refuses). */
+test('#4763: POST /api/agent-token refuses (503) while the roster cannot be read, and writes nothing', async () => {
+  const fleet = require('./test-support/fleet');
+  fleet.blind();
+  try {
+    const res = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'blind4763' }),
+    });
+    const j = await res.json();
+    assert.equal(res.status, 503, 'a token was issued with no roster to check: ' + JSON.stringify(j));
+    assert.equal(sendertoken.live('blind4763').length, 0, 'the refusal still wrote a token');
+  } finally { fleet.restore(); }
+  // Control: the same name with a readable (empty) roster is issued.
+  const fleet2 = require('./test-support/fleet');
+  const board = fleet2.install([]);
+  try {
+    const ok = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'blind4763' }),
+    });
+    assert.equal(ok.status, 200, 'CONTROL: the name was refused with a readable roster too');
+  } finally { board.restore(); }
+});
+
 test('POST /api/agent-token refuses an empty name', async () => {
   const res = await fetch(`${base}/api/agent-token`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '   ' }),

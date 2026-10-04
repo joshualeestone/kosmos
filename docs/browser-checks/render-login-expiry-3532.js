@@ -13,6 +13,8 @@
  *   warn      2 agents, 2 days  -> "2 agents' login expires in 2 days", .login-adv.warn
  *   urgent    1 agent,  0 days  -> "An agent's login expires today", .login-adv.urgent
  *   expired   1 agent, expired  -> "An agent's login has expired", .login-adv.urgent
+ *   stopsat   #5164: expired, access token alive -> "2 agents stop working at about <time>"
+ *   stoppedpast #5164: expired, access token already ran out -> "has expired" (control)
  *   none      []                -> the slot is EMPTY (the control: the pill shows ONLY
  *                                  when there is an advisory, so the three above prove
  *                                  a real render and not a permanent banner)
@@ -46,6 +48,14 @@ const CASES = [
     text: /An agent’s login expires today/, cls: 'urgent', who: /leo/ },
   { key: 'expired', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true }],
     text: /An agent’s login has expired/, cls: 'urgent', who: /mona/ },
+  /* #5164 (account-e, 2026-10-03): the login ended at 06:58 but its agents worked until 13:18 on the access token they
+     held. While that time is ahead, the notice says when they stop; once it has passed, "has expired" (the control). */
+  { key: 'stopsat', adv: [{ agents: ['mona', 'echo'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() + 5 * 3600000 }],
+    text: /2 agents stop working (tomorrow )?at about \d{1,2}:\d{2}\s?[AP]M[\s\S]*: mona, echo\. Sign in again before then to keep them running\./, cls: 'urgent', who: /mona, echo/ },
+  { key: 'stopsat1', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() + 3600000 }],
+    text: /An agent stops working (tomorrow )?at about \d{1,2}:\d{2}\s?[AP]M[\s\S]*Sign in again before then to keep it running\./, cls: 'urgent', who: /mona/ },
+  { key: 'stoppedpast', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() - 60000 }],
+    text: /An agent’s login has expired[\s\S]*Sign in again to bring it back\./, cls: 'urgent', who: /mona/ },
   { key: 'none', adv: [], text: null, cls: null, who: null },
 ];
 
@@ -92,6 +102,202 @@ const CASES = [
       chk(inner === '', 'none (CONTROL): empty advisories leave the slot empty', JSON.stringify(inner));
     }
     chk(errs.length === 0, c.key + ': no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+  }
+
+  /* #5164 (review 1): the day word repaints across midnight. The page's clock is pinned at 23:30 with a token that runs
+     out at 01:10 the next day: "tomorrow at about 1:10 AM". Moved to 00:10 (no new advisory, same everything else), the
+     notice must drop "tomorrow": the repaint signature carries the words, not only the advisory's state. */
+  {
+    const base = new Date(); base.setHours(23, 30, 0, 0);
+    const until = new Date(base.getTime() + 100 * 60000);   // 01:10 the next day
+    const adv = [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: until.getTime(), service: 'svc-midnight' }];
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.clock.setFixedTime(base);
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#login-adv-slot .login-adv'), null, { timeout: 12000 }).catch(() => {});
+    const before = await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '');
+    chk(/An agent stops working tomorrow at about 1:10\s?AM/.test(before), '5164: at 23:30 the 01:10 stop reads "tomorrow at about 1:10 AM"', JSON.stringify(before));
+    await pg.clock.setFixedTime(new Date(base.getTime() + 40 * 60000));   // 00:10
+    const after = await pg.waitForFunction(() => {
+      const t = (document.getElementById('login-adv-slot') || {}).innerText || '';
+      return /stops working at about 1:10/.test(t) && !/tomorrow/.test(t) ? t : null;
+    }, null, { timeout: 15000 }).then((h) => h.jsonValue(), () => null);
+    chk(!!after, '5164: after midnight it repaints without "tomorrow" (the same advisory, a new day)',
+      JSON.stringify(after || await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '')));
+    chk(errs.length === 0, '5164 midnight: no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+  }
+
+  /* #5018 (Josh): the account it runs under, the names he gave the agents, a close X that holds until the notice says
+     something new, and a notice that floats over the page instead of pushing the navigation down. */
+  {
+    let adv = [{ agents: ['roo-lane', 'pixel-moss'], names: ['Roo', 'Pixel'], provider: 'Claude', service: 'Claude Code-credentials',
+      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    let served = 0;   // advisory-carrying /api/status replies, so an absence is read only after one was served
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      served += 1;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    const shown = () => pg.waitForFunction(() => document.querySelector('#login-adv-slot .login-adv'), null, { timeout: 12000 }).then(() => true, () => false);
+    chk(await shown(), '5018: the notice renders');
+    const txt = await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '');
+    chk(/On Claude, owner@example\.com: Roo, Pixel\./.test(txt), '5018: names the provider, the account and the given names', JSON.stringify(txt));
+    chk(!/roo-lane|pixel-moss/.test(txt), '5018: no system names', JSON.stringify(txt));
+    await pg.screenshot({ path: path.join(OUT, 'login-expiry-5018-overlay.png') });
+    // Overlay: the header is the same height with the notice as without it, and the notice sits below the header.
+    const geo = await pg.evaluate(() => {
+      const h = document.querySelector('.apphead header').getBoundingClientRect();
+      const n = document.querySelector('#login-adv-slot .login-adv').getBoundingClientRect();
+      const tabs = document.querySelector('.apphead .tabs'); const t = tabs ? tabs.getBoundingClientRect().top : null;
+      return { headH: h.height, headBottom: h.bottom, noteTop: n.top, tabsTop: t };
+    });
+    await pg.evaluate(() => { document.getElementById('login-adv-slot').style.display = 'none'; });
+    const bare = await pg.evaluate(() => {
+      const tabs = document.querySelector('.apphead .tabs');
+      return { headH: document.querySelector('.apphead header').getBoundingClientRect().height, tabsTop: tabs ? tabs.getBoundingClientRect().top : null };
+    });
+    await pg.evaluate(() => { document.getElementById('login-adv-slot').style.display = ''; });
+    chk(Math.abs(geo.headH - bare.headH) < 0.5, '5018: the header does not grow while the notice shows', JSON.stringify({ geo, bare }));
+    chk(geo.tabsTop === bare.tabsTop, '5018: the navigation does not move', JSON.stringify({ geo, bare }));
+    chk(geo.noteTop >= geo.headBottom, '5018: the notice floats below the header, over the page', JSON.stringify(geo));
+    // On top, not just placed: every content-bearing point across the notice resolves to the notice, in the tab view
+    // and in consolidated (whose header is position: static, so the stack competes with the page's own sticky layers).
+    // Consolidated is the board's real layout, read from GET /api/style (stubbed in this page only, as mobile-shots
+    // does), not a page-side toggle, so its panes are really there under the notice.
+    // Sampled over a 5x3 grid across the notice, not its centre alone: in consolidated the centre can land in a gap of
+    // the body grid, where with the stack hidden nothing is underneath, so the control had nothing to test there.
+    // connbelow-5018: the Claude-unreachable line (#conn) now moves BELOW a floating notice, so on this board (no Claude
+    // reachable) nothing sits under the notice any more. To test layering, the line is hidden while measuring, which
+    // lifts the page itself (the agents row) back under the notice; it is restored before returning.
+    const onTop = () => pg.evaluate(() => {
+      const conn = document.getElementById('conn');
+      const connWas = conn ? conn.hidden : true;
+      if (conn) conn.hidden = true;
+      try {
+      const n = document.querySelector('#login-adv-slot .login-adv');
+      const r = n.getBoundingClientRect();
+      const pts = [];
+      for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const fy of [0.25, 0.5, 0.75]) pts.push([r.left + r.width * fx, r.top + r.height * fy]);
+      const hits = pts.map(([x, y]) => document.elementFromPoint(x, y));
+      // CONTROL: with the stack hidden, at least one sampled point is real page content, so "on top" can fail there.
+      const stack = document.getElementById('topnotes');
+      stack.style.visibility = 'hidden';
+      const unders = pts.map(([x, y]) => document.elementFromPoint(x, y));
+      stack.style.visibility = '';
+      // A real covering layer, not a bare ancestor: body/html, or a wrapper that CONTAINS the notice, cannot cover it,
+      // so counting one as "content underneath" would let the control pass with no competing layer present.
+      const isContent = (el) => !!el && el !== document.body && el !== document.documentElement && !el.contains(n);
+      const name = (el) => (el ? (el.id || String(el.className || '') || el.tagName) : null);
+      const live = pts.map((_, i) => i).filter((i) => isContent(unders[i]));
+      const lost = live.filter((i) => !(hits[i] && n.contains(hits[i])));
+      return { onTop: live.length > 0 && lost.length === 0, layout: document.documentElement.getAttribute('data-layout'),
+        underIsContent: live.length > 0, contentPoints: live.length + '/' + pts.length,
+        under: [...new Set(live.map((i) => name(unders[i])))], lostTo: lost.map((i) => name(hits[i])) };
+      } finally { if (conn) conn.hidden = connWas; }
+    });
+    // Over New agent never: the left column's primary action stays clickable (the reason the stack is centred).
+    const clearOfNew = await pg.evaluate(() => {
+      const a = document.querySelector('#login-adv-slot .login-adv').getBoundingClientRect();
+      const b = document.getElementById('new-agent'); if (!b || !b.getClientRects().length) return null;
+      const c = b.getBoundingClientRect();
+      return !(a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom);
+    });
+    chk(clearOfNew === true, '5018: the notice does not cover New agent', String(clearOfNew));
+    for (const cons of [false, true]) {
+      if (cons) {
+        await pg.route('**/api/style', async (r) => {
+          if (r.request().method() !== 'GET') return r.continue();
+          let resp; try { resp = await r.fetch(); } catch { return r.continue(); }
+          const j = await resp.json().catch(() => null);
+          return j ? r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } }) : r.fulfill({ response: resp });
+        });
+        await pg.reload({ waitUntil: 'load' });
+        if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+        await pg.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 }).catch(() => {});
+        // The launch cover sits over everything until the board has booted; measure the page, not the cover.
+        await pg.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden || !c.getClientRects().length; }, null, { timeout: 15000 }).catch(() => {});
+        await shown();
+      }
+      const top = await onTop().catch((e) => ({ error: e.message }));
+      const where = cons ? 'consolidated' : 'tab view';
+      if (cons) chk(top.layout === 'consolidated', '5018: CONTROL: the consolidated layout is really on', JSON.stringify(top));
+      chk(top.underIsContent, '5018: CONTROL: page content sits under the notice (' + where + ')', JSON.stringify(top));
+      chk(top.onTop, '5018: the notice is on top of the page (' + where + ')', JSON.stringify(top));
+    }
+    {   // back to the tab view for the X arms below
+      await pg.unroute('**/api/style').catch(() => {});
+      await pg.reload({ waitUntil: 'networkidle' });
+      if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+      await shown();
+    }
+    // Phone width (375): the notice, with its account line, still clears New agent and stays on screen.
+    await pg.setViewportSize({ width: 375, height: 812 });
+    await pg.waitForTimeout(400);
+    const phone = await pg.evaluate(() => {
+      const a = document.querySelector('#login-adv-slot .login-adv'); if (!a) return { rendered: false };
+      const r = a.getBoundingClientRect();
+      const b = document.getElementById('new-agent');
+      const c = b && b.getClientRects().length ? b.getBoundingClientRect() : null;
+      return { rendered: true, newAgentShown: !!c, overlap: !!c && r.left < c.right && c.left < r.right && r.top < c.bottom && c.top < r.bottom,
+        onScreen: r.left >= 0 && r.right <= document.documentElement.clientWidth, box: [r.left, r.top, r.width, r.height].map(Math.round) };
+    });
+    chk(phone.rendered && phone.newAgentShown, '5018: CONTROL: at 375 the notice and New agent both render', JSON.stringify(phone));
+    chk(phone.newAgentShown && !phone.overlap, '5018: at 375 the notice does not cover New agent', JSON.stringify(phone));
+    chk(phone.onScreen, '5018: at 375 the notice stays on screen', JSON.stringify(phone));
+    await pg.setViewportSize({ width: 1400, height: 800 });
+    await pg.waitForTimeout(300);
+
+    // The X hides it, and it stays hidden across a reload while nothing changes.
+    await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
+    chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: the X hides the notice');
+    const before = served;
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    // Two advisory replies after the reload: the first has certainly been painted by the time the second is asked for.
+    for (let i = 0; i < 60 && served < before + 2; i++) await pg.waitForTimeout(250);
+    chk(served >= before + 2, '5018: the reloaded page read the advisory (so the next line is not a vacuous absence)', 'served ' + (served - before));
+    chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: still hidden after a reload, nothing changed');
+    // A change (fewer days left) brings it back, and the old dismissal is forgotten (it no longer matches a notice).
+    adv = [{ ...adv[0], daysLeft: 4 }];
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    chk(await shown(), '5018: a change (5 days to 4) shows the notice again');
+    // Close it again at 4 days, then the login is renewed (a reply with no notice for that account), then it nears
+    // expiry again with the very same 4-day state: it shows, because the renewal forgot the dismissal. Without the
+    // prune, the old key would hide it.
+    await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
+    const keep = adv;
+    adv = [];
+    const b2 = served;
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    for (let i = 0; i < 60 && served < b2 + 2; i++) await pg.waitForTimeout(250);
+    chk(served >= b2 + 2, '5018: the renewed (empty) reply was read', 'served ' + (served - b2));
+    adv = keep;
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    chk(await shown(), '5018: after a renewal, the same notice later shows again (the dismissal was forgotten)');
+    chk(errs.length === 0, '5018: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
   }

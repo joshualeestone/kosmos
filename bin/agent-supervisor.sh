@@ -70,6 +70,76 @@ SESSION="${1:?an agent name is required}"
 WORKDIR="${2:?a working directory is required}"
 CLAUDE="${3:?the path to claude is required}"
 TMUX_BIN="${4:?the path to tmux is required}"
+# 🔑 #2955: IF A DIFFERENT tmux OWNS THE SERVER, USE THE ONE THAT CAN READ IT. Two tmux versions cannot share a socket:
+# the older client answers "server exited unexpectedly" (tmux 3.5a) or "protocol version mismatch" and sees nothing.
+# Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
+# read no agent. This job's tmux path was baked into its plist when the agent was made, and plists are never rewritten,
+# so the choice is made here, each time the job starts, by asking: the first tmux that can LIST the live server wins.
+# The board makes the same choice the same way (engine/status.js, tmuxRepick), so both land on one tmux per socket.
+# With no server, or any other answer, nothing has been established and the baked path stays, which keeps Kosmos's
+# own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
+_kosmos_supervisor_tmux() {
+  local _said _cand _own _ownd _gone="" _tried=" "
+  # A bare name (no slash) is a PATH lookup, not a missing file.
+  case "$TMUX_BIN" in */*) ;; *) _cand="$(command -v "$TMUX_BIN" 2>/dev/null || true)"; [ -n "$_cand" ] && TMUX_BIN="$_cand" ;; esac
+  # ⚠️ No probe here has a timeout (bash 3.2 and macOS ship no `timeout`), like every other tmux call in this script; a
+  # server that hangs stalls this job at start as it would at its first has-session.
+  if [ -f "$TMUX_BIN" ] && [ -x "$TMUX_BIN" ]; then
+    _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
+  else
+    _gone=1; _said="protocol version mismatch"   # the baked tmux is gone (a removed Homebrew): look for another
+  fi
+  case "$_said" in
+    *"protocol version mismatch"*) ;;
+    # The bundled 3.5a says these same words with NO server at all (it spawns one that exits at once). Only with a
+    # socket on disk are they the wall, as in engine/status.js tmuxSaidNoServer, so a clean Mac searches for nothing at
+    # every agent start. One difference: status.js reads an unreadable socket directory as "could not check", while
+    # [ -e ] reads it as absent; and only the default socket is looked at, so a server on another socket (-L, or a
+    # $TMUX of its own) starts no search either. Both mean no search and the baked path stays, the conservative side.
+    *"server exited unexpectedly"*) [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ] || return 0 ;;
+    *) return 0 ;;
+  esac
+  # Kosmos's own tmux is always a candidate, so a job baked with another tmux follows a server back to it. The copy
+  # that runs lives in Application Support/Kosmos/bin with no app beside it (see resolve_token_engine): the app is found
+  # through the engine-path pointer the board writes beside it (<KOSMOS_HOME>/app/engine), and the bundle is
+  # <KOSMOS_HOME>/tmux/bin/tmux. In a checkout or the bundle, beside this script's app. KOSMOS_TMUX_OWN: harness only.
+  _own="${KOSMOS_TMUX_OWN-}"
+  if [ -z "$_own" ]; then
+    local _ptr _engdir=""
+    _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"   # the same spelling resolve_token_engine uses
+    if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
+    # No pointer: the copy in the bundle (<KOSMOS_HOME>/app/bin) is two directories below <KOSMOS_HOME>/tmux; anywhere
+    # else this names nothing and no own candidate is tried.
+    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="$(dirname "$0")/../../tmux/bin/tmux"; fi
+    # Normalized, so the equality below recognises it as the baked path and PATH never gets a ../.. entry.
+    _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
+    if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
+  fi
+  # The board's order (engine/status.js tmuxRepick): the known places, then Kosmos's own; then this job's PATH
+  # tmux last (usually one of those again). Either side lands on a tmux that can read the server.
+  for _cand in ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own" "$(command -v tmux 2>/dev/null || true)"; do
+    [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
+    case "$_tried" in *" $_cand "*) continue ;; esac   # once per path (command -v usually repeats a known place)
+    _tried="$_tried$_cand "
+    if "$_cand" list-sessions >/dev/null 2>&1; then
+      if [ -n "$_gone" ]; then say "$SESSION: $TMUX_BIN is gone; using $_cand, which can read this computer's tmux server (#2955)"
+      else say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"; fi
+      TMUX_BIN="$_cand"
+      # This supervisor's own later bare tmux and node lookups (and a pane's PATH only when the server's own PATH cannot
+      # be read: the -e PATH below is built from the server's). It moves the whole directory ahead, Homebrew's node and
+      # the rest included, as install/kosmos does at launch when a system tmux wins.
+      PATH="${_cand%/*}:$PATH"; export PATH
+      return 0
+    fi
+  done
+  # A baked tmux that is gone, and no server for any candidate to list (the usual case at boot): Kosmos's own runs it.
+  if [ -n "$_gone" ] && [ -n "$_own" ] && [ -f "$_own" ] && [ -x "$_own" ]; then
+    say "$SESSION: $TMUX_BIN is gone; using Kosmos's own tmux, $_own (#2955)"
+    TMUX_BIN="$_own"
+    PATH="${_own%/*}:$PATH"; export PATH
+  fi
+  return 0
+}
 LOG="${5:-}"
 # The model this agent runs on, optional and NEW as of the create-agent
 # branch (2026-08-16). Empty means claude's own default. Existing plists
@@ -112,6 +182,28 @@ say() {
   echo "$(date): $*" >&2
 }
 
+# #5154 (bounded retries, slice A): one line per run of this agent, so the board can tell a crash LOOP (runs that end
+# on their own within minutes, again and again) from a healthy agent. The log above is trimmed at every start, so it
+# cannot carry this. Lines: "start <epoch>" when this supervisor launches a session, "end <epoch>" when that session
+# is confirmed gone. Kept to the last 40 lines. engine/crashloop.js reads it (same root and the same key rule as
+# store.safeKey). Best-effort: a write that fails changes nothing about the run.
+record_run() {
+  local _key _dir _f
+  _key="$(printf '%s' "$SESSION" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
+  [ -n "$_key" ] || return 0
+  # The store's root (engine/store.js dataRootFor): $AGENT_WORKFORCE_DATA/Kosmos when set, else this install's own
+  # folder (the installed supervisor lives in <store root>/bin). Caught by the test: the env case is one level deeper.
+  if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _dir="$AGENT_WORKFORCE_DATA/Kosmos/runs"
+  else _dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/runs"; fi
+  _f="$_dir/$_key.log"
+  mkdir -p "$_dir" 2>/dev/null || return 0
+  { printf '%s %s\n' "$1" "$(date +%s)" >> "$_f"; } 2>/dev/null || return 0
+  if [ "$(wc -l < "$_f" 2>/dev/null | tr -d ' ')" -gt 40 ] 2>/dev/null; then
+    { tail -n 40 "$_f" > "$_f.tmp" && mv -f "$_f.tmp" "$_f"; } 2>/dev/null || rm -f "$_f.tmp" 2>/dev/null
+  fi
+  return 0
+}
+
 # launchd appends to that log forever, and a persistently failing start writes a
 # line every 30 seconds for as long as the machine is on. Keep it bounded.
 # ⚠️ The size is defaulted to 0 rather than used raw: an unreadable file makes
@@ -148,6 +240,7 @@ waited=0
 # escalation, which nothing should do outside a test of the quiet arm.
 POLL_SECS="${AGENT_WORKFORCE_WAIT_POLL_SECS:-5}"
 ESCALATE_SECS="${AGENT_WORKFORCE_WAIT_ESCALATE_SECS:-600}"
+_kosmos_supervisor_tmux   # #2955: before the first look, so every look below reads the live server
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   if [ "$("$TMUX_BIN" show-options -t "$SESSION" -v @kosmos_agent 2>/dev/null)" = "$SESSION" ]; then
     # Ours -- but do not throw away a HEALTHY one. This file can be run by hand,
@@ -332,7 +425,8 @@ twin_session_may_live() {
   if [ -n "${KOSMOS_WORLD:-}" ]; then _tw="+$KOSMOS_WORLD"; fi
   _tt="$_tb$_tw"; [ "$SESSION" = "$_tt" ] && _tt="$_tb-discord$_tw"
   _tl="$("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)" || { unset _tb _tw _tt _tl; return 0; }
-  printf '%s\n' "$_tl" | awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }'; _twrc=$?
+  # awk's own exit IS the answer here (found or not); a here-string, not a pipe, so the #632 hook reads it as that.
+  awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }' <<<"$_tl"; _twrc=$?
   unset _tb _tw _tt _tl
   return $_twrc
 }
@@ -362,6 +456,10 @@ session_id_exact() {
 # stamping @kosmos_agent onto somebody else's session would make the NEXT run of
 # this script recognise it as ours and kill it.
 if [ -z "$adopt" ]; then
+  # #5154: this supervisor is about to LAUNCH (not adopt), so the attempt is a run to count. Written first, before any
+  # `exit 1` below (review 1: a launch that fails early, a missing runner say, is the likeliest day-one loop, and it
+  # never reached the watch loop). A run whose end line never comes ends at the next start (engine/crashloop.js).
+  record_run start
   # ⚠️ The model flag is appended ONLY when a model was chosen, as two more
   # quoted arguments -- never interpolated into a string this file's header
   # forbids. An empty MODEL adds nothing and the runner picks its own default.
@@ -384,6 +482,7 @@ if [ -z "$adopt" ]; then
   SECRET_ENTRY=()
   SECRET_FILE=""
   _LAUNCH_TOKEN=""
+  _LAUNCH_TOKEN_ONLY=""
     # ── #570: the sender token, minted HERE because this is the launch ──────
     #
     # `/api/report` learns who is reporting by handing `from_pane` to tmux. A
@@ -480,6 +579,15 @@ if [ -z "$adopt" ]; then
     esac
     if [ -n "$KOSMOS_AGENT_TOKEN" ]; then
       SECRET_ENV+=("KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
+      # #4491: the pilot switch, for an agent the person listed in agent-token-only.json (sendertoken.tokenOnlyFor).
+      # Only beside a real token: the switch means "present your own token alone", which needs one. Any failure
+      # here leaves the switch off, today's behaviour, and never fails the launch.
+      if [ -n "${_roster:-}" ] && [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ "$("$NODE_BIN" -e '
+          try { process.stdout.write(require(process.argv[1]).tokenOnlyFor(process.argv[2]) ? "1" : ""); } catch (e) { /* off */ }
+        ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)" = "1" ]; then
+        SECRET_ENV+=("KOSMOS_AGENT_TOKEN_ONLY=1")
+        _LAUNCH_TOKEN_ONLY=1   # for Antigravity's launch-time report too, beside _LAUNCH_TOKEN
+      fi
       # Kept only in this shell for Antigravity's one launch-time status report.
       _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
     fi
@@ -550,7 +658,13 @@ if [ -z "$adopt" ]; then
     # ⚠️ RUN_STARTED is set by EVERY path that creates the session: launch_pane, and the
     # Antigravity arm, which calls new-session itself. A new such path must set it too, or
     # its live run loses its token here (supervisor.retire-token-4530 runs both).
-    if [ "${RUN_STARTED:-0}" != 1 ]; then retire_run_token; fi
+    if [ "${RUN_STARTED:-0}" != 1 ]; then
+      retire_run_token
+      # #5154 review 2: a launch that never made its session FAILED, so its run gets a real end line here (every
+      # `|| exit 1` of the launch block reaches this trap). A start with NO end line (a TERM or bootout of a live run)
+      # is not counted as a crash (engine/crashloop.js), so this line is what makes a failing launch count.
+      record_run end
+    fi
   }
   trap cleanup_launch_secrets EXIT
   trap 'exit 129' HUP
@@ -732,6 +846,11 @@ if [ -z "$adopt" ]; then
   # supervisor's environment. `${VAR:-}` is empty when unset, which is exactly
   # what the default world wants pushed.
   PANE_ENV+=(-e "KOSMOS_WORLD=${KOSMOS_WORLD:-}")
+  # #4491: pinned empty for every pane, so a value on the shared tmux server's global environment cannot put an
+  # unlisted agent into the token-only pilot. A listed agent's 1 comes from the one-use secrets file, which the pane
+  # entry exports after these, so it still wins. Every pane therefore has it SET (empty when off), so a reader must
+  # compare it to exactly 1, as install/kosmos, the Windows CLI, the report hook and the bridges all do.
+  PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN_ONLY=")
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
@@ -1191,11 +1310,14 @@ if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] &
   if [ "$_AGY_SIGNED" = signed-in ]; then
     _AGY_SEED_ENV=()
     for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
-      case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
+      case "$_x" in
+        KOSMOS_AGENT_TOKEN_ONLY=*) ;;   # #4491: the pane's empty pin; the seed is handed this launch's own value below
+        KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;;
+      esac
     done
     (
       export KOSMOS_AGENT_TOKEN="${_LAUNCH_TOKEN:-}"
-      env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1
+      env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} KOSMOS_AGENT_TOKEN_ONLY="${_LAUNCH_TOKEN_ONLY:-}" TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1
     ) || true
     unset _AGY_SEED_ENV _x
   fi
@@ -1203,7 +1325,7 @@ if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] &
 fi
 unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
 unset _AGY_BRIDGE
-unset _LAUNCH_TOKEN
+unset _LAUNCH_TOKEN _LAUNCH_TOKEN_ONLY
 
 # Stay alive while the session does, so launchd supervises the AGENT rather than
 # a command that exits in a tenth of a second.
@@ -1224,14 +1346,32 @@ done
 # its reports are refused until its next launch (review of #4530, B1). tmux answers 1
 # for "no such session" and for "no server" (measured); anything else is not an answer.
 # Two answers of 1, a couple of seconds apart, or nothing is retired.
+# #2955: the version wall is not an answer either. Usually it means the old server (and this agent with it) died and a
+# newer tmux started the next one: keeping the token then costs nothing, and the next launch retires it. The one case
+# where the agent is still alive is a socket file unlinked under a running server (a /tmp cleaner) and a newer server
+# started at the same path; two wall answers there would retire a LIVE agent's token. So _kosmos_session_answer
+# reports "wall", never 1, and nothing is retired on it.
+_kosmos_session_answer() {
+  local _s _r=0
+  _s="$("$TMUX_BIN" has-session -t "$TARGET" 2>&1 >/dev/null)" || _r=$?
+  case "$_s" in
+    *"protocol version mismatch"*) echo wall; return 0 ;;
+    *"server exited unexpectedly"*)   # the wall only with a socket on disk (else 3.5a's serverless voice: no server).
+      # This job's sessions are always on the default socket under its TMUX_TMPDIR (launchd gives it no $TMUX, and
+      # nothing here passes -L), so that one path is the whole question.
+      if [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ]; then echo wall; return 0; fi ;;
+  esac
+  echo "$_r"
+}
 _gone=0
-"$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
-if [ "$_rc" -eq 1 ]; then
+_rc="$(_kosmos_session_answer)"
+if [ "$_rc" = 1 ]; then
   sleep 2
-  "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
-  [ "$_rc" -eq 1 ] && _gone=1
+  _rc="$(_kosmos_session_answer)"
+  [ "$_rc" = 1 ] && _gone=1
 fi
 if [ "$_gone" = 1 ]; then
+  [ -z "${adopt:-}" ] && record_run end   # #5154: the run this supervisor started is over
   retire_run_token
 elif [ -n "${RUN_INSTANCE:-}" ]; then
   say "$SESSION: the session was not confirmed gone (has-session answered $_rc), so its run's sender token is kept; the next launch retires it"

@@ -15,6 +15,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-new-3224-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -55,7 +61,7 @@ function withStubBoard(answer, fn) {
 }
 
 const PLACED = { delivery: { state: 'placed' } };
-const envFor = (port) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
+const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
 test('#3224: kosmos post --new puts new_post:true on the body and consumes the flag', () => withStubBoard(PLACED, async (port, seen) => {
   const out = await runCli(['post', '--new', 'alpha', 'a new post'], envFor(port));

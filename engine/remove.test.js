@@ -2727,3 +2727,238 @@ test('#4006: the person\'s own Restart of a no-pane agent that fails again keeps
     disruption.clear(name);
   }
 });
+
+// #4624: room posts held for a member are forgotten when it is removed, so a later agent created under the
+// same name is never told about a room it was not in.
+test('#4624: removing an agent forgets the room posts held for it', () => {
+  const roomhold = require('./roomhold');
+  const name = madeAgent('held-on-remove');
+  boardShows(name, name);
+  assert.equal(roomhold.hold(name, 'lease', 'm4'), true, 'precondition: a post was held');
+  assert.deepEqual(roomhold.heldIn(name, 'lease'), ['m4']);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED, 'precondition: the agent was removed');
+  assert.deepEqual(roomhold.heldProjects(name), [], 'removal left the held posts for whoever takes the name next');
+});
+
+/* #4964: launchd as MEASURED on Agent1s (0.7.16): bootout returns at once, the job then stays loaded (state =
+   SIGTERMed, print still answers) while its supervisor shuts down, and only then is gone. A bootstrap in that gap
+   answers 5 ("already loaded") and changes nothing. Modelled here on the clock, so the restart meets it as it did:
+   Josh's "Switch & Restart to Gemini" agents ran on unsupervised, with no job, unreachable from the page. */
+function dyingLaunchd(dieMs, opts = {}) {
+  const m = { state: 'loaded', goneAt: 0, bootstraps: 0, prints: 0 };
+  const tick = () => { if (m.state === 'dying' && Date.now() >= m.goneAt) m.state = 'gone'; };
+  m.runner = (file, args) => {
+    const cmd = args && args[0];
+    tick();
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (file !== '/bin/launchctl') return { ok: true, stdout: '' };
+    if (cmd === 'bootout') {
+      if (opts.bootoutFails) return { ok: false, code: 1, stderr: 'Boot-out failed: 1: Operation not permitted' };
+      if (m.state === 'loaded') { m.state = 'dying'; m.goneAt = Date.now() + dieMs; }
+      return { ok: true, stdout: '' };
+    }
+    if (cmd === 'print') {
+      m.prints += 1;
+      if (m.state === 'gone') return { ok: false, code: 113, stderr: 'Could not find service' };
+      // opts.printHiccup: the first print after a bootstrap that loaded fails once (a timeout), though the job runs
+      if (opts.printHiccup && m.bootstraps === 1 && m.state === 'loaded' && !m.hiccuped) { m.hiccuped = true; return { ok: false, code: null, stderr: '' }; }
+      // opts.flaky: print itself fails (a timeout) while the job is dying, which says nothing about the job
+      if (m.state === 'dying' && opts.flaky) return { ok: false, code: null, stderr: '' };
+      return { ok: true, stdout: m.state === 'dying' ? 'state = SIGTERMed' : 'state = running' };
+    }
+    if (cmd === 'bootstrap') { m.bootstraps += 1; if (m.state !== 'gone') return { ok: false, code: 5, stderr: 'Bootstrap failed: 5: Input/output error' }; m.state = 'loaded'; return { ok: true, stdout: '' }; }
+    return { ok: true, stdout: '' };
+  };
+  m.settle = () => { const until = m.goneAt + 50; while (Date.now() < until) { /* let the old job finish going */ } tick(); };
+  return m;
+}
+function withUnloadWait(ms, fn, burstMs) {
+  const keys = ['AGENT_WORKFORCE_UNLOAD_WAIT_MS', 'AGENT_WORKFORCE_RELAUNCH_RETRY_MS', 'AGENT_WORKFORCE_UNLOAD_BURST_MS'];
+  const was = keys.map((k) => process.env[k]);
+  process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = String(ms);
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '0';   // the #4006 second try, at once: it is not what is tested
+  if (burstMs !== undefined) process.env.AGENT_WORKFORCE_UNLOAD_BURST_MS = String(burstMs);
+  try { return fn(); } finally {
+    keys.forEach((k, i) => { if (was[i] === undefined) delete process.env[k]; else process.env[k] = was[i]; });
+  }
+}
+
+test('#4964: a restart waits for launchd to finish unloading the old job, so the new one is really loaded afterwards', () => {
+  const name = madeAgent('unloadwait');
+  boardShows(name, name);
+  const m = dyingLaunchd(300);
+  remove.setRunner(m.runner);
+  try {
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    m.settle();
+    assert.equal(m.state, 'loaded', 'the restart said RESTARTED and the agent was left with no launchd job');
+    assert.equal(m.bootstraps, 1, 'the bootstrap was not sent once, after the old job had gone');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964 CONTROL: without the wait, the same launchd leaves the agent with no job while the restart says RESTARTED', () => {
+  const name = madeAgent('unloadnowait');
+  boardShows(name, name);
+  const m = dyingLaunchd(300);
+  remove.setRunner(m.runner);
+  try {
+    const out = withUnloadWait(0, () => mac.restart(name, 'provider'));
+    m.settle();
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, 'CONTROL: the model no longer reproduces the measured lie');
+    assert.equal(m.state, 'gone', 'CONTROL: the model no longer reproduces the measured race');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a job still held when the wait runs out is bootstrapped anyway, and its "already loaded" is not taken as a restart', () => {
+  const name = madeAgent('unloadstuck');
+  boardShows(name, name);
+  const m = dyingLaunchd(60 * 60 * 1000);   // never gone within the test
+  remove.setRunner(m.runner);
+  try {
+    const t0 = Date.now();
+    const out = withUnloadWait(200, () => mac.restart(name, 'provider'));
+    assert.ok(Date.now() - t0 < 5000, 'the wait was not bounded');
+    assert.ok(m.bootstraps >= 1, 'it never tried to start the agent');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'a restart whose only answer was the dying job said it restarted');
+    assert.equal(m.bootstraps, 2, 'the #4006 second try did not run');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a job still held when its launch file is gone is not taken as restarted (no bootstrap was ever sent)', () => {
+  const name = madeAgent('unloadnoplist');
+  boardShows(name, name);
+  const m = dyingLaunchd(60 * 60 * 1000);
+  remove.setRunner(m.runner);
+  try {
+    const job = mac.jobFor(name);
+    assert.ok(job && job.plist, 'precondition: the fixture has a launch file');
+    const real = m.runner;
+    // the launch file goes once the old job is booted out (removed by hand while it shuts down)
+    remove.setRunner((file, args) => { if (args && args[0] === 'bootout' && fs.existsSync(job.plist)) fs.rmSync(job.plist); return real(file, args); });
+    const out = withUnloadWait(200, () => mac.restart(name, 'provider'));
+    assert.equal(m.bootstraps, 0, 'precondition: a launch file that is gone is never bootstrapped');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'the dying job\'s print read as the agent restarted');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a restart whose new job loaded is not turned into a failure by one print that failed (no second wait on our own job)', () => {
+  const name = madeAgent('unloadhiccup');
+  boardShows(name, name);
+  const m = dyingLaunchd(100, { printHiccup: true });
+  remove.setRunner(m.runner);
+  try {
+    remove.resetUnloadWaitsForTests();
+    const t0 = Date.now();
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.ok(m.hiccuped, 'precondition: the confirming print never failed');
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, 'a running agent was put on the failed card: ' + out.because);
+    assert.ok(Date.now() - t0 < 1500, `the second try waited ${Date.now() - t0} ms on the agent's own new job`);
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a bootout that failed is not waited on, and the old job\'s "already loaded" is not a restart', () => {
+  const name = madeAgent('unloadbootoutfail');
+  boardShows(name, name);
+  const m = dyingLaunchd(100, { bootoutFails: true });
+  remove.setRunner(m.runner);
+  try {
+    remove.resetUnloadWaitsForTests();
+    const t0 = Date.now();
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.ok(Date.now() - t0 < 1500, `it waited ${Date.now() - t0} ms on a job nothing asked to stop`);
+    assert.ok(m.bootstraps >= 1, 'it never tried to start the agent');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'the old job, never stopped, read as the agent restarted');
+    assert.match(out.because, /macOS would not stop its launch job, so the restart did not take effect/, 'told the agent is not running while its old job runs on');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a print that fails for another reason (a timeout) is not read as the job being gone', () => {
+  const name = madeAgent('unloadflaky');
+  boardShows(name, name);
+  const m = dyingLaunchd(300, { flaky: true });
+  remove.setRunner(m.runner);
+  try {
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    m.settle();
+    assert.equal(m.state, 'loaded', 'a failed print ended the wait and the bootstrap met the dying job');
+    assert.equal(m.bootstraps, 1, 'the bootstrap was not sent once, after the old job had gone');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a burst of restarts waits at most the burst allowance; the rest end PARTIAL, never a RESTARTED with no job', () => {
+  const a = madeAgent('unloadbursta');
+  const b = madeAgent('unloadburstb');
+  boardShows(a, a);
+  const ma = dyingLaunchd(60 * 60 * 1000);
+  const mb = dyingLaunchd(60 * 60 * 1000);
+  try {
+    remove.resetUnloadWaitsForTests();   // earlier tests' waits must not have spent this test's allowance
+    remove.setRunner(ma.runner);
+    const tA = Date.now();
+    const outA = withUnloadWait(2000, () => mac.restart(a, 'provider'), 2500);
+    assert.ok(Date.now() - tA >= 2400, `precondition: the first restart did not wait (${Date.now() - tA} ms)`);
+    assert.equal(outA.outcome, remove.OUTCOME.PARTIAL, outA.because);
+    boardShows(b, b);
+    remove.setRunner(mb.runner);
+    const t0 = Date.now();
+    const outB = withUnloadWait(2000, () => mac.restart(b, 'provider'), 2500);
+    assert.ok(Date.now() - t0 < 1200, `the second restart waited ${Date.now() - t0} ms past the spent allowance`);
+    assert.equal(outB.outcome, remove.OUTCOME.PARTIAL, 'past the allowance, the dying job read as a restart');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(a);
+    disruption.clear(b);
+  }
+});
+
+test('#4964: a board whose commands are not real (dry run, no runner) does not wait for an unload', () => {
+  /* No pane: the restart goes straight to the relaunch (a dry-run board cannot close a window, so an agent with one
+     never reaches it). This is the browser checks' Restart on a stopped agent (render-start-agent-3410). */
+  const name = madeAgent('unloaddry');
+  remove.setRunner(null);   // dry run: every print answers "loaded"
+  const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  try {
+    const t0 = Date.now();
+    const out = mac.restart(name, 'restart', { startIfDead: true });
+    assert.ok(Date.now() - t0 < 3000, `a dry-run restart froze the board for ${Date.now() - t0} ms`);
+    assert.ok(out.steps.some((st) => st.label === 'asked it to start again now'), `precondition: the restart never reached the relaunch: ${out.because}`);
+  } finally {
+    if (was !== undefined) process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});

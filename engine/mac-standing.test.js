@@ -302,11 +302,285 @@ test('fetchStanding: NULL and NO tunnel call when not enrolled', async () => {
   assert.equal(r.calls.length, 0);
 });
 
-test('fetchStanding: NULL and NO tunnel call when the switch is off (a paid route is not called)', async () => {
+/* kosmos#4743: a refresh another test left out (an ask started by a flip, which nothing awaits) must end
+   before the next test resets the flags, or its re-ask lands in that test. Waits for it, at most 5 s. */
+async function settleStanding() {
+  for (const t0 = Date.now(); remote.standingOutForTests() && Date.now() - t0 < 5000;) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.ok(!remote.standingOutForTests(), 'a refresh left by an earlier test never ended');
+}
+
+test('#4731, #4743: with the switch OFF an enrolled computer is still heard from: one signed standing call whose body says only that remote access is off', async () => {
   enroll(false);
   const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
-  assert.equal(r.value, null);
-  assert.equal(r.calls.length, 0);
+  assert.equal(r.value, 'good');
+  assert.equal(r.calls.length, 1, 'off read as gone to the coordinator: it heard nothing');
+  assert.deepEqual(r.dialled, [], 'no direct dial: still signed through the tunnel');
+  assert.equal(fake.flag(r.calls[0], '--path'), '/v1/mac/standing', 'the existing standing route, nothing new');
+  assert.deepEqual(JSON.parse(r.calls[0].stdin), { remote: { on: false } },
+    'the body must say remote access is off, and nothing more (no report fields while off)');
+  // CONTROL: the same computer with the switch ON sends its full report, so the one-bit body above is the off arm.
+  enroll(true);
+  const on = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+  assert.deepEqual(Object.keys(JSON.parse(on.calls[0].stdin)), ['remote']);
+  assert.notDeepEqual(JSON.parse(on.calls[0].stdin).remote, { on: false }, 'the switch ON must not send the off body');
+});
+
+test('#4743: with the switch ON and no report built, the body says exactly that remote access is on', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  const rr = require('../engine/remote-report');
+  const realBuild = rr.build;
+  rr.build = () => { throw new Error('could not build'); };
+  try {
+    enroll(true);
+    const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+    assert.equal(r.calls.length, 1);
+    assert.deepEqual(JSON.parse(r.calls[0].stdin), { remote: { on: true } },
+      'on with no report must still say on (it is what clears the coordinator\'s off mark), and nothing more');
+  } finally { rr.build = realBuild; }
+});
+
+test('#4743: switching remote access off tells the coordinator at once, not at the next cadence (up to 12 h)', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  enroll(true);
+  // Fresh on this cadence: without the flip hook nothing would be due for a long while.
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'switching off sent no standing question');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(fake.calls().length, 1, 'the flip was told more than once');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: switching remote access ON tells the coordinator at once too (it clears the off mark)', async () => {
+  await settleStanding();
+  remote.resetForTests();
+  enroll(false);
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(true).ok, true);
+    await waitForFakeCalls(fake, 1, 5000);
+    const on = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(on, 'switching on, on a fresh stamp, sent no standing question');
+    assert.equal(JSON.parse(on.stdin).remote.on, true);
+  } finally {
+    // Switching back off is itself a flip that asks (or re-asks when the ON ask still out ends): wait until
+    // no refresh is out and no flip is pending, so nothing lands in the next test.
+    remote.setOn(false);
+    for (const t0 = Date.now(); !remote.standingQuietForTests() && Date.now() - t0 < 5000;) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.ok(remote.standingQuietForTests(), 'the clean-up flip never settled: it would leak into the next test');
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: a flip while a refresh is already out is told when that refresh ends', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  enroll(true);
+  let release;
+  const slow = () => new Promise((r) => { release = () => r('good'); });
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: 0 })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    const out = remote.refreshStandingIfStale({ ttlMs: 0, fetcher: slow });   // the poll's refresh, still out
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(remote.setOn(false).ok, true);                                // the flip, while it is out
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'control: nothing is sent while the first refresh is out');
+    release(); await out;
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the flip made during a refresh was never told');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    if (release) release();   // a failed assertion above must not leave the refresh out for later tests
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: signing in with the switch off makes the next standing poll tell the coordinator, whatever its stamp (turnOnAfterSignin)', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  enroll(false);
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    remote.turnOnAfterSigninForTests();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'the sign-in itself started a signed call (it would hold up a Forget)');
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });   // the next poll, on a fresh stamp
+    await waitForFakeCalls(fake, 1, 5000);
+    const on = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(on, 'the sign-in switched it on and the next poll told nothing');
+    assert.equal(JSON.parse(on.stdin).remote.on, true);
+    // CONTROL: already on, a sign-in leaves the next poll on its cadence (fresh stamp: nothing sent).
+    fake.reset();
+    const now = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
+    remote.turnOnAfterSigninForTests();
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'control: a sign-in with the switch already on made the poll ask early');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: a sign-in cancelled after it registered leaves the switch off AND the standing stamp due (it survives a restart)', async () => {
+  await settleStanding();
+  remote.resetForTests();
+  enroll(true);   // the register's new identity is on disk (mac_id 'x'), so the identity changed from 'old-id'
+  const r = remote.cancelledAfterForTests({ ok: true }, 'old-id', 'old.example', Date.now());
+  assert.ok(r, 'cancelledAfter answered nothing');
+  const after = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  assert.equal(after.on, false, 'a cancelled sign-in left the switch on');
+  assert.ok(Date.now() - after.standing_at > remote.OFF_STANDING_TTL_MS,
+    'the standing stamp is fresh, so after a restart the off would wait the whole off cadence: ' + after.standing_at);
+  // The flag too: with the stamp made fresh (as a restart-free poll would see after another writer), the
+  // next poll on its ordinary TTL still asks, and says off.
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(after, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the cancelled sign-in left no pending flip: a fresh stamp kept the off untold');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+    remote.resetForTests();   // nothing it set may reach the next test
+  }
+});
+
+test('#4743: saving the switch at the value it already has sends nothing', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  enroll(false);
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(fake.calls().length, 0, 'a save that changed nothing sent a standing question');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: a flip whose first ask was stopped is told by the next refresh, even after another writer stamped the standing fresh', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  // The flip is made while the board is not enrolled, so its own ask stops early (a sign-in on an enrolled
+  // Mac stops it through busy() instead; the flag behaves the same either way).
+  enroll(true);
+  unenroll();
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'precondition: the first ask was stopped (nothing sent)');
+    // The sign-in finishes: enrolled again, and its own write stamps the standing fresh.
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+    const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+    await remote.refreshStandingIfStale({ ttlMs: 0 });
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the pending flip was never told');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+    // CONTROL: told once, the next refresh on a fresh stamp sends nothing.
+    fake.reset();
+    const now = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
+    await remote.refreshStandingIfStale({ ttlMs: 0 });
+    assert.equal(fake.calls().length, 0, 'control: with no flip pending, a fresh stamp was asked again');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: an off flip whose ask could not go out is still told after a restart (the stamp it set back)', async () => {
+  await settleStanding();
+  remote.resetForTests();
+  enroll(true);
+  // A fresh stamp first: without the set-back, nothing would be due for the whole off cadence.
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  unenroll();                                   // its own ask stops early
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'precondition: nothing could be sent');
+    remote.resetForTests();                     // a restart: the in-memory flag is gone
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });   // an ordinary poll after it
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'after a restart the off waited for the whole off cadence (the stamp was not set back)');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: a flip told to a board that cannot ask yet is not dropped when the refresh that was out ends', async () => {
+  await settleStanding();
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
+  enroll(true);
+  let release;
+  const slow = () => new Promise((r) => { release = () => r('good'); });
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: 0 })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    const out = remote.refreshStandingIfStale({ ttlMs: 0, fetcher: slow });   // the poll's refresh, still out
+    await new Promise((r) => setTimeout(r, 50));
+    unenroll();                                                                // a sign-in starts: cannot ask
+    assert.equal(remote.setOn(false).ok, true);
+    release(); await out;                                                     // its re-ask stops early
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'precondition: nothing could be sent yet');
+    // The sign-in finishes, and its own write stamps the standing fresh.
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+    const now = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
+    await remote.refreshStandingIfStale({ ttlMs: 0 });
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the flip was dropped');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    if (release) release();
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
 });
 
 test('fetchStanding: the kosmos_plus bool shape maps too', async () => {

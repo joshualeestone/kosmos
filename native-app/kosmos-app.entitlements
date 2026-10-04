@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- #4409: the native app is signed with hardened runtime, which blocks the microphone unless the
+     signature carries this entitlement. Without it the mic button's prompt never appears and the
+     recognizer hears nothing, with no error. Speech recognition itself needs no entitlement (only the
+     Info.plist usage string install/setup.sh writes). Add nothing here that the app does not use. -->
+<plist version="1.0"><dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+</dict></plist>

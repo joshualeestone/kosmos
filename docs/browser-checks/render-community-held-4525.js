@@ -40,7 +40,7 @@ const MOD = '**/api/community/moderation*';
 const RELEASE = '**/api/community/release';
 const DISCARD = '**/api/community/discard';
 const SWITCH = '**/api/community-setting';
-const SWITCH_ON = { on: true, ok: true, share: null, noticeSeen: true };
+const SWITCH_ON = { on: true, ok: true, share: null };   // #4820: the board's answer has no noticeSeen now
 
 const fails = [];
 function check(name, pass, detail) {
@@ -134,6 +134,8 @@ const QUEUE = [
   { id: 'c3', status: 'held', postId: 'p1', author: { type: 'agent', name: 'Ava' }, body: 'Nice write-up.', receivedAt: '2026-09-29T08:04:00Z' },
   // A comment under p2, which the safety check stopped: it can never show, so it can only be discarded.
   { id: 'c4', status: 'held', postId: 'p2', author: { type: 'agent', name: 'Ava' }, body: 'Good question.', receivedAt: '2026-09-29T08:05:00Z' },
+  // #4994: a deleted agent's held comment, marked never to send by communitystore.markAgentNotSent.
+  { id: 'c6', status: 'held', remotePostId: REMOTE, notSent: true, author: { type: 'agent', name: 'Rex' }, body: 'Left behind.', receivedAt: '2026-09-29T08:06:00Z' },
 ];
 
 async function shot(pg, name) {
@@ -158,7 +160,10 @@ async function run() {
       if (off.ok && offBody && offBody.on === false) {
         const communitystore = require('../../engine/communitystore');
         const feedpublish = require('../../engine/feedpublish');
-        const seed = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { agentId: 'nova4525' });
+        // #3485 auto-publish (2026-09-30): an agent's clean post now publishes straight away, so
+        // these stand for rows held BEFORE that update (they stay held for the person). trusted:
+        // false asks the choke for exactly that hold; agentId would now publish them.
+        const seed = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { trusted: false });
         const a = seed('Release me');
         const b = seed('Discard me');
         check('REAL: two held posts are seeded', a.status === 'held' && b.status === 'held', JSON.stringify([a, b]));
@@ -206,10 +211,10 @@ async function run() {
       const R = (id) => r.rows.find((x) => x.id === id) || {};
       if (scheme === 'light') {
         check('ROWS: the list exists and its heading shows below the Community switch', r.found && r.headShown && r.belowSwitch, JSON.stringify(r));
-        check('ROWS: six rows are listed', r.rows.length === 6, JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: seven rows are listed', r.rows.length === 7, JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: the list asks for held and stopped rows separately, each at the route\'s full page (limit=200)',
           asked.length >= 2 && asked.every((u) => /[?&]limit=200\b/.test(u)) && asked.some((u) => /status=held\b/.test(u)) && asked.some((u) => /status=quarantined\b/.test(u)), JSON.stringify(asked));
-        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","c3","c4","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","c3","c4","c6","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: with the switch on there is no switch-off note', r.offNote === false);
         check('ROWS: a stopped row keeps its words hidden until asked (it may hold a key)', R('p2').bodyShown === false && R('p2').reveal === true && R('p1').bodyShown === true, JSON.stringify(r.rows.map((x) => [x.bodyShown, x.reveal])));
         const leak = await p1.evaluate(() => {
@@ -223,15 +228,17 @@ async function run() {
           R('c3').release === false && R('c3').discard === true && /release the post first, then this comment/.test(R('c3').text), R('c3').text);
         check('ROWS: a comment under a STOPPED post has no Release and says it can only be discarded',
           R('c4').release === false && R('c4').discard === true && /Its post was stopped by the safety check, so this comment can only be discarded/.test(R('c4').text), R('c4').text);
+        check('ROWS: a comment on a PUBLIC post says releasing it sends it there, and when it can be removed after (#4373 part B, #4801 review 2)', /Releasing it while Community is on sends it to the public community\. Once sent, it can be removed from the list below only if the community answered the send\. Released while Community is off, it is never sent\./.test(R('c2').text) && !/Comments are not sent/.test(R('c2').text) && !/cannot be taken back/.test(R('c2').text), JSON.stringify(R('c2').text));
+        check('ROWS: a deleted agent\'s held comment (#4994) says releasing it never sends it, and does not promise the community', /Its agent was deleted, so releasing it never sends it to the public community\./.test(R('c6').text) && !/sends it to the public community\. Once sent/.test(R('c6').text), JSON.stringify(R('c6').text));
         check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(R('c1').text) && !/Comments are not sent/.test(R('p1').text), JSON.stringify([R('p1').text, R('c1').text]));
         const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
         check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));
-        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["c3",false],["c4",false],["p2",false]]', JSON.stringify(r.rows));
+        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["c3",false],["c4",false],["c6",true],["p2",false]]', JSON.stringify(r.rows));
         check('ROWS: every row can be discarded', r.rows.every((x) => x.discard), JSON.stringify(r.rows));
         check('ROWS: the stopped row says why in words, and that it cannot be released',
           /contains an email address, so it cannot be released\./.test(R('p2').why) && !/email address \(PII\)/.test(R('p2').text), R('p2').why);
         check('ROWS: each row shows its words and its agent', /Moving the weekly report/.test(R('p1').text) && /Nova/.test(R('p1').text) && /Same here, templates help\./.test(R('c1').text) && /Ava/.test(R('c1').text), JSON.stringify(r.rows.map((x) => x.text)));
-        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', R('c2').link === 'https://community.installkosmos.com/post/' + REMOTE && R('c1').link === '', JSON.stringify([R('c1').link, R('c2').link]));
+        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', R('c2').link === 'https://community.kosmosplus.com/post/' + REMOTE && R('c1').link === '', JSON.stringify([R('c1').link, R('c2').link]));
         check('ROWS: a long post offers Read all; a short one does not', R('p1').more === true && R('c1').more === false, JSON.stringify(r.rows.map((x) => x.more)));
         await p1.click('li[data-id="p1"] .community-held-more');
         const open = await p1.evaluate(() => document.querySelector('li[data-id="p1"] .community-held-body').classList.contains('open'));

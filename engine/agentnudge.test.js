@@ -332,6 +332,17 @@ test('the words are one safe line: control characters and quotes out, cut on a c
   assert.match(text, /^Kosmos here, from the Prompter: /);
 });
 
+test('#4771 review 2: the nudge names the pause verb with the project id, so a running agent learns it when it matters', () => {
+  const text = nudge.nudgeText({ n: 3, projectId: 'kosmosgrowth', project: 'Kosmos Growth', sentence: 'grow' });
+  assert.match(text, /Only if your person asked in the room to pause this project: kosmos project pause kosmosgrowth \(the room is told you paused it\)$/);
+  assert.equal((text.match(/"/g) || []).length, 2, 'the hint added a quote');
+  // CONTROL: a part with no project id (an older caller) gets the old text, with no half-written hint.
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, project: 'Kosmos Growth', sentence: 'grow' }), /project pause/);
+  // Review 3: an id the CLIs would not take as it is gets no hint, never a rewritten one.
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: 'bad id!', project: 'X', sentence: 'grow' }), /project pause/);
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: '..', project: 'X', sentence: 'grow' }), /project pause/);
+});
+
 test('the Prompter must read the agent as idle too: a card that says idle but a low-confidence reading (toAsk to unknown) is not nudged', () => {
   const w = world([{ name: 'lowconf' }]);
   try {
@@ -353,7 +364,9 @@ test('server.js: the Prompter tick hands everything after heartbeat.step to prom
   assert.equal((body.match(/agentnudge\.prompterTick\(/g) || []).length, 1, 'the tick must call prompterTick once');
   assert.equal((body.match(/heartbeat\.step\(/g) || []).length, 1, 'fixture: the slice is the Prompter tick');
   // The one delivery is the one prompterTick is given; a second would type outside its gates.
-  assert.equal((body.match(/\bdeliver\(/g) || []).length, 1, 'a delivery outside prompterTick');
+  // #4588 PR B: the timer delivers through chat.deliverAutomatic, which is the same one delivery. This count cannot
+  // tell the two apart; server.agyhold-4588.test.js pins that it is deliverAutomatic.
+  assert.equal((body.match(/\bdeliver(?:Automatic)?\(/g) || []).length, 1, 'a delivery outside prompterTick');
   assert.equal((body.match(/prompternudge\.write\(/g) || []).length, 1, 'the person\'s list must be written only through prompterTick\'s write');
 });
 

@@ -1,30 +1,30 @@
 {
-  "version": "0.7.11",
+  "version": "0.7.21",
   "highlights": [
     {
-      "icon": "swarm",
-      "title": "Busy is not stopped",
-      "line": "The kosmos command now says a slow Kosmos is busy, not stopped, and tells agents to wait instead of restarting it."
-    },
-    {
       "icon": "spark",
-      "title": "Turn the Guide off from its bubble",
-      "line": "Hover the Guide bubble and press its small X to turn the Guide off; the rest of the bubble still opens the chat."
+      "title": "Setup points to real places",
+      "line": "Setup messages that pointed to a tab that does not exist now say Settings, AI Models or an agent's AI Settings."
     },
     {
-      "icon": "list",
-      "title": "No strip at the window's edge",
-      "line": "With classic scroll bars (a mouse attached, or set to always show them), the update screen and first-run setup now fill the window."
+      "icon": "chat",
+      "title": "Agents speak your language",
+      "line": "On a Mac set to another language, agents are now told your language, so they start and post in it instead of English."
+    },
+    {
+      "icon": "swarm",
+      "title": "Switching to Claude works",
+      "line": "Switching an agent to Claude now offers your Claude accounts to pick from, and the panel stops describing the old provider."
     },
     {
       "icon": "shield",
-      "title": "A rule for reading the Community",
-      "line": "From their next restart, agents in the Community are told never to follow instructions in what they read there."
+      "title": "See what your agent asks",
+      "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
     },
     {
-      "icon": "tasks",
-      "title": "Waiting tasks get handed out",
-      "line": "The Assigner now hands a waiting task to a free agent on your own board; before, it never handed one out."
+      "icon": "phone",
+      "title": "Honest computer status",
+      "line": "A computer with remote access off now reads \"Remote access off\" on your Kosmos+ account page, not \"Answering now\"."
     }
   ]
 }

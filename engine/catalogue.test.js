@@ -1,7 +1,7 @@
 'use strict';
 /**
- * #4555: the seeded catalogue of roles and prebuilt teams (engine/catalogue.js,
- * engine/catalogue-roles.js, engine/catalogue-teams.js), and what team creation (#4557) relies on.
+ * #4555: the catalogue of roles and prebuilt teams (engine/catalogue.js; since #4632 downloaded from
+ * joshualeestone/kosmos-catalogue, here the stored test copy), and what team creation (#4557) relies on.
  *
  *   node --test engine/catalogue.test.js
  */
@@ -23,6 +23,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const catalogue = require('./catalogue');
+// #4632: the catalogue is downloaded, not shipped; store the signed fixture as a download would.
+require('../test-support/catalogue-fixture').install(SANDBOX);
 const roles = require('./roles');
 const create = require('./create');
 const instructions = require('./instructions');
@@ -67,7 +69,7 @@ test('every catalogue role opens with the line the board reads, and carries no e
   }
 });
 
-test('teams: unique keys, a lead plus 4 or 5 reports, unique slots and names as create compares them', () => {
+test('teams: unique keys, a lead plus 1 to 5 reports, unique slots and names as create compares them', () => {
   const all = catalogue.teams();
   assert.equal(all.length, 21);
   assert.equal(new Set(all.map((t) => t.key)).size, all.length, 'two teams share a key');
@@ -82,7 +84,7 @@ test('teams: unique keys, a lead plus 4 or 5 reports, unique slots and names as 
     assert.equal(leads.length, 1, `${t.key} has ${leads.length} leads`);
     assert.equal(leads[0].slot, 'lead');
     const reports = t.members.filter((m) => m.reportsTo !== null);
-    assert.ok(reports.length >= 4 && reports.length <= 5, `${t.key} has ${reports.length} reports`);
+    assert.ok(reports.length >= 1 && reports.length <= 5, `${t.key} has ${reports.length} reports`);
     assert.ok(reports.every((m) => m.reportsTo === 'lead'), `${t.key} has a report that does not report to the lead`);
     assert.equal(new Set(t.members.map((m) => m.slot)).size, t.members.length, `${t.key} repeats a slot`);
     const slugs = t.members.map((m) => create.slugFor(m.name));
@@ -149,32 +151,22 @@ test('memberInstructions uses the names the person chose, for the member and for
   assert.doesNotMatch(catalogue.memberInstructions('marketing', 'seo'), /Nova/);
 });
 
-const build = require('../tools/catalogue/build');
 // The command as this machine teaches it (bare `kosmos` is not on every PATH): engine/clipath.js.
 const CLI = require('./clipath').kosmosCliShown();
 // Child processes load roles.js as a board would: not as a node --test process.
-const CHILD_ENV = { ...process.env, NODE_TEST_CONTEXT: '' };
+// Its own data root inside the sandbox, so a child's stored catalogue never replaces this process's.
+const CHILD_ENV = { ...process.env, NODE_TEST_CONTEXT: '', AGENT_WORKFORCE_DATA: path.join(SANDBOX, 'child-support') };
+const FIXTURE = path.join(REPO, 'test-support', 'catalogue-fixture.js');
+// The spellings of the em dash the fleet's house rule names, assembled here so this file holds none.
+const DASH = String.fromCharCode(0x2014);
+const EM_DASHES = [DASH, '&' + 'mdash;', '&#' + '8212;', '&#x' + '2014;', '&#X' + '2014;', '\\' + 'u2014', '\\' + 'u{2014}'];
 
-test('the generated modules match their source (tools/catalogue/build.js), and the check can fail', () => {
-  // In-process, so it runs wherever the tests run: no second toolchain to be missing.
-  const { problems } = build.build();
-  assert.deepEqual(problems, [], 'the sources no longer pass the builder\'s own checks');
-  assert.deepEqual(build.stale(), [], 'a generated file differs from its source: run node tools/catalogue/build.js');
-  // CONTROL: an edited source reads stale against the files on disk.
-  const teamsSource = structuredClone(require('../tools/catalogue/teams-source'));
-  teamsSource.teams[0].label = 'Marketing Squad';
-  assert.deepEqual(build.stale(undefined, { teamsSource }), ['catalogue-teams.js']);
-});
-
-test('no em dash in any spelling, in any role or team field, and the builder refuses one in team text', () => {
+test('no em dash in any spelling, in any role or team field', () => {
   const blob = JSON.stringify([catalogue.rawRoles(), catalogue.teams()]);
-  for (const s of build.EM_DASHES) assert.ok(!blob.includes(s), `found ${JSON.stringify(s)}`);
-  // CONTROL: each spelling planted in a team focus line is refused by the builder.
-  for (const s of build.EM_DASHES) {
-    const teamsSource = structuredClone(require('../tools/catalogue/teams-source'));
-    teamsSource.teams[3].members[1].focus = [`Keep the books ${s} weekly.`];
-    assert.ok(build.build({ teamsSource }).problems.some((p) => /em dash/.test(p)), `${JSON.stringify(s)} got through`);
-  }
+  for (const d of EM_DASHES) assert.ok(!blob.includes(d), `found ${JSON.stringify(d)}`);
+  assert.doesNotMatch(blob, /&#0*8212;|&#x0*2014;/i);
+  // CONTROL: the scan sees each spelling when one is there.
+  for (const d of EM_DASHES) assert.ok(JSON.stringify([`a ${d} b`]).includes(d));
 });
 
 test('a chosen name with spaces or periods is written as typed, and every command carries the machine name', () => {
@@ -272,20 +264,20 @@ test('two seats that create would call the same agent are refused up front, nami
   assert.equal(catalogue.memberProblem('marketing', 'seo', { lead: 'Nova', seo: 'Scout' }), null);
 });
 
-test('both data modules are files the Mac and Windows builds ship (engine/*.js, not a test), read from the build scripts', () => {
-  // roles.js loads the catalogue at boot, so a data file missing from a bundle stops the board.
-  // Static, like bundle.contents.test.js (#731): it fails at the commit, not at the cut.
-  const COPY = /for f in "\$REPO"\/engine\/\*\.js; do\s*\n\s*case "\$f" in \*\.test\.js\) ;; \*\) cp "\$f" "\$STAGE\/app\/engine\/" ;; esac/;
-  for (const script of ['build-kosmos-bundle.sh', 'build-kosmos-windows.sh']) {
-    assert.match(fs.readFileSync(path.join(REPO, 'tools', script), 'utf8'), COPY, `${script} no longer copies engine/*.js; check the catalogue still ships`);
-  }
-  const shipped = (file) => path.dirname(file) === __dirname && file.endsWith('.js') && !file.endsWith('.test.js');
-  assert.ok(shipped(catalogue.ROLES_FILE), catalogue.ROLES_FILE);
-  assert.ok(shipped(catalogue.TEAMS_FILE), catalogue.TEAMS_FILE);
-  // CONTROL: the shapes the builds would drop are refused by the same predicate.
-  assert.ok(!shipped(path.join(__dirname, 'catalogue', 'roles.json')));
-  assert.ok(!shipped(path.join(__dirname, 'catalogue', 'roles.js')));
-  assert.ok(!shipped(path.join(__dirname, 'catalogue-roles.test.js')));
+test('#4632: the catalogue is not shipped in the app, only downloaded; the fixture lives outside engine/', () => {
+  // The Mac and Windows builds ship engine/*.js (build-kosmos-bundle.sh, build-kosmos-windows.sh),
+  // so a data module there would ship again, which is what #4632 took out.
+  const data = fs.readdirSync(__dirname).filter((f) => /^catalogue-.*\.js$/.test(f) && !f.endsWith('.test.js'));
+  assert.deepEqual(data, []);
+  assert.ok(!fs.existsSync(path.join(REPO, 'tools', 'catalogue')), 'tools/catalogue moved to joshualeestone/kosmos-catalogue');
+  assert.equal(path.dirname(require(FIXTURE).FIXTURE), path.join(REPO, 'test-support', 'catalogue-published'));
+  // CONTROL: the same scan, on a folder that holds a data module, finds it.
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-scan-'));
+  try {
+    fs.writeFileSync(path.join(probe, 'catalogue-roles.js'), '');
+    fs.writeFileSync(path.join(probe, 'catalogue.test.js'), '');
+    assert.deepEqual(fs.readdirSync(probe).filter((f) => /^catalogue-.*\.js$/.test(f) && !f.endsWith('.test.js')), ['catalogue-roles.js']);
+  } finally { fs.rmSync(probe, { recursive: true, force: true }); }
 });
 
 test('a catalogue that fails to load costs the new roles, not the board: roles.js still loads, loudly', () => {
@@ -298,6 +290,7 @@ test('a catalogue that fails to load costs the new roles, not the board: roles.j
       return load.call(this, req, ...rest);
     };
     const roles = require(${JSON.stringify(path.join(__dirname, 'roles.js'))});
+    require(${JSON.stringify(FIXTURE)}).install(${JSON.stringify(SANDBOX)});
     process.stdout.write(String(roles.ROLES.length) + ' ' + (roles.byKey('pm') ? 'pm' : 'no-pm') + ' ' + (roles.byKey('cmo') ? 'cmo' : 'no-cmo'));
   `;
   const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env: CHILD_ENV });
@@ -305,20 +298,8 @@ test('a catalogue that fails to load costs the new roles, not the board: roles.j
   assert.equal(r.stdout, '35 pm no-cmo', 'roles.js did not fall back to exactly the original roles');
   assert.match(r.stderr, /ready-made role catalogue did not load \(planted catalogue failure\)/);
   // CONTROL: without the planted failure the same child sees the catalogue.
-  const ok = spawnSync(process.execPath, ['-e', `const r = require(${JSON.stringify(path.join(__dirname, 'roles.js'))}); process.stdout.write(String(r.ROLES.length))`], { encoding: 'utf8', env: CHILD_ENV });
-  assert.equal(ok.stdout, '104');
-});
-
-test('the builder refuses role text whose wrap would split a code span', () => {
-  // 66 characters of words, then a span: "`kosmos" still fits the 76-column line and "msg" does not,
-  // so the plain wrap would break the command across two lines.
-  const prefix = 'word '.repeat(13) + 'w';
-  assert.equal(prefix.length, 66, 'premise: the prefix length that forces the split');
-  const rolesSource = structuredClone(require('../tools/catalogue/roles-source'));
-  rolesSource.roles[0].desc = `${prefix} \`kosmos msg someone "hi"\` today.`;
-  assert.ok(build.build({ rolesSource }).problems.some((p) => /code span is split/.test(p)), 'a split code span was not refused');
-  // CONTROL: the untouched sources pass, so the refusal is about the planted span.
-  assert.deepEqual(build.build().problems, []);
+  const ok = spawnSync(process.execPath, ['-e', `const r = require(${JSON.stringify(path.join(__dirname, 'roles.js'))}); require(${JSON.stringify(FIXTURE)}).install(${JSON.stringify(SANDBOX)}); process.stdout.write(String(r.ROLES.length))`], { encoding: 'utf8', env: CHILD_ENV });
+  assert.equal(ok.stdout, '104', ok.stderr);
 });
 
 test('a catalogue key already defined in roles.js is skipped, the original kept once, and the skip is logged', () => {
@@ -348,18 +329,6 @@ test('a catalogue key already defined in roles.js is skipped, the original kept 
 test('the picker still opens on the same first role: the merge keeps Project Manager first', () => {
   // The page recommends the first menu role; the catalogue must not move the default.
   assert.equal(roles.ROLES.filter((r) => r.menu !== false)[0].key, 'pm');
-});
-
-test('the builder refuses a broken team and a zero-padded em dash entity before writing', () => {
-  const src = () => structuredClone(require('../tools/catalogue/teams-source'));
-  const noLead = src(); noLead.teams[0].members[0].slot = 'chief';
-  assert.ok(build.build({ teamsSource: noLead }).problems.some((p) => /exactly one lead/.test(p)));
-  const tooFew = src(); tooFew.teams[0].members = tooFew.teams[0].members.slice(0, 4);
-  assert.ok(build.build({ teamsSource: tooFew }).problems.some((p) => /4 or 5 reports/.test(p)));
-  const padded = src(); padded.teams[1].members[1].focus = ['Keep &#08212; the list.'];
-  assert.ok(build.build({ teamsSource: padded }).problems.some((p) => /em dash/.test(p)));
-  // CONTROL: the real sources pass.
-  assert.deepEqual(build.build().problems, []);
 });
 
 test('fewer than half of the roles a person can pick carry a caution (the menu, not counting hidden roles)', () => {

@@ -328,9 +328,9 @@ function sh(cmd, args) {
  * `status`, and one that never started (ENOENT) or was killed by the timeout
  * does not.
  */
-function shDetail(cmd, args) {
+function shDetail(cmd, args, timeoutMs) {
   try {
-    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: 5000 }), err: '' };
+    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000 }), err: '' };
   } catch (e) {
     const status = e && typeof e.status === 'number' ? e.status : null;
     return {
@@ -464,13 +464,17 @@ function oneLine(text, max) {
 }
 
 function tmuxPanes() {
-  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
-  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; return got.out; }
+  TMUX_LAST_SEARCH = 'none';   // the detail line says only what a search in THIS look did
+  let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
+     read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
+  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = tmuxBin(); return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
   // sessions" — and it is a different value from the `null` that means we never
   // got an answer.
-  if (tmuxSaidNoServer(got)) { LAST_LOOK_PROBLEM = null; return ''; }
+  if (tmuxSaidNoServer(got)) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = null; return ''; }   // no server: nothing proven
   /* ⚠️ TWO DIFFERENT FAILURES AND THEY NEED DIFFERENT WORDS. A process that
      never started (`ran` false: not installed, not on PATH, killed by the
      timeout) has no stderr to quote, and quoting an empty string would put an
@@ -489,10 +493,188 @@ function tmuxPanes() {
      what came back"), it exists so that a cause reaches the screen instead of
      a terminal, and a cause with the actor removed is not a cause. The four
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
-  LAST_LOOK_PROBLEM = got.ran
-    ? (oneLine(got.err, 300) || `tmux exited ${got.status} without saying why`)
-    : 'we could not run tmux at all on this computer';
+  LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin(), TMUX_LAST_SEARCH);
   return null;
+}
+/** The tmux this board would run is not a file any more (it was removed after launch). */
+function tmuxGone() {
+  const b = tmuxBin();
+  if (!b.includes('/')) return false;   // a bare name on PATH: nothing to stat
+  try { return !fs.statSync(b).isFile(); } catch (e) { return Boolean(e && e.code === 'ENOENT'); }
+}
+/* tmux's two answers for "a live server my version cannot read": 3.5a's (also its serverless voice, which
+   tmuxSaidNoServer has already taken when no socket is on disk) and the explicit one. */
+function isVersionWall(got) {
+  return /server exited unexpectedly|protocol version mismatch/i.test(String((got && got.err) || '')) && !tmuxSaidNoServer(got);
+}
+/* 🔑 #2955: A DIFFERENT tmux OWNS THE SERVER, SO READ THROUGH THE ONE THAT CAN. Measured on Agent1s, 2026-10-01 13:42:
+   the board picked the bundled 3.5a at launch (no server yet), and three seconds later the fleet's Homebrew 3.6a
+   started the server; the launcher's pick is made once, so the board read no agent until a person repointed the
+   bundled path. Now the board asks again when it meets the wall: the first tmux that can LIST the live server wins,
+   for the whole process (the engine's readers and writers read AGENT_WORKFORCE_TMUX_BIN at call time, and a bare
+   `tmux` follows PATH; tmuxsignin and musesignin cache it, harmlessly, on their own private sockets). The agents'
+   supervisors make the same choice the same way (bin/agent-supervisor.sh, _kosmos_supervisor_tmux).
+   ⚠️ ONLY OVER THIS BOARD'S LAUNCHER PICK, read once when this module loads: the marker AND the value it marked must
+   both be there and agree. An explicit AGENT_WORKFORCE_TMUX_BIN is a choice (the harness's stubs, a sandbox's inert
+   tmux, a person's); a harness inside an agent's pane inherits the marker from the server's environment but sets its
+   own value, so the two disagree and nothing is replaced.
+   🔄 KOSMOS'S OWN tmux IS ALWAYS A CANDIDATE (<KOSMOS_HOME>/tmux/bin/tmux), so the board follows a server back to it
+   whichever tmux it started on.
+   ⚠️ "Reads" means list and drive (new-session, send-keys, capture-pane, has-session, kill-session: measured), NOT
+   attach: an interactive client must match the server's version exactly (attachTmux).
+   🔢 THE ORDER is the known places, then Kosmos's own, then the launcher's pick; the supervisor tries the known places
+   and Kosmos's own in the same order (then its PATH tmux). Either side lands on a tmux that can read the server.
+   📍 ONLY THE LOOK (tmuxPanes) triggers it. The other readers and writers (list-sessions, display-message,
+   capture-pane, and remove.js, chat.js and messages.js) use
+   whatever AGENT_WORKFORCE_TMUX_BIN holds, and meet the wall until the next look switches it; the look is polled
+   constantly, so that window is short.
+   ⏳ A SEARCH THAT FOUND NOTHING WAITS A MINUTE before it runs again: each candidate is a process, and a lasting wall
+   would otherwise spawn them on every look. KOSMOS_TMUX_KNOWN is a harness seam only, as in install/kosmos. */
+const LAUNCHER_TMUX = process.env.KOSMOS_TMUX_BIN_PICKED === '1' && process.env.AGENT_WORKFORCE_TMUX_BIN
+  && process.env.KOSMOS_TMUX_BIN_PICKED_AS === process.env.AGENT_WORKFORCE_TMUX_BIN ? process.env.AGENT_WORKFORCE_TMUX_BIN : null;
+let TMUX_LAUNCHER_SEAM;   // undefined: the real one
+let TMUX_SWITCHED_TO = null;   // the last value tmuxRepick itself wrote
+let TMUX_CANDIDATES_SEAM = null;
+let TMUX_REPICK_MISSED_AT = 0;
+let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': for the detail line
+const TMUX_REPICK_WAIT_MS = 60000;
+/** Kosmos's own tmux, where the install lays it: this file is <KOSMOS_HOME>/app/engine/status.js and the bundle is
+    <KOSMOS_HOME>/tmux/bin/tmux. The launcher does not export KOSMOS_HOME and the board's launchd job does not carry it,
+    so the path comes from where this file is (in a checkout it names nothing, and is skipped). */
+let TMUX_OWN_SEAM = null;
+function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'); }
+let TMUX_READ_BY = null;   // the tmux whose last look LISTED panes (not merely "no server"): set in tmuxPanes
+/** The tmux to ATTACH an interactive client with (Open in Terminal). ⚠️ Attach needs the SAME version as the server:
+    measured 2026-10-01 on private sockets, 3.6a cannot attach to a 3.5a server and 3.5a cannot attach to 3.6a, though
+    3.6a drives 3.5a in every other way. So: ask the server its version through a tmux that can read it (the board's
+    proven reader, else the agent's baked one), then the first candidate whose own -V says that version; the baked path
+    first, so nothing changes when it already matches. Anything unproven answers the baked path, as before. */
+/* Each binary's version, cached by path and modification time: an attach runs on a board request, and asking up to
+   seven binaries for -V each time (2 s each if one hangs) is what Open in Terminal would otherwise cost. A tmux upgraded
+   in place has a new mtime, so its new version is asked. */
+const TMUX_VERSION_CACHE = new Map();
+function tmuxVersionOf(c) {
+  let key;
+  try { const st = fs.statSync(c); if (!st.isFile()) return null; key = c + '\0' + st.mtimeMs; } catch { return null; }
+  if (TMUX_VERSION_CACHE.has(key)) return TMUX_VERSION_CACHE.get(key);
+  const v = shDetail(c, ['-V'], 2000);
+  const said = v.ran && v.status === 0 ? String(v.out).trim().replace(/^tmux\s+/, '') : null;
+  TMUX_VERSION_CACHE.set(key, said);
+  return said;
+}
+function attachTmux(baked) {
+  const via = readerTmux() || baked;
+  if (!via) return baked || null;
+  const got = shDetail(via, ['list-sessions', '-F', '#{version}'], 2000);
+  const want = got.ran && got.status === 0 ? String(got.out).split('\n')[0].trim() : '';
+  if (!want) return baked || null;
+  const seen = new Set();
+  for (const c of [baked, via, tmuxBin(), ownTmux(), launcherPick(), '/opt/homebrew/bin/tmux', '/usr/local/bin/tmux']) {
+    if (!c || seen.has(c)) continue;
+    seen.add(c);
+    if (tmuxVersionOf(c) === want) return c;
+  }
+  return baked || null;
+}
+/** The tmux this board reads this computer's server through, when that is proven: the board is on its launcher's pick
+    or a switch from it, and its last look LISTED this server through it (before any look, or when the look found no
+    server, nothing is proven and the answer is null). For callers that would otherwise run an agent's baked tmux
+    (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
+    3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
+    cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
+function readerTmux() {
+  return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
+}
+/** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
+    while the live value is still that pick or one this module switched to itself: an explicit value set later in
+    the process (a harness that loaded this module first) is a choice, whatever the environment said at load. */
+function launcherPick() {
+  const pick = TMUX_LAUNCHER_SEAM !== undefined ? TMUX_LAUNCHER_SEAM : LAUNCHER_TMUX;
+  if (!pick) return null;
+  const live = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  return live === pick || (TMUX_SWITCHED_TO && live === TMUX_SWITCHED_TO) ? pick : null;
+}
+/* For baking into a NEW agent's job: the launcher's pick, and only while it exists. A pick that is gone (Homebrew's
+   tmux uninstalled after launch) vouches for nothing, and binPaths then takes the live value. The switch itself goes
+   by launcherPick: a gone pick is exactly when the board must look for another. */
+function launcherTmux() {
+  const pick = launcherPick();
+  if (!pick) return null;
+  try { return fs.statSync(pick).isFile() ? pick : null; } catch { return null; }
+}
+/* The one switch, for both ways tmuxRepick switches. First on PATH, once, so a bare `tmux` agrees; a board that switches
+   back and forth must not grow PATH without end. ⚠️ It moves the WHOLE directory ahead (with Homebrew's: its node, git and
+   the rest) for processes spawned after the switch, as install/kosmos does at launch when a system tmux wins. */
+function tmuxSwitchTo(c, said) {
+  process.env.AGENT_WORKFORCE_TMUX_BIN = c;
+  TMUX_SWITCHED_TO = c;
+  TMUX_REPICK_MISSED_AT = 0;
+  TMUX_LAST_SEARCH = 'none';
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(c));
+  process.env.PATH = [path.dirname(c)].concat(dirs).join(path.delimiter);
+  try { console.error('[status] #2955: ' + said); } catch { /* no console */ }
+}
+function tmuxRepick() {
+  if (!launcherPick()) { TMUX_LAST_SEARCH = 'not-allowed'; return false; }
+  if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) { TMUX_LAST_SEARCH = 'waiting'; return false; }
+  const current = tmuxBin();
+  const known = process.env.KOSMOS_TMUX_KNOWN !== undefined
+    ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
+    : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
+  const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherPick());   // non-null here; a gone one is skipped
+  /* Once per real binary: on Agent1s the bundled path is a symlink to Homebrew's, so one tmux can appear three times
+     here, each a blocking probe of up to 5 s. */
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const seen = new Set([real(current) || current]);
+  for (const c of cands) {
+    if (!c || c === current) continue;
+    const r = real(c);
+    if (!r || seen.has(r)) continue;
+    seen.add(r);
+    try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
+    const tried = shDetail(c, ['list-sessions'], 2000);   // a probe, on a board request path: 2 s, not the 5 s a look gets
+    if (tried.ran && tried.status === 0) {
+      tmuxSwitchTo(c, `this computer's tmux server belongs to a different version than ${current}; reading through ${c}, which can`);
+      return true;
+    }
+  }
+  /* The board's tmux is gone and nothing could list a server (none running): Kosmos's own runs the next one, the same
+     fallback the supervisor makes for a gone baked tmux. */
+  if (tmuxGone()) {
+    const own = ownTmux();
+    try {
+      if (fs.statSync(own).isFile()) {
+        tmuxSwitchTo(own, `${current} is gone and nothing here could list a server; using Kosmos's own tmux, ${own}`);
+        return true;
+      }
+    } catch { /* no own tmux either */ }
+  }
+  TMUX_REPICK_MISSED_AT = Date.now();
+  TMUX_LAST_SEARCH = 'found-nothing';
+  return false;
+}
+/* The detail line for a look that failed. PURE, for the tests. #2955: the version wall gets a cause, said as likely
+   rather than certain: tmuxSaidNoServer stats only the default socket path and reads an unreadable one as "could not
+   check", so these words usually, not always, mean a different version owns a live server. */
+function lookProblemFor(got, bin, searched) {
+  if (!got || !got.ran) {
+    return searched === 'found-nothing' ? 'we could not run tmux at all on this computer, and Kosmos found no other tmux here that it could use'
+      : searched === 'waiting' ? 'we could not run tmux at all on this computer; Kosmos looks again for another within a minute'
+        : 'we could not run tmux at all on this computer';
+  }
+  const err = oneLine(got.err, 300);
+  if (/server exited unexpectedly|protocol version mismatch/i.test(err)) {
+    // No remedy is promised: say only what the search (tmuxRepick) actually did.
+    const after = searched === 'found-nothing' ? ', and Kosmos found no other tmux here that can'
+      : searched === 'waiting' ? ', and Kosmos found no other tmux that could read them a moment ago; it looks again within a minute'
+        : searched === 'not-allowed' ? '; this tmux was not picked by the Kosmos launcher, so Kosmos does not swap it for another'
+          : '';
+    // The path said with ~ for the home folder: a detail line reaches the screen, and a user name has no business there.
+    const home = (() => { try { return require('node:os').homedir() || ''; } catch { return ''; } })();   // not $HOME: Windows has none (#1732)
+    const said = bin && home && bin.startsWith(home + '/') ? '~' + bin.slice(home.length) : (bin || 'tmux');
+    return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${said}) cannot read them (it said: ${err})${after}.`;
+  }
+  return err || `tmux exited ${got.status} without saying why`;
 }
 
 /**
@@ -1008,6 +1190,13 @@ function setPaneSource(fn) { paneSource = typeof fn === 'function' ? fn : null; 
 let createdSource = null;
 
 function setCreatedSource(fn) { createdSource = typeof fn === 'function' ? fn : null; }
+/* #4845: the safeKey'd names of every agent Kosmos created on this computer (running or not, and removed but still
+   restorable: Restore brings its job back under the same key), from the same source the board's created rows come
+   from. [] where there is none (Windows, tests that set none) or when it cannot be read. */
+function createdKeys() {
+  if (!createdSource) return [];
+  try { const k = createdSource(new Set(), { includeRemoved: true }); return Array.isArray(k) ? k : []; } catch { return []; }
+}
 
 function listPanes() {
   const out = paneSource ? paneSource() : tmuxPanes();
@@ -1562,6 +1751,260 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
+/* #4589 (Josh, 2026-09-29 11:42): CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex 0.149.1 stops at startup
+   when a hook it has not been told to trust is enabled (the desktop app's bundled plugins, in the shared
+   ~/.codex, bring four), and Kosmos typed the person's first message into it: the text vanished and
+   Enter opened the review table. Captured off a live pane on this Mac with one project hook
+   (test-support/codex-screens/, both screens), in the order a typed message meets them:
+     MENU:   "Hooks need review" / "› 1. Review hooks" / "2. Trust all and continue" /
+             "3. Continue without trusting (hooks won't run)" / "Press enter to confirm or esc to go back"
+     TABLE:  "⚠ N hooks need review before they can run." / the per-event table /
+             "Press t to trust all; enter to review hooks; esc to close"  (the words on the card)
+   🔑 THE DIALOG IS THE LAST THING ON THE SCREEN, and that is what separates it from the same words in an
+   agent's tool output: each screen's own footer must be the last non-blank row. The MENU draws at the
+   TOP of the pane with the rest blank, so trailing blank rows are dropped first (a fixed "last 25 rows"
+   of the raw capture holds nothing but blanks there). Matched to 0.149.1's layout: a later Codex that draws a row
+   below either footer reads as no dialog. Returns { screen: 'menu'|'table', evidence } or null. */
+const CODEX_HOOK_MENU_TITLE = /^\s*Hooks need review\s*$/;
+const CODEX_HOOK_TABLE_FOOTER = /^\s*Press t to trust all; enter to review hooks; esc to close\s*$/;
+const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\.\s*$/;
+/* The same two footers matched at the END of a joined run of rows, so a wrapped footer still counts (round 1). */
+const CODEX_HOOK_MENU_FOOTER_END = /Pressentertoconfirmoresctogoback$/;
+const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctoclose$/;
+/* Round 5: the THIRD screen, one hook's review, reached by Enter on the table ("enter to review hooks"). Captured on a
+   live pane (test-support/codex-screens/hook-review-hook-0.149.1.txt): its footer is "Press t to trust; esc to go
+   back", so a single "t" typed there trusts that hook. */
+const CODEX_HOOK_ONE_FOOTER_END = /Pressttotrust;esctogoback$/;
+const CODEX_HOOK_ONE_ROW = /^\s*\[!\]\s*Hook\s+\d+\b/;
+/* Round 6: the per-hook screen's constant "Trust ... review required" row sits a few rows above its footer, whatever
+   the hook's command length (a long inline script pushed the other anchors above the last 30 rows). */
+const CODEX_HOOK_TRUST_ROW = /^\s*Trust\s{2,}.*review required\s*$/;
+/* A Codex screen we could not read (round 2): not proof that no dialog is up, so nothing is typed. */
+const CODEX_UNSEEN_SENTENCE = 'we could not see its screen just now, so nothing was typed: Codex may be showing a question '
+  + 'there that typed text would answer. Send this again in a moment.';
+/* A Codex screen that is blank when read: the program is still drawing at startup (round 1). */
+const CODEX_STARTING_SENTENCE = 'it is still starting (its screen is blank), so nothing was typed: Codex may be about to ask '
+  + 'a question on that screen, and typed text would answer it. Send this again in a moment.';
+const CODEX_HOOK_ROWS = 30;
+function codexHookReview(paneText) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  if (!rows.length) return null;
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  /* Blind review round 1: on a pane narrower than the footer (about 58 columns: someone attached from a small
+     terminal), Codex wraps the footer over two or three rows, and a match on the last row alone missed the dialog
+     entirely. So the footer is matched at the END of the last three rows joined, and the heading / warning above it
+     is looked for in what precedes those rows. */
+  const WRAP = 3;
+  /* Whitespace is ignored: a wrap may fall between words or inside one, and a join cannot know which. */
+  const lastJoined = tail.slice(-WRAP).join('').replace(/\s+/g, '');
+  const above = tail.slice(0, -1);
+  if (CODEX_HOOK_MENU_FOOTER_END.test(lastJoined)) {
+    const title = above.slice().reverse().find((r) => CODEX_HOOK_MENU_TITLE.test(r));
+    return title ? { screen: 'menu', evidence: title.trim() } : null;
+  }
+  if (CODEX_HOOK_TABLE_FOOTER_END.test(lastJoined)) {
+    const joined = above.map((r) => r.trim()).join(' ');
+    const warning = above.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const wrapped = warning ? null : (joined.match(/(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\./) || [null])[0];
+    return { screen: 'table', evidence: (warning || wrapped || 'Press t to trust all; enter to review hooks; esc to close').trim().replace(/^⚠\s*/, '') };
+  }
+  if (CODEX_HOOK_ONE_FOOTER_END.test(lastJoined)) {
+    /* Its own "N hook(s) need(s) review" line or a "[!] Hook N" row must be above, so the footer words alone are
+       not enough. */
+    /* Anchors searched over the WHOLE screen (round 6: not only the last CODEX_HOOK_ROWS), plus the Trust row near
+       the footer, which a long command cannot push away. */
+    const warning = rows.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const hookRow = rows.some((r) => CODEX_HOOK_ONE_ROW.test(r));
+    /* Round 7: the Trust row is matched on the last rows JOINED with whitespace removed, as the footers are, so it is
+       found when a narrow pane wraps it (a long command and a narrow pane together hid every anchor). */
+    const trustRow = rows.slice(-8).some((r) => CODEX_HOOK_TRUST_ROW.test(r))
+      || /Trust[^]{0,40}reviewrequired/.test(rows.slice(-14).join('').replace(/\s+/g, ''));
+    if (!warning && !hookRow && !trustRow) return null;
+    return { screen: 'hook', evidence: (warning || 'Press t to trust; esc to go back').trim().replace(/^⚠\s*/, '') };
+  }
+  return null;
+}
+/* The sentence the delivery refusal gives (engine/chat.js), about the AGENT: what it is stopped on, that typing
+   cannot answer it, and what to do. Trusting hooks is the person's call, so it recommends no answer. Plain
+   characters: rendered through textContent and as JSON. */
+const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
+  + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
+  + 'so nothing was typed. It is answered on its agent page in Kosmos (the box above the conversation), by the person; then send this again.';
+/* #4607 (review round 3): the trusted-but-open list. Its hooks are trusted already; Codex waits for the list to close. */
+const CODEX_HOOK_LIST_SENTENCE = 'its Codex hook list is open on its screen, so nothing was typed: Codex waits for it to be '
+  + 'closed. It is closed on its agent page in Kosmos (the box above the conversation), by the person; then send this again.';
+/* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
+   needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
+   reads the screen fresh. Its callers are the tests that pin what the card shows. */
+function isCodexHookEvidence(evidence) {
+  return typeof evidence === 'string'
+    && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence)
+      || /^Press t to trust; esc to go back$/.test(evidence) || evidence === 'Press enter to view hooks; esc to close');
+}
+
+/* #4607: the table AFTER "t" trusted every hook (measured 2026-09-30 on a live pane, Codex 0.149.1,
+   test-support/codex-screens/hook-review-table-trusted-0.149.1.txt): the Review column is gone and the footer is
+   "Press enter to view hooks; esc to close". Nothing is left to trust; Esc closes it to the prompt. Matched like the
+   other footers: at the end of the last rows joined, with its own heading above, so the words in tool output do not
+   count. codexHookReview does not return this screen (there is no question on it). */
+const CODEX_HOOK_TRUSTED_FOOTER_END = /Pressentertoviewhooks;esctoclose$/;
+function codexHookTrustedTable(paneText) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  if (!rows.length) return false;
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  if (!CODEX_HOOK_TRUSTED_FOOTER_END.test(tail.slice(-3).join('').replace(/\s+/g, ''))) return false;
+  /* Wrap-tolerant, like the footers (review round 7: on a narrow pane the heading wraps and a one-row match missed
+     the list, so a Trust read as failed and the open list went unguarded). */
+  if (!/Lifecyclehooksfromconfigandenabledplugins\./.test(tail.slice(0, -1).join('').replace(/\s+/g, ''))) return false;
+  /* The measured shape (review round 12: a loose match let four printed lines read as this list, draw an Escape, and
+     refuse messages): its "Event  Installed  Active  Description" header below the heading, then ONLY event rows up
+     to the footer, at least five of them (0.149.1 draws eleven), and at least one ACTIVE hook (review round 3: the
+     same viewer with nothing active is Codex's plain /hooks list, where "trusted" would be untrue). */
+  const head = tail.findIndex((r) => /^\s*Event\s+Installed\s+Active\s+Description\s*$/.test(r));
+  if (head < 0) return false;
+  const body = tail.slice(head + 1).filter((r) => r.trim());
+  const footerRows = body.length - body.findIndex((r) => /Press/.test(r));
+  const events = body.slice(0, body.length - Math.max(footerRows, 1));
+  const EVENT_ROW = /^\s*[A-Za-z]+\s+(\d+)\s+(\d+)\s+\S/;
+  if (events.length < 5 || !events.every((r) => EVENT_ROW.test(r))) return false;
+  return events.some((r) => Number(EVENT_ROW.exec(r)[2]) > 0);
+}
+/* #4607 (review round 1): the menu key is the number Codex prints beside the exact option, never its position (a
+   Codex that reorders the menu would otherwise get "Trust all" when the person chose to continue without). Rows are
+   read from the menu's own block, the last rows of the screen, as "› 1. Review hooks" / "2. Trust all and continue" /
+   "3. Continue without trusting (hooks won't run)". Returns { trust, skip }, each a digit or null. */
+const CODEX_HOOK_MENU_TRUST = /^\s*(?:›\s*)?(\d)\.\s+Trust all and continue\s*$/;
+const CODEX_HOOK_MENU_SKIP = /^\s*(?:›\s*)?(\d)\.\s+Continue without trusting\b.*$/;
+function codexHookMenuKeys(paneText) {
+  if (!codexHookReview(paneText) || codexHookReview(paneText).screen !== 'menu') return { trust: null, skip: null };
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  /* Only the menu's OWN rows: after its last "Hooks need review" title (review round 3: an option row echoed in the
+     transcript above could otherwise supply a digit when Codex rewords both of its own). */
+  let from = -1;
+  rows.forEach((r, i) => { if (CODEX_HOOK_MENU_TITLE.test(r)) from = i; });
+  if (from < 0) return { trust: null, skip: null };
+  /* The EXACT measured block, and nothing else (review round 9: a "Hooks need review" line and option rows written by
+     an agent, above another popup with the same footer, read as the menu, and Trust pressed "2" there). From the
+     title to the end, blank rows aside: the count, the sandbox line, "1. Review hooks", the Trust and Continue rows
+     (either order), then only the footer (which may wrap). Any other row between them returns no digit. */
+  const block = rows.slice(from + 1).filter((r) => r.trim());
+  if (block.length < 6) return { trust: null, skip: null };
+  if (!CODEX_HOOK_MENU_COUNT.test(block[0])) return { trust: null, skip: null };
+  if (!/^\s*Hooks can run outside the sandbox after you trust them\.\s*$/.test(block[1])) return { trust: null, skip: null };
+  if (!/^\s*(?:›\s*)?1\.\s+Review hooks\s*$/.test(block[2])) return { trust: null, skip: null };
+  const pair = [block[3], block[4]];
+  const t = pair.map((r) => CODEX_HOOK_MENU_TRUST.exec(r)).filter(Boolean);
+  const k = pair.map((r) => CODEX_HOOK_MENU_SKIP.exec(r)).filter(Boolean);
+  if (t.length !== 1 || k.length !== 1) return { trust: null, skip: null };
+  if (block.slice(5).join('').replace(/\s+/g, '') !== 'Pressentertoconfirmoresctogoback') return { trust: null, skip: null };
+  const trust = t[0][1];
+  const skip = k[0][1];
+  return { trust, skip: skip !== trust ? skip : null };
+}
+/* #4607 (review round 10): the EXACT measured shape of the table and of one hook's page, required before a key is
+   pressed on either (codexHookReview stays loose on purpose: for #4589's floor a false positive only refuses typing,
+   which is safe; for a key it would press "t" on a bare footer an agent printed). Table: its "N hooks need review"
+   warning, the "Event  Installed  Active  Review" header below it, at least one row with a hook to review, and the
+   footer last. Hook page: its warning, a "[!] Hook N" row below it, and its footer last. Not every row between those
+   anchors is checked: what makes it safe is that Codex's own footer must be the LAST rows, which agent text printed
+   above a live Codex screen cannot be. */
+function codexHookScreenExact(paneText, screen) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  const last3 = rows.slice(-3).join('').replace(/\s+/g, '');
+  const lastIdx = (re) => { let k = -1; rows.forEach((r, i) => { if (re.test(r)) k = i; }); return k; };
+  const warn = lastIdx(CODEX_HOOK_TABLE_WARNING);
+  if (warn < 0) return false;
+  if (screen === 'table') {
+    if (!CODEX_HOOK_TABLE_FOOTER_END.test(last3)) return false;
+    const head = rows.findIndex((r, i) => i > warn && /^\s*Event\s+Installed\s+Active\s+Review\b/.test(r));
+    if (head < 0) return false;
+    return rows.slice(head + 1).some((r) => { const m = CODEX_HOOK_TABLE_ROW.exec(r); return !!m && Number(m[4]) > 0; });
+  }
+  if (screen === 'hook') {
+    if (!CODEX_HOOK_ONE_FOOTER_END.test(last3)) return false;
+    return rows.some((r, i) => i > warn && CODEX_HOOK_ONE_ROW.test(r));
+  }
+  return false;
+}
+
+/* #4607: what the card shows beside its two buttons. From the MENU, the count ("2 hooks are new or changed."); from
+   the TABLE, the events with hooks to review (the Review column); from one HOOK, its event and source. Only what the
+   screen says: null fields when it does not say them. */
+const CODEX_HOOK_MENU_COUNT = /^\s*(\d+) hooks? (?:is|are) new or changed\.\s*$/;
+const CODEX_HOOK_TABLE_ROW = /^\s*([A-Za-z]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S.*$/;
+function codexHookSummary(paneText) {
+  const seen = codexHookReview(paneText);
+  if (!seen) return codexHookTrustedTable(paneText) ? { screen: 'trusted', count: null, events: [], source: null, command: null } : null;
+  /* Only the dialog's own rows, the last on the screen, and the LAST match (review round 2: an earlier count, event or
+     source in scrollback or echoed by the agent must not be shown as this dialog's). */
+  const all = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (all.length && !all[all.length - 1]) all.pop();
+  const rows = all.slice(-CODEX_HOOK_ROWS);
+  let count = null;
+  const events = [];
+  let source = null;
+  let command = null;
+  if (seen.screen === 'menu') {
+    const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).filter(Boolean).pop();
+    if (m) count = Number(m[1]);
+  } else if (seen.screen === 'table') {
+    /* Only the table's own rows: after its "Event  Installed  Active  Review" header (review round 9: a transcript
+       row of the same shape above it added a made-up event). */
+    let head = -1;
+    rows.forEach((r, i) => { if (/^\s*Event\s+Installed\s+Active\s+Review\b/.test(r)) head = i; });
+    for (const r of head >= 0 ? rows.slice(head + 1) : []) {
+      const m = CODEX_HOOK_TABLE_ROW.exec(r);
+      if (m && Number(m[4]) > 0) events.push({ event: m[1], count: Number(m[4]) });
+    }
+    if (events.length) count = events.reduce((n, e) => n + e.count, 0);
+  } else if (seen.screen === 'hook') {
+    /* The page's own block: from its last "[!] Hook N" row (or its "... hooks" heading) to the end, over the whole
+       screen, so a long command cannot push its fields out of view (review round 7). Its "N hooks need review" line
+       counts only THIS event's hooks (measured: the table said 2, this page 1), so no total is claimed from here. */
+    /* The page's own block starts at its "<Event> hooks" heading, found by searching UP from the first "[!] Hook N"
+       row (review round 13: a fixed offset missed the heading and warning once an event had three or more hooks). */
+    /* Within the dialog's own rows only (review round 14: a "[!] Hook 1" row printed higher up must not start it). */
+    const floor = Math.max(0, all.length - 2 * CODEX_HOOK_ROWS);
+    const firstHook = all.findIndex((r, i) => i >= floor && CODEX_HOOK_ONE_ROW.test(r));
+    let start = firstHook;
+    for (let i = firstHook - 1; i >= 0 && i >= firstHook - 12; i -= 1) { if (/^\s*[A-Za-z]+ hooks\s*$/.test(all[i])) { start = i; break; } }
+    const block = start >= 0 ? all.slice(start) : rows;
+    const ev = block.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
+    /* This event's own hook count, from its page's warning (round 13: it was always 1). */
+    const evWarn = block.map((r) => /^\s*(?:⚠\s*)?(\d+) hooks? needs? review before (?:it|they) can run\.\s*$/.exec(r)).filter(Boolean)[0];
+    if (ev) events.push({ event: ev[1], count: evWarn ? Number(evWarn[1]) : 1 });
+    let si = -1;
+    block.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
+    if (si >= 0) {
+      /* The source can wrap onto the next row (the captured screen does), which carries no label. */
+      const first = block[si].replace(/^\s*Source\s+/, '');
+      const next = block[si + 1] && /^\s{8,}\S/.test(block[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(block[si + 1]) ? block[si + 1].trim() : '';
+      /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
+      source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
+    }
+    /* Round 6: the one page that shows what the hook RUNS. Capped and one line, like the source. */
+    let ci = -1;
+    block.forEach((r, i) => { if (/^\s*Command\s{2,}\S/.test(r)) ci = i; });
+    /* A page for an event with more than one hook shows only the selected hook's command (review round 11), so no
+       command is claimed for the event then. */
+    const pageWarn = block.map((r) => CODEX_HOOK_TABLE_WARNING.exec(r) && /(\d+) hooks? need/.exec(r)).filter(Boolean).pop();
+    if (pageWarn && Number(pageWarn[1]) > 1) ci = -1;
+    if (ci >= 0) {
+      /* Its wrapped rows too (no label, deeper indent), up to the next labelled row; cut at 160 with an ellipsis so a
+         shortened command never reads as the whole of it (review round 7). */
+      const parts = [block[ci].replace(/^\s*Command\s+/, '')];
+      for (let j = ci + 1; j < block.length && /^\s{8,}\S/.test(block[j]) && !/^\s*[A-Z][a-z]+\s{2,}\S/.test(block[j]); j += 1) parts.push(block[j].trim());
+      const whole = parts.join(' ').replace(/\s+/g, ' ').trim();
+      command = whole ? (whole.length > 160 ? whole.slice(0, 159) + '\u2026' : whole) : null;
+    }
+  }
+  return { screen: seen.screen, count, events, source, command };
+}
+
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
    While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
    end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
@@ -1870,6 +2313,40 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
    "the board is asking, in general" from "the agent told us this". */
 const ASKING_GENERIC = 'it is asking you something';
 
+/* #5039: Claude Code's safeguards model-switch menu, which stops a session until the person picks. Observed on Angel's
+   pane 2026-10-02 ~11:07 (Claude Code 2.1.287, Opus 5.5):
+     ❯ 1. Switch automatically
+       2. Stay on Opus 5.5
+   The board already read it as needs_you (a drawn menu); this says WHAT it asks, so the person knows it is a model
+   choice and not a permission prompt. Keyed on the two option rows, not the sentence above them, which differs
+   ("flagged this session" seen live, "flagged this message" in the binary). Only called once a menu is drawn, and
+   "1. Switch automatically" must be the LAST "1." row on screen, so it is the live menu: the words in an agent's
+   prose, or an old answered menu, above a live permission prompt are not this (review round 1). When it is live it
+   carries evidence, so it leads over an agent's own standing question (the agent really is stopped on it). Kosmos
+   never presses it: the choice is the person's (#5039). */
+/* The live safeguards menu's "1. Switch automatically" row (its index in text.split('\n')) and the model it would
+   leave, or null. ONE rule, shared by safeguardsMenu (the board's reason) and chat.questionIn (#5051: where the
+   detail page finds the question), so the two cannot disagree about which menu is live. */
+function safeguardsMenuAt(text) {
+  const rows = String(text == null ? '' : text).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
+  const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
+  if (first < 0) return null;
+  const lastOne = rows.reduce((at, r, i) => (/^1\.\s/.test(r) ? i : at), -1);
+  if (lastOne !== first) return null;
+  const stay = rows.slice(first + 1, first + 4).map((r) => /^2\. Stay on (\S.{0,40})$/.exec(r)).find(Boolean);
+  if (!stay) return null;
+  return { at: first, model: stay[1] };
+}
+function safeguardsMenu(tail) {
+  const live = safeguardsMenuAt(tail);
+  if (!live) return null;
+  const model = live.model;
+  return {
+    because: `${model}'s safeguards stopped it, and it is asking whether to switch models automatically or stay on ${model}`,
+    evidence: `1. Switch automatically / 2. Stay on ${model}`,
+  };
+}
+
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
  *
@@ -1958,11 +2435,190 @@ const ASKING_GENERIC = 'it is asking you something';
  * A missed limit is #880's regression and is worse than a rare false pause, so
  * the remaining false positive is LEFT IN and recorded rather than traded for
  * one. Narrowing these two needs a SECOND observed screen, not a cleverer regex.
+ *
+ * 🛑 #5029, OBSERVED 2026-10-02 on three capped panes and the modal menu:
+ *
+ *   You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+ *
+ * "hit your" is not "reached your", so a pane WITHOUT the /usage-credits line
+ * (one of the three, and the modal) read idle, and the Guide's hosted fallback
+ * (#3660) never switched on. The marker needs the "you've": the #966 promo
+ * says "If you hit your limit" on a healthy agent and must stay calm. It
+ * allows any word before "limit" for the same reason as its sibling: one plan
+ * tier said "weekly", and another may say "session" or "5-hour".
+ *
+ * ⚠️ ANCHORED, UNLIKE ITS TWO SIBLINGS, because "you've hit your rate limit"
+ * is ordinary English and this array outranks needs_you: unanchored, an agent
+ * ASKING "Looks like you've hit your GitHub API rate limit. Want me to wait?"
+ * read rate_limited and its question was hidden, and a healthy Guide
+ * EXPLAINING limits switched itself to the backup (review round 1). Every
+ * observed vendor row starts with the sentence, after only spaces or the
+ * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
+ * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
+ * capitalises it. (The curly ’ is ASSUMED, not observed: every capture has '.) And it counts only with Claude Code's turn footer at column
+ * 0 as the first column-0 row after it, within six rows (limitMarkersFor,
+ * below), which a tool result that prints the same sentence mid-turn does not
+ * have (review rounds 2 and 7).
+ *
+ * Still read wrong, stated rather than guessed at: an agent's indented SECOND
+ * paragraph opening with exactly this sentence AND followed by a footer; a
+ * vendor line drawn inside a frame (│ You've...), which reads idle; and a turn
+ * that ENDS on a tool call whose result's last row is this sentence: the real
+ * footer then lands at column 0 under the tool result and the pane reads
+ * rate_limited (review round 3); and a /usage-credits line wrapped onto two
+ * rows, which pushes the footer out of the two-row window: the pane still
+ * reads rate_limited through /usage-credits, but the evidence loses the reset
+ * time (capture-pane -J joins it in practice; review round 4); and a capped
+ * pane with Claude Code's showTurnDuration setting OFF, which draws no footer
+ * at all and reads idle (review round 5); an agent's WRAPPED prose whose
+ * continuation row opens with the sentence (Claude Code hard-breaks its own
+ * text, which -J does not rejoin), followed by a footer, which reads
+ * rate_limited; and a pane that RECOVERED (the reset passed, the person
+ * typed on) while the old vendor row is still in the tail, which stays
+ * rate_limited and hides a later question until it scrolls out: #5031 retires
+ * a vendor row whose own reset time has passed (both review round 6).
+ * Requiring "· resets" would close the prose shape, and is NOT done: Claude
+ * Code 2.1.287 also composes reset-less lines ("You've hit your monthly spend
+ * limit."), so it would miss a capped pane. "fast limit" is excluded: Fast mode
+ * falls back to normal speed, so that agent is not capped. None has been observed on a live pane;
+ * narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
+  /^[\s⎿]*You['’]ve hit your (?!fast limit).{0,40}limit/, // observed 2026-10-02 (#5029); anchored, see above
 ];
+
+/* #5029 review 2: the 2026-10-02 sentence sits under ⎿, and so does every tool result, so a healthy agent that
+   cats a capture of a capped pane prints exactly the vendor's row. What separates them is the next rows. On all four
+   observed screens the vendor line (and its optional /usage-credits line) is followed by Claude Code's own turn footer
+   AT COLUMN 0, "✻ Cooked for 0s · done 10:35 PM"; inside a tool result every row is indented, a copied footer too.
+   NOT airtight: a turn that ends right after such a tool result puts the REAL footer at column 0 under it, and that
+   pane reads rate_limited (the third residual in the doc above, review round 3).
+   So that one marker counts only when the FIRST non-blank column-0 row after it is such a footer, within six rows.
+   Review round 7: Claude Code 2.1.287 draws up to five rows of its own between the limit line and the footer, all
+   indented in the same ⎿ column (a note, "Press ⏎ to continue after reset", "✓ checkpointed — see <path>" and its
+   "/rewind" line, then the upsell such as "/upgrade to increase your usage limit."), so a two-row window left those
+   capped panes idle. Six = those five + the footer; the cap keeps the residuals above from reaching deep into a long
+   indented tool result. NOT "no ● row after it": Claude
+   Code's own session survey ("● How is Claude doing this session?") followed the limit on one real capped pane.
+   Only that marker: the two 2026-08-21 markers keep their accepted behaviour. Found by its text because the array
+   must stay a literal (status.pane-states-1889.test.js lifts it from the source). */
+const HIT_YOUR_LIMIT = RATE_LIMIT_MARKERS.find((re) => re.source.includes('hit your'));
+// Fail at load, not on every classify: a reworded marker would leave this undefined and TypeError each pane read.
+if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LIMIT_MARKERS (#5029); update HIT_YOUR_LIMIT');
+/* What Claude Code draws in the turn-footer slot (read from its own render code, 2.1.287, review round 5):
+   "✻ <Verb> for <duration>", then optionally " · done <clock>" and further " · " parts (so the clock is NOT required:
+   "✻ Cooked for 12s" is a real footer); or, when background agents or workflows are still pending, the
+   "✻ Waiting for N background agent(s) ... to finish" row IN THE SAME SLOT, so a capped agent with a pending
+   background agent shows that row instead. Taking the waiting row adds no new false positive: a healthy agent only
+   gets a column-0 row under a tool result when its turn ends, which is the turn-ends-on-a-tool-call residual above.
+   What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
+   a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
+const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
+/* The index of the turn footer that makes rows[i] Claude Code's own limit row, or -1: the first non-blank column-0 row
+   within six after it (#5029 review 7). Shared by limitMarkersFor and #5031's retireResetLimits so the two cannot
+   disagree about which rows are the vendor's. */
+function vendorFooterAt(rows, i) {
+  for (let k = i + 1; k < Math.min(rows.length, i + 7); k++) {
+    if (/^\S/.test(rows[k])) return TURN_FOOTER.test(rows[k]) ? k : -1;
+  }
+  return -1;
+}
+function limitMarkersFor(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0);
+  return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
+}
+
+/* #5031: when a Claude limit's own line says it has reset. Observed 2026-10-02 (#5029):
+     You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+   The time is wall-clock in the zone the line names. Claude Code 2.1.287 adds ", <year>" when the reset falls in
+   another year, and writes a time with no date when the reset is under a day away (review round 1, from its formatter;
+   neither is in a capture). Returns epoch ms, or null for anything it cannot place: a time with no date, an unknown
+   zone, no reset at all. Null keeps the pane capped, as before, so an unread wording fails toward Paused, never toward
+   a false "answering again". With no year, the reset is the LATEST candidate no more than 35 days ahead: no Claude
+   limit resets further out, so a line left on screen for months still reads as passed, and a January reset read in
+   late December lands next year. A wall time the fall-back hour repeats resolves to the LATER instant (stay capped). */
+const LIMIT_RESET = /\bresets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})(?:, (\d{4}))?(?: at|,) (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const RESET_HORIZON_MS = 35 * 24 * 3600 * 1000;
+const RESET_GRACE_MS = 60 * 1000;
+function zoneOffsetMs(zone, ms) {
+  const at = Math.floor(ms / 1000) * 1000;
+  const p = {};
+  for (const part of new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric',
+    day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(at))) p[part.type] = part.value;
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - at;
+}
+function limitResetAt(line, nowMs) {
+  const m = LIMIT_RESET.exec(String(line == null ? '' : line));
+  if (!m) return null;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const month = MONTHS.indexOf(m[1].toLowerCase());
+  const day = Number(m[2]);
+  const hour12 = Number(m[4]);
+  const minute = m[5] === undefined ? 0 : Number(m[5]);
+  if (day < 1 || day > 31 || hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  const hour = (hour12 % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0);
+  const zone = m[7];
+  const instant = (y) => {
+    const wall = Date.UTC(y, month, day, hour, minute);
+    if (new Date(wall).getUTCDate() !== day) return null;   // Feb 30 and the like
+    /* Twice: the offset AT the instant, not at the wall time read as UTC (they differ near a DST change). */
+    let at = wall - zoneOffsetMs(zone, wall);
+    at = wall - zoneOffsetMs(zone, at);
+    if (at + 3600000 + zoneOffsetMs(zone, at + 3600000) === wall) at += 3600000;   // the repeated fall-back hour: later
+    return at;
+  };
+  try {
+    if (m[3] !== undefined) return instant(Number(m[3]));
+    const year = new Date(now).getUTCFullYear();
+    let best = null;
+    for (const y of [year - 1, year, year + 1]) {
+      const at = instant(y);
+      if (at !== null && at <= now + RESET_HORIZON_MS && (best === null || at > best)) best = at;
+    }
+    return best;
+  } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
+}
+
+/* #5031: the screen with every Claude limit block whose own reset has PASSED taken out, so classify reads what is
+   left (review round 1: relabelling the whole reading idle read only the OLDEST limit line and hid whatever else the
+   screen showed). A limit line stays on screen until the agent gets a new turn, and a capped Guide gets none (the
+   bubble is on the backup, #3660), so without this its card read capped forever. Removed: a vendor limit row (the
+   #5029 gate: its first column-0 row within six is a turn footer) and Claude Code's own indented rows under it, up
+   to that footer. Kept, so the pane stays capped: a row whose reset this cannot read or has not passed, and any row
+   with a limit menu still on screen after it, because that menu holds the session until a key is pressed and a
+   message sent to it would land in the menu. Keyed on the menu's TITLE, "What do you want to do?" (observed
+   2026-10-01), not an option: Claude Code 2.1.287 labels option 1 "Stop and wait for limit to reset" (observed),
+   "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
+   it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
+   the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
+function retireResetLimits(text, nowMs) {
+  const rows = String(text == null ? '' : text).split('\n');
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  /* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
+     the phrase, or a tool result quoting it, is not a menu (review round 4). */
+  const lastMenu = rows.reduce((at, row, i) => (/^\s*What do you want to do\?/.test(row) ? i : at), -1);
+  const drop = new Set();
+  rows.forEach((row, i) => {
+    if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
+    const footer = vendorFooterAt(rows, i);
+    if (footer < 0) return;
+    const resetAt = limitResetAt(row, now);
+    if (resetAt === null || now < resetAt + RESET_GRACE_MS) return;
+    /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
+       expired row must never take a live one with it. The vendor's own /usage-credits upsell row is part of this
+       block, not another limit, so it goes with it. A "hit your" row is judged on its own when the loop reaches it. */
+    /* The upsell row STARTS with the command ("     /usage-credits to finish..."); a limit row that merely mentions it
+       ("You've reached your Fable 5 limit. Run /usage-credits to continue or", observed 2026-08-21) is another limit
+       (review round 5). */
+    const anotherLimit = (row) => !/^\s*\/usage-credits\b/.test(row) && RATE_LIMIT_MARKERS.some((re) => re.test(row));
+    for (let k = i; k < footer && (k === i || !anotherLimit(rows[k])); k++) drop.add(k);
+  });
+  return drop.size ? rows.filter((_, k) => !drop.has(k)).join('\n') : text;
+}
 
 /**
  * #874. Captured from a live pane, 2026-08-25, an agent whose account's
@@ -3114,12 +3770,14 @@ function messageAt(text, markers) {
   const CONTINUES = /^[A-Za-z0-9/]/;
   for (let i = 0; i < rows.length; i += 1) {
     if (!markers.some((re) => re.test(rows[i]))) continue;
-    let out = rows[i].replace(/^[\s>│├└─*❯›]+/, '').trim();
+    /* ⎿ here and NOT in matchedLine's copy, on purpose (#5029): this one writes a person-facing line, and Claude
+       Code prints its limit message under its tool-output glyph. matchedLine's result only answers yes or no. */
+    let out = rows[i].replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
     if (!out) continue;
     for (let extra = 0; extra < 2 && !ENDS.test(out); extra += 1) {
       const next = rows[i + 1 + extra];
       if (next === undefined) break;
-      const line = next.replace(/^[\s>│├└─*❯›]+/, '').trim();
+      const line = next.replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
       if (!line || !CONTINUES.test(line)) break;
       out += ' ' + line;
     }
@@ -3666,6 +4324,18 @@ function classify(pane, paneText) {
     if (paneText === null) {
       return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
     }
+    /* #4589: the hook-review dialog first, so the card names it rather than "asking you something" (the
+       menu also matches the generic markers) or "unknown" (the table matches nothing: no composer, no
+       numbered option). The delivery floor reads the screen fresh (chat.js codexScreenRefusal); this evidence is what the card shows. */
+    const hooks = codexHookReview(paneText);
+    if (hooks) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is waiting on a Codex hook approval', evidence: hooks.evidence };
+    }
+    /* #4607 (review round 1): the hooks are trusted but their list is still open (a dropped Escape after "t"). Codex
+       waits there for Escape, so the card says so and offers Close, instead of reading as idle. */
+    if (codexHookTrustedTable(paneText)) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'its Codex hooks are trusted and their list is still open', evidence: 'Press enter to view hooks; esc to close' };
+    }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
@@ -3806,7 +4476,8 @@ function classify(pane, paneText) {
 
   const tail = paneText.split('\n').slice(-25).join('\n');
 
-  const limitLine = matchedLine(tail, RATE_LIMIT_MARKERS);
+  const limitMarkers = limitMarkersFor(tail);
+  const limitLine = matchedLine(tail, limitMarkers);
   if (limitLine !== null) {
     /**
      * 🔑 THE LINE ITSELF RIDES ALONG, and it is the difference between a claim
@@ -3831,7 +4502,7 @@ function classify(pane, paneText) {
       because: 'its screen mentions a usage limit',
       /* The whole message, not its first line (#1248). See `messageAt`: the
          vendor's second remedy lives on the line after the marker. */
-      evidence: messageAt(tail, RATE_LIMIT_MARKERS),
+      evidence: messageAt(tail, limitMarkers),
     };
   }
   /**
@@ -3912,6 +4583,8 @@ function classify(pane, paneText) {
      stays ABOVE the working checks. The #1155/#2146 "blocked beats busy" test
      pins this precedence. */
   if (drawsOptionMenu(tail)) {
+    const flagged = safeguardsMenu(tail);
+    if (flagged) return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, ...flagged };
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #2456: the PROSE half, position-gated to the BOTTOM of the screen. A prose
@@ -5418,6 +6091,24 @@ function geminiLastCompletionAt(agentName) {
  * the Gemini ring landed before the Gemini launcher.
  * ------------------------------------------------------------------------- */
 
+/* #4603 N12: a Muse (Meta) agent's model, as its front kept it from the last turn that named one (engine/musefront.js
+   keepModel, `.kosmos/muse-model` in its folder). { found, model }; never throws. Read through readWorkerFile (review
+   1): the agent can write that file, so a fifo, a link or a huge file must not hang or flood the board's tick. */
+function readMuseSession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'muse') return { found: false };
+  try {
+    const got = readWorkerFile(require('./musefront').modelFile(dir), dir);
+    if (!got || !got.ok) return { found: false };
+    const model = got.buf.toString('utf8').trim();
+    return /^[A-Za-z0-9._:/-]{1,120}$/.test(model) ? { found: true, model } : { found: false };
+  } catch { return { found: false }; }
+}
+
 /* Resolve a Grok agent's launch folder to its session and read it, ONCE.
    Mirrors readGeminiSession: workerDir + readJob, gate on runner 'grok', read the
    agent's OWN account home (job.configDir), FAIL CLOSED to the default-account home
@@ -6298,6 +6989,28 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
+/* #4588: Google's shared Antigravity quota. bin/agy-report-bridge.js reports it as an AUTOMATIC idle (the loop has
+   ended) whose `because` starts with QUOTA_REPORT_PREFIX and whose `until` is the reset as a strict ISO time. All three
+   are required (review 3): any agent's hook can pass an `until` through, and Date.parse reads "5" as a date, so the
+   bridge's own sentence is what makes it this. quotaResetOf returns the reset in epoch ms for such a report,
+   quotaPauseUntil only while it is still ahead of nowMs. QUOTA_RESUME_WINDOW_MS is how long after the reset the resume
+   sweep (engine/agyquota.js) acts and the card says the quota reset, one constant for both. */
+const QUOTA_REPORT_PREFIX = "Paused: this Google account's shared Antigravity quota ran out.";
+const QUOTA_RESUME_WINDOW_MS = 6 * 60 * 60 * 1000;
+function quotaResetOf(reported) {
+  if (!reported || reported.found !== true || reported.state !== 'idle' || reported.by !== 'auto') return null;
+  if (typeof reported.because !== 'string' || !reported.because.startsWith(QUOTA_REPORT_PREFIX)) return null;
+  if (typeof reported.until !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(reported.until)) return null;
+  const at = Date.parse(reported.until);
+  return Number.isFinite(at) ? at : null;
+}
+function quotaPauseUntil(reported, nowMs) {
+  const at = quotaResetOf(reported);
+  if (at === null) return null;
+  return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
+}
+
+// #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
@@ -6487,6 +7200,46 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (reported.state === 'stopped') {
     return { ...scraped, reported: false, conflict: 'it reported stopping, but it is still running' };
   }
+  /* #4588: paused on the account's shared Google quota until its reset (see quotaPauseUntil). The existing
+     rate_limited state, which the board already shows as Paused; the resume sweep (engine/agyquota.js) types a
+     carry-on line into the agent after the reset, and its next automatic working clears this. */
+  /* Kosmos's own sentences, never the report's text (Google's raw error, and a relative "Resets in" that goes stale,
+     #215): the detail header quotes `because`. */
+  /* Only over a screen that says nothing (agy's is never read, so always for agy): a question, work or a lost
+     connection read off a screen outranks this report (review 2). */
+  const quotaAt = (scraped.state === STATE.UNKNOWN || scraped.state === STATE.IDLE) ? quotaResetOf(reported) : null;
+  if (quotaAt !== null) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const hhmm = require('./quotawords').quotaResetWords(quotaAt, now);
+    if (quotaPauseUntil(reported, now) !== null) {
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
+    }
+    /* #4588 part 3: its own reset has passed, but its Google account's shared quota (one per account) is still paused, and
+       the board holds this one with it: agyquota.heldBackBy, the resume's own rule (a pause first seen inside this
+       agent's own six hours), so the card says Paused while the pause the resume is waiting on still stands, and never
+       for an old stop the resume will not pick up. For the grace and stagger after that reset it shows the line below,
+       which is true until the carry-on line lands (PR A's own call). The card says the pool holds it, not that "the quota
+       reset". The pool's time rides in poolUntil, never quotaUntil: quotaUntil feeds the pool memory, and a card that
+       echoed the pool's reset back into it would keep the pool held after the colleague's reset was corrected. The memory
+       is fed by the resume sweep and by automatic sends to agy agents; with the resume switched off it may be empty,
+       and this falls to the line below. It is a reported time, held to on purpose, so it is said as reported; the card
+       does not say how long Kosmos holds its messages (the hold runs by its own rule and release steps, agyquota.js). */
+    let poolAt = null;
+    /* With the quota-hold brake on (AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1) the resume restarts each agent on its own reset
+       and nothing is held, so the card must not say the pool holds it. */
+    try {
+      const agy = require('./agyquota');
+      poolAt = agy.quotaHoldOff(process.env) ? null : agy.heldBackBy(quotaAt);
+    } catch { poolAt = null; }
+    if (poolAt !== null && poolAt > now) {
+      const poolHhmm = require('./quotawords').quotaResetWords(poolAt, now);
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: 'the reset it was given (' + hhmm + ") has passed, but its Google account's shared quota was reported paused until " + poolHhmm, evidence: null, reported: true, conflict: null, poolUntil: new Date(poolAt).toISOString() };
+    }
+    /* Past the reset, while this is still its latest report: its turn was cut off and nothing has started it again
+       (the resume may be switched off, have given up, or not have landed). Said as such, never "nothing is needed"
+       (review 5), and never the report's own text. */
+    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: 'its turn stopped when its Google quota ran out and has not picked up again (the quota reset at ' + hhmm + ')', reported: true, conflict: null };
+  }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the
   // reporter's last word (an idle that never decays, rule 6, or a fresh
@@ -6607,7 +7360,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProject(false) };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true,
+        waiting: reported.waiting || null,   // #4569 fix 4: a Muse agent's queue, only while this working report is fresh
+        ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -6919,6 +7674,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
+    waiting: status.waiting || null,   // #4569 fix 4
     /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
        one card shape. panelessCard reconciles through the SAME reconcileReport as the pane path,
        so a paneless agent that self-reports needs_you with by:'agent' DOES carry 'agent' here and
@@ -7064,7 +7820,29 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
       const onClaude = (p) => !nonClaude(p.runner)
         && !isAntigravityCommand(p.command) && !isCodexCommand(p.command) && !isGrokCommand(p.command);   // a pane not yet tagged: its command says
       const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
-      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
+      /* #5018 (Josh): say which provider and email account the agents are signed in under, and name them the way he
+         named them. Every agent here runs on Claude (filtered above). The email is the account the credential's config
+         folder is signed in to (unset or empty: the default ~/.claude); null when it cannot be read, and the page then
+         names no email rather than a guess. */
+      const accounts = require('./accounts');
+      const nameOf = opts.displayName || ((n) => { try { return readIdentity(n).displayName || n; } catch { return n; } });
+      const emailOf = opts.emailOf || ((ccd) => {
+        try {
+          const set = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
+          /* Unset or empty: the default account's record (~/.claude.json, accounts.identityOf). Set to any value,
+             even ~/.claude itself: Claude Code reads <that folder>/.claude.json, the same set-vs-unset split as the
+             keychain entry (loginexpiry.serviceNameFor), so that file is read directly. */
+          if (!set) {
+            const id = accounts.identityOf(path.join(accounts.homeDir(), '.claude'));
+            return id && typeof id.email === 'string' && id.email ? id.email : null;
+          }
+          const acct = JSON.parse(fs.readFileSync(path.join(set, '.claude.json'), 'utf8')).oauthAccount;
+          const email = acct && (typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
+          return typeof email === 'string' && email ? email : null;
+        } catch { return null; }
+      });
+      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
+        .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf) }));
     },
   });
 }
@@ -7074,7 +7852,7 @@ function snapshot() {
   const panes = onePanePerSession(read);
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
-    const scrapedStatus = classify(pane, text);
+    const scrapedStatus = classify(pane, retireResetLimits(text, Date.now()));   // #5031
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
@@ -7336,6 +8114,7 @@ function snapshot() {
     // #4039: the agy conversation, read once per tick (the ring and the model both use it).
     const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
+    const museSess = (isNamedOurs(pane) && isMusePane) ? readMuseSession(pane.name) : null;   // #4603 N12
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
          `!isGeminiPane`, a gemini agent scraping WORKING would record a false
@@ -7444,7 +8223,8 @@ function snapshot() {
     const tied = isNamedOurs(pane);
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
     // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
-    // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only.
+    // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only, so its
+    // front keeps the last one named (#4603 N12, readMuseSession).
     /* #4416 (Josh 15:18: "it'd be the same as the Claude Sonnet ones just saying Claude"): every runner's ACTUAL
        model, read from the record its own CLI keeps, never asked of the agent: Gemini's session names the model per
        message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
@@ -7452,7 +8232,7 @@ function snapshot() {
     const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
     const { model } = !tied ? { model: null }
       : isAgyPane ? { model: sessModel(agySess) }
-      : isMusePane ? { model: null }
+      : isMusePane ? { model: sessModel(museSess) }   // #4603 N12: the model its last turn named
       : isGeminiPane ? { model: sessModel(geminiSess) }
       : isGrokPane ? { model: sessModel(grokSess) }
       : isCodexPane ? { model: sessModel(codexSess) }
@@ -7560,9 +8340,11 @@ function snapshot() {
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
          'gemini', 'grok', 'antigravity' or 'claude', with empty meaning claude the way it does
          everywhere the option is absent. The switch screen keys on this, and it is
-         the supervisor's record, never an inference from the command. */
+         the supervisor's record; only an UNTAGGED pane is inferred from its command (agy, grok, native codex). */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
+      // #4589 round 2: and an UNTAGGED native codex pane is codex (the startup window the hook dialog lives in); a pane
+      // whose tag says otherwise keeps its tag (round 3).
+      runner: (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -7583,6 +8365,11 @@ function snapshot() {
       quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
       /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
       limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
+      /* #4588: the reset an agy agent is paused until (its account's shared Google quota), an ISO time, else null.
+         Pane cards only: panelessCard carries neither this nor a runner, and an agy agent always has a pane. */
+      quotaUntil: typeof status.quotaUntil === 'string' ? status.quotaUntil : null,
+      /* #4588 part 3: its own reset passed but the shared pool is still paused by a colleague until this ISO time. */
+      poolUntil: typeof status.poolUntil === 'string' ? status.poolUntil : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -7599,6 +8386,7 @@ function snapshot() {
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
+      waiting: status.waiting || null,   // #4569 fix 4: messages waiting behind a busy Muse turn ({ n, yours })
       /* #2808 class 2: 'auto' = a technical permission/trust prompt (class 1, PigeonPete's
          invisible supervision handle), 'agent' = the agent's own deliberate question (class 2,
          de-alarmed to a calm "has a question" rather than the red "Needs you" that reads as
@@ -7706,6 +8494,9 @@ function snapshot() {
   }
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
+  /* #5154 slice A: every row states crashLoop. The snapshot cannot know about runs (the supervisor's run file is
+     read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started. */
+  for (const a of agents) if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
 
   return {
     // Freshness is not decoration. An ambient display gets trusted passively,
@@ -7720,11 +8511,13 @@ function snapshot() {
 }
 
 /* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person":
-   needs_you, needs_trust, and a connection Kosmos has given up reconnecting. The page's data-attn
+   needs_you, needs_trust, a connection Kosmos has given up reconnecting, and (#5154) a crash loop. The page's data-attn
    inlines the same rule (its painters stay self-contained), and the route counts with this. */
 function needsPerson(a) {
   return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
-    || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up'));
+    || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up')
+    // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
+    || (Boolean(a.crashLoop) && a.crashLoop.looping === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
@@ -7957,10 +8750,12 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
+  // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
+  tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, retireResetLimits, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
@@ -7982,11 +8777,18 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC,
+  ASKING_GENERIC, safeguardsMenuAt,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
+  codexHookReview, // #4589
+  codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, codexHookScreenExact, // #4607
+  isCodexHookEvidence,
+  CODEX_HOOK_DIALOG_SENTENCE,
+  CODEX_HOOK_LIST_SENTENCE, // #4607
+  CODEX_STARTING_SENTENCE,
+  CODEX_UNSEEN_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
   readableModelId, // #4416

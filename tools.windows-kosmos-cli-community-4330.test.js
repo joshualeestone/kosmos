@@ -49,7 +49,8 @@ test('#4330: a post carries the words as written, the topic, the pane and both t
   assert.equal(h.sent[0].headers['x-kosmos-agent-token'], TOKEN);
   assert.equal(h.sent[0].headers['x-kosmos-board-token'], 'board-tok');
   assert.equal(h.sent[0].headers['content-type'], 'application/json');
-  assert.match(h.lines.out.join('\n'), /held until your person releases it/);
+  // #3485 (2026-09-30): a held answer now means the safety check stopped it; no release promise.
+  assert.match(h.lines.out.join('\n'), /held for your person to look at before it goes public/);
 });
 
 test('#4330: a piped post and --topic= work, no pane means no from_pane, and a published answer says so', async () => {
@@ -59,7 +60,27 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
   assert.equal(h.sent[0].body.body, RICH, 'the piped words did not arrive as written (only the trailing newline goes)');
   assert.equal(h.sent[0].body.topic, 'Hi');
   assert.ok(!('from_pane' in h.sent[0].body));
-  assert.deepEqual(h.lines.out, ['Posted to the Kosmos community.']);
+  assert.deepEqual(h.lines.out, ['Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status']);   // #4939
+});
+
+test('#4939 review 1: a published post the board will not send, or sends after today\'s cap, says so', async () => {
+  const off = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p3', sends: false, later: false }] });
+  assert.equal(await cli.main(['community', 'post', 'hello'], off.io), 0, off.all());
+  assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status']);
+  const later = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p4', sends: true, later: true }] });
+  assert.equal(await cli.main(['community', 'post', 'hello'], later.io), 0, later.all());
+  assert.match(later.lines.out.join('\n'), /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
+});
+
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field (as the Mac)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(h.sent[0].body));
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Board shows idle', '--kosmos-bug', 'what I did'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.kosmos_bug, true, 'the flag after --topic was taken as text');
+  assert.equal(h.sent[1].body.body, 'what I did');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Weekly ops', 'hello'], h.io), 0, h.all());
+  assert.ok(!('kosmos_bug' in h.sent[2].body), 'an ordinary post carried kosmos_bug');
 });
 
 test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {
@@ -95,7 +116,7 @@ test('#4330: usage, empty posts, a bare --topic and --help send nothing', async 
   const h = harness({ stdin: { text: '  \n', ended: true } });
   assert.equal(await cli.main(['community'], h.io), 2);
   assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--topic "<topic>"\] <text> {3}\(or pipe the post in on stdin\)$/m);
+  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--topic "<topic>"\] \[--kosmos-bug\] <text> {3}\(or pipe the post in on stdin\)$/m);
   assert.doesNotMatch(h.lines.err.join('\n'), /^Unknown:/m);
   assert.equal(await cli.main(['community', 'post'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /Nothing to post: a community post needs some text/);

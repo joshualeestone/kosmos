@@ -272,7 +272,8 @@ const visible = (page, sel) => page.evaluate((s) => {
       const themeBefore = key === 'existing-2fa' ? await page.evaluate(() => document.documentElement.getAttribute('data-theme')) : null;
       for (const theme of key === 'existing-2fa' ? ['light', 'dark'] : []) {
         /* #3796 (Josh, 13:57): the WIZARD's fields are now the site's dark field ("not a white slab on
-           navy"), light ink on #16223e; the enrol flow's (#plus-flow) stay #3596's white. Either way the
+           navy"), light ink on #16223e. The connected flow's white enrol fields (#plus-flow) were removed
+           in #4698 (they could never show), so every Kosmos+ input is now a wizard field. Either way the
            typed text is readable in both themes, which is what #3596 guarded. */
         const r = await page.evaluate((t) => {
           document.documentElement.setAttribute('data-theme', t);
@@ -294,10 +295,10 @@ const visible = (page, sel) => page.evaluate((s) => {
               return { id: i.id, raw: c.color + ' on ' + under, want: WANT(i) }; })
               .filter((x) => x.raw !== x.want).map((x) => x.id + ': ' + x.raw) };
         }, theme);
-        chk(r.n === 10, `[${key}] #3596 CONTROL: the Kosmos+ pane's 10 inputs were found (${theme})`, String(r.n));
+        chk(r.n === 7, `[${key}] #3596 CONTROL: the Kosmos+ pane's 7 inputs were found (${theme})`, String(r.n));
         chk(r.badBorder !== r.okBorder, `[${key}] #3596 a field marked .bad still shows the error border (${theme})`, r.badBorder + ' vs ' + r.okBorder);
-        chk(r.wiz === 7 && r.n - r.wiz === 3, `[${key}] #3796 CONTROL: 7 wizard inputs and 3 enrol-flow inputs (${theme})`, r.wiz + '/' + (r.n - r.wiz));
-        chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e, enrol-flow inputs #14161a on #ffffff (${theme})`, r.bad.join(' | '));
+        chk(r.wiz === 7 && r.n - r.wiz === 0, `[${key}] #3796 CONTROL: all 7 inputs are the wizard's (the enrol flow's went in #4698) (${theme})`, r.wiz + '/' + (r.n - r.wiz));
+        chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e (${theme})`, r.bad.join(' | '));
         chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
         /* #3841 (plus-rf-3796's review): render-fields cannot measure the wizard on its real ground (the navy
            card is scoped to body.plus-active and paints a gradient), so THIS check measures separation there:
@@ -525,7 +526,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       // #4080 (Josh's design): the connected panel's box says where to sign in from another device; the machine's
       // address is no longer shown on the pane (it was in this chip under #3829).
       const flowStatus = await page.textContent('#plus-chip-say');
-      chk(flowStatus === 'Sign in at login.kosmosplus.com.', `[${key}] done: the connected flow shows where to sign in`, JSON.stringify(flowStatus));
+      chk(flowStatus === 'Access this computer from other devices at login.kosmosplus.com', `[${key}] done: the connected flow shows where other devices reach this computer (#4744)`, JSON.stringify(flowStatus));
       void wantAddr;
       chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });

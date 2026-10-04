@@ -117,13 +117,14 @@ function chk(ok, label, extra) {
     // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
     const bar = await p.evaluate(() => {
       const q = document.querySelector('#pj-room .rxns .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const you = !!(q && q.closest('.msg') && q.closest('.msg').classList.contains('you'));   // #4409: read-aloud is on an agent's post only
       const r = q && q.querySelector('.rxn-reply');
       const ico = r && r.firstElementChild;
-      return { kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
+      return { you, kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
         word: r ? r.textContent.trim() : null };
     });
-    chk(bar.kids === 'pick,pick,pick,more,reply', 'the hover bar reads the three quick emoji, the smiley, then Reply last', bar.kids);
+    chk(bar.kids === (bar.you ? 'ref,pick,pick,pick,more,reply' : 'ref,pick,pick,pick,more,speak,reply'), 'the hover bar reads Copy reference (#4631), the three quick emoji, the smiley, (on an agent\'s post, read-aloud, #4409), then Reply last', JSON.stringify({ you: bar.you, kids: bar.kids }));
     chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
     const rests = {};
     for (const scheme of ['light', 'dark']) {
@@ -498,6 +499,27 @@ function chk(ok, label, extra) {
     chk(!/Press \u00d7/.test(await p.locator('#pj-room-msg').innerText()), 'starting a new reply clears a refusal about the old one');
     await p.locator('#pj-reply .pj-replying-x').click();
 
+    // #4653: a post whose @-word named two agents reached neither as a request; the engine's sentence stays
+    // under the composer. The board's answer is stubbed for this one post (a real clash needs two agents
+    // whose names read alike; the engine test builds that and pins the sentence), then the route is removed.
+    const NOTE_4653 = '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.';
+    const roomPost4653 = (route) => (route.request().method() === 'POST'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ delivery: { state: 'placed', because: null, id: 'm999950', outcomes: { roomer: 'placed' }, text: '@Sub-Zero look', ambiguousNote: NOTE_4653 } }) })
+      : route.continue());
+    await p.route('**/api/project/*/room', roomPost4653);
+    await p.fill('#pj-post', '@Sub-Zero look');
+    await p.click('#pj-post-go');
+    await p.waitForFunction(() => /could mean/.test(document.getElementById('pj-room-msg').textContent), null, { timeout: 15000 }).catch(() => {});
+    const said4653 = await p.evaluate(() => ({ msg: document.getElementById('pj-room-msg').textContent, say: document.getElementById('pj-room-say').textContent, box: document.getElementById('pj-post').value }));
+    await p.unroute('**/api/project/*/room', roomPost4653);
+    chk(said4653.msg === NOTE_4653, '#4653: an ambiguous @-word leaves the engine\'s sentence under the composer', JSON.stringify(said4653));
+    chk(said4653.say.endsWith(NOTE_4653), '#4653: and a screen reader hears it after the receipt', JSON.stringify(said4653.say));
+    chk(said4653.box === '', '#4653: the post still went, so the box clears', JSON.stringify(said4653.box));
+    await p.type('#pj-post', 'n');
+    chk(await p.evaluate(() => document.getElementById('pj-room-msg').textContent) === '', '#4653: typing the next post takes the stale note away');
+    await p.fill('#pj-post', '');
+    await p.evaluate(() => { document.getElementById('pj-room-msg').textContent = ''; });
+
     // A jump to a post the search is hiding says so on screen, not only to a screen reader.
     await p.fill('#pj-room-search', 'Friday works');
     await p.waitForFunction(() => !document.querySelector('#pj-room').textContent.includes('The launch moves to Friday.\n') && document.querySelector('#pj-room .msg-replyto[data-jump]'), null, { timeout: 15000 }).catch(() => {});
@@ -536,7 +558,7 @@ function chk(ok, label, extra) {
     await p.mouse.move(shortBox.x, shortBox.y);
     await p.waitForTimeout(300);
     const shortBar = await measureShort();
-    chk(shortBar.inside && shortBar.hits.length === 5 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+    chk(shortBar.inside && shortBar.hits.length === 7 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Copy reference, #4631, read-aloud, #4409, and Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
     // The hovered row itself changes in the repaint (its words are edited here; in life a reaction lands), so
     // the page draws a NEW element without the measured class. Read in the same moment as the repaint:
     // Chromium re-sends a hover to a still mouse shortly after, which would mend it by accident.

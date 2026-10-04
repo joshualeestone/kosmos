@@ -198,9 +198,9 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   const boundRT = await run(['post', '--in-reply-to', 'm5', 'proj-1', 'the answer'], ok);
   assert.equal(boundRT.calls[0].body.in_reply_to, 'm5', 'the emitted (leading) order must bind in_reply_to');
   const trailing = await run(['post', 'proj-1', '--in-reply-to', 'm5', 'the answer'], ok);
-  assert.equal(Object.prototype.hasOwnProperty.call(trailing.calls[0].body, 'in_reply_to'), false,
-    'a flag AFTER the project must NOT bind (leading-only): the token becomes message text, not the citation');
-  assert.match(trailing.calls[0].body.text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
+  /* kosmos#4889: until then the trailing flag+id posted as message text, unbound and silently. Now refused. */
+  assert.equal(trailing.code, 2, 'a flag AFTER the project must NOT bind (leading-only) and, since #4889, must not post');
+  assert.equal(trailing.calls.length, 0, 'nothing must be posted for a trailing --in-reply-to');
 });
 
 test('#2710 parity: a post refused for any reason hands the text back (not only a which-room hold)', async () => {
@@ -212,6 +212,15 @@ test('#2710 parity: a post refused for any reason hands the text back (not only 
   assert.match(r.err, /a long substantive update/, 'the text is handed back');
   const held = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'which_room', because: 'q' } } }));
   assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
+});
+
+test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept and not to send it another way', async () => {
+  const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in\. Nothing was sent to anyone, and Kosmos does not keep it or send it later\./);
+  assert.match(r.err, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour\./);
+  assert.doesNotMatch(r.err, /bring you in/);
+  assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });
 
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
@@ -376,29 +385,29 @@ test('whoami prints the BOARD\'s sentence, verbatim', async () => {
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT);
 });
 
-test('room and task sanitize the project id the way install/kosmos does, and present no agent token', async () => {
+test('room and task sanitize the project id the way install/kosmos does; the reads (#4491 slice 4) and task add (slice 5) present the agent token', async () => {
   const room = await run(['room', 'proj/../x y'], () => ({ body: 'room text\n' }));
   assert.equal(room.calls[0].route, '/api/project/proj..xy/room?as=text');
-  assert.equal(room.calls[0].headers['x-kosmos-agent-token'], undefined);
+  assert.equal(room.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the room read answers to the agent\'s own token since #4491 slice 4');
   const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [{ number: 1, sentence: 'ship it', isClosed: false, whoNames: ['leo'] }] } }));
   assert.equal(list.calls[0].route, '/api/tasks?project=p1');
   assert.equal(list.out, '[1] ship it (leo)');
   const add = await run(['task', 'add', 'p1', 'write docs', 'more', 'detail'], () => ({ body: { task: {} } }));
   assert.deepEqual(add.calls[0].body, { sentence: 'write docs', detail: 'more detail', from_pane: '' });
-  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], undefined, 'the tasks route ignores it; sending it only suggests it counts');
+  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], AGENT, 'task add names its caller from the agent token since #4491 slice 5');
   const close = await run(['task', 'close', 'p1', 'two']);
   assert.equal(close.code, 2, 'a non-number task is a usage error, sent nowhere');
   assert.equal(close.calls.length, 0);
 });
 
-test('project create: POST /api/projects with name+folder and the BOARD token (not the agent token); id -> 0; error -> 1; missing args -> 2', async () => {
+test('project create: POST /api/projects with name+folder, the BOARD token and the agent token (#4491 slice 5b); id -> 0; error -> 1; missing args -> 2', async () => {
   const okBody = { project: { id: 'my-project' }, told: [], id: 'my-project', agentsUnreadable: false };
   const ok = await run(['project', 'create', 'My Project', '/tmp/mp', 'a demo'], () => ({ body: okBody }));
   assert.equal(ok.code, 0);
   assert.equal(ok.calls[0].route, '/api/projects');
   assert.equal(ok.calls[0].method, 'POST');
   assert.deepEqual(ok.calls[0].body, { name: 'My Project', folder: '/tmp/mp', from_pane: '', description: 'a demo' });
-  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], undefined, 'a board write: the create route does not name the sender from the agent token');
+  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the create route names the maker from the agent token since #4491 slice 5b');
   assert.equal(ok.calls[0].headers['x-kosmos-board-token'], BOARD, 'an enforcing board would 403 without the board token');
   assert.equal(ok.out, 'Created project "My Project" (id: my-project). It\'s on your board now.');
 
@@ -454,10 +463,46 @@ test('task message: a missing part or a non-number task is a usage error that se
   }
 });
 
-test('an unknown task subcommand lists all five, as install/kosmos does', async () => {
+test('an unknown task subcommand lists all eight, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built');
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | message | built | hold | unhold');   // assign: #4914
+});
+
+test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
+  const on = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(on.code, 0, on.err);
+  assert.equal(on.calls[0].route, '/api/project/p1/task/3/hold');
+  assert.deepEqual(on.calls[0].body, { onHold: true });
+  assert.match(on.out, /Put task 3 on p1 on hold/);
+  const off = await run(['task', 'unhold', 'p1', '3'], () => ({ body: { task: { number: 3 } } }));
+  assert.equal(off.code, 0, off.err);
+  assert.deepEqual(off.calls[0].body, { onHold: false });
+  assert.match(off.out, /Took task 3 on p1 off hold/);
+  const bad = await run(['task', 'hold', 'p1', 'two']);
+  assert.equal(bad.code, 2);
+  assert.equal(bad.calls.length, 0);
+  const refused = await run(['task', 'hold', 'p1', '9'], () => ({ status: 404, body: { error: 'there is no task by that number on this project' } }));
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /no task by that number/);
+  // The list marks held work, from the task's own hold or its paused project; a plain task is the control.
+  const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'held itself', onHold: true },
+    { number: 2, sentence: 'in a paused project', projectPaused: true },
+    { number: 3, sentence: 'real work' },
+    { number: 4, sentence: 'finished while held', onHold: true, isClosed: true },
+  ] } }));
+  assert.equal(list.code, 0, list.err);
+  const lines = list.out.split('\n');
+  assert.ok(lines.includes('[1] [on hold] held itself'), list.out);
+  assert.ok(lines.includes('[2] [on hold] in a paused project'), list.out);
+  assert.ok(lines.includes('[3] real work'), 'control: a task not held is marked: ' + list.out);
+  assert.ok(lines.includes('[4] [done] finished while held'), list.out);
+  // Help: --clear stays under task built, where it belongs.
+  const help = await run(['task']);
+  const h = help.err.split('\n');
+  const at = h.findIndex((l) => /kosmos task built /.test(l));
+  assert.ok(at >= 0 && /--clear/.test(h[at + 1]), help.err);
 });
 
 test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 0, 404 -> 1, other -> 1 with the board\'s because', async () => {

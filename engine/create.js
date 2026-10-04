@@ -510,6 +510,19 @@ function cleanName(raw) {
    and another to create. */
 function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
 
+/* #4557: the block a seeded team member's brief rides in, inside its role's standard instructions. */
+// A bound, so a catalogue cannot hand create a novel. The published briefs are a few kilobytes (2026-09-30).
+const TEAM_BRIEF_MAX = 32 * 1024;
+function teamBlockBody(brief) {
+  /* Neutralised like every other value that lands in a managed block (round 2): a brief carrying any
+     kosmos marker would make the NEXT splices find two candidate spans, refuse as ambiguous, and leave
+     the agent silently without its reports/colleagues blocks. */
+  // A brief that opens with its own heading (the catalogue's does: "## On this team") keeps it; the
+  // fixed heading is only for one that has none, so no file carries an empty heading above a real one.
+  const body = require('./projects').neutralise(String(brief).trim());
+  return (/^#{1,6} /.test(body) ? '' : '## Your team\n\n') + body + '\n';
+}
+
 function spokenName(clean) {
   try { return status.readIdentity(clean).displayName || clean; }
   catch { return clean; }
@@ -1765,6 +1778,26 @@ function setProvider(name, provider, opts) {
       because: `${spoken} already runs on ${already}`,
     };
   }
+  /* #5091 (Josh, 10-02 22:10): a switch TO Claude can name WHICH Claude account, like a switch to OpenAI, Gemini or
+     Grok. It was "claude carries no account": every switch landed on the main account, and a person with four Claude
+     accounts had no list to pick from. Checked BEFORE anything is written, with setAccount's own two rules (the account
+     exists here; it shares the agents' history), so a bad pick refuses and changes nothing. Applied after the switch,
+     through setAccount itself (the launch job and #1629's per-account trust), so Move and this cannot disagree. */
+  let claudePick = null;
+  if (provider === 'anthropic' && opts && typeof opts.accountDir === 'string' && opts.accountDir !== '') {
+    const all = require('./accounts').list();
+    const want = path.resolve(opts.accountDir);
+    const found = all.find((a) => a.dir === want);
+    if (!found) return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
+    if (!found.memoryShared) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `${found.email || 'that account'} keeps its own separate history, so ${spoken} would arrive there with `
+          + 'nothing it has ever done, and nothing was changed. Pick another Claude account, or point that one at your agents\' history first',
+      };
+    }
+    claudePick = found;   // the main account too, so a person who picked it hears so (setAccount only for another)
+  }
   const { claudeBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
   if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin, platform)) {
@@ -2152,18 +2185,29 @@ function setProvider(name, provider, opts) {
   }
   try { store.writeProfile(clean, { provider }); }
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
+  /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
+     a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
+  if (claudePick && !claudePick.isDefault) {
+    const moved = setAccount(clean, claudePick.dir, opts);
+    if (moved && moved.outcome === OUTCOME.REFUSED) {
+      const why = String(moved.because || '').replace(/[.\s]+$/, '');
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+    }
+  }
   return {
     outcome: OUTCOME.CREATED,
     because: null,
     provider,
     /* Which OpenAI sign-in it actually landed on, so the route can say it.
        Null for a switch back to Claude, and null under dry-run, where nothing
-       was looked at and claiming an account would be an invention. */
+       was looked at and claiming an account would be an invention.
+       #5091: `account` below is the exception for a Claude pick: it is checked against the real account list even
+       under dry-run (a read, not a write), so it names a real account; setAccount then honours DRY_RUN itself. */
     openaiAccount,
     /* #3296/#3391: the Gemini/Grok account the switch landed on, so the route can
        name it -- the generic analog of `openaiAccount`. Null for a switch to
        claude/codex and null under dry-run, for the same reason openaiAccount is. */
-    account: switchAccount,
+    account: claudePick ? { dir: claudePick.dir, email: claudePick.email || null, label: claudePick.label || null, isDefault: !!claudePick.isDefault, chosen: !!(opts && opts.pickedByPerson === true) } : switchAccount,
     dropped: {
       model: job.model || null,
       account: Boolean(job.configDir),
@@ -3081,6 +3125,12 @@ function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName
    AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
 function win32AgyOn() { return require('./win32agy').switchOn(); }
 
+/* #2955: the tmux this board's launcher picked, while the board is still on it or on a tmux status.js switched to
+   itself, and while it exists; null otherwise (an explicit value set later wins). status is required at the top of this
+   file; the guard is for a stub of it in a test. */
+function launcherTmuxSafe() {
+  return status && typeof status.launcherTmux === 'function' ? status.launcherTmux() : null;
+}
 /**
  * Where the two things an agent needs actually live on this computer.
  *
@@ -3103,6 +3153,20 @@ function win32AgyOn() { return require('./win32agy').switchOn(); }
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
+function linuxTmuxBin(platform = process.platform, env = process.env, runnable = runners.isRunnable) {
+  /* #4917: Linux packages tmux into /usr/bin or /usr/local/bin, and custom
+   * installs may expose it only through PATH. Resolve an executable directly,
+   * without a shell, and keep the long-standing Mac and Windows fallback
+   * unchanged. The explicit option and environment override remain authoritative
+   * on every platform. */
+  if (platform === 'linux') {
+    const pathDirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
+    const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'])];
+    return dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runnable(candidate)) || null;
+  }
+  return null;
+}
+
 function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
@@ -3112,8 +3176,15 @@ function binPaths(opts) {
     // disagree about where Claude lives.
     claudeBin: (opts && opts.claudeBin)
       || runners.resolveBin('claude').bin,
+    /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
+       what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
+       removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
+       straight to plistFor and is not touched by this.
+       #4917: adaptive pick -> env override -> Linux PATH and common binary directories -> Homebrew fallback */
     tmuxBin: (opts && opts.tmuxBin)
+      || launcherTmuxSafe()
       || process.env.AGENT_WORKFORCE_TMUX_BIN
+      || linuxTmuxBin((opts && opts.platform) || process.platform)
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
     // #979). ONE priority list -- env override, then the managed location
@@ -3771,10 +3842,21 @@ function defaultClaudeProbe(configDir) {
  * dead -- capacity, rate, overload, network, or an unrunnable claude).
  */
 async function claudeAccountLive(configDir) {
+  return (await claudeAccountCheck(configDir)).state;
+}
+/* #3997 review 1: the same verdict, plus `refused`: an UNKNOWN whose probe reported an exit code other than 0 and
+   whose output has neither the capacity nor the dead-sign-in words. With the real probe (defaultClaudeProbe) that is
+   BROAD, measured from its code by reviews 2 and 3: it reports 1 for any error without a numeric code, so a refusal
+   (a 403 permission error, a disabled organisation), a timeout (killed, no code) or a failed exec all count. Every one
+   of those is a Check now that failed, which Josh's ruling A keeps non-green, so the row falls back to unverified
+   until a later outcome. Not `refused`: capacity (the account is fine, only busy), a probe that throws, and a claude
+   that cannot be found at all (the probe reports no exit code then). Check now uses it so a row's login-green does not outlive a failed
+   check it just saw; the create gate still reads only the state, so it is unchanged. */
+async function claudeAccountCheck(configDir) {
   const subscription = require('./subscription');
   const run = claudeProbe || defaultClaudeProbe;
   let res;
-  try { res = await run(configDir); } catch { return subscription.STATE.UNKNOWN; }
+  try { res = await run(configDir); } catch { return { state: subscription.STATE.UNKNOWN, refused: false }; }
   const text = String((res && res.out) || '');
   const exit = res && typeof res.exitCode === 'number' ? res.exitCode : null;
   /* CONTENT before EXIT CODE, the module's own doctrine (a status code is the
@@ -3784,10 +3866,12 @@ async function claudeAccountLive(configDir) {
      REGARDLESS of exit code -- so a dead token that somehow exits 0 while
      printing its 401 is still caught, not false-accepted by the exit-0 shortcut.
      A clean exit 0 with neither marker (the "reply ok" response) is CONNECTED. */
-  if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
-  if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
-  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through cleanly
-  return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
+  if (CLAUDE_CAPACITY.test(text)) return { state: subscription.STATE.UNKNOWN, refused: false }; // live but capped/overloaded
+  if (CLAUDE_DEAD_AUTH.test(text)) return { state: subscription.STATE.NONE, refused: false };   // positively dead
+  if (exit === 0) return { state: subscription.STATE.CONNECTED, refused: false };           // a real call went through cleanly
+  // network/unrunnable/other. A non-zero exit code is a failed check (see above); no exit code (claude was not
+  // found) is not.
+  return { state: subscription.STATE.UNKNOWN, refused: exit !== null && exit !== 0 };
 }
 
 /**
@@ -3932,8 +4016,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
       return {
         ok: false,
         because: 'there is no OpenAI sign-in on this computer, so an agent created on OpenAI could not run. '
-          + 'Add an OpenAI key on the Accounts tab in Settings'
-          + (hasClaude ? ', or create this agent on Claude instead' : '') + '.',
+          + 'Add an OpenAI key in Settings, AI Models.'
+          + (hasClaude ? ' Or create this agent on Claude instead.' : ''),
       };
     }
     /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
@@ -3948,7 +4032,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     if (acct.isDefault && codexHomeOverridden()) return { ok: true };
     let live; try { live = await openai.checkLive(acct.dir); } catch (err) { return failOpen("openai.checkLive", err); }
     if (live && live.state === NONE) {
-      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key on the Accounts screen first.` };
+      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key in Settings, AI Models, then try again.` };
     }
     return { ok: true };
   }
@@ -3976,8 +4060,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
     return {
       ok: false,
       because: 'there is no Claude account signed in on this computer, so an agent created on Claude could not run. '
-        + 'Connect a Claude account from the Accounts tab in Settings'
-        + (hasOpenai ? ', or create this agent on OpenAI instead' : '') + '.',
+        + 'Connect a Claude account in Settings, AI Models.'
+        + (hasOpenai ? ' Or create this agent on OpenAI instead.' : ''),
     };
   }
   /* 🛑 REAL liveness, NOT subscription.checkLive (#1916). checkLive is built on
@@ -4007,7 +4091,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
   if (state === NONE) {
     return {
       ok: false,
-      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account from the Accounts tab in Settings (Sign in again) before creating an agent on it.`,
+      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Before creating an agent on it, sign that account in again from Settings, AI Models.`,
     };
   }
   return { ok: true };
@@ -4218,6 +4302,10 @@ function createAgentInner(opts) {
    */
   const wantLabel = opts && opts.label !== undefined ? opts.label : undefined;
   const wantInstructions = opts && opts.instructions !== undefined ? opts.instructions : undefined;
+  // #4557 (Josh, via Splinter on the card): a seeded team member is made by THIS path like any agent, and
+  // its team brief is LAYERED INTO the role's standard instructions as its own block. It never replaces
+  // them the way `instructions` (the person's own words, verbatim) does, so every standard block lands.
+  const wantTeam = opts && opts.teamInstructions !== undefined ? opts.teamInstructions : undefined;
   // Project ids the route already validated; used once, to compose the
   // projects block into the first write (#323). Never read from here again.
   const wantProjects = opts && Array.isArray(opts.projects)
@@ -4235,6 +4323,22 @@ function createAgentInner(opts) {
   if (wantLabel !== undefined
       && (typeof wantLabel !== 'string' || !wantLabel.trim() || wantLabel.trim().length > 80)) {
     return { outcome: OUTCOME.REFUSED, because: 'a role label has to be words (80 characters or fewer)', steps };
+  }
+  if (wantTeam !== undefined) {
+    if (wantInstructions !== undefined) {
+      return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief is layered into its role\'s instructions, so give one or the other, not both', steps };
+    }
+    if (typeof wantTeam !== 'string' || !wantTeam.trim()) {
+      return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief has to be words', steps };
+    }
+    if (Buffer.byteLength(wantTeam, 'utf8') > TEAM_BRIEF_MAX) {
+      return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
+    }
+    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, shown),
+      teamBlockBody(wantTeam), require('./projects').TEAM_START, require('./projects').TEAM_END);
+    if (Buffer.byteLength(composed, 'utf8') > require('./instructions').MAX_BYTES) {
+      return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
+    }
   }
   if (wantInstructions !== undefined
       && (typeof wantInstructions !== 'string' || !wantInstructions.trim())) {
@@ -4424,8 +4528,7 @@ function createAgentInner(opts) {
    * the screen offers Start over, and the person needs to be told what is in
    * the way rather than that an agent they can see is not running exists.
    */
-  const hasFolder = fs.existsSync(workerDir(name));
-  const hasJob = fs.existsSync(plistPath(name));
+  const { folder: hasFolder, job: hasJob } = nameHeld(name);
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -4619,9 +4722,9 @@ function createAgentInner(opts) {
      this is the other one, AND IT IS REACHED WITHOUT DELETING ANYTHING.
 
      TWO CHECKS GUARD THIS NAME AND NEITHER LOOKS AT THE TOKEN STORE: the
-     clash check above refuses a name that is RUNNING, and the one further up
-     refuses `hasFolder && hasJob` -- BOTH, so a name whose files are gone, or
-     only half present, passes them both.
+     clash check above refuses a name that is RUNNING, and the ones further up
+     refuse a folder or a job of the name (either alone, #4994 checked), so a
+     name whose files are all gone passes them both.
 
      Tokens outlive the files whenever they went away by any route other than
      a fully successful `delete-leftover` (a hand-deleted folder, a PARTIAL
@@ -4643,11 +4746,32 @@ function createAgentInner(opts) {
      name with a launch file, folder, loaded job or running session, so the record belongs to no card and clearing it
      hides nothing; while a create that ends PARTIAL leaves a launch file (so a card), which must not inherit it. */
   try { require('./disruption').clear(name); } catch { /* best-effort */ }
+  try { require('./crashloop').forget(name); } catch { /* #5154: a new agent never inherits an old loop */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `we could not clear the sender tokens left by an earlier ${shown}, so we will not make a new agent that an old one could speak for`,
+      steps,
+    };
+  }
+  /* #4994: the same for the name's community account. A name freed by any route other than a clean delete-leftover
+     (files removed by hand, a delete whose retirement could not be recorded) still holds the old agent's account, and a
+     new agent would post as it. REFUSES like the tokens above, for the same reason.
+
+     Asked always, not only when this service's keys show an account: those keys can be unreadable, the account can be
+     another service's, and an agent that never got a key can still leave unsent posts. For a name with no history it
+     changes nothing, though it still writes and removes one request file.
+
+     It runs before gates below that can still refuse, deliberately, as the token revoke does: every check above has
+     found the name free (a folder alone or a job alone is refused, not only both), so the old account belongs to nobody
+     on this board whether or not this create goes on. */
+  try {
+    require('./communitysend').requestRetire(name);
+  } catch {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not save a community record for ${shown} (one that makes sure no earlier agent's community account carries over), so we did not make the agent`,
       steps,
     };
   }
@@ -4686,8 +4810,8 @@ function createAgentInner(opts) {
    *
    * And when Claude IS the missing one, the refusal now carries the remedy
    * and, ONLY WHEN IT IS REAL ON THIS MACHINE, the other path (Mona Lisa's
-   * rule, the pill-door law applied to a sentence): "or create this agent
-   * on OpenAI instead" is said only with the codex runner present AND an
+   * rule, the pill-door law applied to a sentence): "Or create this agent
+   * on OpenAI instead." is said only with the codex runner present AND an
    * OpenAI sign-in on the machine, because an alternative that dead-ends
    * is a dead click in words. Which condition suppressed it rides the
    * engine-side `alternative`, never the person's sentence.
@@ -4748,8 +4872,8 @@ function createAgentInner(opts) {
              sentence a real person meets, and the worse of the two remedies
              is the one it was handing them. */
           because: 'we could not find Claude Code on this computer, so an agent made now could not start. '
-            + 'Connect a Claude account and Kosmos will set it up'
-            + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
+            + 'Connect a Claude account in Settings, AI Models. Kosmos will then set up Claude Code.'
+            + (codexConnected ? ' Or create this agent on OpenAI instead.' : ''),
           alternative: codexConnected
             ? { offered: true }
             /* 'not on this computer' covers a stripped file too (#1616), the same slightly-false
@@ -4903,6 +5027,12 @@ function createAgentInner(opts) {
     let text = wantInstructions !== undefined
       ? wantInstructions.replace(/\n?$/, '\n')
       : roles.instructionsFor(roleKey, shown);
+    // #4557: the team brief goes INTO the role's text, first, so the blocks below land around it as they
+    // do for any agent. Checked to fit before anything was made (above).
+    if (wantTeam !== undefined) {
+      const pj = require('./projects');
+      text = pj.spliceBlock(text, teamBlockBody(wantTeam), pj.TEAM_START, pj.TEAM_END);
+    }
     // The About-you answers ride the boot file from BIRTH, spliced here
     // rather than told after the fact -- at this moment the session does not
     // exist yet, so the tell path's tied-session gate would refuse the very
@@ -5017,15 +5147,17 @@ function createAgentInner(opts) {
        What is lost here is the block carrying `kosmos post` and `kosmos msg`, so
        an agent born without it does not know how to answer a person at all, and
        creation said it worked.
-       📌 A code-level break is caught before shipping: making `appendTo` throw
-       reds 6 of the 141 tests in engine/create.test.js, measured. The case this
+       📌 A code-level break is caught before shipping: making `doctrine.atBirth` throw
+       reds 8 of the 214 tests in engine/create.test.js, measured 2026-10-01 (#4890). The case this
        step is for is the DEPLOYMENT one - a partially synced install where the
        shipped code is fine and the file on disk is not - which no test can see
        and which this box has had happen. */
     let defaultsLanded = false;
     try {
-      const withDefaults = require('./defaults').appendTo(text);
+      /* #4890: inside the managed span, so a later change under an existing heading can reach this agent through
+         the consented refresh (doctrine.atBirth). */
       const { MAX_BYTES } = require('./instructions');
+      const withDefaults = require('./doctrine').atBirth(text, undefined, MAX_BYTES);
       /* kosmos#1673 gave this the warning it was missing, and kosmos#1672 extends
          it to the OTHER way the block can be lost. Two failure paths, one report:
            the byte cap drops it   -> #1673's case, warned since #1701
@@ -5088,12 +5220,16 @@ function createAgentInner(opts) {
         if (cm) {
           let communityLanded = false;
           try {
-            const spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
+            // #5023: a new agent is asked to introduce itself, unless its key already has posts or the store cannot
+            // tell (shouldIntroduce leaves it out on an unknown answer).
             const { MAX_BYTES } = require('./instructions');
+            let spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
+            // The introduction is optional: at the size limit, the block without it rather than no block.
+            if (Buffer.byteLength(spliced, 'utf8') > MAX_BYTES) spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }
           if (!communityLanded) {
-            steps.push({ label: 'could not add the Kosmos community section to its instructions; it will be tried again at its next restart', ok: false });
+            steps.push({ label: 'could not add the Kosmos+ community section to its instructions; it will be tried again at its next restart', ok: false });
           }
         }
       }
@@ -5118,8 +5254,8 @@ function createAgentInner(opts) {
     // button, sixty seconds old. Composed here, before the first write, the
     // later sync finds the file already saying this and `instructions.write`
     // declines a byte-identical save, so nothing is newer than the session.
-    // ⚠️ LAST, AFTER THE DEFAULTS, because that is where `spliceBlock` puts a
-    // block a file does not yet have, and the later sync has to compose the
+    // ⚠️ AFTER THE DEFAULTS (only the #5050 language block follows it), because that is where
+    // `spliceBlock` puts a block a file does not yet have, and the later sync has to compose the
     // SAME bytes or it writes after all. Both paths, unlike the two blocks
     // above: this block is written into a person's own words on every
     // membership change already, so at birth it is the same invitation.
@@ -5135,6 +5271,35 @@ function createAgentInner(opts) {
           if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
+    }
+    /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it. An
+       English Mac writes none (and removes one that came in with pasted instructions); off a Mac, or when the Mac's read
+       failed, nothing changes. Spliced last,
+       so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
+       (then it is replaced where it is). Non-gating like the blocks above. */
+    {
+      let langStep = null;   // null: nothing to report
+      try {
+        const plMod = require('./personlanguage');
+        const got = plMod.read();
+        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). */
+        if (got.sure) {
+          const { MAX_BYTES } = require('./instructions');
+          if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {
+            // Two language blocks (instructions pasted from another computer): left as they are, on any sure read.
+            langStep = plMod.blockBody(got.tag)
+              ? 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one'
+              : 'found two language sections in its instructions, so left them as they are; edit its instructions to remove them';
+          } else {
+            const spliced = plMod.applyTo(text, got.tag);
+            // Review 20: a sure English read removes a language section that came in with pasted instructions; say so.
+            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
+            if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+            else if (plMod.blockBody(got.tag)) langStep = 'could not add your language to its instructions (they are at the size limit), so it may start in English';
+          }
+        }
+      } catch { langStep = 'could not add your language to its instructions, so it may start in English; edit its instructions or remake it'; }
+      if (langStep) steps.push({ label: langStep, ok: false });
     }
     // #2245: pass the in-scope runner -- the plist is not yet written, so the
     // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by
@@ -5384,7 +5549,10 @@ function createAgentInner(opts) {
        (`already === false` proves only that no other agent needed it at PREACCEPT time, not
        at rollback time). Leaving an inert account preference set is the safe direction -- the
        operator chose bypass mode for this account when they started the creation -- so this
-       is fire-and-forget with no undo, unlike the trust write. */
+       is fire-and-forget with no undo, unlike the trust write. The same call also writes
+       #5039's switchModelsOnFlag. That one is not inert and the operator did not choose it here
+       (Josh ruled the default, 2026-10-02); it is left in place on rollback for the same
+       account-shared reason. */
     if (provider === 'anthropic') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
@@ -5663,7 +5831,14 @@ function createAgentInner(opts) {
    punctuation: each surface finishes its own sentence. */
 const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
 
+/* #4557: what holds a machine name on this computer. One derivation: create refuses on it, and the team
+   step's names pre-check (teamseed.js) asks the same thing before anything is made. */
+function nameHeld(name) {
+  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(plistPath(name)) };
+}
+
 module.exports = {
+  nameHeld,
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
   spokenName,
@@ -5717,6 +5892,9 @@ module.exports = {
   setAccount,
   setProvider,
   readJob,
+  /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start
+     refresh threw on every start (caught, one stderr line) and healed nothing. */
+  agyBridgePath,
   /* win32-agent-job-read: the job read with its reason, and the Trust & Restart
      trust step, which the route calls so its job read follows the platform. */
   readJobVerdict,
@@ -5728,8 +5906,10 @@ module.exports = {
   createAgent,
   accountConnectable,
   claudeAccountLive,
+  claudeAccountCheck,
   setClaudeProbe,
   binPaths,
+  linuxTmuxBin,
   unusablePath,
   nameProblem,
   cleanName,
@@ -5742,6 +5922,7 @@ module.exports = {
   SERVICE_LABEL_PREFIX,
   parseServiceLabel,
   workerDir,
+  workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home
   usableRecordedDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving

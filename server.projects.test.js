@@ -1038,7 +1038,8 @@ async function withThread(spec, answers, fn) {
       // brief-pending room note does not fire and pollute the many tests that use withThread
       // to assert on an otherwise-empty room. The note's own behavior is covered directly by
       // the dedicated #2707 tests, which create brief-LESS projects on purpose.
-      description: 'A briefed test project.',
+      // #4583: and a done, for the same reason: a goal with no done posts the done note.
+      description: 'A briefed test project.', done: 'The test says so.',
     })).project;
     calls = armChat(answers);
     return await fn({ board, calls, project: made });
@@ -2529,6 +2530,27 @@ test('the raw window is NOT served from this route, so engineering mode has noth
   }
 });
 
+test('#5051: a button press that lands on the safeguards model-switch menu is refused; a typed answer is not', async () => {
+  reset();
+  /* The menu's rows as captured on Angel's pane (2026-10-02 ~11:07). Option 1 switches models and saves that in the
+     agent's Claude settings, so a stale button's "1" must never reach it. */
+  const SG = ' ☐ Model switch\n\n│ Opus 5.5\'s safeguards flagged this session. Switch to Opus 4.8 and keep going?\n\n'
+    + '❯ 1. Switch automatically\n     Continue on Opus 4.8 now, and switch without asking from now on\n'
+    + '  2. Stay on Opus 5.5\n     Stop here without switching, and ask me each time a message is flagged\n';
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(SG), said(), said()], async ({ calls }) => {
+    const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes' });
+    assert.equal(res.status, 409, 'a stale button press reached the safeguards menu: ' + res.body);
+    assert.match(json(res).error, /changed on its screen/);
+    assert.equal(calls.sends().length, 0, 'and nothing was typed into the pane');
+  });
+  reset();
+  // The control: the person typing their own answer (no button) is not refused.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(SG), said(), said()], async () => {
+    const res = await post('/api/agent/zeta/thread', { text: '2' });
+    assert.notEqual(res.status, 409, 'a typed answer to the safeguards menu was refused: ' + res.body);
+  });
+});
+
 test('a button the visible screen contradicts is refused, and nothing is typed', async () => {
   reset();
   // ⚠️ `chose` is the one half of the pair the server does not derive: the
@@ -2817,7 +2839,7 @@ test('#3745: a room post can reply to another post in the same room, and only th
     assert.equal(after.length, rows.length, 'a reply to nothing was posted');
     // A post in ANOTHER room is refused the same way: never posted pointing across rooms.
     const dir2 = folder('other-room');
-    const other = JSON.parse((await post('/api/projects', { name: 'Other room', folder: dir2, agents: ['zeta'], description: 'A briefed test project.' })).body).project;
+    const other = JSON.parse((await post('/api/projects', { name: 'Other room', folder: dir2, agents: ['zeta'], description: 'A briefed test project.', done: 'The test says so.' })).body).project;
     assert.equal((await post(`/api/project/${other.id}/room`, { text: 'over here' })).status, 200);
     const otherId = JSON.parse((await req(`/api/project/${other.id}/room`)).body).rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
     const across = await post(`/api/project/${project.id}/room`, { text: 'across rooms', reply_to: otherId });
@@ -3779,4 +3801,163 @@ test('#4642: a room post row carries its recorded `mentioned`, [] when it addres
     const posts = json(await req('/api/project/' + p.id + '/room')).rows.filter((m) => m.kind === 'post');
     assert.deepEqual(posts.map((m) => [m.id, m.mentioned]), [['m-4642-a', ['kano']], ['m-4642-b', []]]);
   } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
+});
+
+// ---------------------------------------------------------------------------
+// #4583: what done looks like, asked at creation; and two coordinators warned about
+// ---------------------------------------------------------------------------
+
+test('#4583: a project with a goal but no done, staffed, gets ONE agents-only done note (not the brief note)', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Goal no done', folder: folder('goal-nodone'), agents: ['agent-a'], description: 'Renew the lease.' })).project;
+  assert.equal(made.doneSet, false, 'the read must say done is not set');
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(notes.length, 1, 'expected exactly one note');
+  assert.equal(notes[0].text, projects.DONE_PENDING_NOTE);
+  assert.equal(notes[0].audience, messages.NOTE_AUDIENCE_AGENTS);
+});
+
+test('#4583 CONTROL: done given at creation means no note at all, and the brief carries it', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('goal-done');
+  const made = json(await post('/api/projects', { name: 'Goal and done', folder: dir, agents: ['agent-a'], description: 'Renew the lease.', done: 'The lease is signed.' })).project;
+  assert.equal(made.doneSet, true);
+  assert.equal(messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).length, 0, 'a project with its done set was told to ask');
+  assert.match(fs.readFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), 'utf8'), /## Done looks like\n\nThe lease is signed\./);
+});
+
+test('#4583 round 5: a done typed for a folder whose brief has its own Done section is quoted to the team, once', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('own-done-heading');
+  const mine = '# Mine\n\n## Goal\n\nRenew the lease.\n\n### Done when\n\ntests pass\n';
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+  const made = json(await post('/api/projects', { name: 'Own done', folder: dir, agents: ['agent-a'], done: 'Ship "v1"' })).project;
+  assert.equal(fs.readFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), 'utf8'), mine, 'the person\'s brief was changed');
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.deepEqual(notes.map((n) => n.text), [projects.doneNotWrittenNote('Ship "v1"')]);
+  assert.match(notes[0].text, /"Ship 'v1'"/, 'the typed words are quoted, with their quotes made single');
+  assert.equal(notes[0].audience, messages.NOTE_AUDIENCE_AGENTS);
+});
+
+test('#4583 round 7: a done typed for a brief whose ## Done section is already filled is quoted to the team', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('filled-done');
+  const mine = '# Mine\n\n## Goal\n\nG.\n\n## Done when\n\nShip v1\n';
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+  const made = json(await post('/api/projects', { name: 'Filled', folder: dir, agents: ['agent-a'], done: '500 signups' })).project;
+  assert.equal(fs.readFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), 'utf8'), mine);
+  const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+  assert.deepEqual(texts, [projects.doneNotWrittenNote('500 signups')]);
+});
+
+test('#4583 round 7 CONTROL: the same done typed again, already in the brief, posts nothing', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('same-done');
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Mine\n\n## Goal\n\nG.\n\n## Done when\n\nShip v1\n');
+  const made = json(await post('/api/projects', { name: 'Same', folder: dir, agents: ['agent-a'], done: 'Ship v1' })).project;
+  assert.equal(messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).length, 0);
+});
+
+test('#4583 round 6 CONTROL: no BRIEF.md the stub could write means no "already has a Done section" note', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('unwritable-brief');
+  fs.mkdirSync(path.join(dir, projects.BRIEF_STUB_FILENAME));   // a directory where the brief would go: nothing is written
+  const made = json(await post('/api/projects', { name: 'No brief', folder: dir, agents: ['agent-a'], done: 'Ship v1' })).project;
+  const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+  assert.ok(!texts.includes(projects.doneNotWrittenNote('Ship v1')), 'the note gave a false reason: ' + JSON.stringify(texts));
+  // Round 8: the typed done is still quoted, with the true reason, once.
+  assert.equal(texts.filter((t) => t === projects.doneNotWrittenNote('Ship v1', false)).length, 1, JSON.stringify(texts));
+});
+
+test('#4583 round 8: goal missing and the typed done unwritable: the brief note asks for the goal only', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('readonly-nogoal');
+  const file = path.join(dir, projects.BRIEF_STUB_FILENAME);
+  fs.writeFileSync(file, projects.briefStubContent({ name: 'Ro' }));
+  fs.chmodSync(file, 0o444);
+  try {
+    const made = json(await post('/api/projects', { name: 'No goal ro', folder: dir, agents: ['agent-a'], done: 'Signed' })).project;
+    const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+    assert.deepEqual(texts, [projects.BRIEF_PENDING_NOTE, projects.doneNotWrittenNote('Signed', false)]);
+  } finally { fs.chmodSync(file, 0o644); }
+});
+
+test('#4583 round 8: a Goal line with the same words does not vouch for a done that was never written', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('goal-collision');
+  const mine = '# Mine\n\n## Goal\n\nShip\n\n## Done when\n\nbig thing\n';
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+  const made = json(await post('/api/projects', { name: 'Collide', folder: dir, agents: ['agent-a'], done: 'Ship' })).project;
+  const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+  assert.deepEqual(texts, [projects.doneNotWrittenNote('Ship')]);
+});
+
+test('#4583 round 8: a brief Kosmos cannot write to gets the typed done quoted, and nobody is told to ask for it', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('readonly-brief');
+  const file = path.join(dir, projects.BRIEF_STUB_FILENAME);
+  fs.writeFileSync(file, projects.briefStubContent({ name: 'Ro', description: 'Renew the lease.' }));
+  fs.chmodSync(file, 0o444);
+  try {
+    const made = json(await post('/api/projects', { name: 'Read only', folder: dir, agents: ['agent-a'], done: 'Signed' })).project;
+    const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+    assert.deepEqual(texts, [projects.doneNotWrittenNote('Signed', false)], 'expected only the quoted done, no ask');
+  } finally { fs.chmodSync(file, 0o644); }
+});
+
+test('#4583: a done over 1000 characters is refused with the done box named, and nothing is created', async () => {
+  reset();
+  const res = await post('/api/projects', { name: 'Too long', folder: folder('too-long'), done: 'x'.repeat(1001) });
+  assert.equal(res.status, 400);
+  assert.match(json(res).error, /done looks like/);
+  assert.equal(json(await req('/api/projects')).projects.filter((p) => p.name === 'Too long').length, 0);
+});
+
+test('#4583: two coordinators warn on create and when a second one joins; a non-coordinator joining does not', async () => {
+  reset();
+  const store = require('./engine/store');
+  store.writeProfile('pm-x', { role: 'Project Manager' });
+  store.writeProfile('pm-y', { role: 'Project Manager' });
+  store.writeProfile('dev-z', { role: 'Developer' });
+  try {
+    const both = json(await post('/api/projects', { name: 'Two PMs', folder: folder('two-pms'), agents: ['pm-x', 'pm-y'] }));
+    assert.match(String(both.coordinators), /coordinating role/, 'create with two coordinators did not warn');
+    const one = json(await post('/api/projects', { name: 'One PM', folder: folder('one-pm'), agents: ['pm-x'] }));
+    assert.equal(one.coordinators, undefined, 'CONTROL: one coordinator warned');
+    const joined = json(await post(`/api/project/${one.project.id}/agent/pm-y`));
+    assert.match(String(joined.coordinators), /coordinating role/, 'a second coordinator joining did not warn');
+    const dev = json(await post(`/api/project/${one.project.id}/agent/dev-z`));
+    assert.equal(dev.coordinators, undefined, 'a non-coordinator joining re-warned');
+    assert.equal(dev.project.agents.length, 3, 'the warning must never refuse the add');
+  } finally {
+    for (const n of ['pm-x', 'pm-y', 'dev-z']) store.writeProfile(n, { role: null });
+  }
+});
+
+test('#4583 round 3: a done typed with no goal: the note asks only for the goal, never for the done already given', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Done no goal', folder: folder('done-nogoal'), agents: ['agent-a'], done: 'The lease is signed.' })).project;
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].text, projects.BRIEF_PENDING_NOTE);
+  assert.doesNotMatch(notes[0].text, /done looks like/i, 'the agents were told to ask for a done the person gave');
+});
+
+test('#4583 round 3 CONTROL: neither goal nor done: one note asks for both', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Nothing given', folder: folder('nothing-given'), agents: ['agent-a'] })).project;
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].text, projects.BRIEF_AND_DONE_PENDING_NOTE);
 });

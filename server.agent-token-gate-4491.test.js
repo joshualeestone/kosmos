@@ -34,6 +34,9 @@ const chatEngine = require('./engine/chat');
 const projectsEngine = require('./engine/projects');
 const feedpublish = require('./engine/feedpublish');
 const tasksEngine = require('./engine/tasks');
+const communityread = require('./engine/communityread');
+const communitysend = require('./engine/communitysend');
+const setupAssistant = require('./engine/setup-assistant');
 
 const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -161,8 +164,8 @@ test('a token-only react is recorded as the token\'s agent, even when the body n
 });
 
 test('a token-only community post is still refused at the gate: the public feed needs the board token (#4491 slice 2)', async () => {
-  /* Deliberate: /api/community/post writes to the PUBLIC feed. With an agent token alone, an agent that
-     cannot read board.token (the sandboxed setup guide) could publish. It stays board token + agent token. */
+  /* Deliberate: /api/community/post writes to the PUBLIC feed, so it keeps needing the person's credential as
+     well as the agent's. It stays board token + agent token. */
   assert.ok(refusedAtGate(await call('POST', '/api/community/post', {
     headers: { 'x-kosmos-agent-token': agentToken },
     body: { title: 'hello', body: 'from the token agent' },
@@ -180,7 +183,73 @@ test('a token-only community post is still refused at the gate: the public feed 
   } finally { feedpublish.publishPost = realPublish; }
 });
 
-test('task message and task built pass the gate with only an agent token; close and reopen do not (#4491 slice 3)', async () => {
+test('#4884: a vote and the vote standing read are refused at the gate on an agent token alone; with the board token they pass', async () => {
+  /* Deliberate: a vote is a public act, as a post is, so both vote routes keep needing the person's credential as well. */
+  const POST = '1b2c3d4e-0000-4000-8000-000000000000';
+  assert.ok(refusedAtGate(await call('POST', '/api/community/vote', { headers: { 'x-kosmos-agent-token': agentToken }, body: { kind: 'post', id: POST, direction: 'up' } })),
+    'an agent token alone cast a community vote');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/votes', { headers: { 'x-kosmos-agent-token': agentToken } })), 'an agent token alone read the vote standing');
+  /* CONTROL: with the board token as well, the same requests get past the gate (the engine then refuses: no network in tests). */
+  const v = await call('POST', '/api/community/vote', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD }, body: { kind: 'post', id: POST, direction: 'up' } });
+  assert.ok(!refusedAtGate(v), 'control: the board token plus the agent token did not pass the gate for a vote: ' + v.code);
+  const g = await call('GET', '/api/community/votes', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD } });
+  assert.ok(!refusedAtGate(g), 'control: the board token plus the agent token did not pass the gate for the standing: ' + g.code);
+});
+
+test('#4913: an endorsement and a take-back are refused at the gate on an agent token alone; with the board token they pass', async () => {
+  /* Deliberate: an endorsement is public under both agents' names, as a post is, so it keeps needing the person's credential too. */
+  const body = { name: 'Theo Nguyen', stars: 5, text: 'Careful work.' };
+  assert.ok(refusedAtGate(await call('POST', '/api/community/endorse', { headers: { 'x-kosmos-agent-token': agentToken }, body })),
+    'an agent token alone wrote a community endorsement');
+  assert.ok(refusedAtGate(await call('POST', '/api/community/endorse', { headers: { 'x-kosmos-agent-token': agentToken }, body: { name: 'Theo Nguyen', takeBack: true } })),
+    'an agent token alone took an endorsement back');
+  /* CONTROL: with the board token as well, the same request gets past the gate (the engine then refuses: no network in tests). */
+  const e = await call('POST', '/api/community/endorse', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD }, body });
+  assert.ok(!refusedAtGate(e), 'control: the board token plus the agent token did not pass the gate for an endorsement: ' + e.code);
+});
+
+test('community read passes the gate with only an agent token, and only as a GET with a token the board issued (#4491 slice 6)', async (t) => {
+  /* The read returns public writing, framed; the write above stays behind the board token. */
+  const b = fleet.install([fleet.agent('poc-agent', { state: 'idle' })]);
+  const fetched = [];
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communityread.setFetcher(async (url) => { fetched.push(url); return { status: 200, json: { posts: [{ id: '1b2c3d4e-0000-4000-8000-000000000001', channel: 'general', sub_channel: null, title: 'Hello', body: 'From an agent.', created_at: '2026-09-28T20:00:00Z', agent: { name: 'writer' } }], next_cursor: null } }; });
+  t.after(() => { b.restore(); communityread.setFetcher(null); communitysend.setSwitch(null); });
+  /* CONTROLS first: no credential, a token the board never issued, and the token in the query are all the gate's. */
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read')), 'a bare community read was not refused at the gate');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': 'ef'.repeat(32) } })), 'a well-formed token the board never issued read the community');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': 'ef'.repeat(16) } })), 'a token of the wrong length read the community');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read?token=' + agentToken)), 'an agent token in the query opened the gate');
+  assert.equal(fetched.length, 0, 'the board asked the service for a caller it refused');
+  const r = await call('GET', '/api/community/read?channel=general', { headers: { 'x-kosmos-agent-token': agentToken } });
+  assert.equal(r.code, 200, 'a valid agent token alone did not read the community: ' + r.code + ' ' + r.text.slice(0, 160));
+  const j = JSON.parse(r.text);
+  assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE), 'the answer is not framed');
+  assert.equal(fetched.length, 1);
+  /* Only the GET: every other method on the path keeps the board token. */
+  for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+    const o = await fetch(base + '/api/community/read', { method, headers: { 'x-kosmos-agent-token': agentToken } });
+    assert.equal(o.status, 403, method + ' /api/community/read passed the gate on an agent token alone: ' + o.status);
+    /* The GATE's refusal, not another layer's 403 (a HEAD answer has no body to read). */
+    if (method !== 'HEAD') assert.match(await o.text(), GATE_REFUSAL, method + ' was refused, but not by the board-token gate');
+  }
+  /* Cannot go red from the gate alone (no other method has a handler here: with the board token each is a 404).
+     It guards the day one of them gets a handler. */
+  assert.equal(fetched.length, 1, 'a method other than GET made the board ask the service');
+  /* DECIDED on #4491 (slice 6), and pinned so it cannot flip silently: the setup guide is not treated differently
+     from any other agent on this read. If that is ruled the other way, the change is one condition in the handler
+     (a guide that came on its token alone is refused) and this assertion becomes a 403. */
+  const was = { guideName: setupAssistant.guideName, isGuideFolder: setupAssistant.isGuideFolder };
+  setupAssistant.guideName = () => 'poc-agent';
+  setupAssistant.isGuideFolder = (n) => n === 'poc-agent';
+  try {
+    const g = await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': agentToken } });
+    assert.equal(g.code, 200, 'the setup guide, on its token alone, was refused the community read: ' + g.code + ' ' + g.text.slice(0, 160));
+    assert.equal(fetched.length, 2, 'the guide\'s read did not reach the service');
+  } finally { setupAssistant.guideName = was.guideName; setupAssistant.isGuideFolder = was.isGuideFolder; }
+});
+
+test('task message and task built pass the gate with only an agent token; reopen does not (#4491 slice 3; close opened in slice 5)', async () => {
   for (const verb of ['message', 'built']) {
     const p = '/api/project/p4491/task/1/' + verb;
     assert.ok(refusedAtGate(await call('POST', p, { body: {} })), `control: POST ${p} with no credential was not refused`);
@@ -188,7 +257,7 @@ test('task message and task built pass the gate with only an agent token; close 
     const r = await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
     assert.ok(!refusedAtGate(r), `POST ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
   }
-  for (const p of ['/api/project/p4491/task/1/close', '/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built', '/api/project/p4491/task/1/message/', '/api/project/p4491/task/x/message']) {
+  for (const p of ['/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built', '/api/project/p4491/task/1/message/', '/api/project/p4491/task/x/message']) {
     assert.ok(refusedAtGate(await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: {} })), `POST ${p} was reachable with only an agent token`);
   }
 });

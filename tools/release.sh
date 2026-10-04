@@ -102,13 +102,73 @@ _step_emit_duration() {
 # stuck step lets the claim lapse and frees the fleet. Guarded so an exit before
 # cut-guard.sh is sourced (there are no `step` calls that early today, but the
 # guard costs nothing) cannot fault.
+# #5134: renewing only at step boundaries was not enough. Step 3+3b (the suite and the page layer) runs about 67
+# minutes and the claim lasts 30, so it lapsed halfway through every cut, the next consult deleted it, and a queued
+# suite started beside the cut (0.7.20, 2026-10-03 ~04:50). So each step also starts a background renewer that
+# re-claims every KOSMOS_CUT_RENEW_SECS (default 600) while the step runs, the pattern queued-heavy.sh uses for its
+# turn. The renewer stops: at the next step (step() replaces it), at exit (cut_record_done, before the EXIT traps
+# release the claim), when this cut's process is gone (checked before every renewal), and after
+# KOSMOS_CUT_RENEW_MAX renewals in one step (default 12, about 2 h). So a hung step still frees the fleet: the claim
+# lapses one claim length after the renewer gives up.
+_CUT_RENEWER=""
+_cut_renew_stop() {
+  if [ -n "$_CUT_RENEWER" ]; then
+    kill "$_CUT_RENEWER" 2>/dev/null || true
+    wait "$_CUT_RENEWER" 2>/dev/null || true   # reaped before any release, so a renewal in flight cannot re-create the claim after it
+    _CUT_RENEWER=""
+  fi
+}
+_cut_renew_start() {
+  command -v kosmos_claim_machine >/dev/null 2>&1 || return 0
+  local _crs_every="${KOSMOS_CUT_RENEW_SECS:-600}" _crs_max="${KOSMOS_CUT_RENEW_MAX:-12}" _crs_cut=$$ _crs_cap
+  case "$_crs_every" in ''|*[!0-9]*) _crs_every=600 ;; esac
+  case "$_crs_max" in ''|*[!0-9]*) _crs_max=12 ;; esac
+  # Review 1: never let the claim run out between renewals. At most a third of the claim's length (30 min -> 600 s).
+  _crs_cap="${KOSMOS_MACHINE_CLAIM_MINUTES:-30}"; case "$_crs_cap" in ''|*[!0-9]*) _crs_cap=30 ;; esac
+  _crs_cap=$(( 10#$_crs_cap * 60 / 3 )); [ "$_crs_cap" -ge 1 ] || _crs_cap=1
+  _crs_every=$(( 10#$_crs_every )); [ "$_crs_every" -ge 1 ] || _crs_every=1
+  [ "$_crs_every" -le "$_crs_cap" ] || _crs_every=$_crs_cap
+  (
+    trap - EXIT
+    _crs_sp=""
+    trap '[ -n "$_crs_sp" ] && kill "$_crs_sp" 2>/dev/null; exit 0' TERM INT
+    _crs_n=0
+    while [ "$_crs_n" -lt "$_crs_max" ]; do
+      # Review 1: sleep in slices of at most 30 s and look for the cut after each, so a cut killed with -9 leaves a
+      # renewer for seconds, not ten minutes (it carries release.sh's command line, which the cut-live guard reads).
+      _crs_waited=0
+      while [ "$_crs_waited" -lt "$_crs_every" ]; do
+        _crs_slice=$(( _crs_every - _crs_waited )); [ "$_crs_slice" -le 30 ] || _crs_slice=30
+        sleep "$_crs_slice" & _crs_sp=$!
+        wait "$_crs_sp" || true; _crs_sp=""
+        kill -0 "$_crs_cut" 2>/dev/null || exit 0
+        _crs_waited=$(( _crs_waited + _crs_slice ))
+      done
+      # Review 1: renew only OUR claim, or an empty slot (ours lapsed, for example across a sleep). A claim with
+      # another cookie belongs to whoever took the box meanwhile; writing over it would hide them from the queue.
+      _crs_cur="$(_kosmos_machine_claim_active 2>/dev/null || true)"
+      if [ -n "$_crs_cur" ] && [ "$(printf '%s' "$_crs_cur" | awk '{print $1}')" != "${KOSMOS_MACHINE_CLAIM_COOKIE:-}" ]; then
+        echo "   (#5134: the machine claim is held by someone else now, so this cut stops renewing it: $_crs_cur)" >&2 || true
+        exit 0
+      fi
+      # The temp file kosmos_claim_machine writes is named for $$, the same as the cut's; safe because step() and
+      # cut_record_done stop and reap this renewer before the cut itself claims or releases.
+      KOSMOS_CLAIM_KEEP_LABEL=1 kosmos_claim_machine >/dev/null 2>&1 || true
+      _crs_n=$((_crs_n + 1))
+    done
+  ) &
+  _CUT_RENEWER=$!
+}
 step() {
   _step_emit_duration "$_STEP" || true  # the step that was running has just ended (|| true: a broken stdout must not abort the renewal below)
   _STEP="$1"; _STEP_START=$(_step_now) || true
   echo "$1" || true                     # || true so a broken stdout cannot abort before the machine-claim renewal (the same gap the timing echoes guard)
+  _cut_renew_stop
   command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true
+  _cut_renew_start || true              # #5134: and keep it renewed while this step runs
 }
 cut_record_done() {
+  _cut_renew_stop   # #5134: before the guard, and before the EXIT traps that call this go on to release the claim
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
   # The final step just ended (this runs on exit), so emit its wall-time and the
@@ -368,6 +428,7 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # builds on). Sourced here, before the freeze, like the libs above.
 . "$REPO/tools/lib/connector-provenance.sh"
 . "$REPO/tools/lib/connector-currency.sh"
+. "$REPO/tools/lib/coordinator-floor.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -393,6 +454,13 @@ fi
 # inherited by this cut's OWN gate subprocesses (step 3's `yarn test`, 3b's page
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
+# #4911: a light run may hold a SIDE turn beside a heavy one (kosmos_light_side_clear). The claim above already stops a
+# new one (a side turn is never taken beside a cut); one that is running ends in minutes, so wait for it here rather
+# than share the box with it. KOSMOS_CUT_IGNORE_SIDE=1 cuts anyway.
+if [ "${KOSMOS_CUT_IGNORE_SIDE:-0}" != 1 ] && command -v kosmos_refuse_if_light_side_live >/dev/null 2>&1; then
+  _rel_side() { kosmos_refuse_if_light_side_live "this cut"; }
+  kosmos_wait_until_clear "this cut" _rel_side || exit 1
+fi
 
 # #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
 # and ACCOUNTS.
@@ -636,6 +704,14 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
+step "== 1d2. the coordinator serving traffic carries what that connector needs (#5037) =="
+# Some relay changes need the coordinator deployed BEFORE a connector carrying them ships, and never
+# rolled back below them (#4869, 534f36980, is the first). 1d makes the connector match relay main, so
+# without this the cut would ship such a connector while the coordinator lagged. tools/coordinator-floor
+# lists those commits; refused here, before the bump. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
+coordinator_floor_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
+  "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
+
 step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
 # package.json only reaches $V at step 2's pushed bump. Checked here against $V instead, so an
@@ -836,7 +912,7 @@ if [ "$_cut_parallel" = 1 ]; then
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
-  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?   # #1398: the cut owns the box; its page layer is never refused by the claim
   # Reap the backgrounded suite; `|| _suite_exit=$?` captures its exit without
   # tripping errexit, exactly as the serial `( ... ) || _suite_exit=$?` does.
   wait "$_suite_bg_pid" || _suite_exit=$?
@@ -942,6 +1018,9 @@ _page_exit=0
 # exclusion. `env -u` drops it for this gate only, so the page layer runs exactly as it
 # did before that change.
 #
+# (kosmos#4909: every board browser-checks.sh boots now names its own home; the history below
+# is why the cut also removes AGENT_WORKFORCE_HOME, and it removes KOSMOS_BC_SEED_HOME so a cut is
+# never a seeded run.)
 # WHY, measured rather than assumed: `AGENT_WORKFORCE_HOME=` appears at exactly two
 # places in tools/browser-checks.sh (the sb4 board, and the #1573 site that runs twice),
 # so THREE boards set it and SIX do not. (An earlier version of this comment said "seven
@@ -954,13 +1033,15 @@ _page_exit=0
 # That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
 # on any red.
 #
+# (Everything from the count above to the end of this block is the pre-#4909 history; since kosmos#4909 every board
+# browser-checks.sh boots names its own home, so the exclusion now only keeps the cut home out of the page layer.)
 # ⚠️ SO THE CLASS THIS CARD IS ABOUT IS STILL OPEN HERE. It is excluded because it is
 # UNMEASURED, not because it is clean: the gate needs a real browser, which this change's
 # author could not run. Closing it means giving those boards their own sandbox home with
 # a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
 # the page gate. Carded rather than done, and named here so the exclusion cannot be
 # mistaken for coverage.
-( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?   # #1398: the cut owns the box; its page layer is never refused by the claim
 fi
 # #4160: QUARANTINED lines too, so a cut refused for a quarantine says so here.
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|^QUARANTINED|^quarantined|retried:|all page|every page check' "$_page_log" || true

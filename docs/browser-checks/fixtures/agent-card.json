@@ -13,7 +13,7 @@
   "reachedByChannel": false,
   "runner": "claude",
   "task": "an example task",
-  "state": "working",
+  "state": "idle",
   "stateConfidence": "structured",
   "stateProject": null,
   "stateProjectInferred": false,
@@ -21,10 +21,13 @@
   "quotaDialog": false,
   "quotaDaily": false,
   "limitFrom": null,
-  "because": "it says it is working",
+  "quotaUntil": null,
+  "poolUntil": null,
+  "because": "it is at rest and nothing is needed",
   "disruption": null,
   "activeWhileWaiting": false,
   "stateReported": true,
+  "waiting": null,
   "stateReportedBy": null,
   "stateBackgroundWait": false,
   "stateConflict": null,
@@ -53,5 +56,6 @@
     "id": "000000000000",
     "idInstall": "00000000-0000-4000-8000-000000000000"
   },
-  "swarm": null
+  "swarm": null,
+  "crashLoop": null
 }

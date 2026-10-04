@@ -18,6 +18,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-room-reopen-2710-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
@@ -60,7 +66,7 @@ function withBoard(routes, fn) {
 test('#2710: a valve-refused post ends in ONE period and hands the agent its text back', () => {
   const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', because: VALVE_BECAUSE } } } };
   return withBoard(routes, async (port) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
     const TEXT = 'the lease renews monthly unless notice is given, which changes our timeline';
     const out = await runCli(['post', 'henderson', TEXT], env);
     assert.match(out.stdout, /bring you in\./, 'the refusal sentence is missing');
@@ -71,10 +77,26 @@ test('#2710: a valve-refused post ends in ONE period and hands the agent its tex
   });
 });
 
+/* #4934: the loop guard's refusal says nothing was kept and not to send it another way (agents sent it by direct
+   message too, then posted it again once the room opened, so people got it twice). */
+test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to send it another way, and hands the text back', () => {
+  const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE } } } };
+  return withBoard(routes, async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const TEXT = 'the lease renews monthly unless notice is given';
+    const out = await runCli(['post', 'henderson', TEXT], env);
+    assert.match(out.stdout, /Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in\. Nothing was sent to anyone, and Kosmos does not keep it or send it later\./);
+    assert.match(out.stdout, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour\./);
+    assert.doesNotMatch(out.stdout, /bring you in/, 'the person-facing sentence reached the agent');
+    assert.match(out.stdout, /Here it is to keep:\n *the lease renews monthly/);
+    assert.equal(out.code, 1);
+  });
+});
+
 test('#2710: `kosmos room reopen <project>` clears a held room and says so', () => {
   const routes = { 'POST /api/project/henderson/room/reopen': { code: 200, body: { ok: true, at: '2026-09-10T20:00:00.000Z' } } };
   return withBoard(routes, async (port) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
     const out = await runCli(['room', 'reopen', 'henderson'], env);
     assert.match(out.stdout, /Reopened henderson/, 'reopen did not confirm the room was reopened: ' + out.stdout);
     assert.equal(out.code, 0, 'a successful reopen must exit 0');
@@ -83,7 +105,7 @@ test('#2710: `kosmos room reopen <project>` clears a held room and says so', () 
 
 test('#2710: `kosmos room reopen` with no project prints usage and exits 2', () => {
   return withBoard({}, async (port) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
     const out = await runCli(['room', 'reopen'], env);
     assert.match(out.stdout, /Usage: kosmos room reopen/, 'no-project reopen did not print its usage');
     assert.equal(out.code, 2, 'a usage error must exit 2');
@@ -93,7 +115,7 @@ test('#2710: `kosmos room reopen` with no project prints usage and exits 2', () 
 test('#2710: reopen of an unknown project reports it and exits non-zero', () => {
   const routes = { 'POST /api/project/nope/room/reopen': { code: 404, body: { ok: false, because: 'there is no project by that name' } } };
   return withBoard(routes, async (port) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
     const out = await runCli(['room', 'reopen', 'nope'], env);
     assert.match(out.stdout, /no project called "nope"/, 'a 404 reopen was not reported clearly: ' + out.stdout);
     assert.notEqual(out.code, 0, 'a failed reopen must exit non-zero');

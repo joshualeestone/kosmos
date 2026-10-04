@@ -114,14 +114,28 @@ const bar = (page) => page.evaluate(() => {
     // P4: Log out that works: one POST to the tunnel's route, then the page goes to the address's root (the tunnel's
     // sign-in page, once the session is gone).
     answer = 200;
+    // Review 2: P4 is the bare-'/' branch (only the fragment would change, so the board must reload); say so.
+    chk(await page.evaluate(() => location.pathname === '/' && location.search === ''), 'P4 precondition: the board\'s address is a bare /', await page.evaluate(() => location.href));
     await page.evaluate(() => { window.__before = true; });
     const [req] = await Promise.all([
       page.waitForRequest((r) => r.url().endsWith('/_kosmos/logout') && r.method() === 'POST'),
       page.click('#kplus-logout'),
     ]);
     await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
-    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname }));
-    chk(!!req && asked === 2 && p4.reloaded && p4.path === '/' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start', JSON.stringify({ asked, p4 }));
+    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname, hash: location.hash }));
+    // kosmos#4879: to '/#signed-out' (path and fragment compared together: a bare '#name' reads as an element id to
+    // browser-checks-selectors.test.js), which the tunnel's page reads as "You're signed out" (Josh's phone showed raw JSON).
+    chk(!!req && asked === 2 && p4.reloaded && p4.path + p4.hash === '/#signed-out' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p4 }));
+    // P4b (kosmos#4879 review 1): the same from a tab that writes a query, the other branch of the Log out navigation
+    // (P4 starts from a bare '/', where only a fragment would change and nothing would reload without the reload).
+    await page.goto('http://remote.test:' + port + '/?tab=projects', { waitUntil: 'networkidle' });
+    await page.waitForSelector('#kplus-logout', { timeout: 8000 }).catch(() => {});
+    chk(await page.evaluate(() => location.search === '?tab=projects'), 'P4b precondition: the board kept a query in the address', await page.evaluate(() => location.href));
+    await page.evaluate(() => { window.__before = true; });
+    await page.click('#kplus-logout');
+    await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
+    const p4b = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, search: location.search, hash: location.hash }));
+    chk(asked === 3 && p4b.reloaded && p4b.search === '' && p4b.path + p4b.hash === '/#signed-out', 'P4b a log out from a tab with a query also lands on the address\'s start, signed out', JSON.stringify({ asked, p4b }));
     await page.unroute('**/_kosmos/logout');
 
     // P5: the consolidated layout (its header is not sticky and has no padding): still the first row, edge to edge.
@@ -150,6 +164,61 @@ const bar = (page) => page.evaluate(() => {
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-talk.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } });
 
     chk(errs.length === 0, 'P6 no page errors', errs.join(' | '));
+
+    // P8 (#4506): the bar re-fits when the scrollbar gutter comes back. The boot cover drops the tab layout's gutter
+    // while it is up; the header's padding moves with the gutter by design (#3497), so its CONTENT box never changes
+    // size, and a content-box observer left the bar with the margins it was fitted with under the cover: 15px past the
+    // page once the gutter returned (CI P2 on a real scrollbar). Its own browser, so the arms above run exactly as CI
+    // runs them: a real, space-taking 15px scrollbar here (--hide-scrollbars dropped, a ::-webkit-scrollbar width, a
+    // page tall enough to scroll), the way render-dialog-gutter-4506 gets one. kosmosMeasureScrollbarWidth reads 0 here
+    // (it measures with overflow hidden, where a custom scrollbar takes no width), so the header's padding runs the
+    // #3497 formula with --scrollbar-width 0: 9 -> 24 -> 9px, where a real Mac goes 24 -> 39 -> 24. The 15px swing is
+    // the same, and against the old content-box observer the last arm reads right -15, CI's number.
+    const b8 = await chromium.launch({ headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'], ignoreDefaultArgs: ['--hide-scrollbars'] });
+    try {
+      const p8 = await b8.newPage({ viewport: { width: 1280, height: 800 } });
+      const errs8 = [];
+      p8.on('pageerror', (e) => errs8.push(e.message));
+      await p8.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
+      if (await p8.$('#firstrun:not([hidden])')) { await p8.keyboard.press('Escape'); await p8.waitForTimeout(200); }
+      await p8.evaluate(() => {
+        showTab('agents');
+        const st = document.createElement('style');
+        st.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #999; }';
+        document.head.appendChild(st);
+        const tall = document.createElement('div'); tall.id = 'p8-tall'; tall.style.height = '3000px'; document.body.appendChild(tall);
+        window.kosmosMeasureScrollbarWidth();
+        kplusBarFit();
+      });
+      await p8.waitForTimeout(300);
+      const fit = () => p8.evaluate(() => { const root = document.documentElement.getBoundingClientRect(), b = document.getElementById('kplus-bar').getBoundingClientRect();
+        return { gutter: Math.round(innerWidth - root.right), right: Math.round(root.right - b.right), left: Math.round(b.left - root.left) }; });
+      const before = await fit();
+      chk(before.gutter === 15 && before.right === 0, 'P8 precondition: a real 15px gutter, and the bar fits the page', JSON.stringify(before));
+      // The bar is made and fitted while the cover is up, as on a page load (kplusBar runs at boot, under the cover).
+      await p8.evaluate(() => { document.getElementById('boot-cover').hidden = false; });
+      await p8.waitForTimeout(100);
+      await p8.evaluate(() => kplusBarFit());
+      await p8.waitForTimeout(200);
+      const under = await fit();
+      chk(under.gutter === 0 && under.right === 0, 'P8 CONTROL: under the boot cover the gutter is gone and the bar is fitted to that (so the arm below exercises its return)', JSON.stringify(under));
+      await p8.evaluate(() => { document.getElementById('boot-cover').hidden = true; });
+      await p8.waitForTimeout(300);
+      const after = await fit();
+      chk(after.gutter === 15 && after.right === 0 && after.left === 0, 'P8 once the cover lifts and the gutter is back, the bar re-fits: edge to edge of the page, not 15px past it', JSON.stringify(after));
+      // The other way the header's padding moves: kosmosMeasureScrollbarWidth sets --scrollbar-width (on a press, a
+      // focus, a return to the tab) and the padding follows while the header's border box stays put, which is
+      // asserted, since the arm only tells the two observers apart when that holds.
+      const headBefore = await p8.evaluate(() => Math.round(document.querySelector('.apphead').getBoundingClientRect().width));
+      await p8.evaluate(() => document.documentElement.style.setProperty('--scrollbar-width', '30px'));
+      await p8.waitForTimeout(300);
+      const padOnly = await p8.evaluate(() => { const h = document.querySelector('.apphead'), root = document.documentElement.getBoundingClientRect(), b = document.getElementById('kplus-bar').getBoundingClientRect();
+        return { pad: parseFloat(getComputedStyle(h).paddingRight), headW: Math.round(h.getBoundingClientRect().width), right: Math.round(root.right - b.right) }; });
+      chk(padOnly.headW === headBefore, 'P8 precondition: a new --scrollbar-width moves only the header\'s padding, not its border box', JSON.stringify({ headBefore, headW: padOnly.headW }));
+      chk(padOnly.pad >= 30 && padOnly.right === 0, 'P8 when only the header\'s padding changes (a new scrollbar measurement, same width), the bar re-fits too', JSON.stringify(padOnly));
+      await p8.evaluate(() => document.documentElement.style.removeProperty('--scrollbar-width'));
+      chk(errs8.length === 0, 'P8 no page errors', errs8.join(' | '));
+    } finally { await b8.close(); }
   } finally {
     await browser.close();
     server.close();

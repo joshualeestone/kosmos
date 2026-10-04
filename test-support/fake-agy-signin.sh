@@ -1,6 +1,6 @@
 #!/bin/bash
 # #3998: a stand-in for agy's interactive sign-in, for engine/agysignin.test.js. It prints the same
-# screens, in the same words, as agy 1.2.11 did on Josh's Mac (2026-09-26), reads keys the way a
+# screens, in the same words, as agy 1.2.11 did on Josh's Mac (2026-09-26; the terms as 1.2.14, #4960), reads keys the way a
 # menu does, and writes what it was sent to $FAKE_AGY_LOG so a test can check it. It never contacts
 # anything.
 #
@@ -17,6 +17,8 @@ key() {
     ' ') printf 'Space' ;;
     'ESC[B') printf 'Down' ;;
     'ESC[A') printf 'Up' ;;
+    'ESC[C') printf 'Right' ;;
+    'ESC[D') printf 'Left' ;;
     *) printf '%s' "$k" ;;
   esac
 }
@@ -38,26 +40,34 @@ clear_screen
 printf 'Choose your color scheme\n> terminal\n  light\n  dark\n'
 k=$(key); say "theme:$k"
 
-# Terms: three items, the cursor starts on Previous. Space on the box would tick it.
-items=("[ ] Yes, I agree to help improve Antigravity CLI by allowing Google to collect and use my Interactions data" "Previous" "[Done]")
-cur=1; ticked=0
+# Terms as agy 1.2.12/1.2.14 draws them (#4960, measured): the data-use box starts FOCUSED and TICKED, Enter toggles
+# it, Down goes to the buttons row with Previous selected, Right selects Done. The selected button loses its brackets
+# and its ">" sits mid-line. Enter on Previous goes back.
+cur=0; ticked=1
 draw_terms() {
   clear_screen
-  printf 'Terms of Service & Data Use\n\nAI coding agents are known to have certain security risks.\n\n'
-  for i in 0 1 2; do
-    local label="${items[$i]}"
-    [ "$i" = 0 ] && [ "$ticked" = 1 ] && label="${label/\[ \]/[x]}"
-    if [ "$i" = "$cur" ]; then printf '> %s\n' "$label"; else printf '  %s\n' "$label"; fi
-  done
+  printf 'Terms of Service & Data Use\nAI coding agents are known to have certain security risks, including autonomous code execution.\n'
+  printf -- '----------------------------------------\n'
+  local box="[ ]"; [ "$ticked" = 1 ] && box="[x]"
+  if [ "$cur" = 0 ]; then printf '  > %s Yes, I agree to help improve Antigravity CLI by allowing\n' "$box"; else printf '    %s Yes, I agree to help improve Antigravity CLI by allowing\n' "$box"; fi
+  printf '      Google to collect and use my Interactions data.\n      Links:\n'
+  printf '      - Terms of Service: https://antigravity.google/terms\n      - Privacy Policy: https://policies.google.com/privacy\n'
+  case "$cur" in
+    0) printf '    [Previous]      [Done]\n  up/down Navigate - enter Toggle\n' ;;
+    1) printf '  >  Previous       [Done]\n  up/down Navigate - enter Confirm\n' ;;
+    2) printf '    [Previous]    >  Done \n  up/down Navigate - enter Confirm\n' ;;
+  esac
 }
 draw_terms
 while :; do
   k=$(key); say "terms:$k"
   case "$k" in
-    Down) [ $cur -lt 2 ] && cur=$((cur + 1)) ;;
-    Up) [ $cur -gt 0 ] && cur=$((cur - 1)) ;;
+    Down) [ $cur = 0 ] && cur=1 ;;
+    Up) cur=0 ;;
+    Right) [ $cur = 1 ] && cur=2 ;;
+    Left) [ $cur = 2 ] && cur=1 ;;
     Space) [ $cur = 0 ] && ticked=$((1 - ticked)) ;;
-    Enter) [ $cur = 2 ] && break; [ $cur = 1 ] && { say "terms:went-back"; exit 3; } ;;
+    Enter) [ $cur = 0 ] && ticked=$((1 - ticked)); [ $cur = 2 ] && break; [ $cur = 1 ] && { say "terms:went-back"; exit 3; } ;;
   esac
   draw_terms
 done

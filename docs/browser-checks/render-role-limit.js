@@ -65,6 +65,7 @@ async function rolesFrom(page) {
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
+  await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
 
   const roles = await rolesFrom(page);
@@ -95,6 +96,7 @@ async function rolesFrom(page) {
      menu -- which is the app's own path, not a shortcut around it. */
   async function pick(role) {
     await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
+    await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
     await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
     await page.evaluate((key) => {
       if (key === 'pm') { document.getElementById('pick-pm').click(); }

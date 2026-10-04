@@ -91,6 +91,22 @@ const server = http.createServer((req, res) => {
   if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
   // Answers its health check, then cuts each data read (a board too busy to finish the request).
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
+  // #4580: a send the board keeps but whose reply is cut. 'cutonce' cuts the FIRST send and answers the retry
+  // with the board's duplicate receipt; 'cutalways' cuts every send. Sends are counted in firstFile + '.sends'.
+  // #4580 'cutthendie': cuts the first send, then the board goes away (a restart), so the retry is refused.
+  if (health === 'cutthendie' && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) { req.resume(); req.socket.destroy(); setTimeout(() => process.exit(0), 50); return; }
+  // #4580 'posthang': a board still fanning a post out; it takes the post and never answers in the budget.
+  if (health === 'posthang' && req.method === 'POST' && req.url.startsWith('/api/post')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
+  // #4934 'cutheld': cuts the first post, and the loop guard refuses the retry (code room_held).
+  if ((health === 'cutonce' || health === 'cutalways' || health === 'cutheld') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
+    const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.sends', '.');
+    fsm.appendFileSync(firstFile + '.tokens', String(req.headers['x-kosmos-agent-token'] || '-') + '\\n');
+    const n = fsm.readFileSync(firstFile + '.sends', 'utf8').length;
+    req.resume();
+    if (health === 'cutalways' || n === 1) { req.socket.destroy(); return; }
+    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(health === 'cutheld' ? '{"delivery":{"state":"could_not","code":"room_held","because":"held","id":null}}' : '{"delivery":{"state":"placed","because":null,"id":"m1","duplicate":true}}'); });
+    return;
+  }
   // Cuts EVERY request at once (curl 52: a busy reading that comes back fast), counting them.
   if (health === 'fastcut') { require('node:fs').appendFileSync(firstFile + '.n', '.'); req.socket.destroy(); return; }
   // Answers its health check, then gives an EMPTY 200 for the roles list (an answer, not a lost connection).
@@ -130,7 +146,7 @@ async function closedPort() {
 }
 function baseEnv(port, extra = {}) {
   // The runner's own agent markers are removed FIRST, so a test is a person unless it says otherwise.
-  const env = { ...process.env };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SCRATCH_HOME, 'data') };   // #4796: the same root the arms use, named here too
   delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
   // A throwaway KOSMOS_HOME and store roots by default, so no arm reads this machine's pidfile or board
   // token (board_token asks node for store.ROOT, which follows AGENT_WORKFORCE_DATA), even run outside
@@ -297,7 +313,7 @@ test('#4466 a board that never answers: busy, and NO start or restart advice any
 test('#4466 the verbs that arrived after it (connections, connect, community read) say busy, not start, too', () => withBoard('hang', async (port) => {
   // They came in from main with their own "Start it with: kosmos start" line; each goes through say_not_up now.
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
-  for (const [args, input] of [[['connections']], [['connect', 'brave-search'], 'tok'], [['community', 'read']]]) {
+  for (const [args, input] of [[['connections']], [['connect', 'brave-search'], 'tok'], [['community', 'read']], [['community', 'comment', '0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f'], 'agreed']]) {
     const out = await runCli(args, env, 40000, input === undefined ? '' : input);
     assert.notEqual(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
     assert.match(out.stdout, /running but too busy to answer/, args.join(' ') + ': ' + out.stdout + out.stderr);
@@ -362,6 +378,242 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   assert.match(agent.stdout, /Tell the person who runs this computer/);
   assert.doesNotMatch(agent.stdout, /kill/);
 });
+
+test('#4466 a proxy in the environment does not hide the board: loopback requests skip it (a sandbox that is proxy-only)', () => withBoard('ok', async (port) => {
+  // A proxy that answers EVERYTHING with an empty 200, the way a sandbox's proxy answered GET / for a real agent.
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  const p = 'http://127.0.0.1:' + proxy.address().port;
+  try {
+    const env = baseEnv(port, { http_proxy: p, HTTP_PROXY: p, https_proxy: p, HTTPS_PROXY: p, all_proxy: p, ALL_PROXY: p });
+    delete env.no_proxy; delete env.NO_PROXY;
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.doesNotMatch(out.stdout, /another app|not running/);
+    assert.deepEqual(hits, [], 'no loopback request may go through the proxy: ' + JSON.stringify(hits));
+    // A caller's own NO_PROXY is kept, not replaced (loopback is added to it).
+    const kept = await bash(`source "${CLI}"; printf '%s|%s' "$NO_PROXY" "$no_proxy"`, { ...env, NO_PROXY: 'corp.example', no_proxy: 'corp.example' });
+    assert.match(kept.stdout, /^127\.0\.0\.1,localhost,corp\.example\|127\.0\.0\.1,localhost,corp\.example$/, kept.stdout);
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+/* #4933: the route is decided once per run, before the first board call, and only when a proxy is set. Each arm aims
+   the probe (KOSMOS_LOOPBACK_PROBE_URL) at the shape it names, all on loopback:
+     - blocked: 127.0.0.1:0, which fails at once without connecting and without "refused" (as "not permitted" does);
+     - busy: a listener that accepts and never answers (CONNECTED, then a timeout): direct, never the proxy;
+     - namespace: a closed port (refused) while a proxy forwards to the board: the proxy, because a Kosmos health
+       body came back through it;
+     - stopped: refused, and the proxy answers empty (#4466): direct, so "not running", never "another app". */
+function forwardingProxy(hits) {
+  const http = require('node:http');
+  return http.createServer((req, res) => {
+    hits.push(req.url);
+    const up = http.request(req.url, { method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.writeHead(502); res.end(); });
+    req.pipe(up);
+  });
+}
+async function listen(server) { await new Promise((r) => server.listen(0, '127.0.0.1', r)); return server.address().port; }
+const proxyEnv = (p, extra = {}) => ({ http_proxy: p, all_proxy: p, ALL_PROXY: p, ...extra });
+
+test('#4933 blocked direct loopback with a forwarding proxy: the board is reached through the proxy, the exported exemption untouched', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(port, proxyEnv(p, { NO_PROXY: '127.0.0.1,localhost,corp.example', no_proxy: '127.0.0.1,localhost,corp.example',
+      KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:0/' }));
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.ok(hits.some((u) => u.includes(':' + port + '/')), 'the board was not reached through the proxy: ' + JSON.stringify(hits));
+    // A verb that goes through kosmos_curl (the post) takes the same route.
+    await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.ok(hits.some((u) => u.includes(':' + port + '/api/post')), 'the post did not go through the proxy: ' + JSON.stringify(hits));
+    // The route itself runs here (review 2: sourcing alone never called it), and what a child process sees is unchanged.
+    const left = await bash(`source "${CLI}"; kosmos_loopback_route; printf '%s|%s|' "$_KOSMOS_LB" "$NO_PROXY"; env | grep '^NO_PROXY='`, env);
+    assert.equal(left.stdout.trim(), 'proxy|127.0.0.1,localhost,corp.example|NO_PROXY=127.0.0.1,localhost,corp.example', 'the route did not run, or rewrote the exported exemption');
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 a failed probe with a proxy that is not this board stays direct: the tokens never go to that proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url + ' ' + Object.keys(req.headers).filter((h) => /token/.test(h)).join(',')); res.writeHead(502); res.end('bad gateway'); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:0/' }));
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    const posted = await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.equal(posted.code, 0, 'the post did not go out directly: ' + posted.stdout + posted.stderr);
+    assert.ok(hits.length >= 1, 'the proxy check never ran, so this proved nothing');
+    assert.ok(hits.every((h) => /\/api\/health $/.test(h)), 'something past the health check, or a token, went to the proxy: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 a busy board (connects, then waits) is direct loopback, never the proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  const stall = require('node:net').createServer(() => { /* accepts, never answers */ });
+  const sp = await listen(stall);
+  try {
+    const out = await runCli(['status'], baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:' + sp + '/' })));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.deepEqual(hits, [], 'a board that connected was sent through the proxy: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); stall.close(); }
+}));
+
+test('#4933 refused directly while the proxy forwards to the board (a network namespace): the proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const out = await runCli(['status'], baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:' + await closedPort() + '/' })));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.ok(hits.filter((u) => u.includes(':' + port + '/')).length >= 2, 'status did not go through the proxy after the check: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 review 3: a proxy route remembered for a board that is then stopped is forgotten (a restart decides again, never "another app")', async () => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(502); res.end(''); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(await closedPort(), proxyEnv(p));
+    void env;
+    const src = require('node:fs').readFileSync(CLI, 'utf8');
+    const stop = src.slice(src.indexOf('cmd_stop() {'), src.indexOf('\n}\n', src.indexOf('cmd_stop() {')));
+    assert.match(stop, /kill -9 "\$pid"[^\n]*\n[\s\S]{0,400}_KOSMOS_LB=""; KOSMOS_NP=\(\)/, 'cmd_stop does not forget the route after the kill');
+  } finally { await new Promise((r2) => proxy.close(r2)); }
+});
+
+test('#4933 a stopped board with a proxy set: refused, the proxy is not a board, so direct: "not running", never "another app"', async () => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(await closedPort(), proxyEnv(p));
+    delete env.no_proxy; delete env.NO_PROXY;
+    const out = await runCli(['status'], env);
+    assert.match(out.stdout + out.stderr, /not running/);
+    assert.doesNotMatch(out.stdout + out.stderr, /another app/);
+    assert.ok(hits.length >= 1 && hits.every((u) => /\/api\/health$/.test(u)), 'the proxy check did not run, or the proxy was used past it: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+});
+
+test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', async () => {
+  const port = await closedPort();
+  // healthy() could not read it (a proxy in the way); board.pid names 4242 and 4242 holds the port.
+  const stubs = (listener) => `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; port_taken_by_stranger() { HEALTH_STATE=stranger; return 0; }; running_pid() { echo 4242; }; port_listener_owner() { echo "${listener} $(/usr/bin/id -u) 1"; }; port_has_listener() { return 0; }; kill() { echo "KILLED $*"; }`;
+  const st = await bash(stubs(4242) + '; cmd_status', baseEnv(port));
+  assert.equal(st.code, 4, st.stdout + st.stderr);
+  assert.match(st.stdout, /running at .*\(process 4242\) but did not answer this command/);
+  assert.doesNotMatch(st.stdout, /another app|not running/);
+  const start = await bash(stubs(4242) + '; cmd_start; echo "rc=$?"', baseEnv(port));
+  assert.match(start.stdout, /already running at .*\(process 4242\)/, start.stdout + start.stderr);
+  assert.doesNotMatch(start.stdout, /KILLED|Reclaiming|another app/);
+  assert.match(start.stdout, /rc=0/, 'start returns 0: ' + start.stdout);
+  // The watchdog's and the installer's KOSMOS_RECLAIM_BUSY start still reclaim it (the one way to free a board
+  // of ours that holds the port and never answers).
+  const reclaim = await bash(stubs(4242) + '; KOSMOS_RECLAIM_BUSY=1 cmd_start', baseEnv(port));
+  assert.match(reclaim.stdout, /Reclaiming it/, reclaim.stdout + reclaim.stderr);
+  assert.match(reclaim.stdout, /KILLED 4242/);
+  // An agent's start is not spent on it: the guard reads the recorded board as up and never claims.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const ag = await bash(stubs(4242) + '; ( agent_board_guard start ); echo "rc=$?"', baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    assert.match(ag.stdout, /already running/, ag.stdout + ag.stderr);
+    assert.equal(fs.existsSync(path.join(home, 'board.agent-claim')), false, 'the agent start claim is not spent on a running board');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  // CONTROL: a listener that is NOT the recorded board still gets the stranger sentence from status.
+  const other = await bash(stubs(9999) + '; cmd_status', baseEnv(port));
+  assert.match(other.stdout, /another app is using port/, other.stdout + other.stderr);
+});
+
+test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'s receipt says it arrived (not "failed")', () => withBoard('cutonce', async (port, firstFile) => {
+  const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
+  const msg = await runCli(['msg', 'mara', 'the lease is signed'], env);
+  assert.equal(msg.code, 0, msg.stdout + msg.stderr);
+  assert.match(msg.stdout, /Placed with mara \(it had arrived the first time; it was not sent twice\)/);
+  assert.match(msg.stderr, /asking once more/);
+  assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'exactly one retry');
+}));
+
+test('#4934: a post whose reply is CUT and whose retry the loop guard refuses never says "nothing was sent" (the first may be in the room)', async () => {
+  await withBoard('cutheld', async (port, firstFile) => {
+    const out = await runCli(['post', 'proj', 'draft is in the folder'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'CONTROL: the retry was asked');
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
+    assert.match(out.stdout, /Not posted this time: .*Your first try may have reached the room before that: check kosmos room proj before posting it again\./);
+  });
+  // --stdin case (#4934 review 2)
+  await withBoard('cutheld', async (port, firstFile) => {
+    const tmp = fs.mkdtempSync(path.join(SCRATCH_HOME, 'tmp-'));
+    const out = await runCli(['post', '--stdin', 'proj'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'piped draft in the folder');
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'CONTROL: the retry was asked');
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout, /The piped message was not sent;/);
+    assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
+    const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+    assert.ok(kept, out.stdout);
+    assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
+    assert.equal(fs.readFileSync(kept[1], 'utf8'), 'piped draft in the folder');
+  });
+});
+
+test('#4580 a post whose reply is CUT is asked once more too; a board that keeps cutting gets ONE retry, not a loop', async () => {
+  await withBoard('cutonce', async (port, firstFile) => {
+    const out = await runCli(['post', 'proj', 'draft is in the folder'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Posted to proj\. .*it was not posted twice/);
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2);
+  });
+  // CONTROL: every send cut. One retry, then the honest "may still have happened" (never a loop, never "not running").
+  for (const args of [['msg', 'mara', 'on my way'], ['post', 'proj', 'on my way']]) {
+    await withBoard('cutalways', async (port, firstFile) => {
+      const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+      assert.notEqual(out.code, 0, args[0]);
+      assert.match(out.stdout, /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      assert.doesNotMatch(out.stdout, /not running|Is it running/);
+      assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, args[0] + ': one retry, then stop');
+    });
+  }
+});
+
+test('#4580 the retry carries the agent\'s own token, as the first send did (#4491: the board tells agent from person by it)', () => withBoard('cutonce', async (port, firstFile) => {
+  const tok = 'ab'.repeat(16);
+  const out = await runCli(['msg', 'mara', 'signed'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: tok }));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  const sent = fs.readFileSync(firstFile + '.tokens', 'utf8').trim().split('\n');
+  assert.deepEqual(sent, [tok, tok], 'the retry went out without the agent token: ' + JSON.stringify(sent));
+}));
+
+test('#4580 cut, then refused (the board restarted): still "may have happened", never "not sent" (msg and post)', async () => {
+  for (const args of [['msg', 'mara', 'signed'], ['post', 'proj', 'signed']]) {
+    await withBoard('cutthendie', async (port) => {
+      const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+      assert.notEqual(out.code, 0, args[0]);
+      assert.match(out.stderr, /asking once more/, args[0]);
+      assert.match(out.stdout, /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      assert.doesNotMatch(out.stdout, /Is it running|not running/, args[0]);
+    });
+  }
+});
+
+test('#4580 a post that TIMES OUT is not asked again (the board is still delivering it; the board folds a re-post anyway)', () => withBoard('posthang', async (port, firstFile) => {
+  const out = await runCli(['post', 'proj', 'long fan-out'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_POST_TIMEOUT_S: '2' }));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /still delivering that post .*Do not re-post/);
+  assert.doesNotMatch(out.stderr, /asking once more/);
+  assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 1, 'a timed-out post was sent again');
+}));
 
 test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {
   const port = await closedPort();

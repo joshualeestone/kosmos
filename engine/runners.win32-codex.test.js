@@ -32,7 +32,10 @@ delete process.env.AGENT_WORKFORCE_CODEX_BIN;
 const runners = require('./runners');
 const platformGate = require('./platform');
 
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+/* #5074: removals here can follow a run of the unpacked codex.exe (a copy of node.exe), which Windows holds for a
+   moment after it exits, so they go through removeTree's retry. */
+const { removeTree } = require('../test-support/remove-tree');
+test.after(() => { removeTree(SANDBOX); });
 test.afterEach(() => runners.resetForTests());
 
 const LEGACY = path.join(SANDBOX, 'legacy', 'codex');
@@ -178,7 +181,7 @@ test('win32: the real pipeline unpacks with tar.exe and lands codex.exe where re
   assert.equal(r.managed, true);
   assert.equal(provedBin, r.bin, 'the proved binary is the one every caller resolves');
   assert.equal(fs.existsSync(path.join(runners.managedRoot(), 'openai', 'codex')), false, 'no symlink is made on Windows');
-  fs.rmSync(path.join(runners.managedRoot(), 'openai'), { recursive: true, force: true });
+  removeTree(path.join(runners.managedRoot(), 'openai'));
 });
 
 test('win32: a binary that does not run is never left looking present', { skip: !onWin && 'win32 only' }, async () => {
@@ -198,7 +201,7 @@ test('win32: a binary that does not run is never left looking present', { skip: 
 
 /* ---- review follow-ups: existence is not "installed" on Windows ---------- */
 const { spawn } = require('node:child_process');
-const clearOpenai = () => fs.rmSync(path.join(runners.managedRoot(), 'openai'), { recursive: true, force: true });
+const clearOpenai = () => removeTree(path.join(runners.managedRoot(), 'openai'));
 
 /* Run the unpacked "codex.exe" (a copy of node) so Windows holds its image open:
    exactly what antivirus scanning or a stray process does, and the thing that makes
@@ -218,6 +221,7 @@ test('win32 A: a --version that fails while the exe is LOCKED leaves the runner 
     // follows meets a file Windows will not delete.
     prove: (bin, done) => { holdOpen(bin).then((c) => { held = c; done(new Error('exit code 1')); }); },
   });
+  let bodyFailed = false;
   try {
     await job.settled;
     assert.equal(job.phase, 'failed');
@@ -231,10 +235,15 @@ test('win32 A: a --version that fails while the exe is LOCKED leaves the runner 
       assert.equal(s.present, false, 'status must not call a never-run binary present');
       assert.equal(s.job && s.job.phase, 'failed', 'the failure stays so the screen shows it');
     }
-  } finally {
+  } catch (err) { bodyFailed = true; throw err; } finally {
     if (held) held.kill();
     await new Promise((r) => setTimeout(r, 500));
-    clearOpenai();
+    /* #5074: this is the strongest hold in the file (the exe ran until a moment ago). When an assertion above already
+       failed, a cleanup that gives up is reported on stderr and the assertion stays the red. */
+    try { clearOpenai(); } catch (cleanupErr) {
+      if (!bodyFailed) throw cleanupErr;
+      process.stderr.write('win32 A cleanup also failed: ' + cleanupErr.message + '\n');
+    }
   }
 });
 

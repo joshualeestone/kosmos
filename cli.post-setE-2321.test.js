@@ -21,6 +21,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-setE-2321-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -43,7 +49,7 @@ test('#2321: a curl failure on the post is REPORTED, not a silent abort (set -e 
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
       try {
-        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
+        const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
         const out = await runCli(['post', 'proj', 'a message worth posting'], env);
         assert.notEqual(out.stdout.trim(), '', 'a curl failure printed nothing -- the process aborted under set -e');
         assert.match(out.stdout, /could not reach Kosmos|still delivering|did not answer in time/, 'a curl failure must be reported to the agent');   // #4466: a cut reply now reads busy

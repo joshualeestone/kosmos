@@ -64,6 +64,15 @@
 # Exit status: 0 iff every selected check passed (after at most one retry).
 #
 set -uo pipefail
+# kosmos#4909: the run's own folders are marked below only when THIS run makes them, so an inherited marker can never
+# match a caller's home (review 3). And a seed path is made absolute here, before the cd to the repo and before any
+# re-exec, so a relative one means where the operator typed it, at both copy sites.
+unset KOSMOS_BC_RUN_HOME KOSMOS_BC_RUN_SKILLS
+if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -d "$KOSMOS_BC_SEED_HOME" ]; then
+  # Review 4: a folder that exists but cannot be entered must refuse, never become an empty (unseeded) value.
+  _seed_abs="$(CDPATH= cd -- "$KOSMOS_BC_SEED_HOME" && pwd -P)" || { echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME cannot be entered; refusing a run that would only look seeded" >&2; exit 1; }
+  KOSMOS_BC_SEED_HOME="$_seed_abs"; export KOSMOS_BC_SEED_HOME
+fi
 # #3633: no board this script boots may download the agents' browser into the real
 # runners folder (engine/agentbrowser.js); the #1573 pair below does not set
 # AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
@@ -76,6 +85,7 @@ export KOSMOS_AGENT_BROWSER=off
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }
@@ -106,6 +116,29 @@ cd "$REPO"
 # hatch is the one the cut guard already uses, deliberately: an operator who has
 # decided to override does not want to learn a second name.
 . "$REPO/tools/lib/cut-guard.sh"
+# #1398: a GATE started while a release holds the machine had nothing to stop it, so a gate started during a
+# cut's steps 1 to 3 made the cut's own step 3b refuse it later and abort (0.7.08's re-cut #1, 2026-09-29).
+# release.sh asks at its start only whether another CUT or an install harness is live (kosmos_refuse_if_cut_live,
+# kosmos_refuse_if_harness_live), not whether a gate is. So this gate consults the machine claim, as run-tests.sh
+# does, and REFUSES AT ONCE under a live FOREIGN claim.
+# ⚠️ REFUSE, NOT WAIT, AND BEFORE kosmos_mark_run (review 2). A waiting gate is still a live browser run (its
+# marker and its command line), so a cut's 3b starting during the wait would refuse it: waiting re-opened the very
+# abort this card closes, for the whole 20-minute bound. Refusing before the run is marked leaves nothing a cut can
+# see. A waiting gate would also start in step with the next queued-heavy turn; to wait your turn, launch the gate
+# through queued-heavy.sh, which waits for the claim and then holds it.
+# Exit 75 is a distinct code for a person reading it ("did not run, the box is reserved"), not 1 ("a check
+# failed"); no wrapper in this repo treats 75 specially.
+# Not stopped by it: a cut's own page layer (release.sh passes KOSMOS_IGNORE_MACHINE_CLAIM=1 on both 3b launches:
+# the cut owns the box, and an overlapping queued-heavy renewer can briefly overwrite the claim file, so the cut
+# must not depend on reading its own cookie back); a run whose queue turn holds the claim (it carries the cookie,
+# and kosmos_refuse_if_machine_claimed self-excludes); and an operator's KOSMOS_IGNORE_MACHINE_CLAIM=1.
+# NOT a promise for the whole cut: the cut renews its claim only at step boundaries (30-minute window), so a step
+# longer than that can let it lapse, and a gate started then is not stopped.
+# The frozen-runner child asks again, on purpose (a claim taken in the seconds between parent and child stops it;
+# the parent thaws). `command -v` keeps a lib that failed to load fail-open, as in run-tests.sh.
+if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+  kosmos_refuse_if_machine_claimed "this page layer" || exit 75
+fi
 # #1796: declare THIS a browser run before the check below, so it excludes its own
 # marker by cookie (this script forks subshells that inherit its command line -- the
 # real self-match the live-tree walk raced on) and another browser run can see it.
@@ -125,6 +158,22 @@ declare -F bc_quarantine_note >/dev/null && declare -F bc_quarantine_verdict >/d
 # and refuse ITSELF. Skip the guard in the child -- the parent cleared the field
 # once, for both.
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER:-}" ]; then
+  # #4911: a light run's SIDE turn (beside a heavy run, kosmos_light_side_clear) ends in minutes (queued-heavy.sh stops
+  # it at its cap, inside this wait's 20-minute bound). When one is live, WAIT for it rather than refuse: this page
+  # layer is likely the heavy holder's own, and refusing would turn its run red for a neighbour it was promised. Then
+  # the browser-run check is not WAITED on, as before (it is asked before and after this wait): waiting on it too made two page layers that both met a side turn wait
+  # on each other's markers until the bound (review 2). A side turn's own page layer carries its cookie, so it is not
+  # foreign to itself.
+  if ! kosmos_refuse_if_light_side_live "this page layer" 2>/dev/null; then
+    # Review 4: first refuse beside another browser run, as before #4911, so a page layer that arrives while one is
+    # already waiting out the side turn refuses at once. Asked only after the wait, the two met when it ended and
+    # either could lose (reproduced: the heavy holder's own lost). Review 5: but NOT for the side turn's own page
+    # layer (its process group, published beside the side claim): that one is what this waits out, and refusing on
+    # it turned the heavy holder red. The check after the wait excludes nothing.
+    KOSMOS_EXCLUDE_PGID="$(_kosmos_light_side_pgid)" kosmos_refuse_if_browser_run_live "this page layer" || exit 1
+    _bc_side() { kosmos_refuse_if_light_side_live "this page layer"; }
+    kosmos_wait_until_clear "this page layer" _bc_side || exit 1
+  fi
   kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
 
@@ -249,23 +298,43 @@ fi
 # tools/run-tests.sh that counted them as 200 live gates (#708). Every sandbox
 # now lives under one per-run directory, and cleanup removes that directory.
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
+# kosmos#4909's control: KOSMOS_BC_SEED_HOME names a prepared home (an OpenAI-only account, say) copied into each home
+# board_home gives a board and each fresh home lib-sandbox-home.js gives a self-booting check, so a whole run can be
+# compared with a clean one: any check whose result differs reads state it never set. (Boards that name their own
+# home, sb1/sb4/sb8 and the walk pair, are not seeded.) Loud and strict, and checked BEFORE the run folder exists, so a
+# refusal leaves nothing behind (review 2): refused when it is not a folder, when it is the real home, and when the
+# caller set their own home (then nothing would be seeded). release.sh clears it, so a cut is never a seeded run.
+if [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then
+  if [ ! -d "$KOSMOS_BC_SEED_HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME is not a folder; refusing a run that would only look seeded" >&2; exit 1; fi
+  if [ "$KOSMOS_BC_SEED_HOME" -ef "$HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME is the real home; refusing to copy it" >&2; exit 1; fi
+  if [ -n "${AGENT_WORKFORCE_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME%/}" != "${HOME%/}" ]; then
+    echo "browser-checks: KOSMOS_BC_SEED_HOME needs the run's own home, but AGENT_WORKFORCE_HOME is set; nothing would be seeded, so refusing" >&2; exit 1
+  fi
+  echo "browser-checks: SEEDED RUN from $KOSMOS_BC_SEED_HOME (kosmos#4909 control): each board's own home and each self-booting check's fresh home start with it (a board or check that names its own home is not seeded)"
+fi
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
 # #3675: no fixture board in this run may read the host Mac's real accounts. The
-# account modules look under AGENT_WORKFORCE_HOME || the real home, so every board
-# this script starts, and every check it runs, inherits a sandbox home inside
-# RUN_DIR (removed by cleanup). A caller that already pointed it somewhere other
-# than the real home keeps theirs. The checks also require
-# docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
+# account modules look under AGENT_WORKFORCE_HOME || the real home, so this run makes a
+# sandbox home inside RUN_DIR (removed by cleanup). Since #4909 nothing shares it: each
+# board this script boots gets its own (board_home) and each check that boots its own
+# board gets a fresh one (docs/browser-checks/lib-sandbox-home.js). A caller that
+# already pointed it somewhere other than the real home keeps theirs.
 if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
   mkdir -p "$AGENT_WORKFORCE_HOME"
+  # kosmos#4909: this home is the RUN's, shared by every board this script boots. Marked, so
+  # lib-sandbox-home.js gives each check that boots its own board a fresh home instead of this one:
+  # a check that left an account here (an OpenAI-only one aborted the 0.7.16 cut) changed what every
+  # later check saw. A home the caller set (not marked) is kept as before.
+  export KOSMOS_BC_RUN_HOME="$AGENT_WORKFORCE_HOME"
 fi
 # #3801: the global skills folder is AGENT_WORKFORCE_SKILLS_DIR || the REAL ~/.claude/skills
 # (not the home above), and a board can add to it and delete from it. Its own empty one.
 if [ -z "${AGENT_WORKFORCE_SKILLS_DIR:-}" ] || [ "${AGENT_WORKFORCE_SKILLS_DIR%/}" = "${HOME%/}/.claude/skills" ]; then
   export AGENT_WORKFORCE_SKILLS_DIR="$RUN_DIR/skills"
   mkdir -p "$AGENT_WORKFORCE_SKILLS_DIR"
+  export KOSMOS_BC_RUN_SKILLS="$AGENT_WORKFORCE_SKILLS_DIR"   # kosmos#4909: the same, for the skills folder
 fi
 # The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
 # (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
@@ -273,10 +342,9 @@ fi
 # REMOVAL, as tools/run-tests.sh does (#2858): naming a codex home instead would put every
 # board into the #1488 "operator named a codex home" mode, which is not the ordinary product.
 unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR
-# No check plants an ACCOUNT in this shared home: one that needs an account gets its own, in
-# its own board (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no
-# check's premise depends on which other check ran first. (Boards may still write their own
-# state under it, as they would under a real home.)
+# Since #4909 no board or self-booting check shares a home: each board has its own (board_home)
+# and each such check a fresh one, so no check's premise depends on which other check ran first.
+# Checks run in position against ONE board still share that board's home, as they share its data.
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the
@@ -589,6 +657,7 @@ write_fleet_rich() {
 boot_board_rich() {
   local sb="$1" port="$2"
   write_fleet_rich "$sb"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -640,9 +709,38 @@ write_fleet_org() {
     fs.writeFileSync(sb + "/panes.txt", lines.join("\n") + "\n");
   '
 }
+# kosmos#4909: a board this script boots gets its OWN home and skills folder (under its sandbox) when it would
+# otherwise inherit the RUN's (KOSMOS_BC_RUN_HOME / KOSMOS_BC_RUN_SKILLS), so what one board's checks leave
+# there (an account, a CLAUDE.md, a skill) never reaches another board's. A home the caller set for this board
+# (AGENT_WORKFORCE_HOME="$sbN/home" boot_board ...) is kept.
+board_home() {
+  local sb="$1"
+  if [ -n "${KOSMOS_BC_RUN_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME:-}" = "$KOSMOS_BC_RUN_HOME" ]; then
+    mkdir -p "$sb/home"
+    # The control's seed reaches the board's own home (review 1: in the run home alone nothing read it), once: a board
+    # booted again on the same sandbox keeps what its first life wrote (review 2).
+    if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ ! -e "$sb/.seeded" ]; then
+      # Inside $(...), so an exit would end only the subshell and hand the board an EMPTY home (the real one):
+      # the failure is recorded instead and fails the run at its summary, and the board keeps its own folder.
+      # Its stderr goes to the board's own log (the redirect on the boot line applies first), which cleanup removes, so
+      # the sandbox is recorded in the marker for the summary to print (review 3). A sentinel, not emptiness, says
+      # "seeded once", so a board that empties its own home is not seeded again.
+      if cp -R "$KOSMOS_BC_SEED_HOME/." "$sb/home/" 2>/dev/null; then : > "$sb/.seeded"
+      else printf '%s\n' "$sb/home" >> "$RUN_DIR/seed-failed"; fi
+    fi
+    printf '%s' "$sb/home"
+  else printf '%s' "${AGENT_WORKFORCE_HOME:-}"; fi
+}
+board_skills() {
+  local sb="$1"
+  if [ -n "${KOSMOS_BC_RUN_SKILLS:-}" ] && [ "${AGENT_WORKFORCE_SKILLS_DIR:-}" = "$KOSMOS_BC_RUN_SKILLS" ]; then
+    mkdir -p "$sb/skills"; printf '%s' "$sb/skills"
+  else printf '%s' "${AGENT_WORKFORCE_SKILLS_DIR:-}"; fi
+}
 boot_board_org() {
   local sb="$1" port="$2"
   write_fleet_org "$sb" "${3:-}"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -656,6 +754,7 @@ boot_board_org() {
 boot_board() {
   local sb="$1" port="$2"
   write_fleet "$sb"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -777,6 +876,15 @@ run_one() {
     rm -f "$cap"
     return 1
   fi
+  # kosmos#4909: 97 is lib-sandbox-home.js saying the control's SEED could not be copied into this check's home. Not
+  # the check: no retry, and named as the seed, so a control run never reads it as "this check reads unset state".
+  if [ "$rc" -eq 97 ] && [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then   # review 5: only in a seeded run
+    log "SEED NOT COPIED  $label (exit 97: the kosmos#4909 control's seed could not be copied into its home; not the check)"
+    FAILED+=("kosmos-4909-seed-copy:$label")
+    REASONS+=("kosmos-4909-seed-copy:$label:"$'\n'"           exit 97: the seed could not be copied into this check's own home; the check itself did not run.")
+    rm -f "$cap"
+    return 1
+  fi
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
@@ -820,15 +928,37 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 19 ]; do
+  while [ "${#picked[@]}" -lt 20 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"; P_CAT="${picked[19]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19, catalogue $P_CAT (chosen by the OS, #633)"
+
+# #4632: the roles and teams catalogue a board downloads when the role picker opens. Every board
+# here gets it from this local server, which serves the genuine published files (signed with the
+# catalogue repo's key, test-support/catalogue-published/), so no board asks installkosmos.com
+# (#4253) and every picker sees the same catalogue whatever the network does. Only the two file
+# names are served; anything else is a 404.
+node -e '
+  const http = require("node:http"), fs = require("node:fs"), path = require("node:path");
+  const dir = path.join(process.cwd(), "test-support", "catalogue-published");
+  http.createServer((q, r) => {
+    const name = String(q.url).split("?")[0].replace(/^\//, "");
+    if (!["catalogue.json", "catalogue.json.sig"].includes(name)) { r.writeHead(404); r.end(); return; }
+    r.writeHead(200); r.end(fs.readFileSync(path.join(dir, name)));
+  }).listen(Number(process.argv[1]), "127.0.0.1");
+' "$P_CAT" > "$RUN_DIR/catalogue-server.log" 2>&1 &
+SERVER_PIDS+=("$!")
+# Up before any board boots: a server that lost its port would otherwise read as a missing catalogue.
+for _i in $(seq 1 40); do curl -fsS -o /dev/null "http://127.0.0.1:$P_CAT/catalogue.json" 2>/dev/null && break; sleep 0.25; done
+curl -fsS -o /dev/null "http://127.0.0.1:$P_CAT/catalogue.json" 2>/dev/null \
+  || log "the local catalogue server on $P_CAT did not answer (see $RUN_DIR/catalogue-server.log): picker checks will see no catalogue"
+export KOSMOS_CATALOGUE_BASE="http://127.0.0.1:$P_CAT/"
+log "catalogue for every board: $KOSMOS_CATALOGUE_BASE (the published files, served locally)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -916,6 +1046,17 @@ fi
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
+# --- #4885: an agent's picture fits the Kosmos+ community -------------------
+# Needs no board: it lifts fitPicture out of web/index.html and runs it in both engines (WebKit cannot write WebP,
+# so it is the engine that exercises the JPEG fallback).
+run_one "render-picture-fit-4885" env ENGINES=chromium,webkit node docs/browser-checks/render-picture-fit-4885.js
+
+# --- #4930: click a file a message carries to see it full page ---------------
+# Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.
+# Its own run_one line, not a gated.txt entry (#3929), because it passes ENGINES=chromium,webkit: gated.txt
+# lines run with the default engine only.
+run_one "render-file-preview-4930" env ENGINES=chromium,webkit node docs/browser-checks/render-file-preview-4930.js
+
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
 # board above is needed. The slice is the frame, the accounts page and the
@@ -924,41 +1065,56 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is what sits at its own centre
-# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if
-# the one-time Community notice covers it. The full sweep (16 shots per screen) is a by-hand tool.
+# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568). cons-agents (kosmos#4594) is the desktop-only mirror of nav-menu:
+# shot at desktop through its /api/style read stub, skipped at se. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts,allow-card,cons-agents --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and
 # an address planted in an agent's role by the page scan ("this screen shows
 # real data"). Exit 3 alone is not enough: the preflight firing first would
 # pass the page arm without the page scan ever running.
+# kosmos#5135: when an arm passes, the one FAIL line its guard was planted to
+# produce prints as "CONTROL (expected): ", so a person scanning the cut log for
+# reds is not sent after it. Any other FAIL line, and all output of an arm that
+# does not pass, prints untouched. The cover arms below do the same for their
+# single summary line. tools.control-arms-expected-5135.test.js runs these bodies.
 for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
   run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
-      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      3:*"$2"*) echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
+      3:*"$2"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: LEAK GUARD: "*"$2"*) printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
+        echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
-# kosmos#4524, #4568: the controls for three checks, control:screen:message (split on the first two colons
+# kosmos#4524, #4568: the controls for two checks, control:screen:message (split on the first two colons
 # only, so a message may contain colons). Each run MUST fail its shot
 # with exit 2 AND its own message; a clean exit means that check did not fire.
-#   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
+# (kosmos#4820 removed the third, cmnotice: the Community notice and its COVERED check are gone.)
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
-#   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
-#             At se only on purpose: the smallest phone, where it is measured to spill (24px).
-# The run labels keep the mobile-shots-cover- prefix for all three: browser-checks-pr-select-4119.test.js
+#   spill:    allow-card's request carries a code with no break point, wider than its card (the code fit check,
+#             #4568; #4893: the old seven-box code fits the one-line code of #4637). At se only: the smallest phone.
+# The run labels keep the mobile-shots-cover- prefix for both: browser-checks-pr-select-4119.test.js
 # pins that built label.
-for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
+for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
-      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      2:*"$3"*) echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
+      2:*"$3"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: "[0-9]*" shot(s) could not be taken; see the ERROR lines above") printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
+        echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_rest%%:*}" "${_rest#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done
@@ -1088,6 +1244,7 @@ AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-proj-walkwalkwalkwalkwalkWALK" PORT="$P_OAI"
   }).listen(Number(process.env.PORT), "127.0.0.1");
 ' > "$sb4/openai-stub.log" 2>&1 &
 SERVER_PIDS+=("$!")
+AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb4")" \
 AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
   AGENT_WORKFORCE_CLAUDE_BIN="$sb4/fake-claude" \
   AGENT_WORKFORCE_GEMINI_BIN="$KEYED_GEMINI" AGENT_WORKFORCE_GROK_BIN="$KEYED_GROK" \
@@ -1124,8 +1281,10 @@ exit 2
 FAKE
 chmod +x "$sb6/fake-vercel"; rm -f "$sb6/vmark"
 write_fleet "$sb5"; write_fleet "$sb6"
+AGENT_WORKFORCE_HOME="$(board_home "$sb5")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb5")" \
 AGENT_WORKFORCE_GH_BIN=/nonexistent/gh AGENT_WORKFORCE_VERCEL_BIN=/nonexistent/vercel AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:$P9/device" AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:$P9/token" AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:$P9/user" AGENT_WORKFORCE_DATA="$sb5/data" AGENT_WORKFORCE_WORKERS="$sb5/workers" AGENT_WORKFORCE_LAUNCH="$sb5/launch" AGENT_WORKFORCE_PROJECTS="$sb5/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb5/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_CLAUDE_CONFIG="$sb5/config/.claude.json" PORT="$P5" node ./server.js > "$sb5/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
+AGENT_WORKFORCE_HOME="$(board_home "$sb6")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb6")" \
 FAKE_GH_MARK="$sb6/mark" AGENT_WORKFORCE_GH_BIN="$sb6/fake-gh" FAKE_VERCEL_MARK="$sb6/vmark" AGENT_WORKFORCE_VERCEL_BIN="$sb6/fake-vercel" AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:$P7/verify" AGENT_WORKFORCE_DATA="$sb6/data" AGENT_WORKFORCE_WORKERS="$sb6/workers" AGENT_WORKFORCE_LAUNCH="$sb6/launch" AGENT_WORKFORCE_PROJECTS="$sb6/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb6/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_CLAUDE_CONFIG="$sb6/config/.claude.json" PORT="$P6" node ./server.js > "$sb6/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
@@ -1172,6 +1331,7 @@ printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organi
   > "$sb8/home/.claude.json"
 printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$sb8/fake-claude"
 chmod +x "$sb8/fake-claude"
+AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb8")" \
 AGENT_WORKFORCE_HOME="$sb8/home" AGENT_WORKFORCE_CLAUDE_BIN="$sb8/fake-claude" \
   AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
@@ -1243,6 +1403,8 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-made-endings" node docs/browser-checks/render-made-endings.js "$B8"
   run_one "render-rename-say"   node docs/browser-checks/render-rename-say.js "$B8"
   run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"
+  # #4632: opening the picker downloads the catalogue; its roles reach the picker.
+  run_one "render-catalogue-fetch-4632" node docs/browser-checks/render-catalogue-fetch-4632.js "$B8"
   run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
   # #718: the PWA service worker registers, controls the page, and a real push
   # delivered through its own handler (via CDP) shows a notification. Chromium-only
@@ -1265,11 +1427,16 @@ if boot_board "$sb7" "$P8"; then
   # page.route, so a non-enforcing board is fine.
   run_one "render-optout-403-2020" env KOSMOS_URL="$B8" node docs/browser-checks/render-optout-403-2020.js
   # #4288: the Kosmos Community switch (default ON, OFF note, 403 could-not-read, the share line,
-  # a click). Every /api/community-setting request is answered at the browser, so it writes nothing.
-  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-switch-4288.js
+  # a click). Every /api/community-setting request is answered at the browser, except the REARM arm.
+  # #3485: its REARM arm is real (writes and restores community.json), so it is given B8's data root
+  # (B8 is booted from sb7 by boot_board, not from sb8).
+  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" AGENT_WORKFORCE_DATA="$sb7/data" node docs/browser-checks/render-community-switch-4288.js
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
   # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js
+  # #4375: the owner's industry picker under the Community switch (the board's list, set, could-not-read with None
+  # still pickable, change, clear, a refused save). /api/community-industry writes are answered at the browser.
+  run_one "render-community-industry-4375" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-industry-4375.js
   # #2047: the auto-update, engineering-mode and run-limits switches are 403-safe
   # (a gated read draws could-not-read, never a false Off). The 403 arm is simulated
   # with page.route, so a non-enforcing board is fine -- same shape as the opt-out
@@ -1777,6 +1944,7 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
   # answers list-panes from a file that is not there, which is an empty board by
   # accident rather than by intent.
   : > "$_sb/panes.txt"
+  AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$_sb")" \
   AGENT_WORKFORCE_DATA="$_sb/data" AGENT_WORKFORCE_WORKERS="$_sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$_sb/launch" AGENT_WORKFORCE_PROJECTS="$_sb/projects" \
     AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
@@ -1815,6 +1983,12 @@ bc_quarantine_verdict
 # #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
 # too. A log that only captures successful runs cannot answer a question about
 # when things go wrong.
+# kosmos#4909: a seeded run whose seed did not reach every board's home is not the run it claims to be. Before the
+# log line (review 3), so the durable log counts it too; the homes it missed are named.
+if [ -e "$RUN_DIR/seed-failed" ]; then
+  FAILED+=("kosmos-4909-seed-copy")
+  REASONS+=("kosmos-4909-seed-copy:"$'\n'"           the seed could not be copied into: $(tr '\n' ' ' < "$RUN_DIR/seed-failed")")
+fi
 browser_run_log_append \
   "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
   "${#RAN[@]}" "${#RETRIED[@]}" "${#FAILED[@]}" "$RICH_BOOTED" ${RETRIED[@]+"${RETRIED[@]}"}

@@ -101,7 +101,7 @@ test('the message is in the thread BEFORE the board answers the send', async () 
   assert.ok(page.net.post, 'the send went to the board');
   const now = page.written['d-dmthread'] || '';
   assert.match(now, /are you there\?/, 'the words are drawn while the POST is still open');
-  assert.match(now, /Sending…/, 'and marked as on their way, not as delivered');
+  assert.match(now, /<span class="msg-t">Sending…<\/span>/, 'and marked as on their way, in the time\'s slot (#4944), not as delivered');
   assert.match(now, /earlier words/, 'drawn after what was already there, not instead of it');
   assert.ok(now.indexOf('earlier words') < now.indexOf('are you there?'), 'at the bottom, where a new message goes');
 });

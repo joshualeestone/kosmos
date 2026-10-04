@@ -125,8 +125,9 @@ function initStub() {
       const msg = document.getElementById('chg-msg');
       back.hidden = false;
       msg.textContent = sd || 'Restarted on OpenAI. Waking them…';
-      // #4008: a fresh dialog's Done: shown, and plain (changeDialog resets the gold on every open).
-      const kp = document.getElementById('chg-keep'); kp.hidden = false; kp.classList.remove('uprime');
+      // #4008: a fresh dialog's Done is plain (changeDialog resets the gold on every open). #4963: and while
+      // the agent is waking it is not shown at all (changeDialog's waking render hides it).
+      const kp = document.getElementById('chg-keep'); kp.hidden = true; kp.classList.remove('uprime');
       // The call site builds the manual and waiting lines once and passes both in.
       autoHelloOnSwitchRestart('april', 'April', 'OpenAI', 'April is on OpenAI. Send them a message to wake them.', 'Restarted on OpenAI. Waking them…');
     }, { n: readyAfter, tr: threadResp, sd: seed, hd: hold || 300 });
@@ -137,6 +138,7 @@ function initStub() {
     return page.evaluate(() => ({
       msg: document.getElementById('chg-msg').textContent,
       gold: document.getElementById('chg-keep').classList.contains('uprime'),
+      shown: !document.getElementById('chg-keep').hidden,
       check: !!document.querySelector('#chg-msg svg.wake-done'),
       threadCalls: window.__posted.filter((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && p.method === 'POST').length,
     }));
@@ -154,6 +156,8 @@ function initStub() {
   // #4008 (round 2): the wait is over either way, so Done turns gold; only the placed hello earns the check.
   check('#4008 a hello that did not land still finishes the dialog (Done gold) but shows NO check', s2.gold && !s2.check, JSON.stringify({ gold: s2.gold, check: s2.check }));
   check('#4008 CONTROL: a placed hello finishes with Done gold AND the check', s1.gold && s1.check, JSON.stringify({ gold: s1.gold, check: s1.check }));
+  // #4963: the button the waking render hid appears when the wait ends, whichever way it ends.
+  check('#4963 the finished dialog shows its Done (hidden while waking), placed or not', s1.shown && s2.shown, JSON.stringify({ placed: s1.shown, unconfirmed: s2.shown }));
 
   // ---- Arm 3: stays restarting (timeout) -> manual line ----
   const s3 = await run({ readyAfter: 'inf' });
@@ -163,6 +167,11 @@ function initStub() {
   const s4 = await run({ readyAfter: 2, mutate: () => { document.getElementById('chg-modal').hidden = true; } });
   check('closed dialog: the hello fired but the confirmation is NOT written into a closed modal',
     s4.threadCalls === 1 && s4.msg === WAITING, 'calls=' + s4.threadCalls + ' msg=' + JSON.stringify(s4.msg));
+  check('#4963 CONTROL: a dialog closed mid-wait gets no button back', s4.shown === false, JSON.stringify({ closed: s4.shown }));
+  // #4963: a wake that reports after changeDialog's fallback has rewritten the line still finishes the dialog.
+  const s4b = await run({ readyAfter: 2, seed: 'Restarted on OpenAI. Send them a message to wake them.' });
+  check('#4963 a late report still finishes a dialog whose fallback already fired (Done gold, the ready line)',
+    s4b.msg === SAID && s4b.gold && s4b.shown, JSON.stringify({ msg: s4b.msg, gold: s4b.gold, shown: s4b.shown }));
 
   // ---- Arm 5: the person SWITCHED agents mid-wait -> the write is suppressed ----
   const s5 = await run({ readyAfter: 2, mutate: () => { CURRENT = { sessionName: 'other', name: 'Other' }; } });
@@ -365,8 +374,12 @@ function initStub() {
     s11b.threads === 1 && s11b.msg === 'Ready: April is on OpenAI.', 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
   check('#4008 real provider switch: the finished dialog is titled "Switched to OpenAI", with a check and a gold Done',
     s11b.title === 'Switched to OpenAI' && s11b.check && s11b.gold, JSON.stringify(s11b));
-  check('#4008 real provider switch: Runs on names the provider it moved to (the account kept), not the old Claude model',
-    s11b.runsOn === 'Right now: OpenAI Codex (hello@example.com)', JSON.stringify(s11b.runsOn));
+  /* #5091 review 5 (122d46e94): the bracket follows the NEW account. This fixture's bracket is the agent's CLAUDE
+     account, and an agent switched to OpenAI no longer runs on it, so keeping it under "OpenAI Codex" said something
+     false; that commit fixed its own check (render-switch-claude-5091) and missed this sibling, which aborted the
+     0.7.21 cut. With no OpenAI account picked (no picker in this fixture), the line names the provider and no account. */
+  check('#4008 real provider switch: Runs on names the provider it moved to, and not the old Claude model or the Claude account',
+    s11b.runsOn === 'Right now: OpenAI Codex' && !/hello@example\.com|Sonnet/.test(s11b.runsOn), JSON.stringify(s11b.runsOn));
 
   // ---- Arm 11c: a real switch that does NOT restart sends no hello ----
   const s11c = await page.evaluate(async () => {

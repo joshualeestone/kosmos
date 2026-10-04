@@ -1,0 +1,206 @@
+# agent-projects-4491: an agent that makes a project is named as its maker and is on it (#4740)
+
+Card: joshualeestone/kosmos#4740 (claimed:angel), found while building #4491 and first called its "slice 5b". It has
+its own card because it is a change to what an agent-made project IS, not to which token opens a route. Built on slice 5a (`agent-writes-4491`: task add and task close)
+and slice 4 (`agent-reads-4491`: the three reads). Stacked on those until they merge; then rebased onto main.
+
+## Finished looks like
+1. `POST /api/projects` (`kosmos project create`) names its caller the way the task verbs do (the agent token,
+   else the pane as a roster target or through `messages.resolveSender`).
+2. When the caller is an identified agent, the project's record says it made it (`made.by`). Unless it is the
+   setup guide, it is also ON the project, together with any members the request names.
+3. Both CLIs send the agent's own token on `kosmos project create`, plain hex only, and still send the board token.
+4. The route is still opened by the board token. An agent token alone does not make a project.
+5. The page, and a caller nobody can name (the person's terminal outside tmux), make exactly what they made before.
+
+## Why
+Every agent's working rules say (engine/defaults.js, "Making a project"): "You can make a project yourself ... it
+exists on the board with your name on it ... Once it exists you post to it and hand it work the same way as any
+other project." On main none of that holds for the agent that made it: the project lists nobody, records no maker
+(the board compared the pane with a roster target, which the CLI's `%N` never equals), and its room refuses a post
+from an agent the project does not list. Slice 5a added a rule that an agent adds tasks only to a project it is on,
+and had to carry an exception for these memberless projects. This slice makes the instruction true.
+
+## Decisions
+- **The maker becomes a member, only when it is identified.** Rejected: recording the maker without putting it on
+  the project (the room and task rules would still refuse it); and putting an unnamed caller's pane session on the
+  project (a stranger's session is not an agent).
+- **Never the setup guide (round 1).** The page keeps the guide out of every list of agents, and a member is sent
+  every post in its room. A guide that can reach this route (one that is not sandboxed holds the board token) is
+  recorded as the maker of a project it makes (that record is new) and is NOT put on it (as before).
+- **The maker is not typed at, and is not told to ask for a brief (round 1).** Telling a member at create means
+  syncing its instructions, typing a line into its pane, and, when the project has no brief, posting the
+  agents-only "one of you ask what the goal is" note. For the maker: the sync stays (it is what makes the
+  membership real), the pane line is skipped (the CLI has just told it; and create records no member change, so
+  the line would sit outside the member valve and a looping agent could type into itself as fast as it creates),
+  and the note needs a member other than the maker. A member the maker names is told exactly as before.
+- **Members the request names are kept; the maker is added after them, once** (`projects.create` already removes
+  duplicates).
+- **The page's request is never touched.** The person ticks who is on the project; the person is not an agent.
+- **A token the board cannot resolve makes nothing (403), and is never swapped for the pane.** A token with an
+  unreadable roster is a 503. A caller with no token and an unreadable roster is unnamed, and the project is made
+  with nobody on it, as before. Same rules as slice 5a, from the same helper (`processCaller`).
+- **The gate is not opened.** `POST /api/projects` stays out of the agent-token routes. A project is pointed at a
+  folder the caller chooses and Kosmos writes into it, so letting a caller that holds ONLY its own token (a Claude
+  setup guide on a Mac, an agent behind a reverse proxy) make projects is a separate decision, left for the slice
+  where the CLIs stop sending the board token.
+- **Slice 5a's exception stays, reworded.** Projects agents made before this slice still list nobody. They keep
+  taking tasks from an identified agent (the exception), so nothing that works today stops. New projects made
+  by an ordinary agent never need it; projects made by the setup guide, or by a caller nobody can name, still
+  list nobody and still rely on it. Rejected: deleting the exception now, which would refuse an agent a task on a project
+  it made last week.
+
+## What changes for callers that work today (stated)
+- A project an agent makes now has that agent on it: it shows on the project's member list on the page, its
+  instructions list the project (it is not typed at), it is sent the posts made in that room, and it can post
+  there.
+- The clock's Assigner (on by default) now hands the maker any task on its project that nobody is on, as its
+  description on the page says of every project: the person, or the maker itself, put that task there. It does
+  NOT ask a maker alone on its own project to draft tasks toward the project's goal: that goal is the agent's own
+  description, not the person's, and asking would have an idle agent writing itself new work every day. With
+  anyone else on the project it is an ordinary project. (Round 3 first skipped both; round 5 showed the person
+  would then add tasks to a project that shows a member and see nothing handed out.) The page's Assigner
+  description ("If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a
+  few") is not true of that one case; the page text is not changed here.
+- On the project's page, "Made by" now names the agent (it said "an agent or another program on this computer"),
+  the setup guide's name included. And the room of such a project no longer says "Put an agent on this project
+  and the room opens": it shows the post prompt, and what the person posts there is sent to the maker.
+- As in slice 5a: a stale or unresolvable `KOSMOS_AGENT_TOKEN` now turns `kosmos project create` into a 403, and
+  a token with an unreadable roster into a 503, where before the CLI sent no token.
+
+- A pane that is a roster target no longer names the maker unless that row is tied to our agent (`isNamedOurs`),
+  as the task verbs require since slice 3 and 5a. Before, any roster row with that target was recorded as
+  `made.by`. A stranger's session is no longer recorded as an agent.
+- The person typing `kosmos project create` inside an AGENT's tmux pane is, to the board, that agent: the agent is
+  recorded as the maker and put on the project. The board cannot tell the two apart (the same is true of every
+  pane-named verb). The person removes it on the project's page if that is not what they wanted.
+
+- The Recommender (a setting, OFF by default) treats the maker as it treats any member: if the maker reports
+  itself stuck on its own project, the Recommender writes its "is stuck" note in that room and types its playbook
+  into the maker's pane ("No one else is on this project, decide yourself"). Before, the project listed nobody
+  and was skipped. Left as it is: that is the Recommender doing its job for an agent that said it is stuck.
+- "No line is typed into the maker's pane" holds at create. If the maker's instruction sync could NOT be done at
+  create (its verdict says so), the board's 30-second retell sweep tries again later, and when it succeeds it
+  types the usual one-time "listed" line, as it does for any member whose sync first failed.
+- The maker's card can read "Kosmos changed its instructions, and told it on its screen" after it makes a
+  project. Nothing was typed by Kosmos; what was on its screen is the CLI's own "Created project ..." line. It
+  does know, so the restart prompt that sentence suppresses would be wrong too. Stated, not changed.
+
+- The goal-ask skip also applies to a maker LEFT alone on its project (the person removed everyone else): the
+  Assigner cannot tell that from a newly made one.
+
+## Known limits
+- Advisory, as every slice: a caller holding the board token can send no token and no pane and make a project
+  with nobody on it.
+- A paneless maker (a Windows agent, a token with no roster row) is listed under the token store's key, which can
+  differ in spelling from its name.
+- The maker's instructions are synced like any member's, and like any member's that can fail (measured: a maker
+  with no folder on this computer gets "it has no folder of its own on this computer yet"). The membership stands
+  and the create still answers 200 with that verdict in `told`, which is the route's existing rule for a member it
+  could not tell.
+- `kosmos room reopen` is not touched. It clears the loop-guard that exists to stop agents, so whether an agent's
+  own token may do it is its own decision (the next slice).
+
+## Weakest premise
+That an agent which makes a project should be on it by default. The instruction text says so in as many words, but
+nobody has ruled on a lead agent that sets up projects for others and does not want to be in their rooms.
+
+## What would change this
+- Josh wanting a maker NOT on the project: drop the two lines that add it; `made.by` still records who made it,
+  and slice 5a's exception keeps its tasks working.
+
+## Tests
+- `engine/assigner.test.js` (1 new): the maker alone on its own project is not asked to draft tasks toward its
+  goal, and IS handed a task that is already there; the goal ask still happens when the person made the project,
+  when another agent made it, and once a second member is on it. Measured red with the skip removed.
+- `server.agent-projects-4491.test.js` (new, 10), projects made for real in the sandbox: the maker posts in its
+  project's room and the post is in the room, while another agent is refused with the membership sentence (red
+  when the maker is not added); an agent's token names it
+  as the maker and puts it on the project, after which it adds a task and reads the room on its token alone while
+  another agent is refused both; a pane names the maker too, and named members are kept with the maker listed
+  once; a terminal with no pane and the page make exactly what they asked for; an unresolvable token makes nothing
+  and is not swapped for a pane; an agent token alone is refused at the gate; with an unreadable roster a token
+  makes nothing (503) and a tokenless caller makes an unstaffed project as before.
+  The maker alone is not typed at and gets no brief note, while a member it names is and the page's create is as
+  before; the setup guide is recorded as the maker and not put on the project, while another agent is.
+  Measured red, one mutation each: the maker not added; the caller not named; the gate opened to a token alone;
+  the maker typed at; the brief note posted for a maker alone; the guide put on its project.
+- `cli.agent-token-verbs-4491.test.js` (2 new): `kosmos project create` presents a valid token and still the board
+  token, and forwards nothing for a junk or absent one. Red against slice 5a's CLI.
+- `tools.windows-kosmos-cli-writes-4491.test.js` (1 new): the same on Windows. Red against slice 5a's CLI.
+- Pins updated on purpose: tools.windows-kosmos-cli-570 (project create presents the agent token); the slice-4
+  Windows control verb is now room reopen.
+- Every test file that touches project creation, the gate, the CLIs or the guide is re-run after each round; the
+  tally of the last run is in the proof.
+
+## Review round 1 (opus): 0 BLOCKER, 4 WARNING, 1 CONVENTION, 3 NIT
+- W the "no brief yet" room note fired for a maker alone on its own project: it now needs a member other than the
+  maker. Tested.
+- W every create typed a line into the maker's pane, outside the member valve: the maker is not typed at; its
+  instructions are still synced. Tested, with a named member as the control.
+- W the setup guide was not considered: it is recorded as the maker and never put on the project. Tested.
+- W "named members are kept and the maker added" was not pinned (the test named the maker itself): it names only
+  another agent now, and a second case covers a maker that names itself.
+- C the plan omitted the brief note and the `isNamedOurs` tightening, and the person typing in an agent's pane:
+  all three are stated above.
+
+## Review round 2 (sonnet): 0 BLOCKER, 1 WARNING, 1 CONVENTION, 2 NIT
+- W a maker with no roster row: the comment said its instructions "are still synced", which is not always so.
+  Measured with the real route: the project is made (200), the maker is on it under its key, and the sync verdict
+  for an agent with no folder here is "could not" with its reason; the membership stands, as for any member.
+  The comment and plan say that now, and a test pins the case (and that the maker can then add a task).
+  The reviewer's predicted reason ("no agent with exactly this name") is not what the route answers.
+- C the exception's comment and the plan left out the setup guide as a third source of memberless process-made
+  projects: added.
+- NITs not taken: a trimmed-versus-untrimmed name comparison that cannot differ today; the guide is tested in its
+  roster-name form only (the key form resolves the same folder).
+
+## Review round 3 (opus), a pass around the change: 0 BLOCKER, 2 WARNING, 1 CONVENTION, 3 NIT
+- W the Assigner (on by default) works any project an agent is on, so an agent-made project with a goal would now
+  be driven by the clock with no person involved: it skips an agent alone on a project it made. Tested with three
+  controls.
+- W the maker's card can say "told it on its screen" though Kosmos typed nothing: declared (above and in the
+  handler comment). Rejected: typing the join line into the maker's pane to make the sentence literally true
+  (round 1 removed it for the loop it opens), and teaching the override about makers (a second rule about the
+  same sentence in another engine).
+- C "the agent is told about the project like any member" was stale since round 1: reworded.
+- NITs: the guide comment says what its project lists; taken. Not taken: CLI tests for the two refusals on project
+  create (both CLIs print the board's sentence and exit 1 through the same arms the task verbs' tests cover).
+- Moved to its own card, #4740, in this round: the reviews showed this is a change to what an agent-made project
+  is (membership brings the room, the Assigner, the member list), which does not belong inside #4491.
+
+## Review round 4 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 2 NIT
+- W the Recommender (off by default) now acts for a maker stuck on its own project: stated above, left as it is.
+- W the retell sweep can type one line into the maker's pane later, if its sync failed at create: stated above.
+- NITs not taken: the Assigner's goal precompute still reads the brief of a maker-alone project each tick (a read;
+  nothing is sent); `made.by` is stored untrimmed while members are trimmed (a session name has no edge spaces).
+- The reviewer found no other Assigner path that drives a maker alone on its project, and one narrow wrong skip:
+  if the person removes everyone else from a project the maker made, the clock leaves the maker alone there.
+
+## Review round 5 (opus), the final pass as asked: 0 BLOCKER, 2 WARNING, 1 CONVENTION, 3 NIT
+- W the headline promise ("you post to it") had no test: added, through POST /api/post with the maker's token, with
+  another agent as the control. The reviewer traced all six verbs for the maker from the code and each is allowed.
+- W the Assigner skip made the page's description untrue for a project that now shows a member: the skip is
+  narrowed to the goal ask only; existing tasks are handed out. The one remaining mismatch with the page text is
+  stated above.
+- C "which is what happened before this slice" contradicted the Why (no maker was recorded before): reworded.
+- NITs taken: "below" is "above" in a comment; the two things the person newly sees on the page are stated.
+
+## Review round 6 (sonnet), a sentence-by-sentence truth pass: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NIT. CONVERGED
+- NITs, both wording, both taken: the Assigner comment says the skip also covers a maker left alone on its project;
+  the exception's comment says which projects still rely on it. No code changed after this round's review.
+- It walked six Assigner cases (a maker alone, and with a second member; a person-added task, a goal with no tasks,
+  a goal with only a closed task) and found the code does what this plan says in each.
+
+
+## Rebase onto main after slice 5a merged (2026-09-30 evening)
+- Conflict with main's #4583 (done on create, and the done notes) in server.js's create route, resolved to keep both:
+  the two asking notes (brief or done pending) need a member other than the maker (hasOthers); the note that a typed
+  done was not written is a fact and still reaches a maker alone (made.agents.length > 0). New test:
+  "a maker alone is not told to ask what done looks like either, and is still told when its done was not written"
+  (fails if the done ask is gated on any member instead of another member). 483 pass, 2 skipped across the project,
+  server-project and assigner tests.
+- Blind review of the resolution: no blocker, no should-fix. Nits, recorded for the PR: (1) doneNotWrittenNote says
+  "the person typed" even when an agent sent done with a raw request (neither CLI sends done; main words it this way
+  for any process caller); (2) an agent whose token no longer resolves now gets 403 on project create, where before
+  the create succeeded unnamed (matches the task verbs since slice 5; tested).

@@ -5,11 +5,13 @@
  * worded and designed"; his 17:19 shots: "the phone is showing the code" for a Windows browser, and a
  * list row named just "device"; Mona Lisa's sketch on the card). Four states, each asserted and shot:
  *   off         -> the pill says Off, Turn on is the one primary action, no address chip;
- *   connected   -> a green Connected pill, the address in ONE chip with Copy and Open, one plain line,
+ *   connected   -> a green Connected pill, the box with Josh's sentence and Copy (#4744, no Open), one plain line,
  *                  the #4080 switch (it was Pause, before that Turn off), and View account pointing at the web account;
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
- *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
+ *                  code (one large line since #4637) directly above Allow / Not me (#3952); no Not now, no Deny; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
+ *   waiting     -> #4640: a second computer waiting for its other computer's Allow: a neutral "Waiting to be allowed"
+ *                  pill and the coordinator's sentence, never "refused", HTTP or a path (control: an ordinary refusal).
  * #3978: with one request, Allow (on Kosmos Plus) and the notice's Review (elsewhere) keep keyboard focus
  * and stay the same nodes through two real 5-second polls; the rows were rebuilt on every poll.
  *
@@ -46,6 +48,11 @@ const STATES = {
   off: { remote: { configured: true, on: false, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'off' } }, pending: [] },
   down: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'off', because: 'no relay address is set yet' } }, pending: [] },
   connected: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } }, pending: [] },
+  /* #4640: a second computer waiting for its other computer's Allow (engine state waiting-allow, whose because is the
+     coordinator's sentence alone), and its CONTROL: an ordinary refusal from the same coordinator, which still reads as a
+     restart with the whole line, so the check below can see "refused" and "HTTP" when they are there. */
+  waiting: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'waiting-allow', because: 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again' } }, pending: [] },
+  refused: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'restarting', because: 'Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)' } }, pending: [] },
   one: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
     pending: [{ device_id: 'd-win', name: 'Windows browser', code: 'VR-D6', first_seen: now() - 120 }] },
   two: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
@@ -66,7 +73,7 @@ const STATES = {
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? st.remote : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com', self_device_id: 'd-self' })));
-      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600, allowed_on: null }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-other', name: 'iPhone', allowed_at: now() - 3600, last_seen: 0, allowed_on: 'windowsbox' }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.evaluate(() => showTab('settings'));
@@ -80,21 +87,30 @@ const STATES = {
         const card = document.getElementById('askcard');
         return {
           pill: document.getElementById('plus-pill').textContent.trim(), pillState: document.getElementById('plus-pill').getAttribute('data-state'),
-          chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipSay: (document.getElementById('plus-chip-say') || {}).textContent || '',
+          chip: vis('plus-chip'), chipSay: (document.getElementById('plus-chip-say') || {}).textContent || '',
           sectionText: (document.getElementById('plus-flow').innerText || '').replace(/\s+/g, ' '),
           swOn: sw.getAttribute('aria-checked'), swShown: !sw.hidden, swIsToggle: sw.classList.contains('toggle') && sw.getAttribute('role') === 'switch',
           logo: (() => { const c = document.getElementById('plus-logo'); if (!c || !c.width) return { drawn: false };
             const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) n += 1;
             return { drawn: n > 200, label: c.getAttribute('aria-label'), h: Math.round(c.getBoundingClientRect().height) }; })(),
-          open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
+          copyLabel: (document.getElementById('plus-copy') || {}).textContent || '', noOpen: !document.getElementById('plus-open'),
+          /* #4744: the WHOLE line's extent (first rect's left to last rect's right; the sentence is text plus a <b>, so one
+             rect is only a piece) against the box, and the text must end before Copy begins. */
+          fit: (() => { const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy'); if (!e || !c) return null;
+            const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
+            if (!rs.length) return null; const left = Math.min(...rs.map((x) => x.left)), right = Math.max(...rs.map((x) => x.right));
+            return { lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right),
+              sameRow: Math.abs((rs[0].top + rs[0].height / 2) - (c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2)) < 12, font: getComputedStyle(e).fontSize, width: Math.round(right - left) }; })(),
+          bold: (document.querySelector('#plus-chip-say b') || {}).textContent || '', account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(),
           cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
           reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
-          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent, label: (e.querySelector('.devcode') || { getAttribute: () => '' }).getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: Math.min(...[...e.querySelectorAll('.devcode-cell')].map((c) => c.getBoundingClientRect().height)), inside: [...e.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right),
+          /* #4637: the code is one large line (Mona Lisa's outline), not boxes; what #3952 protects is kept: read out a character at a time, tall, inside its card, directly above Allow, and readable against the navy. */
+          codes: [...document.querySelectorAll('#plus-ask-rows .askcodebig')].map((e) => ({ t: e.textContent, label: e.getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: e.getBoundingClientRect().height, inside: e.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right,
             /* #3952 round 2: the code must read against what is actually behind it (a white fill on the navy skin gave
-               light on light). Ink of the first box against the first opaque background at or behind it. */
+               light on light). The code's ink against the first opaque background at or behind it. */
             contrast: (() => {
-              const c = e.querySelector('.devcode-cell'); if (!c) return 0;
+              const c = e;
               const rgb = (v) => (v.match(/[\d.]+/g) || []).map(Number);
               const lum = ([r, g, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
               // Composite every translucent fill from the box outward over the first opaque ground (a background
@@ -119,6 +135,7 @@ const STATES = {
               return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10, ink: ink.join(','), bg: bg.map(Math.round).join(','), at: n ? (n.id || n.className || n.tagName) : 'none' };
             })() })),   // #3952: the code in the shared boxes
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
+          listMetas: [...document.querySelectorAll('#plus-devlist .devrow')].map((r) => [r.querySelector('[data-dev="remove"]').dataset.id, r.querySelector('.devmeta').textContent.trim()]),
           leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
@@ -127,18 +144,110 @@ const STATES = {
         // Review: switched on but not running is NOT "Connecting" (the engine's sentence says why).
         chk(v.pill === 'Not connected' && v.pillState === 'down', `${t} on but not running reads "Not connected", not "Connecting"`, v.pill);
         chk(/No relay address is set yet/i.test(v.status) && !v.chip, `${t} the engine's reason is the line, and no address chip`, v.status);
+      } else if (key === 'waiting') {
+        // #4640: a wait, not a fault: a neutral pill (not red, not "Connecting") and the coordinator's sentence alone.
+        const pillBg = await page.evaluate(() => getComputedStyle(document.getElementById('plus-pill')).backgroundColor);
+        const offBg = await page.evaluate(() => { const p = document.getElementById('plus-pill'); const was = p.getAttribute('data-state'); p.setAttribute('data-state', 'off'); const bg = getComputedStyle(p).backgroundColor; p.setAttribute('data-state', was); return bg; });
+        chk(v.pill === 'Waiting to be allowed' && v.pillState === 'waiting' && pillBg === offBg, `${t} #4640: a second computer waiting for its Allow reads "Waiting to be allowed" on a neutral pill`, JSON.stringify({ pill: v.pill, state: v.pillState, pillBg, offBg }));
+        chk(/^This computer is not allowed yet; allow it from your other computer first\./.test(v.status) && !/refused|HTTP|\/v1\//i.test(v.status) && !v.chip,
+          `${t} #4640: the line is the coordinator's sentence, with no "refused", no HTTP and no path`, v.status);
+      } else if (key === 'refused') {
+        // CONTROL for the arm above: the same instrument sees "refused" and "HTTP" when the engine sends them.
+        chk(v.pill === 'Connecting' && v.pillState === 'connecting' && /refused/i.test(v.status) && /HTTP/.test(v.status),
+          `${t} #4640 CONTROL: an ordinary refusal still reads Connecting with its whole line, so the waiting arm's absence check can fail`, JSON.stringify({ pill: v.pill, status: v.status }));
       } else if (key === 'off') {
         chk(v.pill === 'Off' && v.pillState === 'off', `${t} the pill says Off`, JSON.stringify(v));
         chk(v.swIsToggle && v.swShown && v.swOn === 'false', `${t} #4080: the switch shows, off`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
         chk(!v.chip, `${t} no address chip while off`);
       } else {
         chk(v.pill === 'Connected' && v.pillState === 'up', `${t} a green Connected pill`, v.pill);
-        /* #4080 (Josh's design, 22:22): the box holds the way in from another device with Open to login.kosmosplus.com;
-           the machine's address is not on the pane; the switch is on; the Kosmos+ logo replaces the old label. */
-        chk(v.chip && v.chipSay.trim() === 'Sign in at login.kosmosplus.com.' && v.open === 'https://login.kosmosplus.com/', `${t} #4080: the box says where to sign in, with Open to login.kosmosplus.com`, JSON.stringify({ chip: v.chip, say: v.chipSay, open: v.open }));
-        chk(!v.sectionText.includes(ADDR) && v.status === '' && !v.copy, `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
+        /* #4080 (Josh's design, 22:22): the machine's address is not on the pane; the switch is on; the Kosmos+ logo
+           replaces the old label. (The box's words and button are #4744's, below.) */
+        /* #4744 (Josh, 2026-09-30): the box says where OTHER devices reach this computer, the address bold, with Copy (no
+           Open), all on one line. This page is 1400 wide; the desktop app's narrowest window (640) is measured separately. */
+        chk(v.chip && v.chipSay.trim() === 'Access this computer from other devices at login.kosmosplus.com' && v.bold === 'login.kosmosplus.com'
+          && v.copyLabel.trim() === 'Copy' && v.noOpen, `${t} #4744: the box says where other devices reach this computer, the address bold, with Copy and no Open`,
+          JSON.stringify({ chip: v.chip, say: v.chipSay, bold: v.bold, copy: v.copyLabel, noOpen: v.noOpen }));
+        chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 18 && parseFloat(v.fit.font) >= 12, `${t} #4744: the sentence is one line at 12px or more, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
+        if (key === 'connected') { // #4744: at 640 and 600 wide (the Windows launcher's 640 window, less its frame and scrollbar) it is still one line.
+          const vp = page.viewportSize();
+          for (const wide of [640, 600, 560, 520, 360]) {
+            await page.setViewportSize({ width: wide, height: vp.height }); await page.waitForTimeout(250);
+            const n = await page.evaluate(() => {
+              const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
+              const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
+              const right = Math.max(...rs.map((x) => x.right));
+              const chip = document.getElementById('plus-chip').getBoundingClientRect();
+              // #4744 (review 9): the box reaches 12px into the panel's padding, so it must stay inside the panel too.
+              const pane = document.getElementById('s-sec-plus').getBoundingClientRect();
+              return { inScreen: chip.left >= 0 && chip.right <= innerWidth + 0.5, inPane: chip.left >= pane.left - 0.5 && chip.right <= pane.right + 0.5, shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
+                spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right) };
+            });
+            if (wide >= 600) chk(n.shown && n.inScreen && n.inPane && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            // A phone: it may wrap (the address may break), but nothing runs past its box or under Copy.
+            else chk(n.shown && n.inScreen && n.inPane && n.lines >= 2 && parseFloat(n.font) >= 12 && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (narrower than the one-line box) the box stays on screen and inside its panel, and the sentence wraps inside it, clear of Copy`, JSON.stringify(n));
+          }
+          await page.setViewportSize(vp); await page.waitForTimeout(250);
+        }
+        if (key === 'connected') { // #4744: Copy puts the full https address on the clipboard (so it pastes as a link) and says Copied.
+          await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+          // A sentinel first, so the read-back proves THIS press wrote the address (the clipboard outlives a page).
+          await page.evaluate(async () => { await navigator.clipboard.writeText('sentinel-4744'); });
+          await page.click('#plus-copy');
+          await page.waitForTimeout(150);
+          const cp = await page.evaluate(async () => {
+            let clip = null; try { clip = await navigator.clipboard.readText(); } catch { clip = null; }
+            const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
+            const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
+            const right = Math.max(...rs.map((x) => x.right));
+            return { clip, label: c.textContent, said: document.getElementById('plus-copy-status').textContent,
+              lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), clear: Math.round(c.getBoundingClientRect().left - right) };
+          });
+          chk(cp.lines === 1 && cp.clear >= 18, `${t} #4744: pressing Copy ("Copied") does not push the sentence off its line`, JSON.stringify({ lines: cp.lines, clear: cp.clear }));
+          chk(cp.label === 'Copied' && /copied/i.test(cp.said) && cp.clip === 'https://login.kosmosplus.com/',
+            `${t} #4744: Copy copies https://login.kosmosplus.com/ and says Copied (button and screen reader)`, JSON.stringify(cp));
+          await page.waitForFunction(() => document.getElementById('plus-copy').textContent === 'Copy', null, { timeout: 5000 }).catch(() => {});
+          const back = await page.evaluate(() => document.getElementById('plus-copy').textContent);
+          chk(back === 'Copy', `${t} #4744: the button reads Copy again after 2 seconds`, back);
+          // The safety valve: a font much wider than the sizing allows (a stand-in for an unmeasured Windows font) must
+          // wrap the sentence rather than run it under Copy; back to normal, it is one line again.
+          const wide = await page.evaluate(async () => {
+            const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
+            const measure = () => { const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
+              return { lines: rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1, clear: Math.round(c.getBoundingClientRect().left - Math.max(...rs.map((x) => x.right))) }; };
+            // Through the ResizeObserver, not a direct call: widen the letters, then nudge the box's width so the observer fires.
+            const chip = document.getElementById('plus-chip'); const w0 = chip.style.width;
+            const settle = () => new Promise((r) => setTimeout(r, 150));
+            e.style.letterSpacing = '.18em'; chip.style.width = (chip.getBoundingClientRect().width - 2) + 'px'; await settle();
+            const wideOut = { ...measure(), wrapped: e.classList.contains('plus-chip-wrap') };
+            e.style.letterSpacing = ''; chip.style.width = w0; await settle();
+            return { wide: wideOut, normal: { ...measure(), wrapped: e.classList.contains('plus-chip-wrap') } };
+          });
+          chk(wide.wide.wrapped && wide.wide.clear >= 0 && !wide.normal.wrapped && wide.normal.lines === 1,
+            `${t} #4744: a font too wide for the sizing wraps the sentence instead of running under Copy; normal text is one line again`, JSON.stringify(wide));
+          // The failure path: both copy routes refuse. The address is selected, the line under the box says so (and
+          // survives a repaint), and the button keeps its label and its width.
+          const fail = await page.evaluate(async () => {
+            const keep = { exec: document.execCommand, write: navigator.clipboard.writeText };
+            document.execCommand = () => false;
+            navigator.clipboard.writeText = () => Promise.reject(new Error('refused'));
+            const c = document.getElementById('plus-copy'); const w0 = c.getBoundingClientRect().width;
+            c.click(); await new Promise((r) => setTimeout(r, 120));
+            const note1 = document.getElementById('plus-status').textContent;
+            await paintPlus(); await new Promise((r) => setTimeout(r, 120));
+            const out = { sel: String(window.getSelection()), note1, note2: document.getElementById('plus-status').textContent,
+              label: c.textContent, widthSame: Math.abs(c.getBoundingClientRect().width - w0) < 1 };
+            document.execCommand = keep.exec; navigator.clipboard.writeText = keep.write;
+            c.click(); await new Promise((r) => setTimeout(r, 120));
+            out.afterSuccess = document.getElementById('plus-status').textContent;
+            return out;
+          });
+          chk(fail.sel === 'login.kosmosplus.com' && /could not copy it/.test(fail.note1) && /could not copy it/.test(fail.note2) && fail.label === 'Copy' && fail.widthSame && fail.afterSuccess === '',
+            `${t} #4744: when copying is refused the address is selected and the note stays through a repaint; a later Copy clears it`, JSON.stringify(fail));
+        }
+        chk(!v.sectionText.includes(ADDR) && v.status === '', `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
         chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
-        chk(v.logo.drawn && v.logo.label === 'Kosmos Plus' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
+        chk(v.logo.drawn && v.logo.label === 'Kosmos+' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
         chk(!/Use Kosmos from anywhere/.test(v.sectionText) && !/Each one asked here first/.test(v.sectionText) && !/I lost my phone/.test(v.sectionText) && !/\bPause\b|Turn off/.test(v.sectionText),
           `${t} #4080: gone from the pane: Use Kosmos from anywhere, the devices line, the lost-phone essay, Pause/Turn off`, v.sectionText.slice(0, 300));
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View account opens the web account`, v.account);
@@ -206,12 +315,12 @@ const STATES = {
           chk(body && JSON.parse(body).on === false, `${t} #4080: pressing the switch pauses (PUT on:false)`, String(body));
         }
       }
-      if (key === 'off' || key === 'connected' || key === 'down') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
+      if (key === 'off' || key === 'connected' || key === 'down' || key === 'waiting' || key === 'refused') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
       if (key === 'one') {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);
-        chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bDeny\b/.test(v.cardText) && !/Not now|Not me/.test(v.cardText), `${t} one sentence, Allow / Deny, no Not now or Not me`, v.cardText);
-        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 4 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, one box per character, inside its card (#3952)`, JSON.stringify(v.codes));
+        chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bNot me\b/.test(v.cardText) && !/Not now|\bDeny\b/.test(v.cardText), `${t} one sentence, Allow / Not me (#4637), no Not now or Deny`, v.cardText);
+        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 0 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, once, read out a character at a time, inside its card, directly above Allow (#3952, #4637)`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
         chk(v.leftBar, `${t} no solid left bar on the card (#3692)`);
         // #3829 addendum (Josh 20:00): on Kosmos Plus the requests sit directly ABOVE the panel at its width; no top banner.
@@ -220,7 +329,7 @@ const STATES = {
         await page.evaluate(() => showTab('agents'));
         await page.waitForTimeout(300);
         const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length, link: !!document.querySelector('#askcard [data-ask="open"]') }));
-        chk(other.shown && other.cards === 0 && other.link && /asking to use this Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
+        chk(other.shown && other.cards === 0 && other.link && /wants to connect to your Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
         await page.click('#askcard [data-ask="open"]');
         await page.waitForTimeout(400);
         chk(await page.evaluate(() => !document.getElementById('plus-asks').hidden && document.getElementById('askcard').hidden), `${t} the notice's link opens Kosmos Plus with the request above the panel`);
@@ -268,8 +377,15 @@ const STATES = {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
+      /* #4794 (part C): a device another of the person's computers allowed names that computer; one this computer
+         allowed (allowed_on null) and one from a tunnel without part C (no field) read exactly as before. */
+      { const m = Object.fromEntries(v.listMetas);
+        chk(/^allowed on windowsbox · let in /.test(m['d-other'] || '') && ['d-mac', 'd-noname'].every((id) => typeof m[id] === 'string' && !/allowed on/.test(m[id])),
+          `${t} #4794: a device allowed on another computer says "allowed on windowsbox"; ones allowed here do not`, JSON.stringify(v.listMetas)); }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
-      chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
+      /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the
+         board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */
+      chk(!v.listNames.includes('This computer (Kosmos app)'), `${t} #4610: no row is relabelled as this computer (the board grants it and never sends it)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
@@ -307,7 +423,7 @@ const STATES = {
       await page.waitForTimeout(5600);   // one 5-second repaint of the pane
       chk(await vis('#plus-forget-ask') && await vis('#plus-forget-yes') && !(await vis('#plus-forget-go')), `${t} the confirm opens and is still open after the 5-second repaint`);
       const sure = await page.textContent('#plus-forget-sure');
-      chk(/leaves your Kosmos Plus account/.test(sure) && /address is freed/.test(sure) && /connect it again later by signing in/.test(sure), `${t} the confirm says what happens and how to come back`, sure);
+      chk(/leaves your Kosmos\+ account/.test(sure) && /address is freed/.test(sure) && /connect it again later by signing in/.test(sure), `${t} the confirm says what happens and how to come back`, sure);
       const focusOn = await page.evaluate(() => document.activeElement && document.activeElement.id);
       chk(focusOn === 'plus-forget-no', `${t} opening the confirm puts focus on Cancel, not on Remove`, String(focusOn));
       await page.click('#plus-forget-no');
@@ -319,8 +435,8 @@ const STATES = {
         forgot: (document.getElementById('plus-forgot-msg') || {}).textContent || '', forgotShown: !document.getElementById('plus-forgot-msg').hidden,
         inPane: (document.getElementById('plus-forget-msg') || {}).textContent || '' }));
       chk(forgets === 1, `${t} Disconnect sends one request`, 'forgets=' + forgets);
-      if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is removed from Kosmos Plus\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
-      if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is removed from Kosmos Plus\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
+      if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is removed from Kosmos\+\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
+      if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is removed from Kosmos\+\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
       if (mode === 'fails') chk(!after.state1 && after.flow && /^Removing it did not finish: the tunnel program did not start\. Try again in a moment\.$/.test(after.inPane), `${t} a failed disconnect keeps the connected pane and says it did not finish, in one clean sentence`, JSON.stringify(after));
 
       if (SHOTS && mode !== 'fails') { await page.screenshot({ path: path.join(SHOTS, `4079-after-${mode}.png`) }); }

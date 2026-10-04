@@ -15,7 +15,14 @@
  *   - in the dark theme the working ground still swings toward green
  *     (read from elements placed in the real page, so the page's own stylesheet decides);
  *   - under prefers-reduced-motion nothing pulses and the working card keeps its static ground.
+ *   - #4765: the pulse and the pill's breath animate ONLY opacity, each on its own ::before layer (the box's, the pill's). A colour
+ *     animation (what shipped in 0.7.11) makes the browser restyle and repaint every working box on
+ *     every frame, which kept a quarter to over half of the page's main thread busy at rest (measured).
  * Control: the same readings on the idle card show the instrument can see "no pulse".
+ *
+ * #4765: the pulse now lives on the box's ::before (a green layer that fades), so both instruments read
+ * what the screen shows: `anim` reads the ::before, and `ground` paints the box's colour and then the
+ * ::before's colour at its current opacity.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-working-pulse-3956.js
  */
@@ -51,20 +58,28 @@ const lean = (c) => c[1] - (c[0] + c[2]) / 2;
 /* The element's background colour as sRGB bytes [r, g, b]. Painted through a 1x1 canvas, because a
    colour mid-animation computes as oklab(...) (the interpolation space), not rgb(...), and reading
    that string's numbers as bytes is a wrong instrument that reports no movement at all. */
-async function ground(page, sel) {
-  return page.$eval(sel, (el) => {
-    const c = document.createElement('canvas');
-    c.width = 1; c.height = 1;
-    const x = c.getContext('2d');
-    x.fillStyle = getComputedStyle(el).backgroundColor;
+/* The box's colour with its ::before layer composited over it at the layer's current opacity. */
+const COMPOSITE = `(el) => {
+  const c = document.createElement('canvas');
+  c.width = 1; c.height = 1;
+  const x = c.getContext('2d');
+  x.fillStyle = getComputedStyle(el).backgroundColor;
+  x.fillRect(0, 0, 1, 1);
+  const b = getComputedStyle(el, '::before');
+  if (b.content !== 'none') {
+    x.globalAlpha = Number(b.opacity);
+    x.fillStyle = b.backgroundColor;
     x.fillRect(0, 0, 1, 1);
-    return Array.from(x.getImageData(0, 0, 1, 1).data.slice(0, 3));
-  });
+  }
+  return Array.from(x.getImageData(0, 0, 1, 1).data.slice(0, 3));
+}`;
+async function ground(page, sel) {
+  return page.$eval(sel, new Function('return ' + COMPOSITE)());
 }
 async function anim(page, sel) {
   return page.$eval(sel, (el) => {
-    const cs = getComputedStyle(el);
-    return { name: cs.animationName, dur: cs.animationDuration, count: cs.animationIterationCount };
+    const cs = getComputedStyle(el, '::before');
+    return { name: cs.animationName, dur: cs.animationDuration, count: cs.animationIterationCount, onBox: getComputedStyle(el).animationName };
   });
 }
 
@@ -97,7 +112,9 @@ async function placeSiblings(page) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
       try {
         /* --- motion allowed --- */
-        const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'no-preference' });
+        /* 2x (a Retina Mac): at 1x the browser rounds the pill's 1.5px border to 1px, where a 1px and a 1.5px ring
+           cannot be told apart and the pill-ring assertion below would pass either way (measured, #4765 review 1). */
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, reducedMotion: 'no-preference' });
         const page = await ctx.newPage();
         await page.goto(URL);
         await page.waitForSelector('.acard.working', { timeout: 20000 });
@@ -106,6 +123,28 @@ async function placeSiblings(page) {
         chk(w.name === 'working-pulse', `${engineName}: the working card runs working-pulse`, JSON.stringify(w));
         chk(parseFloat(w.dur) >= 3, `${engineName}: the pulse is slow (3s or more per cycle)`, w.dur);
         chk(w.count === 'infinite', `${engineName}: the pulse never stops while working`, w.count);
+        /* #4765: what makes it cheap. Every running glow animation (the pulse and the pill's breath) changes
+           ONLY opacity, and none runs on a box itself. A background, border or colour here is the 0.7.11 cost. */
+        const props = await page.evaluate(() => document.getAnimations()
+          .filter((a) => a.animationName === 'working-pulse' || a.animationName === 'breathe')
+          .map((a) => ({ name: a.animationName, pseudo: a.effect.pseudoElement || '', props: [...new Set(a.effect.getKeyframes().flatMap((k) => Object.keys(k)))].filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)) })));
+        chk(props.some((a) => a.name === 'working-pulse') && props.some((a) => a.name === 'breathe'), `${engineName}: precondition: the pulse and the breath are both running`, JSON.stringify(props.map((a) => a.name)));
+        chk(props.every((a) => a.props.length === 1 && a.props[0] === 'opacity'), `${engineName}: the pulse and the breath animate only opacity`, JSON.stringify(props));
+        chk(props.every((a) => a.pseudo === '::before'), `${engineName}: the pulse and the breath run on a ::before layer, not on the box`, JSON.stringify(props.map((a) => a.pseudo)));
+        chk(w.onBox === 'none', `${engineName}: the working card itself runs no animation`, w.onBox);
+        /* #4765 review 1: the pill's breath layer must cover the pill's WHOLE border (its peak colour is computed for a
+           1.5px ring over a 1.5px ring), and at rest the pill shows the breath's low point in both themes. */
+        const pill = await page.$eval('.acard.working .astate.st-working', (el) => {
+          const cs = getComputedStyle(el), b = getComputedStyle(el, '::before');
+          return { bw: cs.borderTopWidth, layerBw: b.borderTopWidth, layerTop: b.top, border: cs.borderTopColor, bg: cs.backgroundColor };
+        });
+        /* WebKit (what the Mac app renders with, on a 2x screen) keeps the pill's 1.5px border, and the layer must sit
+           exactly on it. Chromium rounds that border to 1px even at 2x (measured), while the layer's offset stays
+           1.5px, so there the ring can sit up to half a pixel out: allowed, and said so on #4765. */
+        const exact = engineName === 'webkit';
+        chk(pill.layerBw === pill.bw && (exact ? pill.bw === '1.5px' && parseFloat(pill.layerTop) === -1.5 : Math.abs(parseFloat(pill.layerTop) + parseFloat(pill.bw)) <= 0.5),
+          `${engineName}: the breath layer covers the pill's whole border (at 2x${exact ? ', exactly' : ', within half a pixel'})`, JSON.stringify(pill));
+        chk(pill.border === 'rgba(47, 125, 90, 0.38)' && pill.bg === 'rgba(47, 125, 90, 0.07)', `${engineName}: at rest the pill shows the breath's low point`, JSON.stringify(pill));
 
         /* Sampled across one full cycle: the ground must swing, gently. */
         const raw = [];
@@ -122,13 +161,10 @@ async function placeSiblings(page) {
            across three polls, re-finding the card each time: at least two rebuilds must happen (or
            this arm proves nothing), and no step between neighbouring readings may jump. A smooth
            step here is under one unit; the snap this guards against was about five. */
-        const watch = await page.evaluate(async () => {
+        const watch = await page.evaluate(async (src) => {
           const out = { steps: [], replaced: 0 };
-          const px = (el) => {
-            const c = document.createElement('canvas'); c.width = 1; c.height = 1;
-            const x = c.getContext('2d'); x.fillStyle = getComputedStyle(el).backgroundColor; x.fillRect(0, 0, 1, 1);
-            const d = x.getImageData(0, 0, 1, 1).data; return d[1] - (d[0] + d[2]) / 2;
-          };
+          const composite = new Function('return ' + src)();
+          const px = (el) => { const d = composite(el); return d[1] - (d[0] + d[2]) / 2; };
           let prev = null; let prevEl = null;
           const end = performance.now() + 16000;
           while (performance.now() < end) {
@@ -141,7 +177,7 @@ async function placeSiblings(page) {
             prev = v; prevEl = el;
           }
           return out;
-        });
+        }, COMPOSITE);
         chk(watch.replaced >= 2, `${engineName}: precondition: the board rebuilt the working card during the watch`, `rebuilt ${watch.replaced}x`);
         const worst = Math.max(...watch.steps);
         chk(worst < 2.5, `${engineName}: a rebuilt card continues the pulse, it does not snap back to white`, `largest frame-to-frame step ${worst.toFixed(2)} over ${watch.steps.length} frames`);
@@ -167,18 +203,21 @@ async function placeSiblings(page) {
           html.setAttribute('data-layout', 'consolidated');
           body.classList.add('consolidated', 'fold-a');
           const el = document.querySelector('[data-pulse3956="lrow"]');
-          const cs = getComputedStyle(el);
-          const out = { name: cs.animationName, wash: /gradient/.test(cs.backgroundImage) };
+          const out = { name: getComputedStyle(el, '::before').animationName, wash: /gradient/.test(getComputedStyle(el).backgroundImage), layerTop: getComputedStyle(el, '::before').top, border: getComputedStyle(el).borderTopWidth };
           if (before.layout === null) html.removeAttribute('data-layout'); else html.setAttribute('data-layout', before.layout);
           body.className = before.cls;
           return out;
         });
         chk(folded.name === 'working-pulse' && folded.wash, `${engineName}: the one-screen (folded) list row pulses over its wash`, JSON.stringify(folded));
+        /* #4765 review 2: the one-screen row has no border, so its layer sits on the box, not 1px outside it. */
+        chk(folded.border === '0px' && folded.layerTop === '0px', `${engineName}: the one-screen row's layer sits on the box (no border to cover)`, JSON.stringify(folded));
 
         /* Dark theme: the pulse mixes into the dark surface, so it must still swing there. */
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
         const dark = [];
         for (let k = 0; k < 9; k++) { dark.push(lean(await ground(page, '.acard.working'))); await page.waitForTimeout(450); }
+        const darkPill = await page.$eval('.acard.working .astate.st-working', (el) => getComputedStyle(el).borderTopColor);
+        chk(darkPill === 'rgba(47, 125, 90, 0.38)', `${engineName}: in the dark theme too, the pill's border breathes from the old low point (not the static mint)`, darkPill);
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
         chk(Math.max(...dark) - Math.min(...dark) > 2, `${engineName}: in the dark theme the working ground still swings toward green`, `green lean ${Math.min(...dark).toFixed(1)}..${Math.max(...dark).toFixed(1)}`);
 
@@ -190,7 +229,9 @@ async function placeSiblings(page) {
         await rpage.goto(URL);
         await rpage.waitForSelector('.acard.working', { timeout: 20000 });
         const r = await anim(rpage, '.acard.working');
-        chk(r.name === 'none', `${engineName}: reduced motion: the working card does not pulse`, r.name);
+        chk(r.name === 'none' && r.onBox === 'none', `${engineName}: reduced motion: the working card does not pulse (neither its layer nor the box)`, JSON.stringify(r));
+        const rpill = await rpage.$eval('.acard.working .astate.st-working', (el) => ({ border: getComputedStyle(el).borderTopColor, bg: getComputedStyle(el).backgroundColor, layer: getComputedStyle(el, '::before').content }));
+        chk(rpill.border === 'rgba(47, 125, 90, 0.55)' && rpill.bg === 'rgba(47, 125, 90, 0.14)' && rpill.layer === 'none', `${engineName}: reduced motion: the pill is its old static self, with no breath layer`, JSON.stringify(rpill));
         const surface = await rpage.evaluate(() => {
           const d = document.createElement('div');
           d.dataset.pulse3956 = 'surface';

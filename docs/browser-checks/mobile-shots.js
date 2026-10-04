@@ -45,7 +45,15 @@
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
- * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it).
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
+ * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
+ * view, for one, starts at 960px).
+ * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
+ * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
+ * shot after it; the consolidated screens stub the READ instead (kosmos#4594).
+ * `after: async (page, data) => {}` runs after the shot, whatever happened, to put back what `go` changed.
+ * `verify: async (page, data) => {}` runs right after the shot to check it is the screen meant: a throw
+ * DELETES the shot and makes the row an ERROR (consAgentsStill), so a wrong picture never reaches a review.
  * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -107,16 +115,107 @@ const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
 };
+/* #4470: the new look, as the hidden switch (Settings > Advanced > Try the new look) turns it on: the page reads
+   localStorage 'kosmos-look' before paint. Set it, reload, and wait for the attribute the new look keys on. */
+const newLook = async (page) => {
+  await page.evaluate(() => localStorage.setItem('kosmos-look', 'new'));
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-look') === 'new', null, { timeout: 8000 });
+  if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');   // as the render check does after a reload
+  await page.waitForTimeout(900);
+};
 
+/* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
+   on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
+   one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
+   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
+async function openConsAgents(page) {
+  await page.route('**/api/style', async (r) => {
+    if (r.request().method() !== 'GET') return r.continue();
+    let resp;
+    try { resp = await r.fetch(); } catch { return r.continue(); }   // never leave the request hanging
+    const j = await resp.json().catch(() => null);
+    if (!j) return r.fulfill({ response: resp });
+    return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+  });
+  await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
+  /* The board's own boot can activate a project AFTER this opens Agents, which closes the Agents view
+     (iteration 7: shots of a project passed). So open it, then require it to STAY open for a while,
+     opening it again if the board took it back. */
+  const shown = () => page.evaluate(() => {
+    const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
+    return !!(p && !p.hidden && p.getClientRects().length && sw && sw.getClientRects().length);
+  });
+  if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');   // the reload can bring it back
+  // Stable = open on 4 samples in a row, 250 ms apart: a signal, not a fixed sleep.
+  const stable = async () => { for (let i = 0; i < 4; i++) { if (!(await shown())) return false; await page.waitForTimeout(250); } return true; };
+  let last = null;
+  for (let tries = 0; tries < 6; tries++) {
+    try {
+      await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+      await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
+    } catch (e) { last = e; continue; }   // taken back before it showed (or never there): try again
+    if (await stable()) return;
+  }
+  throw new Error('cons-agents: the Agents view did not stay open' + (last ? ' (last: ' + String(last.message || last).split('\n')[0] + ')' : ''));
+}
+/* A SCREENS `verify` hook, run right after the shot: the Agents view and its switch must still be on screen with
+   the expected segment chosen, or the shot is deleted and the row is an ERROR, never a picture of something else. */
+const consAgentsStill = (want) => async (page) => {
+  const got = await page.evaluate(() => {
+    const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
+    const r = sw ? sw.getBoundingClientRect() : null;
+    const on = sw ? sw.querySelector('[aria-checked="true"]') : null;
+    return { panel: !!(p && !p.hidden && p.getClientRects().length), inView: !!(r && r.width && r.bottom > 0 && r.top < innerHeight), on: on ? on.dataset.conslay : null };
+  });
+  if (!got.panel || !got.inView || got.on !== want) throw new Error('the shot is not the Agents view with ' + want + ' chosen: ' + JSON.stringify(got));
+};
+
+/* #4637: two waiting requests for the connect screens, and an Allow that answers. */
+async function connectPending(page) {
+  let devices = [
+    { device_id: 'd-sample-pc', name: 'windowsbox', code: 'X3-P2', first_seen: Math.floor(Date.now() / 1000) - 30, denied_at: 0, joining_computer: 'windowsbox' },
+    { device_id: 'd-sample-ph', name: 'iPhone', code: 'K7-4M', first_seen: Math.floor(Date.now() / 1000) - 90, denied_at: 0, joining_computer: null }];
+  await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ email: 'owner@example.com', snapshot: true, devices }) }));
+  await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
+  /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
+     given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
+  { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
+      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+    await page.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
   { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
+  } },
+  // #4470: the new look (the hidden switch), on the Agents page as a grid and as a list, and on the project room.
+  { name: 'nl-home', owner: 'Mona Lisa', go: async (page) => { await newLook(page); } },
+  { name: 'nl-agents-list', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
+  } },
+  { name: 'nl-project-room', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
   } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
@@ -169,8 +268,10 @@ const SCREENS = [
     /* #4568: a device's match code is always two symbols, a dash, two symbols (kosmos-relay's match_code, e.g. K7-3M).
        This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card (every phone size in the
        #4561 shots; 24px at se, measured by the check below).
-       MSHOTS_COVER_CONTROL=spill puts that code back, so the fit check below can be seen to fail. */
-    const code = COVER_CONTROL === 'spill' ? '482 913' : 'K7-3M';
+       MSHOTS_COVER_CONTROL=spill plants a code that cannot fit, so the fit check below can be seen to fail. Since
+       #4637 the code is one large line that wraps at a space, so '482 913' (the old control) fits and stopped firing
+       (#4893); this one has no break point and is wider than the card at every phone size. */
+    const code = COVER_CONTROL === 'spill' ? 'K7M3K7M3K7M3K7M3K7M3' : 'K7-3M';
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
       { device_id: 'd-sample-0001', name: 'iPhone', code, first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
@@ -212,11 +313,11 @@ const SCREENS = [
         const cs = getComputedStyle(card), r = card.getBoundingClientRect();
         const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
         const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
-        const cells = [...card.querySelectorAll('.devcode-cell')];
-        if (!cells.length) return 'no code boxes in a request card';   // the stub's request always has a code
+        const cells = [...card.querySelectorAll('.askcodebig')];   // #4637: one large code line, was a box per character
+        if (!cells.length) return 'no code in a request card';   // the stub's request always has a code
         const over = cells.map((c) => { const b = c.getBoundingClientRect(); return Math.max(b.right - right, left - b.left); });
         const out = over.filter((d) => d > 0.5);
-        if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
+        if (out.length) return out.length + ' of ' + cells.length + ' codes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
       }
       return '';
     };
@@ -227,10 +328,31 @@ const SCREENS = [
     }
     if (spill) throw new Error('the code does not fit its card: ' + spill);
   } },
+  /* #4637: the "wants to connect" sheet (Mona Lisa's flow outline, #4754). Two requests: another of the person's
+     computers joining (#4773's joining_computer) and a phone. connect-connected is after Allow on the computer;
+     connect-notice is the strip on another page. Each asserts its words, so a wrong screen fails the shot. */
+  { name: 'connect-sheet', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /Your computer "windowsbox" wants to join/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
+  { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
+    await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
+    await page.waitForFunction(() => /windowsbox is connected\./.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
+  { name: 'connect-notice', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '');
+    await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
+    await page.waitForFunction(() => /want to connect to your Kosmos/.test((document.getElementById('askcard') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings');
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5206: Settings > Advanced, where every row is an on/off switch whose 44px target is a ::after past its 42x24
+     box: the tap audit must count it as the finger reaches it. */
+  { name: 'settings-advanced', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#look-toggle', { state: 'visible', timeout: 8000 });
   } },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
@@ -261,10 +383,66 @@ const SCREENS = [
     await page.click('button.vt[data-layout="org"]');
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
   } },
+  /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
+     consolidated view exists only at >= 960px, so these are desktop-only. */
+  { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
+  }, verify: consAgentsStill('grid') },
+  { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
+    await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
+  }, verify: consAgentsStill('org') },
+  // The design review's ask (kosmos#4594): the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
+  // .focus() alone may not): focus Grid, ArrowRight moves to Org chart, chooses it and keeps focus there.
+  { name: 'cons-agents-focus', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.focus('#panel-cons-agents [data-conslay="grid"]');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.dataset.conslay === 'org'
+      && document.activeElement.matches(':focus-visible'), null, { timeout: 5000 });
+  }, verify: async (page) => {
+    await consAgentsStill('org')(page);
+    const focused = await page.evaluate(() => !!document.activeElement && document.activeElement.dataset.conslay === 'org'
+      && document.activeElement.matches(':focus-visible'));
+    if (!focused) throw new Error('the focus shot lost its focus ring (Org chart is not focused-visible)');
+  } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
     await page.click('#new-agent', { timeout: 5000 });
     await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
+  } },
+  // #4556: New Agent's second screens, each reached by a real tap on its card from the first screen.
+  { name: 'create-single', owner: 'Angel', go: async (page) => {
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Create an agent in the new look, for the side by side with 'create-single'. */
+  { name: 'nl-create-single', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'create-team', owner: 'Angel', go: async (page) => {
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Create a Team in the new look, for the side by side with 'create-team'. */
+  { name: 'nl-create-team', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'create-swarm', owner: 'Angel', go: async (page) => {
+    // Shown only when the board can run swarms; a board that cannot fails this shot (the card is hidden).
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
@@ -310,6 +488,148 @@ const SCREENS = [
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
+     enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
+  { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.evaluate((id) => openProjectTasks(id), data.projectId);
+    await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
+  { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470, the Projects list in the new look: its grid (the default) and its roadmap, and the roadmap with the look off
+     to set beside it. */
+  { name: 'nl-projects', owner: 'Mona Lisa', go: async (page) => { await newLook(page); await openTab(page, 'projects'); } },
+  { name: 'projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  { name: 'nl-projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  /* #4470, a project's Documents screen (opened from the project page's Files), with the look off and on. */
+  { name: 'project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* Shown by hand, as in nl-project-docs, so the pair compares the switch like for like. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+  } },
+  { name: 'nl-project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* The sample room has no files, so the folder / conversation switch is hidden; shown by hand for the shot. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+  } },
+  /* #4470: an agent's page in the new look, for the side by side with 'agent-chat' and 'agent-profile'. */
+  { name: 'nl-agent-chat', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Settings in the new look, for the side by side with 'settings'. */
+  { name: 'nl-settings', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'nl-agent-profile', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4994: what deleting an agent does to its community account, on the three screens that say it.
+     leftover-delete is the REAL engine's plan (engine/delete-leftover.js), for the removed agent `rex` that seedFiles
+     writes when this screen is asked for (folder, auto-start file, removed record, a community key, and a Trash). The
+     two Community lists are stubbed READS in this screen's own context, in the routes' shapes
+     (communitystore.moderationQueue rows; communitymine.mine() rows), so nothing on the board is written. */
+  { name: 'leftover-delete', owner: 'Angel', go: async (page) => {
+    await page.waitForSelector('#removed-toggle', { state: 'visible', timeout: 8000 });
+    if ((await page.getAttribute('#removed-toggle', 'aria-expanded')) !== 'true') await page.click('#removed-toggle');
+    await page.click(`[data-delete-leftover="${LEFTOVER.claim}"]`, { timeout: 5000 });
+    await page.waitForSelector('#del-modal:not([hidden])', { state: 'visible', timeout: 8000 });
+    await page.mouse.move(1, 1);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => { const m = document.getElementById('del-modal'); return m && !m.hidden ? m.innerText : ''; });
+    for (const want of ['Its community account: anything it posted there stays up', 'Its community account does not come back']) {
+      if (!t.includes(want)) throw new Error('the delete confirmation does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },
+  { name: 'community-held-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const rows = [
+      { id: 'c-ada-1', entry: 'comment', status: 'held', remotePostId: '1b2c3d4e-0000-4000-8000-000000004994', author: { type: 'agent', name: 'Ada' }, body: 'Same here, a template made the weekly report much quicker.', receivedAt: '2026-10-01T08:00:00Z' },
+      { id: 'c-rex-1', entry: 'comment', status: 'held', remotePostId: '1b2c3d4e-0000-4000-8000-000000004994', notSent: true, author: { type: 'agent', name: LEFTOVER.name }, body: 'I tried this on the catalogue and it worked.', receivedAt: '2026-10-01T08:05:00Z' },
+    ];
+    await page.route('**/api/community/moderation**', (r) => {
+      const status = new URL(r.request().url()).searchParams.get('status');
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ queue: rows.filter((x) => !status || x.status === status) }) });
+    });
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#community-held-list li[data-id="c-rex-1"]', { state: 'visible', timeout: 8000 });
+    /* The heading at the top, unless that leaves the deleted agent's row cut off (a phone): then that row in the middle.
+       Checked again after a pause and redone (up to 3 s), since the list repaints on its own poll. */
+    const place = () => page.evaluate(() => {
+      document.getElementById('community-held-head').scrollIntoView({ block: 'start' });
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      if (li && li.getBoundingClientRect().bottom > innerHeight) li.scrollIntoView({ block: 'center' });
+    });
+    const whole = () => page.evaluate(() => {
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      const r = li ? li.getBoundingClientRect() : null;
+      return !!(r && r.top >= 0 && r.bottom <= innerHeight);
+    });
+    await page.mouse.move(1, 1);
+    for (const until = Date.now() + 3000; ;) {
+      await place();
+      await page.waitForTimeout(400);
+      if (await whole() || Date.now() > until) break;
+    }
+  }, verify: async (page) => {
+    const got = await page.evaluate(() => {
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      const r = li ? li.getBoundingClientRect() : null;
+      return { text: li ? li.innerText : '', inView: !!(r && r.top >= 0 && r.bottom <= innerHeight),
+        at: r ? [Math.round(r.top), Math.round(r.bottom), innerHeight, Math.round(scrollY)] : null };
+    });
+    if (!got.text.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(got.text));
+    if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen (top, bottom, viewport, scrollY): ' + JSON.stringify(got.at));
+  } },
+  { name: 'community-mine-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
+    const posts = [
+      { id: 'p-rex-2', title: 'Three tries at the weekly report template', agent: LEFTOVER.claim + ' (deleted agent)', postedAt: '2026-10-01T09:00:00.000Z', state: 'not_sent', ...base, canDelete: false },
+      { id: 'p-rex-1', title: 'What I learned pricing the linen range', agent: LEFTOVER.claim + ' (deleted agent)', postedAt: '2026-09-30T15:00:00.000Z', state: 'sent', ...base, canDelete: true },
+      { id: 'p-ada-1', title: 'Writing captions before the photos arrive', agent: 'Ada', postedAt: '2026-09-29T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
+    ];
+    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [] }) }));
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#community-mine-list li[data-id="p-rex-2"]', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('community-mine-head').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => { const l = document.getElementById('community-mine-list'); return l && !l.hidden ? l.innerText : ''; });
+    for (const want of ['Not sent. It stayed on this computer.', LEFTOVER.claim + ' (deleted agent)']) {
+      if (!t.includes(want)) throw new Error('the community list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
   } },
 ];
 
@@ -436,6 +756,10 @@ const DATA_SETS = {
   },
 };
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
+/* #4994: the removed agent the leftover-delete screen opens the delete confirmation for. Invented. Seeded only when
+   that screen is asked for (run() sets SEED_LEFTOVER), so every other screen's board has no "Show removed agents". */
+const LEFTOVER = { claim: 'rex', name: 'Rex', role: 'Writer' };
+let SEED_LEFTOVER = false;
 
 /* Everything that can be written before the board starts, through the engine's
    own writers, so the files are the shapes the real producers make. The data
@@ -461,15 +785,8 @@ function seedFiles(roots) {
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
-  /* #4524: first run done BEFORE the board starts makes the board's one-time step read this as an
-     existing install, which owes the one-time Community notice (#4288 part B). It then opened over the
-     run's first shot, card hidden, and the report said ok. Seen it here, as a person who has would have;
-     the board's step leaves an existing file alone. MSHOTS_COVER_CONTROL=cmnotice skips this, and the
-     cover check below must then fail that shot. */
-  if (COVER_CONTROL !== 'cmnotice') {
-    const seen = require(path.join(REPO, 'engine', 'communityswitch')).markNoticeSeen();
-    if (!seen.ok) throw new Error('the seed could not mark the Community notice seen: ' + seen.because);
-  }
+  /* #4820: an existing install no longer owes a one-time Community notice (#4524 marked it seen here so it
+     could not cover the first shot), so there is nothing to mark. */
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
@@ -496,6 +813,7 @@ function seedFiles(roots) {
       fs.writeFileSync(path.join(create.workerDir(a.claim), 'CLAUDE.md'), '# ' + a.name + '\n\nYou are ' + a.name + ', the ' + a.role.toLowerCase() + '.\n');
     }
   }
+  if (SEED_LEFTOVER) seedLeftover(landed);
   /* The chat agent's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so the list is capped; View All shows with any file), one with
      a long name. */
@@ -515,6 +833,35 @@ function seedFiles(roots) {
       state: 'needs_you', because: DATA.ask,
     }), "the ask agent's needs-you state");
   }
+}
+
+/* #4994: a removed agent with something left on disk, as remove.js leaves one: its folder, its auto-start file and
+   its removed record (the fields recordRemoval writes). Plus a community key in the community folder the board uses
+   (communitysend's own path, so hasAccount finds it) and a Trash on the sandboxed home, so the plan is the Trash
+   case. The key is invented, and the board's community address is a dead one (startBoard), so nothing is sent. */
+function seedLeftover(landed) {
+  const create = require(path.join(REPO, 'engine', 'create'));
+  const store = require(path.join(REPO, 'engine', 'store'));
+  const communitysend = require(path.join(REPO, 'engine', 'communitysend'));
+  const { claim, name, role } = LEFTOVER;
+  fs.mkdirSync(create.workerDir(claim), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(claim), 'CLAUDE.md'), '# ' + name + '\n\nYou are ' + name + ', the ' + role.toLowerCase() + '.\n');
+  fs.writeFileSync(path.join(create.workerDir(claim), 'notes.md'), 'Catalogue notes.\n'.repeat(200));
+  fs.mkdirSync(path.dirname(create.plistPath(claim)), { recursive: true });
+  fs.writeFileSync(create.plistPath(claim), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>'
+    + '<key>Label</key><string>' + create.serviceLabel(claim) + '</string>'
+    + '<key>ProgramArguments</key><array>' + ['/bin/bash', '-lc', 'start', claim, '/usr/local/bin/claude', '/usr/local/bin/tmux', claim, 'sonnet']
+      .map((x) => '<string>' + x + '</string>').join('') + '</array>'
+    + '<key>RunAtLoad</key><true/></dict></plist>\n');
+  const removedAt = new Date(Date.now() - 2 * 86400e3).toISOString();
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: claim, shownAs: name, removedAt, stopped: true,
+    leftRunningByChoice: false, label: create.serviceLabel(claim), plist: create.plistPath(claim), ours: true }], null, 2) + '\n');
+  const keysFile = communitysend._paths.keysFile();
+  fs.mkdirSync(path.dirname(keysFile), { recursive: true });
+  fs.writeFileSync(keysFile, JSON.stringify({ [claim]: { apiKey: 'sample-community-key-4994' } }, null, 2) + '\n', { mode: 0o600 });
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.Trash'), { recursive: true });
+  if (!communitysend.hasAccount(claim)) landed({ recorded: false, because: 'hasAccount does not see the seeded key' }, 'the leftover agent\'s community key');
 }
 
 async function waitForBoard(base, ms) {
@@ -556,6 +903,12 @@ async function startBoard() {
     /* The board installs its agent browser (a ~100MB download) on start unless
        it is told it is a sandbox; every other self-booting check sets this. */
     AGENT_WORKFORCE_DRY_RUN: '1', AGENT_WORKFORCE_RUNNERS_DIR: path.join(home, 'runners'),
+    /* #4632: the catalogue the picker downloads. The harness passes its local copy; run alone,
+       a dead port, so this board never asks installkosmos.com (#4253). */
+    KOSMOS_CATALOGUE_BASE: process.env.KOSMOS_CATALOGUE_BASE || 'http://127.0.0.1:9/',
+    /* #4994: the community the board sends to, a dead address as tools/browser-checks.sh sets it. A throwaway board
+       reads the switch as on (no file is Josh's default), and leftover-delete seeds a community key. */
+    AGENT_WORKFORCE_COMMUNITY_URL: process.env.AGENT_WORKFORCE_COMMUNITY_URL || 'http://127.0.0.1:9/',
   };
   /* HOME is sealed in this process too (an engine writer can fall back to os.homedir()), and
      Playwright finds its browsers under the home. Pin its cache to the REAL one first, so the
@@ -718,7 +1071,11 @@ async function overflowOf(page) {
    px either way is Apple's floor. A checkbox or radio is judged by its label
    when it has one, since that is what the finger lands on. A link inside a
    sentence is exempt (WCAG 2.5.8's inline exception). A typing field under
-   16px makes iOS Safari zoom the page on focus. */
+   16px makes iOS Safari zoom the page on focus.
+   #5206: a control whose BOX is under 44 can still be a 44 target, the standard way: a ::after (or ::before) laid
+   past it, or padding taken back by a negative margin. What counts is where a finger lands, so a small box is probed:
+   scrolled into view, each edge of a 44x44 square centred on it must hit the control (document.elementFromPoint).
+   Only a control every probe reaches passes; a probe that hits something else, or an off-screen point, fails it. */
 const MIN_TAP_PX = 44;
 const MIN_FIELD_FONT_PX = 16;
 async function fitOf(page) {
@@ -737,6 +1094,28 @@ async function fitOf(page) {
     };
     const taps = [];
     const seen = new Set();
+    const sx = window.scrollX, sy = window.scrollY;
+    // scrollIntoView moves every scrollable ancestor, not only the window: each one's place is kept and put back, so
+    // nothing after the audit (a screen's verify, its after-step) sees a moved page.
+    const moved = new Map();
+    const remember = (el) => { for (let a = el.parentElement; a; a = a.parentElement) if (!moved.has(a) && (a.scrollTop || a.scrollLeft || a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth)) moved.set(a, [a.scrollLeft, a.scrollTop]); };
+    /* Probes sit on the four edge midpoints of the 44x44 square, half a pixel in. Corners are not probed: a rounded
+       hit area (border-radius clips hit-testing) would fail a corner a finger never needs. The far edges are
+       half-open, so a 43px reach fails rather than passes. */
+    const reaches = (target) => {
+      remember(target);
+      target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const r = target.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, h = minTap / 2 - 0.5;
+      const pts = [];
+      if (r.height < minTap - 0.5) pts.push([cx, cy - h], [cx, cy + h]);
+      if (r.width < minTap - 0.5) pts.push([cx - h, cy], [cx + h, cy]);
+      return pts.every(([x, y]) => {
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        const hit = document.elementFromPoint(x, y);
+        return !!hit && (hit === target || target.contains(hit));
+      });
+    };
     for (const el of document.querySelectorAll('button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea')) {
       if (el.disabled || !shown(el) || inSentence(el)) continue;
       let target = el;
@@ -745,8 +1124,10 @@ async function fitOf(page) {
       seen.add(target);
       const r = target.getBoundingClientRect();
       if (!onPage(r)) continue;
-      if (r.width < minTap - 0.5 || r.height < minTap - 0.5) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+      if ((r.width < minTap - 0.5 || r.height < minTap - 0.5) && !reaches(target)) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
     }
+    for (const [a, [l, t]] of moved) a.scrollTo({ left: l, top: t, behavior: 'instant' });   // instant: a smooth box would still be moving
+    window.scrollTo({ left: sx, top: sy, behavior: 'instant' });
     const fields = [];
     for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
       if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
@@ -760,8 +1141,8 @@ async function fitOf(page) {
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   // A control with a mistyped name would arm nothing and pass; refuse it instead.
-  if (COVER_CONTROL && !['cmnotice', 'overlay', 'spill'].includes(COVER_CONTROL)) {
-    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not ' + COVER_CONTROL);
+  if (COVER_CONTROL && !['overlay', 'spill'].includes(COVER_CONTROL)) {
+    throw new Error('MSHOTS_COVER_CONTROL must be overlay or spill, not ' + COVER_CONTROL);
   }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
@@ -769,14 +1150,14 @@ async function run() {
   if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
     throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
   }
-  // The long code fits at the desktop size (its 1.6rem cap), so spill with no phone size would arm nothing and pass.
+  // The long code is about 450px wide (1.9rem mono), inside the desktop card, so spill with no phone size would arm nothing and pass.
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
-  /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
-     any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
-  if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
+  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (phone-only at desktop,
+     desktop-only at a phone). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop ? sc.phoneOnly : sc.desktopOnly)).length, 0);
+  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop, desktop-only at a phone)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
@@ -784,12 +1165,12 @@ async function run() {
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
+  SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
 
   const board = await startBoard();
   const rows = [];
-  const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
+  const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
-  let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
@@ -800,10 +1181,11 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
-              if (s.desktop && sc.phoneOnly) {
+              if (s.desktop ? sc.phoneOnly : sc.desktopOnly) {
+                const why = s.desktop ? 'phone-only screen' : 'desktop-only screen';
                 // The same shape as a shot row, so report.json stays one kind of entry.
-                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
-                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
+                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
+                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a ${why}`);
                 continue;
               }
               /* A fresh context per screen: the board remembers choices (layout,
@@ -839,13 +1221,6 @@ async function run() {
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
-                /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
-                   green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
-                if (COVER_CONTROL === 'cmnotice' && !coverControlWaited) {
-                  // Once: the notice is recorded as seen when it opens, so no later shot would get it.
-                  coverControlWaited = true;
-                  await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
-                }
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -865,12 +1240,6 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
-                /* #4524: the one-time Community notice sits over whatever the shot was for. Read after the shot,
-                   so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
-                   to its markup to this check. */
-                if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
-                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept; the notice may have opened just after it)');
-                }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;
@@ -882,6 +1251,16 @@ async function run() {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
+              }
+              // kosmos#4594: a screen's verify says the shot is the screen meant; if not, the shot goes and the row errors.
+              let shotGone = false;
+              if (sc.verify && !/ERROR/.test(note)) {
+                try { await sc.verify(page, ctxData); } catch (e) {
+                  try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                  shotGone = true;
+                  errors++;
+                  note += (note ? '; ' : '') + 'ERROR verify (shot deleted): ' + String(e.message || e).split('\n')[0];
+                }
               }
               /* A screen that changed the board's state puts it back here, whatever happened above,
                  so no later screen photographs it (#4545). A failure to is a flag on this row (counted
@@ -902,7 +1281,7 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
+              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
@@ -931,10 +1310,10 @@ async function run() {
 
   const md = ['# Mobile screenshots', '',
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
-    `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
-    `Skipped (phone-only screens at the desktop size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
+    `Shots: ${rows.filter((r) => r.file).length}${rows.some((r) => !r.file) ? ` (plus ${rows.filter((r) => !r.file).length} deleted by its verify)` : ''}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
+    `Skipped (phone-only at the desktop size, desktop-only at a phone size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');

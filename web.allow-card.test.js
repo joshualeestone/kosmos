@@ -41,23 +41,26 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.doesNotMatch(card, /device_id\)\s*\+\s*'<\/(b|span|p|div)>/, 'the device id reaches readable text');
   assert.ok(!/>' \+ askEsc\(d\.device_id\)/.test(card), 'the device id is interpolated as text, which identifies the device beyond kind, time and code');
   // Positive control: the same card does carry the kind, the time and the code.
-  assert.match(card, /askEsc\(kind\)/);
+  // #4637: the headline says who wants in (askHead: the kind, or "Your computer ... wants to join").
+  assert.match(card, /askHead\(d\)/);
   assert.match(card, /askAgoSpan\(d\.first_seen\)/);   // #3978: the time is a span filled in place
   assert.match(card, /askEsc\(d\.code\)/);
   assert.match(card, /data-ask="allow"[^>]*>Allow<\/button>/);
-  assert.match(card, /data-ask="deny"[^>]*>Deny<\/button>/);
+  assert.match(card, /data-ask="deny"[^>]*>Not me<\/button>/);
 });
 
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
   assert.match(JS, /return d && typeof d\.name === 'string' && d\.name \? d\.name : 'Unknown device';/);
-  // ICK's finding: this computer's own in-app sign-in (no name) is "This computer (Kosmos app)", matched by its own device id.
-  assert.match(JS, /if \(d && ASK\.self && d\.device_id === ASK\.self\) return 'This computer \(Kosmos app\)';/);
-  assert.match(SERVER, /self_device_id: self/, 'the devices route no longer names this Mac\'s own id');
+  /* #4610 (Josh's ruling 13:00): this Mac's own sign-in is granted by the board and never shown, so the page no
+     longer relabels it and the board no longer sends its id (it picks the automatic grant, so it stays off the read
+     routes). Replaces #3829's "This computer (Kosmos app)" pin. */
+  assert.doesNotMatch(JS, /This computer \(Kosmos app\)/, 'the page still relabels a row it should never see');
+  assert.doesNotMatch(SERVER, /self_device_id/, 'a read route still sends this Mac\'s own device id to the page');
 });
 
 test('the change-your-password sentence appears on the Deny branch and the re-ask line, never on the plain ask', () => {
-  const at = JS.indexOf("const say = d.code ?");
-  const plain = JS.slice(at, JS.indexOf('\n', at));
+  const at = JS.indexOf("const say = d.joining_computer");
+  const plain = JS.slice(at, JS.indexOf(';', at));   // #4637: the plain ask spans two lines now (the computer variant)
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
   const d0 = JS.indexOf("e.state === 'denied'");
@@ -70,12 +73,14 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
   assert.match(JS, /has asked again\. If it is not yours, change that email\\?'s password; that is what stops it/);
 });
 
-/* #3829: "Not now" and "Not me" are gone (Mona Lisa's review: Allow / Deny only); a request that is left
-   alone fades after an hour instead. Requests show ONCE, as cards, not again in the devices list. */
-test('Remove confirms inline with the sentence the tunnel makes true; Allow / Deny only, and requests show once', () => {
+/* #3829: "Not now" is gone; a request that is left alone fades after an hour instead. #4637 (Mona Lisa's flow
+   outline, Josh's go 09-30 17:34): the turn-away button reads "Not me", in place of Deny, not beside it. Requests show
+   ONCE, as cards, not again in the devices list. */
+test('Remove confirms inline with the sentence the tunnel makes true; Allow / Not me only, and requests show once', () => {
   assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
-  assert.doesNotMatch(JS, />Not me</, 'a Not me button is back');
+  assert.doesNotMatch(JS, />Deny</, 'a Deny button is back beside Not me: two ways to say no');
+  assert.equal((JS.match(/>Not me</g) || []).length, 1, 'expected exactly one Not me button');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
   // Stronger than the class name: the devices list paints no Allow or Deny at all.
   const pd = JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
@@ -97,7 +102,7 @@ test('the poll for what is waiting reads a file and never spawns; the verbs shel
 });
 
 test('the Plus tab carries the needs-you dot in the nav’s own grammar', () => {
-  assert.match(PAGE, /data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus<\/span><span class="dot" aria-hidden="true"><\/span><span class="vh"> \(needs you\)<\/span>/);
+  assert.match(PAGE, /data-go="plus" aria-controls="s-sec-plus"><span>Kosmos\+<\/span><span class="dot" aria-hidden="true"><\/span><span class="vh"> \(needs you\)<\/span>/);
   assert.match(JS, /#s-nav button\[data-go="plus"\]/);
 });
 
@@ -116,4 +121,46 @@ test('#718: the Allow card has no solid coloured left bar (Josh, 2026-09-24), an
   // The rule is a one-line block: anchor on the whole of it, so the 44px cannot drift out of
   // the touchscreen query unnoticed.
   assert.match(PAGE, /@media \(hover: none\) \{ \.askcard button \{ min-height: 44px; \} \}/, 'a touchscreen block gives the Allow buttons 44px');
+});
+
+/* #4824: what the person is told after a Remove, from the connector's answer (kosmos#4803). Run, not grepped. */
+test('#4824: removedWords says the other computers are reached only when the connector says so', () => {
+  const src = JS.slice(JS.indexOf('function removedWords('), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
+  assert.ok(src.length > 100, 'removedWords moved; re-anchor');
+  const removedWords = new Function(src + '; return removedWords;')();
+  assert.equal(removedWords({ removed: true, signed_out: true, local_cutoff: true }), 'Removed. Its current sign-in on your other computers ends too; it stays allowed there until you remove it there.');
+  assert.equal(removedWords({ removed: false, signed_out: true, local_cutoff: true }), "It was not on this computer's list. Its current sign-in on your other computers ends; it stays allowed there until you remove it there.");
+  assert.equal(removedWords(null), 'Removed here.', 'an unreadable answer claimed how the connector works');
+  assert.equal(removedWords({ timed_out: true }), 'This took too long to finish. If it is still on the list above, remove it again. If it is gone, it may still open your other computers until you remove it there too.');
+  // An older connector: neither field. Said as how it works, not as a failure.
+  assert.equal(removedWords({ removed: true }), 'Removed here. If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.');
+  assert.doesNotMatch(removedWords({ removed: true }), /could not/);
+  // An unreachable Kosmos+ answers false, and a new connector that left the field out is read the same way.
+  for (const said of [{ removed: true, signed_out: false, local_cutoff: true }, { removed: true, local_cutoff: true }]) {
+    assert.match(removedWords(said), /^Removed here\. Kosmos\+ could not confirm its sign-in was ended, so it may still open/, JSON.stringify(said));
+  }
+  assert.match(removedWords({ signed_out: false, local_cutoff: false }), /could not confirm its sign-in was ended.*could not record the end of its current sign-in/);
+  assert.doesNotMatch(removedWords({ signed_out: true, local_cutoff: true }), /could not record/);
+  for (const said of [null, {}, { removed: true }, { removed: false, signed_out: true, local_cutoff: true }, { signed_out: true, local_cutoff: true },
+    { signed_out: false, local_cutoff: true }, { signed_out: false, local_cutoff: false }, { signed_out: true, local_cutoff: false }]) {
+    assert.doesNotMatch(removedWords(said), /[\u2014]|&mdash;/, JSON.stringify(said));
+  }
+});
+
+test('#4824: what a Remove said stays through every repaint until the next Remove or Keep', () => {
+  assert.match(JS, /if \(msg\.textContent !== ASK\.said\) msg\.textContent = ASK\.said;/);
+  assert.match(JS, /if \(ASK\.said && Date\.now\(\) - ASK\.saidAt > REMOVE_SAID_MS\) ASK\.said = '';/);
+  assert.match(JS, /const say = ASK\.said \? ASK\.said \+ ' The list above could not be read just now\.' : err;\s*if \(msg\.textContent !== say\) msg\.textContent = say;/);
+  assert.match(JS, /if \(!box \|\| box\.hidden\) \{ ASK\.said = ''; return; \}/);
+  assert.match(JS, /ASK\.saidAt = Date\.now\(\);/);
+  // #4824: one Remove at a time; the row says Removing while the connector is still telling Kosmos+.
+  const handler = JS.slice(JS.indexOf("if (act === 'removeyes')"));
+  assert.match(handler, /if \(ASK\.removing\) return;\s*ASK\.confirm = null;\s*ASK\.removing = id;\s*paintDevices\(\);/);
+  assert.match(handler, /finally \{ ASK\.removing = null; \}/);
+  assert.match(JS, /if \(act === 'remove'\) \{ if \(ASK\.removing\) return;/);
+  assert.match(JS, /confirming \|\| ASK\.removing \? ' disabled' : ''/);
+  assert.doesNotMatch(JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf('function removedWords')), /msg\.textContent = '';/, 'a repaint clears the line again');
+  assert.match(JS, /if \(act === 'remove'\) \{ if \(ASK\.removing\) return; ASK\.confirm = id; ASK\.said = '';/);
+  assert.match(JS, /if \(act === 'keep'\) \{ ASK\.confirm = null; ASK\.said = '';/);
+  assert.match(JS.slice(JS.indexOf("if (act === 'removeyes')")), /ASK\.said = removedWords\(/);
 });

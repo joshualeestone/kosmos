@@ -23,6 +23,7 @@ const feedpublish = require('./feedpublish');
 const cs = require('./communitysend');
 
 const CHANNELS = new Set(['general', 'engineering', 'operations']);
+const SUB_CHANNELS = { 'kosmos-bugs': 'engineering' };   // kosmos#5062
 
 // A fake kosmos-community. `mode` bends one behaviour per test.
 function backend() {
@@ -41,13 +42,25 @@ function backend() {
         return null;
       };
       if (req.method === 'POST' && req.url === '/agents/register') {
+        // As kosmos-community answers an unknown field (app/main.py): 400 unknown_fields, never a 422.
+        if (st.mode.refuseGroup && 'install_group' in body) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
+        if (st.mode.badName) return send(422, { detail: [{ loc: ['body', 'name'], msg: 'bad name', type: 'value_error' }] });
+        if (st.mode.badGroupValue && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern '^[A-Za-z0-9_-]{16,64}$'", type: 'string_pattern_mismatch' }] });
+        if (st.mode.clash > 0) { st.mode.clash -= 1; return send(409, { detail: 'that name is taken' }); }
         if ([...st.agents.values()].some((a) => a.name.toLowerCase() === body.name.toLowerCase())) return send(409, { detail: 'that name is taken' });
         const id = 'a' + (++st.n);
-        const a = { id, name: body.name, bio: body.bio, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true };
+        const a = { id, name: body.name, bio: body.bio, installGroup: body.install_group || null, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true, registeredAt: new Date().toISOString() };
         st.agents.set(id, a);
         return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
       }
+      // #4800: the public profile, by name, case ignored; 404 for a name no ACTIVE agent has (the service's rule).
+      if (req.method === 'GET' && req.url.startsWith('/agents/by-name/')) {
+        const name = decodeURIComponent(req.url.slice('/agents/by-name/'.length)).toLowerCase();
+        const a = [...st.agents.values()].find((x) => x.active && x.name.toLowerCase() === name);
+        return a ? send(200, { name: a.name, bio: a.bio || null, registered_at: a.registeredAt || null, counts: {} }) : send(404, { detail: 'agent not found' });
+      }
       if (req.method === 'POST' && req.url === '/agents/login') {
+        if (st.mode.loginDown) return send(503, { detail: 'unavailable' });
         const a = [...st.agents.values()].find((x) => x.name === body.name && x.key === body.api_key && x.active);
         if (!a) return send(401, { detail: 'wrong name or key' });
         a.token = 'tok_' + a.id + '_' + (++st.n);
@@ -59,8 +72,17 @@ function backend() {
         const extra = Object.keys(body).filter((k) => !['channel', 'sub_channel', 'title', 'body'].includes(k));
         if (extra.length) return send(400, { error: 'unknown_fields', fields: extra });
         if (!CHANNELS.has(body.channel)) return send(400, { detail: 'unknown channel' });
+        // kosmos#5062: as the real service: a sub-channel must exist under the channel (its migration 0011 adds
+        // engineering/kosmos-bugs; `noBugs` plays a site deployed before it).
+        // #5062 review 1: what the board had saved for this post when the fallback resend reached the site.
+        if (st.mode.peekOnGeneral && body.channel === 'general') st.peek = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
+        if (body.sub_channel != null && (st.mode.noBugs || SUB_CHANNELS[body.sub_channel] !== body.channel)) {
+          return send(400, { detail: 'unknown sub_channel for this channel' });
+        }
         if (st.mode.refuse) return send(422, { detail: { error: 'refused_by_feedguard', reasons: ['email'] } });
         if (st.mode.cap) return send(429, { detail: { error: 'daily_post_limit', limit: 3 } }, { 'retry-after': '7200' });
+        if (st.mode.limiter) return send(429, { error: 'rate_limit_exceeded', retry_after: 60 }, { 'retry-after': '60' });   // #4953
+        if (st.mode.odd429) return send(429, { detail: 'slow down' }, { 'retry-after': '7200' });   // #4953: a 429 whose reason cannot be read
         const id = 'p' + (++st.n);
         st.posts.set(id, { id, agent: a.id, ...body, deleted: false, taken_down: false, take_down_reason: null });
         return send(201, { id, ...body });
@@ -70,6 +92,22 @@ function backend() {
         const p = st.posts.get(decodeURIComponent(req.url.slice(7)));
         if (!p || p.agent !== a.id || p.deleted) return send(404, { detail: 'post not found' });
         p.deleted = true;
+        return send(204);
+      }
+      // #4922: PATCH /agents/me with install_group, as the service validates it (^[A-Za-z0-9_-]{16,64}$).
+      if (req.method === 'PATCH' && req.url === '/agents/me' && body && 'install_group' in body) {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        if (st.mode.noGroupRoute) return send(404, { detail: 'not found' });
+        if (st.mode.groupHang) return;   // never answers
+        if (st.mode.groupUnauth) return send(401, { detail: 'invalid or expired token' });
+        if (st.mode.groupNoMethod) return send(405, { detail: 'Method Not Allowed' });
+        if (st.mode.groupBadBody) return send(400, { error: 'invalid_input' });   // as update_me refuses a value
+        if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
+        if (st.mode.groupDown) return send(503, { detail: 'unavailable' });
+        if (st.mode.refuseGroup) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
+        if (body.install_group === null) { a.installGroup = null; return send(204); }   // the service: null clears it
+        if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern '^[A-Za-z0-9_-]{16,64}$'", type: 'string_pattern_mismatch' }] });
+        a.installGroup = body.install_group;
         return send(204);
       }
       if (req.method === 'GET' && req.url === '/agents/me/posts') {
@@ -99,13 +137,16 @@ function fresh() {
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
 }
-test.beforeEach(async () => { fresh(); be = await backend(); });
+test.beforeEach(async () => { fresh(); cs.resetPauses(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 // Publish a post as an agent through the real choke. trusted -> published, else held.
+// #3485 (2026-09-30): an agentId now publishes straight away, so a HELD fixture asks the choke
+// for the hold explicitly (trusted: false), standing for a row held before that update.
 function agentPost(agent, fields, { trusted = true } = {}) {
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });   // a real agent has a folder (#4922)
   if (trusted) communitystore.grantTrust(agent);
-  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, { agentId: agent });
+  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, trusted ? { agentId: agent } : { trusted: false });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r;
 }
@@ -156,7 +197,9 @@ test('1. a published post reaches the backend with exactly the pinned keys', asy
   assert.deepEqual(Object.keys(posts()[0].body).sort(), [...cs.PAYLOAD_KEYS].sort());
   assert.deepEqual(posts()[0].body, { channel: 'general', sub_channel: null, title: 'Weekly ops', body: 'We moved invoicing to Tuesdays.' });
   const reg = be.st.seen.find((s) => s.url === '/agents/register');
-  assert.deepEqual(reg.body, { name: 'Ava', bio: 'Operations assistant' });
+  const { install_group: group, ...rest } = reg.body;   // #4922: the install's group id rides along
+  assert.deepEqual(rest, { name: 'Ava', bio: 'Operations assistant' });
+  assert.match(String(group), /^[0-9a-f]{48}$/);
   assert.equal(cs.statuses()[r.id].state, 'sent');
   // A second sweep does not send it again.
   await cs.sweep();
@@ -354,6 +397,40 @@ test('an unknown board falls back to general once; a name clash registers with a
   assert.match(be.st.seen.filter((s) => s.url === '/agents/register').at(-1).body.name, /^Mo-[0-9a-f]{4}$/);
 });
 
+test('#5062: a Kosmos bug report is sent to engineering/kosmos-bugs; a site without it gets it in general', async () => {
+  /* The board stores a --kosmos-bug post with board 'kosmos-bugs' (the agent route maps the yes/no to it). The send turns
+     that into the site's sub-channel under its parent; a site deployed before the channel answers "unknown sub_channel",
+     and the existing fallback resends it to general with no sub-channel, so the report is not lost. */
+  await on();
+  be.st.agents.set('b', { id: 'b', name: 'Bo', key: 'k', token: 't', active: true });
+  store.writeProfile('bo', { displayName: 'Bo' });
+  communitystore.grantTrust('bo');
+  const report = () => feedpublish.publishPost({ kind: 'community_post', agent: 'bo', at: new Date().toISOString(), topic: 'Board shows idle while capped', body: 'I asked, it said idle, I expected out of usage. Kosmos 0.7.18.' }, { agentId: 'bo', board: cs.KOSMOS_BUGS_SLUG });
+  const r = report();
+  await cs.sweep();
+  const sent = posts().map((p) => [p.body.channel, p.body.sub_channel]);
+  assert.deepEqual(sent.at(-1), ['engineering', 'kosmos-bugs'], 'the report did not go to its channel: ' + JSON.stringify(sent));
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  // An ordinary post beside it still goes to general with no sub-channel.
+  assert.deepEqual([cs.payload({ body: 'x', topic: 't' }).channel, cs.payload({ body: 'x', topic: 't' }).sub_channel], ['general', null]);
+  // A site that does not know the channel yet: one refusal, then general, then sent.
+  be.st.mode.noBugs = true;
+  be.st.mode.peekOnGeneral = true;
+  const before = posts().length;
+  const r2 = report();
+  await cs.sweep();
+  /* Review 1: the resend's mark is saved BEFORE it goes, naming general, so a board that stops while it is out looks for
+     the post where it was sent and never posts a second copy. */
+  assert.ok(be.st.peek && be.st.peek[r2.id], 'nothing was saved for the post before the fallback resend');
+  assert.deepEqual([be.st.peek[r2.id].channel, be.st.peek[r2.id].attempted], ['general', true],
+    'the fallback resend went out with its old mark: ' + JSON.stringify(be.st.peek[r2.id]));
+  be.st.mode.peekOnGeneral = false;
+  const tries = posts().slice(before).map((p) => [p.body.channel, p.body.sub_channel]);
+  assert.deepEqual(tries, [['engineering', 'kosmos-bugs'], ['general', null]], 'the fallback did not resend to general: ' + JSON.stringify(tries));
+  assert.equal(cs.statuses()[r2.id].state, 'sent');
+  be.st.mode.noBugs = false;
+});
+
 test('a post with no topic takes its title from the first line of its body, cut at 120 UTF-16 units', () => {
   assert.equal(cs.titleFor({ body: '\n## First line here\nsecond' }), 'First line here');
   const long = '😀'.repeat(70);          // 140 units: the cut must not split a pair
@@ -417,6 +494,21 @@ test('a post held before sending went on and released after it is sent', async (
   assert.deepEqual(posts().map((p) => p.body.title), ['held earlier']);
 });
 
+test('#4373 part B review 7: a post released before the FIRST sweep of an ON period is sent when the release records the start (control: without it, it is not)', async () => {
+  for (const record of [true, false]) {
+    fresh();
+    const held = agentPost('ren' + record, { topic: 'released early ' + record, body: 'b' }, { trusted: false });
+    await new Promise((r) => setTimeout(r, 5));
+    SW = { on: true, ok: true };                        // on, but no sweep has recorded the start
+    if (record) assert.equal(cs.recordPeriodStart(), true);   // what POST /api/community/release does first
+    communitystore.releaseHeld(held.id);
+    await new Promise((r) => setTimeout(r, 5));
+    await cs.sweep();
+    const sent = posts().some((p) => p.body.title === 'released early ' + record);
+    assert.equal(sent, record, record ? 'the released post never went' : 'control: without the recorded start the post should fall before the window');
+  }
+});
+
 test('a send whose answer was lost is not sent twice: the server copy is adopted', async () => {
   await on();
   const r = agentPost('sol', { topic: 'once', body: 'only once' });
@@ -465,7 +557,7 @@ test('a 201 with no id is adopted from the server on the next sweep, not sent ag
 });
 
 test('a delete for a post the board does not have is refused', () => {
-  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post' });
+  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post or comment' });
   assert.equal(cs.requestDelete('').ok, false);
   assert.equal(cs.requestDelete(42).ok, false);
 });
@@ -766,4 +858,1031 @@ test('a delete the server does not accept is recorded against the post and retri
   cs.setSender((url, init) => fetch(url, init));
   await cs.sweep();
   assert.equal(cs.statuses()[r.id].state, 'deleted');
+});
+
+/* #4774 review 2 (BLOCKER): the sweep reads GET /agents/me/posts, which the service answers with up to 200 posts of up
+   to 4000 characters (kosmos-community app/routers/agents.py my_posts). That is far past the 256 KiB an agentCall
+   reads, so the sweep's own reads must not be held to it: a capped answer would leave an attempted post pending
+   forever and never bring a take-down home. 4000 three-byte characters per post is the worst case the cap is sized for. */
+function fillTo200(agentId) {
+  for (let i = 0; i < 199; i++) {
+    const id = 'fill' + i;
+    be.st.posts.set(id, { id, agent: agentId, channel: 'general', sub_channel: null, title: 'filler ' + i,
+      body: '€'.repeat(4000), deleted: false, taken_down: false, take_down_reason: null });
+  }
+}
+// Measures the biggest /agents/me/posts answer, so each test shows its answer really was past the agent-facing cap.
+function measuringSender() {
+  const seen = { bytes: 0 };
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (url.endsWith('/agents/me/posts')) seen.bytes = Math.max(seen.bytes, (await res.clone().arrayBuffer()).byteLength);
+    return res;
+  });
+  return seen;
+}
+function assertFullSize(seen) {
+  assert.ok(seen.bytes > cs.RESPONSE_CAP, 'control: the answer was not bigger than the agent-facing cap (' + seen.bytes + ')');
+  assert.ok(seen.bytes <= cs.SWEEP_RESPONSE_CAP, 'the worst-case answer does not fit the sweep cap (' + seen.bytes + ')');
+}
+
+test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still settles an attempted post', async () => {
+  await on();
+  const r = agentPost('sol', { topic: 'once', body: 'only once' });
+  // The server stores the post, but the answer never reaches the board (as in the lost-answer test above).
+  cs.setTimeoutMs(150);
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (init.method === 'POST' && url.endsWith('/posts')) {
+      await new Promise((ok, fail) => {
+        const t = setTimeout(ok, 400);
+        init.signal.addEventListener('abort', () => { clearTimeout(t); fail(new Error('aborted')); });
+      });
+    }
+    return res;
+  });
+  await cs.sweep();
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  fillTo200([...be.st.posts.values()][0].agent);
+  cs.setTimeoutMs(5000);
+  const seen = measuringSender();
+  await cs.sweep();
+  assertFullSize(seen);
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'the attempted post was not adopted from a full /agents/me/posts');
+  assert.equal(posts().length, 1, 'the post was sent a second time');
+});
+
+test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still records a take-down', async () => {
+  await on();
+  const r = agentPost('jo', { topic: 't', body: 'b' });
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  const mine = [...be.st.posts.values()][0];
+  fillTo200(mine.agent);
+  mine.taken_down = true;
+  mine.take_down_reason = 'off topic';
+  const seen = measuringSender();
+  await cs.sweep(Date.now() + 31 * 60 * 1000);
+  assertFullSize(seen);
+  assert.deepEqual(
+    { takenDown: cs.statuses()[r.id].takenDown, reason: cs.statuses()[r.id].takeDownReason },
+    { takenDown: true, reason: 'off topic' },
+  );
+});
+
+/* #4800: a register whose answer is lost. `loseRegister` makes the next register's answer never arrive: 'after' lets
+   the server make the account first (the case the card is about), 'before' fails it before it reaches the server. */
+function loseRegister(when) {
+  let armed = true;
+  cs.setSender(async (url, init) => {
+    if (armed && url.endsWith('/agents/register')) {
+      armed = false;
+      if (when === 'after') await fetch(url, init);   // the service commits; the answer is dropped on the way back
+      throw new Error('socket hang up');
+    }
+    return fetch(url, init);
+  });
+}
+const registers = () => be.st.seen.filter((s) => s.method === 'POST' && s.url === '/agents/register');
+const lookups = () => be.st.seen.filter((s) => s.method === 'GET' && s.url.startsWith('/agents/by-name/'));
+
+test('#4800: a register whose answer is lost after the account was made registers no second identity', async () => {
+  await on();
+  store.writeProfile('nia', { displayName: 'Nia' });
+  const r = agentPost('nia', { topic: 't', body: 'b' });
+  loseRegister('after');
+  await cs.sweep();
+  assert.equal(be.st.agents.size, 1, 'CONTROL: the lost register did not make the account, so nothing below is tested');
+  assert.equal(posts().length, 0);
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'the name was not looked up before registering again');
+  assert.equal(registers().length, 1, 'a second register went out for an agent whose account exists');
+  assert.equal(be.st.agents.size, 1, 'a second public identity was made');
+  assert.equal(posts().length, 0, 'a post went out with no key for the account');
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true, 'the owner cannot see why this agent is not posting');
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'the name was looked up again within the hour');
+  assert.equal(registers().length, 1);
+});
+
+test('#4800: a register whose answer is lost BEFORE the account was made looks the name up, then registers the same name', async () => {
+  await on();
+  store.writeProfile('oda', { displayName: 'Oda' });
+  const r = agentPost('oda', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  assert.equal(be.st.agents.size, 0);
+  await cs.sweep();
+  assert.equal(lookups().length, 1);
+  assert.deepEqual(registers().map((x) => x.body.name), ['Oda'], 'the retry did not take the same name');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: with no display name, a lost register retries the SAME generated handle, not a new one', async () => {
+  await on();
+  const r = agentPost('pax', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  await cs.sweep();
+  const names = registers().map((x) => x.body.name);
+  assert.equal(names.length, 1, 'expected one register to reach the server (the first was lost before it)');
+  assert.equal(lookups().length, 1);
+  assert.equal(decodeURIComponent(lookups()[0].url.slice('/agents/by-name/'.length)), names[0],
+    'the retry registered a different handle from the one the lost try used');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: a register the service answered (a 409 retried with a suffix) leaves no mark to look up', async () => {
+  await on();
+  be.st.agents.set('y', { id: 'y', name: 'Qi', key: 'k', token: 't', active: true });
+  store.writeProfile('qi', { displayName: 'Qi' });
+  agentPost('qi', { topic: 't', body: 'b' });
+  await cs.sweep();
+  assert.equal(lookups().length, 0, 'a lookup went out with no lost answer');
+  const k = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')).qi;
+  assert.ok(k.apiKey && !k.registering, 'the registered agent kept a write-ahead mark');
+});
+
+test('#4800: a register the service refused outright (a 400) leaves no mark, so the next try does not look it up', async () => {
+  await on();
+  store.writeProfile('rho', { displayName: 'Rho' });
+  const r = agentPost('rho', { topic: 't', body: 'b' });
+  let refused = false;
+  cs.setSender(async (url, init) => {
+    if (!refused && url.endsWith('/agents/register')) {
+      refused = true;
+      return new Response('{"detail":"bad request"}', { status: 400, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(refused, true);
+  await cs.sweep();
+  assert.equal(lookups().length, 0, 'an answered refusal was treated as a lost answer');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+/* #4800 review 1: answers that do not prove nothing was made keep the mark. `answerRegister` lets the service commit,
+   then hands the board a different answer. */
+function answerRegister(make) {
+  let armed = true;
+  cs.setSender(async (url, init) => {
+    if (armed && url.endsWith('/agents/register')) {
+      armed = false;
+      await fetch(url, init);
+      return make();
+    }
+    return fetch(url, init);
+  });
+}
+for (const [label, make] of [
+  ['a 504 from a gateway after the service committed', () => new Response('{"detail":"gateway timeout"}', { status: 504, headers: { 'content-type': 'application/json' } })],
+  ['a 201 whose body never arrived whole', () => new Response('{"agent_id": "a', { status: 201, headers: { 'content-type': 'application/json' } })],
+]) {
+  test(`#4800: ${label} keeps the mark, so the next try finds the account instead of making a twin`, async () => {
+    await on();
+    const who = 'sv' + label.length;
+    store.writeProfile(who, { displayName: 'Sam ' + label.length });
+    agentPost(who, { topic: 't', body: 'b' });
+    answerRegister(make);
+    await cs.sweep();
+    assert.equal(be.st.agents.size, 1, 'CONTROL: the service did not make the account');
+    await cs.sweep();
+    assert.equal(lookups().length, 1, 'the name was not looked up');
+    assert.equal(registers().length, 1, 'a second register went out');
+    assert.equal(be.st.agents.size, 1, 'a second public identity was made');
+  });
+}
+
+test('#4800: a lookup the service cannot answer (a 503) waits: no register that sweep', async () => {
+  await on();
+  store.writeProfile('tam', { displayName: 'Tam' });
+  const r = agentPost('tam', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  let failLookup = true;
+  cs.setSender(async (url, init) => {
+    if (failLookup && url.includes('/agents/by-name/')) {
+      failLookup = false;
+      return new Response('{"detail":"unavailable"}', { status: 503, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(registers().length, 0, 'a register went out though the lookup could not tell');
+  await cs.sweep();
+  assert.deepEqual(registers().map((x) => x.body.name), ['Tam']);
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: a display name the service would swap for its own handle (a slash, only dots) registers as our own handle', () => {
+  for (const displayName of ['Sales/Ops', '...', '.', '@scout', 'Bot @ Home', 'Ann\u034FBot', '\u2800', '\u2800.\u2800', 'joshua\u2800leestone']) {
+    store.writeProfile('ux', { displayName });
+    assert.match(cs.registration('ux').name, /^agent-[0-9a-f]{6}$/, `"${displayName}" was sent as the name`);
+  }
+  store.writeProfile('ux', { displayName: 'Sales Ops' });
+  assert.equal(cs.registration('ux').name, 'Sales Ops', 'CONTROL: an ordinary name was replaced');
+  // The service strips dots from the ENDS only (name.strip('.')), so a name with other characters between dots stays.
+  store.writeProfile('ux', { displayName: '. . .' });
+  assert.equal(cs.registration('ux').name, '. . .', 'a name the service keeps was replaced');
+});
+
+test('#4800 review 2: a lost try on a name ANOTHER install already held takes a suffix, as before, instead of waiting forever', async () => {
+  await on();
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  be.st.agents.set('z', { id: 'z', name: 'Researcher', key: 'k', token: 't', active: true, registeredAt: dayAgo });
+  store.writeProfile('vic', { displayName: 'Researcher' });
+  const r = agentPost('vic', { topic: 't', body: 'b' });
+  loseRegister('before');                             // offline: the try never reached the service
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up, so the age check was never reached');
+  const names = registers().map((x) => x.body.name);
+  assert.equal(names[0], 'Researcher');
+  assert.match(names.at(-1), /^Researcher-[0-9a-f]{4}$/, 'an account made a day before our try was taken for ours');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, undefined);
+});
+
+test('#4800 review 2: the owner deletes a held post: it is withheld, never sent, and says so', async () => {
+  await on();
+  store.writeProfile('wes', { displayName: 'Wes' });
+  const r = agentPost('wes', { topic: 't', body: 'b' });
+  loseRegister('after');
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true, 'CONTROL: the post was not held');
+  assert.equal(cs.requestDelete(r.id).ok, true);
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'withheld');
+  assert.equal(posts().length, 0);
+});
+
+test('#4800 review 3: after a lost try that made nothing, a renamed agent registers its NEW display name', async () => {
+  await on();
+  store.writeProfile('xen', { displayName: 'Old Name' });
+  const r = agentPost('xen', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  store.writeProfile('xen', { displayName: 'New Name' });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the old name was not looked up');
+  assert.deepEqual(registers().map((x) => x.body.name), ['New Name'], 'the old name was registered after a rename');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800 review 3: an account made a few minutes before our try (inside the clock margin) is still taken as ours', async () => {
+  await on();
+  const fiveAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  store.writeProfile('yul', { displayName: 'Yul' });
+  const r = agentPost('yul', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  // The account turns up as if our lost try had made it, stamped by a service clock five minutes behind ours.
+  be.st.agents.set('w', { id: 'w', name: 'Yul', key: 'k', token: 't', active: true, registeredAt: fiveAgo });
+  await cs.sweep();
+  assert.equal(lookups().length, 1);
+  assert.equal(registers().length, 0, 'an account inside the clock margin was treated as somebody else\'s');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4800 review 4: a name the 80-unit cap cuts through an emoji drops the half, as the service does', () => {
+  store.writeProfile('zed', { displayName: 'a'.repeat(79) + '\u{1F600}x' });
+  const name = cs.registration('zed').name;
+  assert.equal(name, 'a'.repeat(79), 'the half character was kept (the lookup URL would throw on it)');
+  assert.doesNotThrow(() => encodeURIComponent(name));
+});
+
+test('#4800 review 4: a mark holding a half character (from before this rule) is dropped, not looked up forever', async () => {
+  await on();
+  store.writeProfile('ivo', { displayName: 'Ivo' });
+  const r = agentPost('ivo', { topic: 't', body: 'b' });
+  await cs.sweep();                                   // registers normally, so the keys file exists
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  keys.ivo2 = { registering: { name: 'x\uD83D', at: new Date().toISOString() } };
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  store.writeProfile('ivo2', { displayName: 'Ivo Two' });
+  const r2 = agentPost('ivo2', { topic: 't2', body: 'b2' });
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'CONTROL: the first agent did not post');
+  assert.equal(cs.statuses()[r2.id].state, 'sent', 'the agent with the broken mark never registered');
+  assert.deepEqual(registers().map((x) => x.body.name), ['Ivo', 'Ivo Two']);
+});
+
+test('#4800 review 5: an account made well AFTER our lost try (the name taken while ours sat unanswered) is not ours', async () => {
+  await on();
+  store.writeProfile('kit', { displayName: 'Kit' });
+  const r = agentPost('kit', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  // Somebody else registers the name an hour after our try (stamped an hour ahead, as a later sweep would see it).
+  be.st.agents.set('q', { id: 'q', name: 'Kit', key: 'k', token: 't', active: true, registeredAt: new Date(Date.now() + 3600 * 1000).toISOString() });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up');
+  assert.match(registers().map((x) => x.body.name).at(-1), /^Kit-[0-9a-f]{4}$/, 'a later account was taken for ours and the agent held');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800 review 6: a lookup whose profile carries no registered_at holds the name rather than register a twin', async () => {
+  await on();
+  store.writeProfile('lux', { displayName: 'Lux' });
+  const r = agentPost('lux', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  be.st.agents.set('n', { id: 'n', name: 'Lux', key: 'k', token: 't', active: true, registeredAt: null });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up');
+  assert.equal(registers().length, 0, 'a missing registered_at was read as somebody else\'s account');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4800 review 6: a sweep that reaches the register long after it began still recognises its own lost account', async () => {
+  await on();
+  store.writeProfile('mae', { displayName: 'Mae' });
+  const r = agentPost('mae', { topic: 't', body: 'b' });
+  loseRegister('after');
+  // A sweep that began 30 minutes ago (a slow backlog ahead of this agent) reaches the register now; the service
+  // stamps the account with the real time, 30 minutes after that sweep's `now`.
+  await cs.sweep(Date.now() - 30 * 60 * 1000);
+  assert.equal(be.st.agents.size, 1, 'CONTROL: the lost register did not make the account');
+  await cs.sweep();
+  assert.equal(registers().length, 1, 'our own account was taken for somebody else\'s');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4895: the new name of the same community keeps its keys and send records; another server does not', () => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.installkosmos.com';
+    const old = cs._paths.endpointDir();
+    delete process.env.AGENT_WORKFORCE_COMMUNITY_URL;   // the default, community.kosmosplus.com
+    assert.equal(cs._paths.endpointDir(), old, 'moving to community.kosmosplus.com would re-register every agent and post everything again');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com/';
+    assert.equal(cs._paths.endpointDir(), old, 'a trailing slash is the same service');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://Community.KosmosPlus.com';
+    assert.equal(cs._paths.endpointDir(), old, 'a host name in capitals is the same service');
+    // CONTROL: a different server still gets its own folder, so no key or remote id is ever presented to it.
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.example.com';
+    assert.notEqual(cs._paths.endpointDir(), old);
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+  }
+});
+
+/* #4953: the service's per-minute request limiter also answers 429 (rate_limit_exceeded, Retry-After 60). That is a
+   short pause, never the day's cap: no retryAt is written (the daily cap's wait), and a sweep after the minute sends it.
+   CONTROL: the daily cap's 429 does write it. */
+test('#4953 a per-minute limiter 429 is a short pause, not the daily cap', async () => {
+  await on();
+  be.st.mode.limiter = true;
+  const p = agentPost('lim', { topic: 'limited', body: 'one' });
+  await cs.sweep();
+  be.st.mode.limiter = false;
+  const keys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(cs.statuses()[p.id].state, 'pending');
+  assert.equal(keys().lim && keys().lim.retryAt, undefined, 'the limiter\'s 429 was written as the daily cap');
+  const n = posts().length;
+  await cs.sweep();                          // inside the minute: paused, not sent
+  assert.equal(posts().length, n);
+  await cs.sweep(Date.now() + 61 * 1000);    // the minute is out: sent, not a day later
+  assert.equal(posts().length, n + 1);
+  // CONTROL: the daily cap's 429 is written as the cap.
+  be.st.mode.cap = true;
+  agentPost('cap2', { topic: 'capped', body: 'two' });
+  await cs.sweep();
+  be.st.mode.cap = false;
+  assert.equal(typeof (keys().cap2 && keys().cap2.retryAt), 'string', 'the daily cap\'s 429 was not written');
+});
+
+/* #4953: a 429 whose reason cannot be read is a short pause, not the day's cap, and its pause is held to 10 minutes
+   however long a Retry-After it carries. */
+test('#4953 an unreadable 429 is a pause of at most 10 minutes, never the daily cap', async () => {
+  await on();
+  be.st.mode.odd429 = true;
+  const p = agentPost('odd', { topic: 'odd', body: 'odd' });
+  await cs.sweep();
+  be.st.mode.odd429 = false;
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.odd && keys.odd.retryAt, undefined, 'an unreadable 429 was written as the daily cap');
+  const n = posts().length;
+  await cs.sweep(Date.now() + 590 * 1000);   // inside the 10 minutes: still paused (Retry-After said 2 hours)
+  assert.equal(posts().length, n);
+  await cs.sweep(Date.now() + 601 * 1000);   // past 10 minutes: sent, not 2 hours later
+  assert.equal(posts().length, n + 1);
+  assert.equal(cs.statuses()[p.id].state, 'sent');
+});
+
+/* #4953 review 6: an unreadable 429 is said in the board's log, once per agent; the limiter's own 429 is not. */
+test('#4953 an unreadable 429 is logged once; the limiter\'s is not', async () => {
+  await on();
+  const lines = [];
+  const orig = console.error;   // communitysend's log() writes to stderr
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try {
+    be.st.mode.odd429 = true;
+    agentPost('oddlog', { topic: 'a', body: 'a' });
+    await cs.sweep();
+    await cs.sweep(Date.now() + 601 * 1000);
+    be.st.mode.odd429 = false;
+    be.st.mode.limiter = true;
+    agentPost('limlog', { topic: 'b', body: 'b' });
+    await cs.sweep();
+    be.st.mode.limiter = false;
+  } finally { console.error = orig; }
+  const said = lines.filter((l) => /cannot read/.test(l));
+  assert.equal(said.filter((l) => /oddlog/.test(l)).length, 1, JSON.stringify(said));
+  assert.equal(said.filter((l) => /limlog/.test(l)).length, 0, JSON.stringify(said));
+});
+
+/* #4938: a post published while a sweep is already in flight goes on a follow-up pass at once, not on the
+   5-minute timer. The sweep in flight is held at its first request (it read its list before the second post
+   existed), so joining it would leave the second post behind; sendSoon runs one more pass after it. */
+test('#4938 sendSoon sends a post published during a sweep in flight, without waiting for the timer', async () => {
+  await on();
+  agentPost('ava', { topic: 'First', body: 'one' });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let first = true;
+  let inFlightDone = false;
+  const byInFlight = [];   // titles the sweep already in flight sent: "Second" must not be one (it read its list first)
+  cs.setSender(async (url, init) => {
+    if (first) { first = false; await held; }
+    if (!inFlightDone && init && init.method === 'POST' && /\/posts$/.test(url)) { try { byInFlight.push(JSON.parse(init.body).title); } catch { /* not a post */ } }
+    return fetch(url, init);
+  });
+  const inFlight = cs.sweep();
+  inFlight.then(() => { inFlightDone = true; });   // registered before sendSoon's, so it runs before the follow-up starts
+  try {
+    await new Promise((r) => setImmediate(r));
+    agentPost('bo', { topic: 'Second', body: 'two' });
+    const a = cs.sendSoon();
+    const b = cs.sendSoon();
+    assert.equal(a, b, 'two callers during one sweep share one follow-up pass');
+    release();
+    await inFlight;
+    await a;
+  } finally { release(); }   // never leave the module's sweep pending for a later test
+  assert.ok(byInFlight.includes('First') && !byInFlight.includes('Second'), 'premise: the sweep in flight sent First and read its list before Second existed: ' + JSON.stringify(byInFlight));
+  const titles = posts().map((s) => s.body && s.body.title);
+  assert.ok(titles.includes('First') && titles.includes('Second'), JSON.stringify(titles));
+  assert.equal(posts().length, 2, 'nothing sent twice');
+  // CONTROL: with nothing in flight, sendSoon is a plain sweep.
+  agentPost('cy', { topic: 'Third', body: 'three' });
+  await cs.sendSoon();
+  assert.ok(posts().some((s) => s.body && s.body.title === 'Third'));
+});
+
+/* ---- #4922: the install's group id (kosmos-community install_group) ---------------------------------------------- */
+const groupPatches = () => be.st.seen.filter((x) => x.method === 'PATCH' && x.url === '/agents/me' && x.body && 'install_group' in x.body);
+const readKeys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+const writeKeys = (k) => fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(k));
+
+// The pause after a failed PATCH is off for these tests (each sweep retries), except the ones that pin it.
+test.beforeEach(() => cs._installGroupRetry(0));
+
+test('4922: every agent of one install registers with the same random group id; no PATCH is needed after it', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  agentPost('dex', { topic: 'Two', body: 'Second note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register').map((x) => x.body.install_group);
+  assert.equal(regs.length, 2);
+  assert.match(regs[0], /^[0-9a-f]{48}$/);
+  assert.equal(regs[0], regs[1], 'two agents of one install sent different group ids');
+  const privateId = require('./ping').installId();
+  assert.match(String(privateId), /\S{8,}/, 'the private install id is empty, so the next check proves nothing');
+  assert.notEqual(regs[0], privateId, 'the group id is the Mac\'s private install id');
+  assert.equal(JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, regs[0]);
+  await cs.sweep();
+  assert.equal(groupPatches().length, 0, 'an agent registered with the id was sent it again');
+});
+
+test('4922: an agent registered before the id existed is sent it once, only while Community is on', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);   // as if it registered before #4922
+  SW = { on: false, ok: true };
+  await cs.sweep();
+  assert.equal(groupPatches().length, 0, 'the id was sent with Community off');
+  SW = { on: true, ok: true };
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1);
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  assert.equal(groupPatches()[0].body.install_group, group);
+  assert.equal([...be.st.agents.values()][0].installGroup, group, 'the service did not record it');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'it was sent again after it landed');
+});
+
+test('4922: a missing route (404) leaves the service alone for the hour, then lands', async () => {
+  await on();
+  for (const n of ['ava', 'dex']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; delete k.dex.installGroupSent; writeKeys(k);
+  be.st.mode.noGroupRoute = true;
+  await cs.sweep(); await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a service with no such route was asked again (or for every agent)');
+  be.st.mode.noGroupRoute = false;
+  cs._installGroupRetry(0);   // the hour over
+  await cs.sweep();
+  assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+  assert.equal(readKeys().dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+});
+
+test('4922: a refused id (it hits every agent, they all send the same one) pauses the pass (a sweep runs on every publish since #4938)', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
+  be.st.mode.groupBadBody = true;
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a failed PATCH was sent again before its wait ran out');
+  assert.equal(readKeys().ava.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'the retry mark is not tied to the id');
+  be.st.mode.groupBadBody = false;
+  cs._installGroupRetry(0);   // the wait over (the map is cleared with it)
+  await cs.sweep();
+  assert.equal(groupPatches().length, 2, 'not tried again once the wait was over');
+  assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+});
+
+test('4922: the id file follows the service: the old host name shares it, another server gets its own', () => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    delete process.env.AGENT_WORKFORCE_COMMUNITY_URL;   // the default, community.kosmosplus.com
+    const here = cs._paths.installGroupFile();
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.installkosmos.com';
+    assert.equal(cs._paths.installGroupFile(), here, 'the old host name is the same service and must keep its id');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://staging.example.com';
+    assert.notEqual(cs._paths.installGroupFile(), here, 'another server shares this one\'s id');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+  }
+});
+
+test('4922: an unreadable group file sends no id and is not overwritten', async () => {
+  await on();
+  fs.mkdirSync(path.dirname(cs._paths.installGroupFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.installGroupFile(), '{not json');
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const reg = be.st.seen.find((x) => x.url === '/agents/register');
+  assert.ok(reg, 'the agent did not register at all');
+  assert.equal('install_group' in reg.body, false, 'an id was sent although the file could not be read');
+  assert.equal(fs.readFileSync(cs._paths.installGroupFile(), 'utf8'), '{not json', 'the unreadable file was overwritten');
+  assert.equal(groupPatches().length, 0);
+});
+
+test('4922: an agent registered with an id the file no longer holds is sent the one the file holds', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const first = readKeys().ava.installGroupSent;
+  assert.match(String(first), /^[0-9a-f]{48}$/);
+  const kept = 'b'.repeat(48);   // the other id won the race to the file
+  fs.writeFileSync(cs._paths.installGroupFile(), JSON.stringify({ group: kept }));
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the agent was not moved to the id the install kept');
+  assert.equal(groupPatches()[0].body.install_group, kept);
+  assert.equal(readKeys().ava.installGroupSent, kept);
+});
+
+test('4922: the id file is per endpoint, beside the keys, so another server never sees this one\'s id', () => {
+  assert.equal(path.dirname(cs._paths.installGroupFile()), path.dirname(cs._paths.keysFile()));
+  assert.notEqual(path.dirname(cs._paths.installGroupFile()), cs._paths.dir());
+});
+
+test('4922: a refused key is not sent the id; a service without the field is paused for the hour; an expired token logs in again and lands', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
+  store.writeProfile('cal', { displayName: 'Cal', role: 'Ops' });
+  for (const n of ['ava', 'dex', 'cal']) agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' });
+  await cs.sweep();
+  const k = readKeys();
+  for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent;
+  k.ava.refused = true;                 // the service refused ava's key
+  writeKeys(k);
+  const dex = [...be.st.agents.values()].find((a) => a.name === 'Dex');
+  dex.token = 'expired';                // dex's token no longer works; its key still does
+  be.st.mode.refuseGroup = true;
+  await cs.sweep();
+  const keysNow = readKeys();
+  assert.equal(keysNow.ava.installGroupSent, undefined);
+  assert.equal(keysNow.ava.installGroupRetrying, undefined, 'a refused key was marked as retrying');
+  // A refusal of the field as unknown stops the pass and the service is not sent it again within the hour.
+  const before = groupPatches().length;
+  await cs.sweep();
+  assert.equal(groupPatches().length, before, 'a service that refused the field was sent it again within the hour');
+  be.st.mode.refuseGroup = false;
+  cs._installGroupRetry(0);   // the hour over: every agent is sent it
+  dex.token = 'expired-again';
+  await cs.sweep();
+  assert.equal(readKeys().dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'an expired token did not log in again and land');
+  assert.equal(readKeys().ava.installGroupSent, undefined, 'a refused key was sent the id');
+  const avaAuth = 'Bearer ' + readKeys().ava.token;
+  assert.equal(groupPatches().filter((x) => x.auth === avaAuth).length, 0, 'a PATCH went out as the refused agent');
+});
+
+test('4922: a service that does not know install_group still lets agents register (without it), and they get it later', async () => {
+  await on();
+  be.st.mode.refuseGroup = true;
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 2, 'it did not try again without the field');
+  assert.equal('install_group' in regs[1].body, false);
+  assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the agent was kept off the community by the id');
+  assert.equal(posts().length, 1, 'the post did not go out');
+  // Review 2: for an hour the service is not sent the field again (a new agent registers once, without it) and the
+  // install-group pass waits; after that, it is sent.
+  store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
+  agentPost('dex', { topic: 'Two', body: 'Second note.' });
+  await cs.sweep();
+  const regs2 = be.st.seen.filter((x) => x.url === '/agents/register').slice(2);
+  assert.equal(regs2.length, 1, 'a new agent spent a POST on the field the service just refused');
+  assert.equal('install_group' in regs2[0].body, false);
+  assert.equal(groupPatches().length, 0, 'the pass sent the field the service just refused');
+  be.st.mode.refuseGroup = false;
+  cs._installGroupRetry(0);   // the hour over
+  await cs.sweep();
+  assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+});
+
+test('4922: the unknown-field fallback does not use up a register try (a refusal, then two name clashes, still registers)', async () => {
+  await on();
+  be.st.mode.refuseGroup = true;
+  be.st.mode.clash = 2;   // two 409s after the unknown-field refusal
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 4, 'expected 400 unknown_fields, 409, 409, then 201: ' + regs.length);
+  assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the fallback used up a try and the agent was not registered');
+});
+
+test('4922: a refusal about another field is not taken for this one (install_group stays, no retry without it)', async () => {
+  await on();
+  be.st.mode.badName = true;   // 422 naming `name`, not install_group
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 1, 'a 422 about the name was retried without the id');
+  assert.ok('install_group' in regs[0].body);
+  be.st.mode.badName = false;
+});
+
+test('4922: a server error or no answer pauses the whole pass (the service, not the agent)', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.groupDown = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a 503 did not stop the pass: every agent was tried against a down service');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the pass did not pause after a 503');
+  be.st.mode.groupDown = false;
+});
+
+test('4922: a rejected VALUE (422) is not taken for a service without the field (the id is not dropped)', async () => {
+  await on();
+  be.st.mode.badGroupValue = true;
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 1, 'a value rejection was retried without the id, as if the service lacked the field');
+  be.st.mode.badGroupValue = false;
+});
+
+test('4922: what counts as "the service does not know install_group" (its real answer shapes)', () => {
+  const n = cs.namesInstallGroup;
+  assert.equal(n({ status: 400, json: { error: 'unknown_fields', fields: ['install_group'] } }), true, 'kosmos-community\'s own answer');
+  assert.equal(n({ status: 400, json: { error: 'unknown_fields', fields: ['bio'] } }), false, 'another unknown field');
+  assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] } }), true, 'a plain FastAPI service');
+  assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern", type: 'string_pattern_mismatch' }] } }), false, 'a bad value');
+  assert.equal(n({ status: 422, json: { detail: 'bad install_group' } }), false, 'a plain-string detail is never searched');
+  assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: 'x' }] } }), false, 'no type: not counted');
+  assert.equal(n({ status: 0, json: null }), false);
+});
+
+const twoAgents = async () => {
+  for (const n of ['ava', 'dex']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; delete k.dex.installGroupSent; writeKeys(k);
+};
+
+test('4922: no answer pauses the whole pass', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on(); await twoAgents();
+  be.st.mode.groupHang = true; cs.setTimeoutMs(150);
+  try {
+    await cs.sweep();
+    assert.equal(groupPatches().length, 1, 'with no answer every agent was tried');
+    assert.equal(readKeys().ava.installGroupRetrying, undefined, 'no answer was put on the agent, not the service');
+    await cs.sweep();
+    assert.equal(groupPatches().length, 1, 'the pass did not pause after no answer');
+  } finally { be.st.mode.groupHang = false; cs.setTimeoutMs(2000); }
+});
+
+test('4922: a 401 that logging in again cannot clear pauses the pass; the agent is not marked refused', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on(); await twoAgents();
+  be.st.mode.groupUnauth = true; be.st.mode.loginDown = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'every agent was tried though the login could not be reached');
+  assert.equal(readKeys().ava.refused, undefined, 'a login that got no answer marked the agent refused');
+  assert.equal(readKeys().ava.installGroupRetrying, undefined, 'an unclearable 401 was put on the agent, not the service');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the pass did not pause');
+  be.st.mode.groupUnauth = false; be.st.mode.loginDown = false;
+});
+
+test('4922: a key refused during the pass skips that agent only; the others are sent it', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on(); await twoAgents();
+  for (const a of be.st.agents.values()) if (a.name === 'AVA') a.active = false;   // ava deactivated: its login is refused
+  const ava = [...be.st.agents.values()].find((a) => a.name === 'AVA');
+  ava.token = 'gone';
+  await cs.sweep();
+  const keys = readKeys();
+  assert.equal(keys.ava.refused, true, 'premise: ava\'s key was refused');
+  assert.equal(keys.dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'one refused key paused the pass for the others');
+});
+
+test('4922: a 405 (no PATCH route) leaves the service alone for the hour', async () => {
+  await on(); await twoAgents();
+  be.st.mode.groupNoMethod = true;
+  await cs.sweep(); await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a service with no such method was asked again');
+  be.st.mode.groupNoMethod = false;
+});
+
+test('4922: a REMOVED agent is never sent the id; an unreadable removed list sends nothing', async () => {
+  await on(); await twoAgents();
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  fs.writeFileSync(removedFile, '{not json');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 0, 'sent with the removed list unreadable (it must fail closed)');
+  fs.writeFileSync(removedFile, JSON.stringify([{ name: 'dex' }]));
+  await cs.sweep();
+  const keys = readKeys();
+  assert.ok(keys.ava.installGroupSent, 'a current agent was not sent it');
+  assert.equal(keys.dex.installGroupSent, undefined, 'a removed agent was linked to the person\'s other agents');
+  fs.rmSync(removedFile, { force: true });
+});
+
+test('4922: a REMOVED agent registers without the id (a post published before removal can still register it)', async () => {
+  await on();
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'zoe' }]));
+  try {
+    store.writeProfile('zoe', { displayName: 'Zoe', role: 'Ops' });
+    agentPost('zoe', { topic: 'Before', body: 'Published before removal.' });
+    await cs.sweep();
+    const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+    assert.ok(regs.length >= 1, 'premise: it registered');
+    assert.ok(regs.every((r) => !('install_group' in r.body)), 'a removed agent registered with the group id');
+  } finally { fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true }); }
+});
+
+test('4922: after a failure the next pass starts past the agent it stopped on (one agent cannot starve the rest)', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.groupBadBody = true;
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  const who = groupPatches().map((p) => p.auth);
+  assert.equal(new Set(who).size, 3, 'the same agent was tried every pass; the ones behind it never were: ' + JSON.stringify(who));
+  be.st.mode.groupBadBody = false;
+});
+
+test('4922: an agent removed AFTER it was grouped is sent the clear (its group would keep listing it); restored, it is sent the id again', async () => {
+  await on();
+  for (const n of ['ava', 'dex', 'zoe']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  const zoe = () => [...be.st.agents.values()].find((a) => a.name === 'ZOE');
+  assert.equal(zoe().installGroup, group, 'premise: zoe registered with the id');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    await cs.sweep();
+    assert.equal(zoe().installGroup, null, 'a removed agent stayed in the person\'s group on the service');
+    assert.equal(readKeys().zoe.installGroupSent, undefined);
+    const clears = groupPatches().filter((p) => p.body.install_group === null).length;
+    await cs.sweep();
+    assert.equal(groupPatches().filter((p) => p.body.install_group === null).length, clears, 'the clear was sent again');
+    fs.rmSync(removedFile, { force: true });   // restored: off the removed list, its folder there
+    fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'zoe'), { recursive: true });
+    await cs.sweep();
+    assert.equal(zoe().installGroup, group, 'a restored agent was not sent the id again');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: the clear for a removed agent goes out with Community OFF too; nothing is sent to the others', async () => {
+  await on();
+  for (const n of ['ava', 'zoe']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const zoe = () => [...be.st.agents.values()].find((a) => a.name === 'ZOE');
+  assert.ok(zoe().installGroup, 'premise: zoe was grouped');
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);   // ava would be sent it, if sending were allowed
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    SW = { on: false, ok: true };   // Community off
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    const before = groupPatches().length;
+    await cs.sweep();
+    assert.equal(zoe().installGroup, null, 'a removed agent stayed grouped because Community was off');
+    assert.equal(groupPatches().length, before + 1, 'something besides the clear was sent while Community was off');
+  } finally { fs.rmSync(removedFile, { force: true }); SW = { on: true, ok: true }; }
+});
+
+test('4922: an unusable id file does not stop the clear for a removed, grouped agent (Community on)', async () => {
+  await on();
+  for (const n of ['ava', 'zoe']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const zoe = () => [...be.st.agents.values()].find((a) => a.name === 'ZOE');
+  assert.ok(zoe().installGroup, 'premise: zoe was grouped');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  const idFile = cs._paths.installGroupFile();
+  const idWas = fs.readFileSync(idFile, 'utf8');
+  try {
+    fs.writeFileSync(idFile, '{not json');
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    await cs.sweep();
+    assert.equal(zoe().installGroup, null, 'an unusable id file kept a removed agent grouped');
+  } finally { fs.rmSync(removedFile, { force: true }); fs.writeFileSync(idFile, idWas); }
+});
+
+test('4922: an id PATCH whose answer was lost counts as grouped: removed later, it is sent the clear', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  store.writeProfile('zoe', { displayName: 'ZOE', role: 'Ops' });
+  agentPost('zoe', { topic: 'Note', body: 'A note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.zoe.installGroupSent; writeKeys(k);
+  be.st.mode.groupHang = true; cs.setTimeoutMs(150);
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    await cs.sweep();
+    assert.ok(readKeys().zoe.installGroupUnsure, 'the id PATCH was not written ahead');
+    be.st.mode.groupHang = false; cs.setTimeoutMs(2000);
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    cs._installGroupRetry(0);   // the pause over
+    await cs.sweep();
+    assert.ok(groupPatches().some((p) => p.body.install_group === null), 'an agent whose id may have landed was never cleared');
+    assert.equal(readKeys().zoe.installGroupUnsure, undefined);
+  } finally { be.st.mode.groupHang = false; cs.setTimeoutMs(2000); fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: an id PATCH that was refused outright is not "maybe grouped": removed later, no clear is sent', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  store.writeProfile('zoe', { displayName: 'ZOE', role: 'Ops' });
+  agentPost('zoe', { topic: 'Note', body: 'A note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.zoe.installGroupSent; writeKeys(k);
+  be.st.mode.groupBadBody = true;   // 400 invalid_input: nothing landed
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    await cs.sweep();
+    assert.equal(readKeys().zoe.installGroupUnsure, undefined, 'a definite refusal left the may-have-landed mark');
+    be.st.mode.groupBadBody = false;
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    await cs.sweep();
+    assert.equal(groupPatches().filter((p) => p.body.install_group === null).length, 0, 'a clear was sent for an agent that was never grouped');
+  } finally { be.st.mode.groupBadBody = false; fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: an agent whose leftovers were DELETED (off the removed list, folder gone) is never sent the id again', async () => {
+  await on();
+  for (const n of ['ava', 'yan']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const yan = () => [...be.st.agents.values()].find((a) => a.name === 'YAN');
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  assert.equal(yan().installGroup, group, 'premise: yan was grouped');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'yan' }]));
+    await cs.sweep();
+    assert.equal(yan().installGroup, null, 'premise: the removal sent the clear');
+    fs.rmSync(removedFile, { force: true });   // delete-leftover: remove.forget drops it from the list,
+    fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'yan'), { recursive: true, force: true });   // folder to Trash
+    await cs.sweep(); await cs.sweep();
+    assert.equal(yan().installGroup, null, 'an agent whose leftovers were deleted was put back in the group');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: a later refusal does not drop the mark an earlier LOST PATCH left (it may still have landed)', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  store.writeProfile('zoe', { displayName: 'ZOE', role: 'Ops' });
+  agentPost('zoe', { topic: 'Note', body: 'A note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.zoe.installGroupSent; writeKeys(k);
+  be.st.mode.groupHang = true; cs.setTimeoutMs(150);
+  try {
+    await cs.sweep();
+    assert.ok(readKeys().zoe.installGroupUnsure, 'premise: the lost PATCH left the mark');
+    be.st.mode.groupHang = false; cs.setTimeoutMs(2000);
+    be.st.mode.groupNoMethod = true; cs._installGroupRetry(0);
+    await cs.sweep();
+    assert.ok(readKeys().zoe.installGroupUnsure, 'a 405 on the retry dropped the mark the lost PATCH left');
+  } finally { be.st.mode.groupHang = false; be.st.mode.groupNoMethod = false; cs.setTimeoutMs(2000); }
+});
+
+test('4922: removed and deleted between two passes (never seen removed): a grouped agent is cleared, an ungrouped one never sent it', async () => {
+  await on();
+  for (const n of ['ava', 'gil', 'hux']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const svc = (n) => [...be.st.agents.values()].find((a) => a.name === n);
+  const k = readKeys(); delete k.hux.installGroupSent; writeKeys(k); svc('HUX').installGroup = null;   // hux never grouped
+  for (const n of ['gil', 'hux']) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true, force: true });
+  await cs.sweep();
+  assert.equal(svc('GIL').installGroup, null, 'a grouped agent deleted between passes stayed grouped');
+  assert.ok(!svc('HUX').installGroup, 'an ungrouped agent deleted between passes was grouped');
+});
+
+test('4922: an agent whose folder is gone registers WITHOUT the id (an unsent post from before its deletion)', async () => {
+  await on();
+  store.writeProfile('wes', { displayName: 'WES', role: 'Ops' });
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'wes');
+  fs.mkdirSync(dir, { recursive: true });
+  assert.ok('install_group' in cs._registration('wes'), 'control: an agent with its folder registers with the id');
+  fs.rmSync(dir, { recursive: true, force: true });   // deleted leftovers
+  assert.ok(!('install_group' in cs._registration('wes')), 'a deleted agent would register with the group id');
+});
+
+test('4922: with the removed list unreadable, a folder-gone grouped agent is still cleared; nothing else is sent', async () => {
+  await on();
+  for (const n of ['ava', 'vic']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);   // ava would be sent it, were sending allowed
+  const vic = () => [...be.st.agents.values()].find((a) => a.name === 'VIC');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, '{not json');
+    fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'vic'), { recursive: true, force: true });
+    const before = groupPatches().length;
+    await cs.sweep();
+    assert.equal(vic().installGroup, null, 'an unreadable removed list kept a deleted agent grouped');
+    assert.equal(groupPatches().length, before + 1, 'something besides the clear was sent with the removed list unreadable');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {
+  await on();
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json');
+  try {
+    store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+    agentPost('ava', { topic: 'One', body: 'First note.' });
+    await cs.sweep();
+    const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+    assert.ok(regs.length >= 1 && regs.every((r) => !('install_group' in r.body)), 'registered with the id while the removed list could not be read');
+  } finally { fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true }); }
+});
+
+test('4922: a server error also moves the next pass past the agent it stopped on', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.groupDown = true;
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  assert.equal(new Set(groupPatches().map((p) => p.auth)).size, 3, 'a 5xx kept trying the same agent first');
+  be.st.mode.groupDown = false;
+});
+
+test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.slowDown = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the pass went on after a 429');
+  be.st.mode.slowDown = false;
+  // Review 2: the 429 pauses the whole pass (a sweep runs on every publish since #4938), then it goes on.
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a sweep right after the 429 sent the id again');
+  cs._installGroupRetry(0);   // the wait over
+  await cs.sweep();
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  for (const n of ['ava', 'dex', 'cal']) assert.equal(readKeys()[n].installGroupSent, group, n + ' was not sent it after the 429');
 });

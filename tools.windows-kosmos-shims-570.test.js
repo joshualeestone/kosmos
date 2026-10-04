@@ -30,6 +30,8 @@ const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
    quotes, &, %VAR%, a caret and a pipe. */
 const HARD = 'She said "go & echo INJECTED" ok, 100%PATH% ^ | done';
 
+const { removeTree } = require('./test-support/remove-tree');
+
 function zipRoot() {
   /* Long form (#4267): a runner's temp can be an 8.3 name (C:\Users\RUNNER~1\...),
      and PowerShell's Get-Command reports the long name, so the .ps1 it found read as
@@ -75,7 +77,7 @@ test('PowerShell: a bare `kosmos` is kosmos.ps1, and a multi-line, quoted, &-lad
     assert.deepEqual(JSON.parse(lines[1]), ['reply', 'line one\nline two', HARD, '3'], 'the answer changed on the way: ' + r.stdout);
     assert.equal(lines[2], 'exit=7', 'the CLI\'s exit code did not come back through the shim');
     assert.ok(!/INJECTED" ok/.test(r.stdout.replace(lines[1], '')), 'part of the message ran as a command');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('Git Bash: a bare `kosmos` is the sh shim, and the same answer arrives exactly, /c/ paths untouched', { skip: (!ON_WINDOWS || !fs.existsSync(GIT_BASH)) && 'Windows with Git Bash only' }, () => {
@@ -94,7 +96,7 @@ test('Git Bash: a bare `kosmos` is the sh shim, and the same answer arrives exac
     assert.equal(lines[0], posixBin + '/kosmos', 'Git Bash did not resolve a bare kosmos to the sh shim: ' + r.stdout + r.stderr);
     assert.deepEqual(JSON.parse(lines[1]), ['reply', 'line one\nline two', HARD, '/c/some/path'], 'the answer changed on the way: ' + r.stdout);
     assert.equal(lines[2], 'exit=7');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 function ps(root, lines) {
@@ -111,17 +113,18 @@ test('PowerShell: a 40,000-character message (past one environment variable\'s l
     const got = JSON.parse(r.lines[0]);
     assert.equal(got[2].length, 40000, 'a long room post was cut or lost: ' + r.stderr.slice(0, 300));
     assert.equal(r.lines[1], 'exit=7');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('PowerShell: with no node.exe the shim says so and exits 1, never 0', { skip: !ON_WINDOWS && 'Windows only' }, () => {
   const root = zipRoot();
   try {
+    // Part of the case, not cleanup: nothing has run from the zip yet, so nothing holds node.exe.
     fs.rmSync(path.join(root, 'runtime', 'node.exe'));
     const r = ps(root, ['kosmos reply hello', '"exit=$LASTEXITCODE"']);
     assert.equal(r.lines[r.lines.length - 1], 'exit=1', 'a message nobody sent was reported as sent: ' + r.lines.join(' | '));
     assert.match(r.stderr + r.lines.join(' '), /kosmos could not run/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('PowerShell: an unquoted table is refused (exit 2), not sent as "[object Object]"', { skip: !ON_WINDOWS && 'Windows only' }, () => {
@@ -130,7 +133,7 @@ test('PowerShell: an unquoted table is refused (exit 2), not sent as "[object Ob
     const r = ps(root, ['kosmos msg foo @{a=1}', '"exit=$LASTEXITCODE"']);
     assert.match(r.lines[0], /^ERR .*list or table/);
     assert.equal(r.lines[1], 'exit=2');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('the argument file exists when the CLI reads it and is gone right after', { skip: !ON_WINDOWS && 'Windows only' }, () => {
@@ -142,7 +145,7 @@ test('the argument file exists when the CLI reads it and is gone right after', {
     assert.equal(info.existed, true, 'the file was not there to read');
     assert.equal(info.after, false, 'the CLI left the file with the agent\'s words on disk');
     assert.equal(fs.existsSync(info.file), false);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('PowerShell: the CLI\'s "maybe" (exit 3, on stderr) comes back as 3, redirected or not', { skip: !ON_WINDOWS && 'Windows only' }, () => {
@@ -154,7 +157,7 @@ test('PowerShell: the CLI\'s "maybe" (exit 3, on stderr) comes back as 3, redire
       const r = ps(root, [call, '"exit=$LASTEXITCODE"']);
       assert.equal(r.lines[r.lines.length - 1], 'exit=3', call + ' lost the exit code: ' + r.lines.join(' | ') + ' ' + r.stderr.slice(0, 200));
     }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 // ── win32-cli-verbs, review round 1: kosmos never hangs on an open stdin ───────
@@ -175,7 +178,7 @@ function zipRootWithRealCli() {
 }
 function removeZip(root) {
   try { fs.unlinkSync(path.join(root, 'app')); } catch { /* no junction */ }
-  fs.rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 }
 
 /* Well past the CLI's own quiet limit on stdin plus PowerShell's start-up, and far
@@ -200,7 +203,13 @@ function withOpenStdin(file, args, opts) {
     child.stderr.on('data', (d) => { out += d; });
     let killed = false;
     const timer = setTimeout(() => { killed = true; try { cp.execFileSync(path.join(SYSTEM32, 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* already gone */ } }, MUST_EXIT_WITHIN_MS);
-    child.on('exit', (code) => { clearTimeout(timer); resolve({ exited: !killed, code, ms: Date.now() - started, out: out.trim() }); });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      /* #5010: the shell has gone, so end the pipe it was given: a child of it that still
+         holds that stdin reads its end and exits instead of keeping the zip's folder busy. */
+      try { child.stdin.destroy(); } catch { /* already closed */ }
+      resolve({ exited: !killed, code, ms: Date.now() - started, out: out.trim() });
+    });
   });
 }
 
@@ -271,7 +280,7 @@ test('no hang: `kosmos feedback write` with no text (the one verb that reads std
       assert.match(r.out, /^Nothing to write/);
       assert.match(r.out, /in PowerShell, pass the text as an argument/);
     }
-  } finally { removeZip(root); fs.rmSync(data, { recursive: true, force: true }); }
+  } finally { try { removeZip(root); } finally { removeTree(data); } }
 });
 
 test('Git Bash: a report piped into `kosmos feedback write` is saved with its non-ASCII characters intact', { skip: (!ON_WINDOWS || !fs.existsSync(USR_BASH)) && 'Windows with Git Bash only' }, async () => {
@@ -284,7 +293,7 @@ test('Git Bash: a report piped into `kosmos feedback write` is saved with its no
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Saved today's product-feedback report/);
     assert.match(r.out, /caf\u00e9 piped/, 'the piped report changed on the way: ' + r.out);
-  } finally { removeZip(root); fs.rmSync(data, { recursive: true, force: true }); }
+  } finally { try { removeZip(root); } finally { removeTree(data); } }
 });
 
 test('PowerShell: numbers go as the text the agent typed, not PowerShell\'s reading of it', { skip: !ON_WINDOWS && 'Windows only' }, () => {
@@ -292,5 +301,5 @@ test('PowerShell: numbers go as the text the agent typed, not PowerShell\'s read
   try {
     const r = ps(root, ['kosmos msg a 007 1kb 2.50 0x10']);
     assert.deepEqual(JSON.parse(r.lines[0]), ['msg', 'a', '007', '1kb', '2.50', '0x10']);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });

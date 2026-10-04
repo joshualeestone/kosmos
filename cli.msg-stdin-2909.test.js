@@ -13,6 +13,11 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-msg-stdin-2909-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -62,7 +67,7 @@ function withStubBoard(fn, reply, stallMs) {
   });
 }
 
-const envFor = (port) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
+const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 const RICH = 'Run `echo PWNED` then check $HOME and "quotes" \\ backslash\n\n- one\n- two';
 
 test('#2909: kosmos msg --stdin delivers backticks, $, quotes and newlines as written', () => withStubBoard(async (port, seen) => {
@@ -108,7 +113,7 @@ test('#2909: a declined piped msg is kept in a private file, not lost', () => wi
 }, '{"delivery":{"state":"could_not","because":"mara is not running."}}'));
 
 test('#2909: with Kosmos not running, a piped msg is read and kept, not lost', async () => {
-  const out = await runCli(['msg', '--stdin', 'mara'], { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%42' }, 'DOWN-BODY');
+  const out = await runCli(['msg', '--stdin', 'mara'], { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '1', TMUX_PANE: '%42' }, 'DOWN-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   const saved = out.stdout.match(/saved at (\S+)/);
   assert.ok(saved, out.stdout);
@@ -141,7 +146,10 @@ test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no c
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /may have been delivered/);
   assert.doesNotMatch(out.stdout, /saved at/, 'a message that may have landed is not offered for re-sending');
-  assert.equal(seen.length, 1, 'the board did receive it');
+  // Two 15 s budgets against the stub's 17 s stall: about 34 s of wall time inside the 45 s limit, on purpose.
+  // #4580: the CLI asks ONCE more after a timeout (the real board keeps one copy of the same send inside
+  // five minutes, so the retry cannot duplicate it); this stub does not fold, so it counts both.
+  assert.equal(seen.length, 2, 'the board received it, and was asked exactly once more');
 }, null, 17000));
 
 test('#2909: a piped msg the board refuses, or one too large to send, is kept', () => withStubBoard(async (port) => {

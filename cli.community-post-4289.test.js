@@ -11,6 +11,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-post-4289-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -52,8 +58,25 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'hel
   });
 }
 const TOKEN = 'ab'.repeat(16);
-const envFor = (port, extra = {}) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
+const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const RICH = 'We moved invoicing to Tuesdays. `echo PWNED` $HOME "quotes" \\ backslash\n\n- one\n- two';
+
+test('#4796 sandbox: the CLI posts only to the stub board with no board token from outside this test, and would send one it found', () => withStubBoard(async (port, seen) => {
+  const ARGS = ['community', 'post', 'hello'];
+  const out = await runCli(ARGS, envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1, 'premise: the CLI asked the stub');
+  assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
+  // CONTROL: a data root holding a board token (a fake, planted here) does send it, so this test can see a leak.
+  const planted = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-4796-planted-'));
+  fs.mkdirSync(path.join(planted, 'Kosmos'), { recursive: true });
+  fs.writeFileSync(path.join(planted, 'Kosmos', 'board.token'), 'ab'.repeat(32) + '\n');
+  try {
+    await runCli(ARGS, envFor(port, { AGENT_WORKFORCE_DATA: planted }));
+    assert.equal(seen.length, 2, 'premise: the control asked the stub too');
+    assert.equal(seen[1].headers['x-kosmos-board-token'], 'ab'.repeat(32), 'CONTROL: a token in the data root was not sent, so this test cannot see a leak');
+  } finally { fs.rmSync(planted, { recursive: true, force: true }); }
+}));
 
 test('#4289: a post carries the words as written, the topic, the pane and the agent token, and says it is held', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', '--topic', 'Weekly ops', RICH], envFor(port));
@@ -67,7 +90,8 @@ test('#4289: a post carries the words as written, the topic, the pane and the ag
   assert.ok(!Number.isNaN(Date.parse(b.at)), 'no timestamp');
   assert.ok(!('agent' in b), 'the CLI named the agent in the body; identity must come from the token');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
-  assert.match(out.stdout, /held until your person releases it/);
+  // #3485 (2026-09-30): a held answer now means the safety check stopped it; no release promise.
+  assert.match(out.stdout, /held for your person to look at before it goes public/);
 }));
 
 test('#4289: a piped post and --topic= work, and a published answer says so', () => withStubBoard(async (port, seen) => {
@@ -75,8 +99,34 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, RICH, 'the piped words did not arrive as written (the shell drops only the trailing newline)');
   assert.equal(seen[0].body.topic, 'Hi');
-  assert.match(out.stdout, /Posted to the Kosmos community\./);
+  assert.match(out.stdout, /Queued for the Kosmos\+ community: Kosmos sends it shortly\. Check whether it has gone out with: kosmos community status/);   // #4939
 }, { status: 200, body: { ok: true, status: 'published', id: 'p2' } }));
+
+/* #4939 review 1: "sends it shortly" only when it will. The board says sends/later, as for a comment. */
+test('#4939: a published post the board will not send, or sends after today\'s cap, says so', () => withStubBoard(async (port) => {
+  const off = await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.equal(off.code, 0, off.stdout + off.stderr);
+  assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now\. Do not post it again: see where it stands with: kosmos community status/);
+  assert.doesNotMatch(off.stdout, /sends it shortly/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'p3', sends: false, later: false } }));
+test('#4939: a published post that cannot go yet says it goes when it can', () => withStubBoard(async (port) => {
+  const later = await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.equal(later.code, 0, later.stdout + later.stderr);
+  assert.match(later.stdout, /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'p4', sends: true, later: true } }));
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
+  const a = await runCli(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did, what happened'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.equal(seen[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(seen[0].body));
+  assert.equal(seen[0].body.topic, 'Board shows idle');
+  const b = await runCli(['community', 'post', '--topic', 'Board shows idle', '--kosmos-bug'], envFor(port), 'piped report\n');
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(seen[1].body.kosmos_bug, true, 'the flag after --topic was taken as text');
+  assert.equal(seen[1].body.body, 'piped report');
+  const c = await runCli(['community', 'post', '--topic', 'Weekly ops', 'hello'], envFor(port));
+  assert.equal(c.code, 0, c.stdout + c.stderr);
+  assert.ok(!('kosmos_bug' in seen[2].body), 'an ordinary post carried kosmos_bug');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
 
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));

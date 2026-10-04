@@ -75,6 +75,14 @@ function idleCard(a) {
 /* #3564: the projects module's own reading of "switched off here". Lazy: requiring it at the top
    closes a require cycle and hands back a half-built module. */
 const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
+/* #4740: an agent that makes a project is now on it (server.js, POST /api/projects). Alone on a project it made
+   itself (newly made, or left alone on it again after others were removed), it is NOT asked to draft tasks toward that project's goal: the goal there is the agent's own description,
+   not the person's, and asking would have an idle agent writing itself new work every day with nobody in the loop
+   (before #4740 such a project listed nobody, so the Assigner never touched it). Tasks that already exist there
+   ARE handed out like any project's (`pick` has no such skip): the person, or the maker itself, put them there.
+   Once anyone else is on the project it is an ordinary project and the maker an ordinary member. */
+const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length === 1 && p.agents[0] === session
+  && !!p.made && typeof p.made === 'object' && p.made.by === session;
 
 /* Live (non-archived) project records only. */
 function liveProjects(records) {
@@ -91,7 +99,11 @@ function liveProjects(records) {
    it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
 function hasOpenWork(session, projects) {
   for (const p of projects) {
+    /* #4771: held work (a task on hold, or a paused project) does not keep an agent busy, so the agent can be given
+       real work; it stays on the agent's list. */
+    if (require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (tasks.isOnHold(t)) continue;
       const prog = tasks.progressOf(t);
       if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
       if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
@@ -123,8 +135,10 @@ function pick(session, projects, taken) {
   const candidates = [];
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
+      if (tasks.isOnHold(t)) continue;   // #4771: a task on hold is never handed out
       if (taken.has(p.id + '#' + t.number)) continue;
       /* #1307: a task a webhook added waits for a person to give it out. Anyone holding the link
          can write its words, so it is never typed into an agent's pane unseen. */
@@ -151,7 +165,10 @@ function emptyMemory() {
    the same step is already in `asked`, so a second agent in it is not asked.) */
 function goalProject(session, projects, goals, asked, now) {
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session) || aloneOnItsOwn(p, session)) continue;
+    /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
+       not empty, the person parked it, so its goal is not put to an agent.) */
+    if (require('./projects').isPaused(p)) continue;
     const at = asked.get(p.id);
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
@@ -185,7 +202,8 @@ function askText(item) {
 }
 
 /**
- * One Assigner step. Pure.
+ * One Assigner step. Pure apart from one read: #4588 PR B asks agyquota.heldForQuota, which also records the
+ * Antigravity quota pool's reset in that module's memory (POOL_MEMO).
  * @param {object} o
  * @param {{idleSince: Map, log: Array}|undefined} o.prev  memory from the last step
  * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
@@ -220,6 +238,11 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     const since = base.idleSince.has(session) ? base.idleSince.get(session) : now;
     idleSince.set(session, since);
     if (now - since < IDLE_MS) continue;
+    /* #4588 PR B: an agent held on its machine's shared Google quota is neither given a part nor asked. Skipped here,
+       after its idle clock is kept, so no part is reserved for it that an unheld colleague could have had. */
+    let held = null;
+    try { held = require('./agyquota').heldForQuota(session, roster, now); } catch { held = null; }
+    if (held !== null) continue;
     const choice = pick(session, projects, taken);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
@@ -272,8 +295,19 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
   const asks = [];
   for (const item of out.toAsk) {
     let state = null;
+    let held = false;
     if (typeof ask === 'function') {
-      try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; } catch { state = null; }
+      try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; held = Boolean(v && v.held === true); } catch { state = null; }
+    }
+    if (held) {
+      /* #4588 PR B: held on the shared Google quota, nothing typed. A backstop: step() already skips a held agent, so this
+         runs only if the hold starts between step() and the ask. Not a failure: the charge comes back off the hour and the
+         ask is due again after ASK_RETRY_MS, with no failure counted toward the day-long wait. */
+      const i = out.next.askLog.findIndex((e) => e.at === now && e.session === item.session && e.projectId === item.projectId);
+      if (i !== -1) out.next.askLog.splice(i, 1);
+      out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
+      asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: 'held' });
+      continue;
     }
     const landed = state !== null && state !== (DELIVERY || chat.DELIVERY).COULD_NOT;
     if (landed) {
@@ -317,6 +351,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     for (const p of liveProjects(records)) {
       if (!(Array.isArray(p.agents) && p.agents.some((m) => idle.has(m)))) continue;
       if ((Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk)) continue;
+      if (require('./projects').isPaused(p)) continue;   // #4771: goalProject skips it, so its goal is not read
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }

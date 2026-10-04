@@ -36,11 +36,19 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
     `the block's text changed but DOCTRINE_VERSION did not: bump it, log it, and pin the new fingerprint '${print}'`);
+  /* #4890 review 20: every pinned (released) version has its exact block in engine/doctrine-past.js, so an agent holding
+     an unedited copy of it is offered the current rules. A row with the version number is not enough: an unreleased
+     interim block from a branch can carry the same number. */
+  const past = require('./doctrine-past');
+  for (const [v, prefix] of Object.entries(PINNED)) {
+    assert.ok(past.some((r) => r.version === Number(v) && r.sha256.startsWith(prefix)),
+      `released doctrine v${v} (${prefix}) has no row in engine/doctrine-past.js: run node tools/doctrine-past.js`);
+  }
 });
 
 /**
@@ -405,7 +413,8 @@ test('#2909 v15: formatted messages are written across lines, per surface, and t
   const sec = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
   assert.ok(sec, 'the section is its own heading, so missingFrom re-offers it to existing agents');
   assert.match(sec.text, /kosmos post --stdin <project> <<'KOSMOS_MSG'/, 'a room post pipes a quoted heredoc');
-  assert.match(sec.text, /IFS= read -r -d '' msg <<'KOSMOS_MSG' \|\| true[\s\S]*kosmos reply "\$msg"/, 'kosmos reply has no --stdin, so the heredoc is read into a variable first');
+  assert.match(sec.text, /kosmos reply --stdin <<'KOSMOS_MSG'/, 'a reply to the person pipes a quoted heredoc too (#4582)');
+  assert.ok(!/has no `--stdin`/.test(sec.text), 'the section no longer says kosmos reply lacks --stdin (#4582)');
   assert.ok(!/\$\(cat <</.test(sec.text), 'not $(cat <<...): macOS bash 3.2 cannot parse it when the message holds an apostrophe');
   assert.ok(!/kosmos msg --stdin/.test(sec.text), 'kosmos msg is stored as one line (messages.send), so it is not offered as a way to format');
   assert.ok(!/<<'?EOF/.test(sec.text), 'not EOF: a message line that is exactly EOF would end the heredoc early');
@@ -456,8 +465,8 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
     assert.equal(r.status, 0, sh + ' ran the examples: ' + r.stderr);
     const got = fs.readFileSync(out, 'utf8');
     assert.match(got, /post\|--stdin\|proj\|## What changed\n\n- it's `x` and \$HOME\n/, sh + ': the room post arrives with its lines and characters intact');
-    assert.match(got, /reply\|## What changed\n\n- it's `x` and \$HOME\n\|/, sh + ': the reply arrives with its lines and characters intact');
-    assert.match(got, /DONE/, sh + ': the script carried on past the reply (set -e did not stop it)');
+    assert.match(got, /reply\|--stdin\|## What changed\n\n- it's `x` and \$HOME\n/, sh + ': the reply arrives with its lines and characters intact');
+    assert.match(got, /DONE/, sh + ': the script carried on past the reply');
   }
   assert.ok(ran >= 1, 'neither /bin/bash nor /bin/zsh exists, so the examples were never run');
 });
@@ -511,5 +520,83 @@ test('#4475: the block limits removing or changing another agent', () => {
   const section = defaults.sections().find((x) => x.heading === '### Removing or changing another agent');
   assert.ok(section, 'sections() does not split it out as its own section');
   assert.deepEqual(defaults.missingFrom(b.replace(section.text, '')).map((x) => x.heading), ['### Removing or changing another agent'],
+    'an agent holding every other section would not be offered this one');
+});
+
+/**
+ * #4631 (Josh, 2026-09-29 14:42): agents said "m530" to him. The block now tells an agent to point at a message
+ * by who said it and what it was about, and to write "message 530" at most. Pinned two ways: the section is
+ * there, and no PROSE in the block uses a bare id (a letter m and digits) as speech. An id may appear only inside
+ * backticks, where it is command syntax an agent types, never words it says to a person.
+ */
+test('#4631: the block tells an agent to talk about a message naturally, and never models a bare id as speech', () => {
+  const b = defaults.block();
+  assert.ok(b.includes('### Talking about a message'), 'the section is present');
+  assert.match(b, /write "message 530"/, 'the fallback pointer is "message 530"');
+  const prose = b.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');   // inline code may wrap onto the next line ('`kosmos\n  room`')
+  const bare = prose.match(/\bm\d+\b/g) || [];
+  assert.deepEqual(bare, [], 'a bare message id in the block\'s prose teaches the habit this section forbids');
+  /* The scan sees ids in this very block (the `[m3]` command example), so the pass is the backticks being
+     stripped, not the scan finding nothing. And it fails on a line written the old way. */
+  assert.ok(/\bm\d+\b/.test(b), 'the block still shows an id as command syntax');
+  assert.deepEqual(('or name the id ("re m12") instead').match(/\bm\d+\b/g), ['m12']);
+});
+
+/* #4624 follow-up (doctrine 21): a NEW heading, so the agents already posting in rooms are offered it. Content pinned,
+   delivery to an agent holding every other section, and the control that a complete file is offered nothing. */
+test('#4624 doctrine 21: "Who a room post wakes" says an un-named post may not wake an idle colleague, and reaches existing agents', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => s.heading === '### Who a room post wakes');
+  assert.equal(owner.length, 1, 'the section is missing or duplicated');
+  assert.match(defaults.block(), /names\s+nobody\s+may\s+not\s+wake\s+a\s+colleague\s+who\s+is\s+idle/, 'the rule itself is gone from the block');
+  assert.match(defaults.block(), /kosmos\s+post\s+--in-reply-to\s+<id>\s+<project>/, 'the way to wake the asker is gone');
+  const legacy = all.filter((s) => s.heading !== '### Who a room post wakes').map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === '### Who a room post wakes'),
+    'an existing agent is never offered the room-wake rule');
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Who a room post wakes'),
+    'CONTROL: missingFrom offers the section to an agent that already has it');
+});
+
+/* #4873: Josh, 2026-10-01: agents start room messages with their own name under a header that already says it.
+   Pinned as CONTENT, wrap-tolerant; its own heading so existing agents are offered it through the refresh. */
+test('#4873: the block tells every agent not to start a message with its own name', () => {
+  const b = defaults.block();
+  const has = (words, why) => assert.match(b, new RegExp(words.split(' ').map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')), why);
+  assert.match(b, /^### Your name is already on your message$/m, 'the section is missing, or not under its own heading');
+  has('Kosmos shows your name above every message you post in a room', 'the reason (the name is already shown) is gone');
+  has('never start a message with your own name', 'the rule itself is gone');
+  const section = defaults.sections().find((x) => x.heading === '### Your name is already on your message');
+  assert.ok(section, 'sections() does not split it out as its own section');
+  assert.deepEqual(defaults.missingFrom(b.replace(section.text, '')).map((x) => x.heading), ['### Your name is already on your message'],
+    'an agent holding every other section would not be offered this one');
+});
+
+/* kosmos#5152 slice 0 (Josh, 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"). Pinned as
+   CONTENT: the measured section (claude -p, 4/4 with it, 0/4 without) is what makes agents file the task with its
+   "Done when:" checks and report each one when they mark it built, so a reword that drops either command is a
+   behaviour change, not a style edit. */
+test('#5152: work goes on a task first, with Done when checks, and the built note reports each check', () => {
+  const sec = defaults.sections().find((s) => s.heading === '### Put the work on a task first');
+  assert.ok(sec, 'the "Put the work on a task first" section is missing from the block');
+  assert.match(sec.text, /`kosmos task add <project-id> "<the work, in one line>" "Done when: 1\) \.\.\. 2\) \.\.\. 3\) \.\.\." --who me`/);
+  assert.match(sec.text, /`kosmos task built <project-id> <task-number> "1 met\. 2 met\. 3 not met: <why>"`/);
+  assert.match(sec.text, /`kosmos task message <project-id> <task-number> "Done when: 1\) \.\.\. 2\) \.\.\. 3\) \.\.\."`/);
+  assert.match(sec.text, /If the work came to you as a task already, do not add another\./);
+  assert.match(sec.text, /Right after adding it, run `kosmos task list <project-id>` and note your\s+task's number/);   // wraps in BLOCK
+  assert.match(sec.text, /The one line holds 200\s+characters/);
+  assert.match(sec.text, /A question, a quick answer or small talk is not a task\./);
+  assert.match(sec.text, /If you are on no\s+project, or the work belongs to none of yours, do not guess another: write the\s+checks in your reply/);   // wraps in BLOCK
+  // Review round 3: a check with a backtick or $ is expanded by the shell inside double quotes (the block's own trap).
+  assert.match(sec.text, /If a check holds a backtick or a `\$`, use single quotes/);
+  // Review round 3: several agents asked in one room add one task, not one each.
+  assert.match(sec.text, /If several of you were asked in one room, add one task between you\./);
+  // The person cannot edit a task's words yet (no edit path in engine/tasks.js), so the section must not say they can.
+  assert.doesNotMatch(sec.text, /\b(change|edit)s? (it|the task|the checks|what it says)\b/i);
+  // It sits right after "Knowing when you are finished", which tells the agent to write finished down first.
+  const heads = defaults.sections().map((s) => s.heading);
+  assert.equal(heads[heads.indexOf('### Knowing when you are finished') + 1], '### Put the work on a task first');
+  // A new heading, so an agent already holding every other section is offered this one (as #4873).
+  assert.deepEqual(defaults.missingFrom(defaults.block().replace(sec.text, '')).map((x) => x.heading), ['### Put the work on a task first'],
     'an agent holding every other section would not be offered this one');
 });

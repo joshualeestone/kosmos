@@ -1,20 +1,20 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
  * grouped by where the work is.
  *
  * What this pins, and why each line can fail:
- *  - the Tasks tab and the consolidated rail's Tasks button are hidden below 25 tasks ever and
- *    shown once the saved flag is set (Josh's ruling); then the tab opens #panel-tasks, and in
- *    the consolidated view (tab bar hidden) the rail button opens it,
+ *  - the Tasks tab is hidden below 25 tasks ever and shown once the saved flag is set (Josh's
+ *    ruling); then the tab opens #panel-tasks, and in the consolidated view the tab opens it in
+ *    the display column, with no Tasks pill in the projects rail (#4595),
  *  - #3949 (Josh, 2026-09-26): six single-label tiles in his order (Needs Your Decision, red; In
  *    progress; Assigned but not started; Unassigned; Built but waiting, #3951; Completed), with the
  *    right counts and no byline; Completed also stays the folded list; NO "Done, check it" or
  *    category is drawn (they are not guessed). Built but waiting's task is marked by the engine
  *    (tasks.setBuilt), and its row says who marked it and what is left. Needs Your Decision's task is a real one: its agent
  *    (Max) reports a question about its project, and the pane is asking,
- *  - #3949 layout: no left Projects column; the title is the count ("7 Tasks on 2 Projects", the projects
+ *  - #3949 layout: no left Projects column; the title is the count ("8 Tasks on 2 Projects", the projects
  *    those open tasks are on) with no separate count line; Project and Created: dropdowns on one row;
  *    Group by, Sort and a compact search (after Sort, "/" focuses it, Esc clears it) under the tiles;
  *    no tile hint,
@@ -92,12 +92,14 @@ function chk(ok, label, extra) {
   tasks.create(launch.id, { sentence: 'Approve the cover', who: 'max' });         // 5 decision (Max is asking)
   tasks.create(news.id, { sentence: 'Ship the signup form', who: 'rex' });        // 3 built (#3951)
   tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
+  tasks.create(news.id, { sentence: 'Pick a newsletter sender name' });             // 4 held (#4771)
+  tasks.setOnHold(news.id, 4, true);
   commitments.report('ada', [{ what: 'working on task 3 of Spring launch' }]);
   // An ARCHIVED project's task must not appear anywhere in the view.
   const old = projects.create({ name: 'Old catalog' });
   tasks.create(old.id, { sentence: 'Archived away task' });
   projects.setArchived(old.id, true);
-  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, closed: 1 };
+  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, held: 1, closed: 1 };
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -150,7 +152,10 @@ function chk(ok, label, extra) {
       labels: [...panel.querySelectorAll('.tsk-cl')].map((l) => l.textContent),
       labelCase: getComputedStyle(panel.querySelector('.tsk-cl')).textTransform,
       allOption: (document.querySelector('#tsk-projsel option[value=""]') || {}).textContent || '',
-      nobodyChips: document.querySelectorAll('#tsk-groups .tsk-who.nobody').length,
+      nobodyChips: [...document.querySelectorAll('#tsk-groups .tsk-grp')].filter((g) => { const h = g.querySelector('h3'); return h && h.firstChild && h.firstChild.textContent === 'Unassigned'; })
+        .reduce((n, g) => n + g.querySelectorAll('.tsk-who.nobody').length, 0),
+      /* #4771: On hold mixes assigned and unassigned tasks, so its unassigned row keeps the chip (as grouping by project does). */
+      heldChip: (() => { const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.querySelector('.tl').textContent === 'Pick a newsletter sender name'); return r ? !!r.querySelector('.tsk-who.nobody') : null; })(),
       searchW: Math.round(document.getElementById('tsk-search').getBoundingClientRect().width),
       mainW: Math.round(document.querySelector('.tsk-main').getBoundingClientRect().width),
     };
@@ -171,9 +176,8 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(300);
       const before = await page.evaluate(() => ({
         tab: document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0,
-        rail: document.getElementById('rail-projects-tasks').hidden === false,
       }));
-      chk(!before.tab && !before.rail, '[gate] below 25 tasks the Tasks tab and the rail button are hidden', JSON.stringify(before));
+      chk(!before.tab, '[gate] below 25 tasks the Tasks tab is hidden', JSON.stringify(before));
       require('../../engine/store').writeSettings({ tasksTabShown: true });
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -254,7 +258,9 @@ function chk(ok, label, extra) {
     }
     for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760], ['dark', 390]]) {
       const tag = `[${theme} ${width}]`;
-      const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
+      /* #4771: at 390 the seventh tile adds a row, and even an empty list then runs past a 1000px window, where the
+         bleed arm below cannot measure. A taller window keeps it measuring (the 390x844 phone run is separate). */
+      const page = await browser.newPage({ viewport: { width, height: width < 500 ? 1200 : 1000 }, colorScheme: theme });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
       await page.goto(URL, { waitUntil: 'networkidle' });
@@ -286,7 +292,12 @@ function chk(ok, label, extra) {
          (white) to both edges and to the bottom of the window; the task cards shaded with the ground; the tiles still
          the surface. A 1x1 screenshot is read back through a canvas in the page. */
       const px = async (x, y) => {
-        const b64 = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
+        /* #4771: at phone width the tiles wrap to more rows, and a point below them can sit past the window's bottom.
+           Scroll it into view for the read, then put the scroll back. */
+        const lift = await page.evaluate((yy) => { if (yy + 1 <= innerHeight) return 0; const was = scrollY; scrollBy(0, yy - Math.round(innerHeight / 2)); return scrollY - was; }, y);
+        let b64;
+        try { b64 = (await page.screenshot({ clip: { x, y: y - lift, width: 1, height: 1 } })).toString('base64'); }
+        finally { if (lift) await page.evaluate((d) => scrollBy(0, -d), lift); }
         return page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
           c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
           i.src = 'data:image/png;base64,' + src; }), b64);
@@ -373,9 +384,10 @@ function chk(ok, label, extra) {
         }
       }
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
-      /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
-      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
-      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
+      /* #3949/#3951 (Josh): single-label tiles in his order; #4771's On hold sits after his open groups, before
+         Completed, which is a tile and still the fold below. */
+      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'held', 'closed']), `${tag} the tiles are Josh's groups in his order, then On hold, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
+      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On hold', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
       chk(a.tiles.every((t) => t.bylines === 0), `${tag} no tile carries a byline`);
       chk(a.tiles[0].color === a.danger && a.tiles.slice(1).every((t) => t.color !== a.danger), `${tag} Needs Your Decision, and only it, is red`, JSON.stringify(a.tiles.map((t) => t.color).concat(a.danger)));
       chk(a.fold, `${tag} Completed stays the folded list`);
@@ -385,6 +397,7 @@ function chk(ok, label, extra) {
       chk(JSON.stringify(a.labels) === JSON.stringify(['Project:', 'Created:', 'Group by:', 'Sort:']) && a.labelCase === 'none', `${tag} the labels read as Josh wrote Created:, not in capitals`, JSON.stringify({ labels: a.labels, c: a.labelCase }));
       chk(a.allOption === 'All projects', `${tag} All projects carries no count (it read as a number of projects)`, JSON.stringify(a.allOption));
       chk(a.nobodyChips === 0, `${tag} grouped by status, the Unassigned rows carry no Nobody yet chip (the heading says it)`, String(a.nobodyChips));
+      chk(a.heldChip === true, `${tag} grouped by status, an unassigned task on hold keeps its Nobody yet chip (On hold mixes both)`, String(a.heldChip));
       /* On a phone-width window each pair may wrap onto two lines; above it they share one (Josh: "the same line"). */
       /* The pairs wrap only by flex-wrap (no breakpoint): measured at 390 each pair wraps, at 760 each fits, so 480
          splits the widths this check drives and asserts nothing about widths it does not. */
@@ -420,7 +433,7 @@ function chk(ok, label, extra) {
       chk(sideways <= 0, `${tag} no sideways scroll`, String(sideways));
       /* #3949 (Josh, 09-26 19:30): "X Tasks on N Projects" as the title (open tasks: this fixture has 7 on 2 live
          projects), no separate count line, the search compact to the right of Sort, taller ground under the tiles. */
-      chk(a.title === '7 Tasks on 2 Projects' && !a.countLine, `${tag} the title is the count, "7 Tasks on 2 Projects", and there is no separate count line`, JSON.stringify({ title: a.title, countLine: a.countLine }));
+      chk(a.title === '8 Tasks on 2 Projects' && !a.countLine, `${tag} the title is the count, "8 Tasks on 2 Projects", and there is no separate count line`, JSON.stringify({ title: a.title, countLine: a.countLine }));
       chk(a.searchW <= 40, `${tag} at rest the search is compact (the magnifier)`, JSON.stringify({ w: a.searchW }));
       if (width > 760) chk(a.searchRightOfSort, `${tag} the search sits to the right of Sort`);
       chk(a.tilesGap >= 30, `${tag} the ground under the tiles is taller (at least 30px before the white)`, String(a.tilesGap));
@@ -731,7 +744,7 @@ function chk(ok, label, extra) {
         });
         const hs = new Set(c2.map((x) => x.h));
         const dec = c2.find((x) => x.k === 'decision');
-        chk(c2.length === 6 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
+        chk(c2.length === 7 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
             && x.icon && x.icon[0] === 19 && x.icon[1] === 19 && x.paths >= 2 && x.hidden === 'true' && x.tinted
             && x.pad === '16px 16px 15px' && x.h >= 108 && x.gap === 10) && hs.size === 1,
           `${tag} each tile has its 36px tinted badge with a 19px icon before the number, 16px padding, a 10px gap and one shared height (#4053)`, JSON.stringify(c2));
@@ -826,7 +839,7 @@ function chk(ok, label, extra) {
         await page.setViewportSize({ width, height: 520 });
         const stick = await page.evaluate(() => { scrollTo(0, 0); const b = document.getElementById('tsk-bulk').getBoundingClientRect();
           return { tall: document.getElementById('tsk-groups').getBoundingClientRect().bottom > innerHeight, top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; });
-        await page.setViewportSize({ width, height: 1000 });
+        await page.setViewportSize({ width, height: width < 500 ? 1200 : 1000 });   // back to this loop's window
         chk(stick.tall && stick.top >= 0 && stick.bottom <= stick.h, `${tag} with a list longer than the window the Close bar stays on screen at the bottom (sticky)`, JSON.stringify(stick));
         /* Clear hides the bar with its own button in it: focus lands on the search, not the body. */
         await page.click('#tsk-bclear');
@@ -858,7 +871,8 @@ function chk(ok, label, extra) {
       await page.close();
     }
 
-    /* The consolidated view: the tab bar is hidden there, so the projects rail carries the way in. */
+    /* The consolidated view: #4595 (Josh) took the Tasks pill out of the projects rail; the tab bar is the way in,
+       and it opens Tasks inside the display column (#2842). */
     const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
     await page.goto(URL, { waitUntil: 'networkidle' });
     await clearFirstRun(page);
@@ -868,11 +882,13 @@ function chk(ok, label, extra) {
     await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 }).catch(() => {});
     const inCons = await page.evaluate(() => ({
       cons: document.body.classList.contains('consolidated'),
-      btn: (() => { const b = document.getElementById('rail-projects-tasks'); return !!b && b.getClientRects().length > 0; })(),
+      noPill: !document.getElementById('rail-projects-tasks') && !document.querySelector('#rail-projects .rail-tasks'),
+      btn: (() => { const b = document.querySelector('#tabs .tab[data-tab="tasks"]'); return !!b && b.getClientRects().length > 0; })(),
     }));
-    chk(inCons.cons && inCons.btn, '[consolidated] the projects rail shows a Tasks button', JSON.stringify(inCons));
+    chk(inCons.cons && inCons.noPill, '[consolidated] #4595: the projects rail has no Tasks pill', JSON.stringify(inCons));
+    chk(inCons.cons && inCons.btn, '[consolidated] the Tasks tab is on screen, the way in', JSON.stringify(inCons));
     if (inCons.btn) {
-      await page.click('#rail-projects-tasks');
+      await page.click('#tabs .tab[data-tab="tasks"]');
       await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 5, null, { timeout: 8000 }).catch(() => {});
       const got = await page.evaluate(() => {
         const pt = document.getElementById('panel-tasks');
@@ -885,7 +901,7 @@ function chk(ok, label, extra) {
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
-      chk(got.shown && got.tiles === 6, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.shown && got.tiles === 7, '[consolidated] it opens the Tasks view', JSON.stringify(got));
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.noRail && got.dropdown, '[consolidated] no project column of its own; the project dropdown is there', JSON.stringify(got));
       /* Mona's look review of #3701, in the column too: the gap above the title is about halved. */
@@ -907,7 +923,7 @@ function chk(ok, label, extra) {
       /* #3949: the white band bleeds only to the column. The projects rail beside it, at the height of Group by, keeps
          the page's ground: the column's scroll box is what contains the bleed, and nothing else would. */
       {
-        const cg = await page.evaluate(() => { const rail = document.getElementById('rail-projects-tasks').closest('aside, nav, section, div[class*="rail"]') || document.getElementById('rail-projects-tasks').parentElement;
+        const cg = await page.evaluate(() => { const rail = document.getElementById('rail-projects').closest('aside, nav, section, div[class*="rail"]') || document.getElementById('rail-projects').parentElement;
           const r = rail.getBoundingClientRect(); const u = document.getElementById('tsk-under').getBoundingClientRect();
           const probe = (v) => { const e = document.createElement('i'); e.style.color = v; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+/g).slice(0, 3).map(Number); };
           return { x: Math.round(r.right - 6), y: Math.round(u.top + u.height / 2), railRight: Math.round(r.right), colLeft: Math.round(document.getElementById('panel-tasks').getBoundingClientRect().left),

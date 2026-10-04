@@ -29,7 +29,7 @@ function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', innerHTML: '', disabled: false, selectedIndex: 0, focused: 0, focus() { this.focused += 1; focusLog.push(id); } });
   const focusLog = [];
-  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
+  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-voice-msg', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
   els['nt-projrow'].hidden = true;
   els['nt-modal'].hidden = true;
   const box = { attrs: { 'aria-describedby': 'nt-in' }, setAttribute(k, v) { this.attrs[k] = v; } };
@@ -199,6 +199,7 @@ test('the create path files to the dialog\'s project and, from Tasks, answers in
 });
 
 test('the Tasks head carries "+ New task" as its primary button', () => {
-  assert.match(PAGE, /<div class="tsk-head"><h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
+  // #4586: the back chevron may lead the head; "+ New task" still follows the title directly.
+  assert.match(PAGE, /<div class="tsk-head">(?:<button class="sub-back" id="tsk-back"[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>)?<h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
   assert.match(SCRIPT, /getElementById\('tsk-new'\)\.addEventListener\('click', openNewTaskFromTasks\)/);
 });

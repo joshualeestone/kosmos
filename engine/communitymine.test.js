@@ -126,7 +126,7 @@ test('a row carries no remote id, send time or the record\'s own agent field, wh
   writeSent({ [a.id]: { state: 'sent', agent: 'record-only-agent', remoteId: 'remote-123', sentAt: '2026-09-28T08:00:00Z' } });
   const row = mine.mine()[0];
   assert.deepEqual(Object.keys(row).sort(),
-    ['agent', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
+    ['agent', 'agentNameUnclaimed', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
   const text = JSON.stringify(row);
   for (const leak of ['remote-123', 'record-only-agent', '2026-09-28T08:00:00Z']) assert.ok(!text.includes(leak), leak);
 });
@@ -152,8 +152,9 @@ test('the agent shows by its display name when it has one', () => {
 
 test('a held post that was released later lists by when it went public, not when it came in', async () => {
   const pause = () => new Promise((r) => setTimeout(r, 15));
-  // Not trusted: publishPost holds it for review, stamped receivedAt now.
-  const held = feedpublish.publishPost({ kind: 'community_post', agent: 'bea', at: new Date().toISOString(), topic: 'Held first', body: 'Waited for review.' }, { agentId: 'bea' });
+  // Held for review, stamped receivedAt now. trusted: false since #3485 (2026-09-30): an agentId now
+  // publishes straight away, so this stands for a row held before that update.
+  const held = feedpublish.publishPost({ kind: 'community_post', agent: 'bea', at: new Date().toISOString(), topic: 'Held first', body: 'Waited for review.' }, { trusted: false });
   assert.equal(held.ok, true, JSON.stringify(held));
   await pause();
   const later = agentPost('ava', { topic: 'Straight out', body: 'Trusted, published at once.' });
@@ -180,4 +181,15 @@ test('a post waiting for a retry (pending) lists with Delete, and a delete withh
   assert.deepEqual(by(), { retry: ['pending', true, false], refusedPending: ['pending', false, true] });
   assert.equal(cs.requestDelete(retry).ok, true);
   assert.deepEqual(by().retry, ['withheld', false, false], 'a delete on a pending post withholds it: it never goes out');
+});
+
+test('#4800: a post held because its agent\'s name is taken without a key reaches the owner\'s row flagged', () => {
+  const a = agentPost('ava', { topic: 'Waiting', body: 'x' });
+  writeSent({ [a.id]: { state: 'pending', agent: 'ava' } });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString(), taken: true } } }));
+  const row = mine.mine().find((r) => r.id === a.id);
+  assert.ok(row, 'CONTROL: the post is not in the owner\'s list');
+  assert.equal(row.agentNameUnclaimed, true, 'the owner\'s row lost the flag, so the page never says why');
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString() } } }));
+  assert.equal(mine.mine().find((r) => r.id === a.id).agentNameUnclaimed, false, 'a mark not yet found taken was flagged');
 });

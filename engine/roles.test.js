@@ -1,6 +1,9 @@
 'use strict';
 
 const test = require('node:test');
+// #4632: the ready-made roles are downloaded; sandbox the data root and store the signed fixture
+// first, so every-role sweeps below see the catalogue's roles too, and never the operator's own copy.
+require('../test-support/catalogue-fixture').sandboxWithCatalogue('roles');
 const assert = require('node:assert/strict');
 
 test('every role carries the summary rhythm (except the setup guide), and only the two overseers carry the sweep (#518, #519, #3034)', () => {
@@ -22,6 +25,7 @@ test('every role carries the summary rhythm (except the setup guide), and only t
       r.key + (shouldSweep ? ' lost the task sweep' : ' gained a sweep only overseers carry'));
     if (shouldSweep) {
       assert.match(text, /keeping their summary\s+files current/, r.key + ' does not verify the fleet’s summaries');
+      assert.match(text, /kosmos project show <project-id> lists each member's\s+newest summary/, r.key + ' is not pointed at the command that shows summary freshness (#4581)');
       assert.match(text, /never a tracker of your own/, r.key + ' may invent a parallel tracker');
     }
   }
@@ -112,7 +116,7 @@ test('#1279: a Project Manager can build the team, after confirming in one line;
 
 test('#4474: when no role fits, the PM writes one from the default text, after the same confirmation; the guide does not', () => {
   const roles = require('./roles');
-  // The guide is sandboxed away from secrets; a role it wrote would steer an unsandboxed agent (the server refuses it).
+  // The guide is kept away from secrets (#3769); a role it wrote would steer an agent without those guards (the server refuses it).
   assert.doesNotMatch(roles.instructionsFor('setup', 'X').replace(/\s+/g, ' '), /role-draft|--new-role/, 'the guide was taught to write roles');
   {
     const key = 'pm';
@@ -123,4 +127,10 @@ test('#4474: when no role fits, the PM writes one from the default text, after t
     assert.match(flat, /kosmos agent create "<name>" --new-role "<role name>" --from role-<short-name>\.md "<why>"/, `${key} is not told the new-role verb`);
     assert.match(flat, /To make another agent with that role later, use the same file\./);
   }
+});
+
+test('#4632 premise: the sweeps in this file include the downloaded catalogue roles', () => {
+  const roles = require('./roles');
+  assert.ok(roles.byKey('cmo'), 'the catalogue fixture is not merged, so the sweeps above cover only the built-in roles');
+  assert.ok(roles.ROLES.length > roles.BUILT_IN.length);
 });

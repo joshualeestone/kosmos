@@ -1120,6 +1120,10 @@ function keysAllowed(sessionName, roster) {
   if (allowed.card.reachedByChannel === true) {
     return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
   }
+  /* #4589 round 2: Stop now's keys obey the same Codex rule as a message (Escape and C-x C-k are keys too, and
+     C-x C-k on Codex's hook dialog is unmeasured). */
+  const codex = codexScreenRefusal(allowed.card, sessionName, roster);
+  if (codex) return { ok: false, because: codex };
   return { ok: true, card: allowed.card };
 }
 
@@ -1184,8 +1188,181 @@ function answerGeminiQuotaStop(sessionName, roster) {
   return { ok: true, key };
 }
 
+/* #4607: how long a Codex screen settles before a key: a key sent the instant a screen draws is dropped (measured
+   twice on 0.149.1, a "2" before the menu drew and a "t" as the table drew). */
+const CODEX_HOOK_SETTLE_MS = 1500;
+/* #4607 (review round 1): one answer per agent at a time. Two surfaces (the app and a browser tab) answering at once
+   would each read the menu before Codex redrew, and the second key would land in its composer. */
+const CODEX_HOOK_BUSY = new Set();
+/* #4607 (review round 4): what the person was shown, as the thread route sent it (status.codexHookSummary). The
+   answer must be about THAT dialog: a different one on screen now (another hook set, or another screen) is refused. */
+function sameCodexHooks(a, b) {
+  /* Never throws on what a request sends (review round 9): anything odd is simply not a match. */
+  const norm = (h) => {
+    try {
+      return (h && typeof h === 'object')
+        ? JSON.stringify({ screen: h.screen || null, count: typeof h.count === 'number' ? h.count : null,
+          events: Array.isArray(h.events) ? h.events.map((e) => `${e && e.event}:${e && e.count}`) : [], source: h.source || null, command: h.command || null })
+        : null;
+    } catch { return null; }
+  };
+  return norm(a) !== null && norm(a) === norm(b);
+}
+/**
+ * #4607: the PERSON answers Codex's "Hooks need review" from the board: choice 'trust' (every hook it lists),
+ * 'skip' (continue without trusting; the hooks do not run) 'close' (the trusted list left open) or 'list' (from one hook's page, back to the full list). The only caller is the owner-only route; no message path
+ * reaches it, and #4589's floor (codexScreenRefusal, in deliverWithGap and keysAllowed) is unchanged for every other
+ * key. So this checks what keysAllowed checks EXCEPT that floor: this is the one place the dialog may be answered.
+ *
+ * Keys, measured 2026-09-30 on a live pane (Codex 0.149.1, isolated CODEX_HOME, one `true` Stop and one `true`
+ * SubagentStop hook):
+ *   menu:  trust "2", skip "3" (each acts at once, no Enter) -> the prompt
+ *   table: trust "t" -> the same table with "Press enter to view hooks; esc to close", then Escape -> the prompt;
+ *          skip Escape -> the prompt, nothing trusted
+ *   hook:  Escape -> the table, then as the table
+ * Before EVERY key the screen is read again and must be the screen that key was measured on; after it, the screen
+ * settles and is read again. Anything else stops with what it saw: nothing is pressed into a screen we did not expect.
+ * `seen` is the summary the page showed (status.codexHookSummary); the first key must match it.
+ * Resolves { ok: true, choice, keys, screen } | { ok: false, because, keys, reread? }. Never rejects.
+ */
+async function answerCodexHooks(sessionName, choice, roster, seen) {
+  const keys = [];
+  const no = (because) => ({ ok: false, because, keys });
+  if (!['trust', 'skip', 'close', 'list'].includes(choice)) return no('choose to trust the hooks, to continue without them, or to close the list');
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return no(allowed.because);
+  /* Locked on the PANE the name resolved to, not the name as typed (review round 2: a case-folded spelling reaches the
+     same pane under another key). */
+  const lockKey = paneTarget(allowed.card) || String(allowed.card.sessionName || sessionName);
+  if (CODEX_HOOK_BUSY.has(lockKey)) return no('an answer to its hook question is already being sent; wait a moment');
+  CODEX_HOOK_BUSY.add(lockKey);
+  try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no, allowed.card, seen); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
+}
+/* #4607 (review round 5): the ONLY screen steps this answer takes, each one measured on 0.149.1. `[screen, key, next]`:
+   `key` is pressed on `screen` and the next read must be `next` ('gone' = no hook screen and not blank). Any other
+   step stops, so no key is ever pressed on a screen reached by a step nobody measured (a Trust that landed on a new
+   menu pressed "2" there before). 'digit' is the number beside the chosen option on that menu, read then.
+   From ONE hook's page the only step is 'list' (back to the full table, then stop): that page names one hook and
+   "t" trusts them all, so the person reads the whole list first; Trust there is refused before any key. */
+/* ⚠️ Only the FIRST key is checked against what the person was shown (sameCodexHooks); after it, Trust takes at
+   most "t" then Escape. A new Trust step added here must re-check what was shown before its key. */
+const CODEX_HOOK_STEPS = {
+  trust: { menu: ['digit', 'gone'], table: ['t', 'trusted'], trusted: ['Escape', 'gone'] },
+  /* From one hook's page: back to the full list, then stop so the person reads it (review round 15: its own choice,
+     so it is never logged or worded as a Trust). */
+  list: { hook: ['Escape', 'table'] },
+  skip: { menu: ['digit', 'gone'], table: ['Escape', 'gone'], hook: ['Escape', 'table'] },
+  close: { trusted: ['Escape', 'gone'] },
+};
+async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card, seen) {
+  if (card.runner !== 'codex') return no('that is not a Codex agent');
+  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
+  const t = paneTarget(card);
+  const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
+  const look = () => {
+    /* The pane is asked again on every read (review rounds 5 and 7: a fresh tmux probe, the one the message path uses
+       just before typing): a pane that stopped being this agent's, or went into copy mode, takes no more keys. */
+    if (!verifyAtSend(card).ok) return { unseen: true };
+    const view = viewport(sessionName, roster);
+    const text = view && typeof view.text === 'string' ? view.text : null;
+    if (text === null) return { unseen: true };
+    const q = status.codexHookReview(text);
+    if (q) return { screen: q.screen, text };
+    if (status.codexHookTrustedTable(text)) return { screen: 'trusted', text };
+    return { screen: String(text).trim() ? 'gone' : 'blank', text };
+  };
+  const press = (key) => {
+    const got = tmux(['send-keys', '-t', t, key]);
+    keys.push(key);
+    return !(got.spawnFailed || !got.ran || got.status !== 0);
+  };
+  /* After a key that trusts, any later failure says so (review round 14): "nothing more was pressed" alone would read
+     as though Trust did nothing, and trusting is the one choice that is hard to take back. */
+  let trustPressed = false;
+  let readFirst = null;
+  const noAfter = (m) => Object.assign(no(trustPressed ? `${m}. Trust may already have taken effect` : m), { screen: readFirst });
+  const steps = CODEX_HOOK_STEPS[choice];
+  let now = look();
+  readFirst = now.screen || null;
+  if (now.unseen) return no('we could not see its screen just now, so nothing was pressed');
+  if (now.screen === 'gone' || now.screen === 'blank') return no('the hook question is not on its screen now, so nothing was pressed');
+  if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
+  if (now.screen !== 'trusted' && choice === 'close') return no('there is no open hook list to close on its screen now, so nothing was pressed');
+  if (now.screen === 'hook' && choice === 'trust') return no('this page names one hook; show the full list first, then choose');
+  if (choice === 'list' && now.screen !== 'hook') return no('showing the full list is only for one hook\u2019s page, so nothing was pressed');
+  let first = true;
+  for (let n = 0; n < 4; n += 1) {
+    const step = steps[now.screen];
+    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
+    /* Read again immediately before the key: it must still be this screen, and on the FIRST key it must be the dialog
+       the person was shown (review round 4, checked on this same read, round 5). */
+    const before = look();
+    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
+    if (first && !sameCodexHooks(seen, status.codexHookSummary(before.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
+    /* The table and one hook's page must have their exact measured shape before any key (review round 10: a bare
+       table footer printed by an agent read as the table, and Trust pressed "t" there). */
+    if ((now.screen === 'table' || now.screen === 'hook') && !status.codexHookScreenExact(before.text, now.screen)) {
+      return no('the hook question on its screen is not the one we know, so nothing was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
+    }
+    let key = step[0];
+    if (key === 'digit') {
+      const mk = status.codexHookMenuKeys(before.text);
+      key = choice === 'trust' ? mk.trust : mk.skip;
+      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
+    }
+    if (!press(key)) return noAfter('we could not press the key; look at This agent\u2019s Terminal under AI Settings on this page');
+    if (choice === 'trust' && (key === 't' || now.screen === 'menu')) trustPressed = true;
+    first = false;
+    await wait(CODEX_HOOK_SETTLE_MS);
+    const after = look();
+    if (after.unseen) return noAfter('we answered, and then could not see its screen to check it; look at This agent\u2019s Terminal under AI Settings on this page');
+    if (after.screen === 'blank') return noAfter('we answered, and its screen was blank when we checked; look at This agent\u2019s Terminal under AI Settings on this page');
+    if (after.screen !== step[1]) {
+      if (after.screen === now.screen) {
+        /* A slow redraw is not proof the key failed (review round 11): after a Trust key it may still have landed. */
+        if (trustPressed && now.screen === 'trusted') return noAfter('its hooks are trusted and their list is still open; close the list');
+        if (trustPressed) return Object.assign(no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment'), { screen: readFirst });
+        return noAfter('its screen did not change after we answered; look at This agent\u2019s Terminal under AI Settings on this page');
+      }
+      return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; look at This agent\u2019s Terminal under AI Settings on this page');
+    }
+    if (after.screen === 'gone') return { ok: true, choice, keys, screen: readFirst };
+    /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
+    if (choice === 'list') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true, screen: readFirst };
+    now = after;
+  }
+  return noAfter('its screen is still asking after four keys, so we stopped; look at This agent\u2019s Terminal under AI Settings on this page');
+}
+
 /* #3564: what a paused swarm still accepts. */
 const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
+
+/**
+ * #4589: may anything be typed into this Codex agent's pane right now? Returns the sentence saying why not, or null.
+ * Shared by deliverWithGap (every message) and keysAllowed (Stop now's keys), so a message and a key obey one rule.
+ * Codex stops at startup on its "Hooks need review" dialog, where a typed "2" or "t" trusts every hook (outside the
+ * sandbox). So, for a Codex agent with a tmux pane, a FRESH read decides:
+ *   - either dialog screen on it -> refused (the person answers it on the agent page, #4607);
+ *   - a read that succeeds with a BLANK screen -> refused as still starting (round 1: the dialog is about to draw,
+ *     and text pasted then lands on it as raw keys);
+ *   - a read that FAILS -> refused as unseen (round 2: the snapshot is from before startup, so it cannot vouch that
+ *     no dialog is up).
+ * A channel-reached (Windows) agent has no tmux pane and is not read. Residuals, stated: the dialog can still draw
+ * in the gap between this read and the paste (one read, then a paste of a few chunks); a Codex launched through
+ * `node` reads as Claude until its runner tag lands (status.js takes the command only for a native `codex`).
+ */
+function codexScreenRefusal(card, sessionName, roster) {
+  /* When nothing will really be typed (dry-run with no injected runner, exactly tmux()'s own rule), the dry-run answer
+     is the true one (round 3: demo boards read "we could not see its screen" for every Codex agent). An injected
+     runner outranks dry-run in tmux(), so the rule still applies there (round 4). */
+  if ((DRY_RUN && !runner) || !card || card.runner !== 'codex' || card.reachedByChannel === true) return null;
+  const view = viewport(sessionName, roster);
+  if (!view || typeof view.text !== 'string') return status.CODEX_UNSEEN_SENTENCE;
+  if (!view.text.trim()) return status.CODEX_STARTING_SENTENCE;
+  /* #4607: the trusted-but-open list too (a typed key there is unmeasured; Close answers it from the board). */
+  if (status.codexHookReview(view.text) !== null) return status.CODEX_HOOK_DIALOG_SENTENCE;
+  return status.codexHookTrustedTable(view.text) ? status.CODEX_HOOK_LIST_SENTENCE : null;
+}
 
 /**
  * Put one message into one agent's session.
@@ -1240,6 +1417,18 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
+  }
+  /* #4589 (after the paused-swarm check, round 3: that check is free and its sentence is the true one): NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
+     it has not been told to trust is enabled, and a message typed there vanishes: Enter opens the review
+     table and the text is gone (reproduced 2026-09-29, Codex 0.149.1). Every sender comes through here.
+     A FRESH read for a Codex agent, because the dialog draws at startup, exactly when the first message
+     arrives, and the roster snapshot predates it. A read that fails, or shows a blank screen, refuses too
+     (codexScreenRefusal). Nothing is typed while the dialog is up, not even an option number: this function cannot tell the person from
+     another agent, a task line or a room post, and trusting hooks lets them run outside the sandbox, so
+     the choice is made in the agent's terminal. A channel-reached (Windows) agent has no tmux pane. */
+  {
+    const codex = codexScreenRefusal(allowed.card, sessionName, roster);
+    if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
   }
 
   /**
@@ -1499,9 +1688,39 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       state: DELIVERY.COULD_NOT,
       because: 'another message is still being placed in its window, so this one was not typed',
       at: new Date().toISOString(), paneState: null, paneNote: null,
+      busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
   return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);
+}
+
+/**
+ * #4588 PR B: deliver for a TIMER, never for a person. While the shared Google quota of this machine's Antigravity
+ * agents is out, a line typed into any of them spends a turn against the empty pool, so it is not typed. The verdict is
+ * COULD_NOT (nothing reached the pane) with `held: true` and `heldUntil` (ISO), so a sender that budgets its tries can
+ * keep the try for after the reset. A person's own message goes through deliver() and is never held.
+ */
+function quotaHeldVerdict(sessionName, roster) {
+  // Review round 6: only a pane we could type into is HELD. A stopped or untypeable member (no agent process, no
+  // target, not ours) is refused by deliver/deliverAsync with its real reason, exactly as without the quota gate, so
+  // the room never logs a post as held for a pane nothing can reach, and the sender is not told PLACED.
+  if (addressable(sessionName, roster).ok !== true) return null;
+  let until = null;
+  try { until = require('./agyquota').heldForQuota(sessionName, roster, Date.now()); } catch { until = null; }
+  if (until === null) return null;
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldUntil: new Date(until).toISOString(),
+    because: "held: this machine's Google account's shared Antigravity quota is out until " + new Date(until).toISOString(),
+    at: new Date().toISOString(), paneState: null, paneNote: null,
+  };
+}
+function deliverAutomatic(sessionName, raw, roster, envelope, trailer) {
+  return quotaHeldVerdict(sessionName, roster) || deliver(sessionName, raw, roster, envelope, trailer);
+}
+/* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
+   delivered by sendPostAsync, the #4624 idle flush). */
+async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer) {
+  return quotaHeldVerdict(sessionName, roster) || deliverAsync(sessionName, raw, roster, envelope, trailer);
 }
 
 async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
@@ -1727,6 +1946,17 @@ function questionIn(text, runner) {
        must be findable too. */
     if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
   }
+  /* #5051: Claude Code's safeguards model-switch menu matches none of the markers (its question is wrapped prose in a
+     frame), so it was invisible here while the board named it (#5039, the same live-menu rule). When it is the live
+     menu, the region starts at its "Model switch" title and runs to the end of the screen, so the person reads the
+     question and both choices (and any line below it). No "below a marker" condition: a non-numbered marker line under
+     the menu would otherwise start the region mid-menu (review round 1). optionsIn refuses it, so no buttons. */
+  const sg = status.safeguardsMenuAt(whole);
+  if (sg) {
+    let title = -1;
+    for (let i = sg.at - 1; i >= Math.max(0, sg.at - 16); i -= 1) if (/Model switch\s*$/.test(lines[i])) { title = i; break; }
+    return { text: lines.slice(title >= 0 ? title : Math.max(0, sg.at - 10)).join('\n').replace(/\s+$/, '') };
+  }
   if (at < 0) return null;
   // A few lines of run-up, because a Claude permission prompt states what it is
   // asking about above the line that matches.
@@ -1904,6 +2134,9 @@ function questionAbove(questionText) {
 }
 
 function optionsIn(questionText) {
+  /* #5051: never buttons for Claude Code's safeguards model-switch menu. Option 1 switches models and saves that choice
+     in the agent's Claude settings; the person types it. Enforced here, not left to that menu's layout (review round 1). */
+  if (status.safeguardsMenuAt(String(questionText == null ? '' : questionText))) return null;
   const whole = String(questionText == null ? '' : questionText);
   if (!whole.trim()) return null;
   const found = [];
@@ -2797,7 +3030,8 @@ function cannotMoveAside(kind) {
 /* ── who answers ─────────────────────────────────────────────────────────── */
 
 /**
- * Which agent a project's thread opens on.
+ * Which agent a project's thread opens on. The member the others report to
+ * first (#4557), then the role-text manager, then the first agent.
  *
  * ⚠️ ONE agent answers, and this is the rule that decides which. The screen
  * this replaces said the room was waiting on exactly this question ("when five
@@ -2813,6 +3047,23 @@ function cannotMoveAside(kind) {
 function defaultAgentFor(members) {
   const list = Array.isArray(members) ? members.filter(Boolean) : [];
   if (!list.length) return null;
+  // #4557 (April, #4555 review): the org chart first; the role text is only a guess ("Social Media
+  // Manager" matched before the CMO a seeded team reports to). The top of the chart is the member others
+  // report to who reports to nobody here; with no single one, most direct reports, a tie in list order.
+  const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+  const reportedTo = (m) => list.some((o) => o !== m && same(o.reportsTo, m.sessionName));
+  const reportsHere = (m) => list.some((o) => o !== m && same(m.reportsTo, o.sessionName));
+  const roots = list.filter((m) => reportedTo(m) && !reportsHere(m));
+  if (roots.length === 1) return roots[0].sessionName;
+  // Several tops (two charts on one project): the choice is among THEM, never a middle manager under
+  // one of them. No top at all (a loop): among everyone.
+  let head = null;
+  let most = 0;
+  for (const m of (roots.length ? roots : list)) {
+    const n = list.filter((o) => o !== m && same(o.reportsTo, m.sessionName)).length;
+    if (n > most) { most = n; head = m; }
+  }
+  if (head) return head.sessionName;
   const manager = list.find((m) => looksLikeManager(m.role));
   return (manager || list[0]).sessionName;
 }
@@ -3214,7 +3465,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

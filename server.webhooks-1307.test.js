@@ -196,10 +196,12 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
     assert.equal(on.publicUrl, 'https://hers.kosmosplus.com' + tail, 'the same id and secret, on this computer\'s public name');
     assert.equal(on.publicWhy, null);
     const cases = [
-      ['the switch is off', await make({ state: 'off', address: null, because: 'the switch is off' }, { on: false }), /Kosmos Plus can also give a link/],
-      ['not signed in yet', await make({ state: 'connecting', address: null, because: 'waiting for the sign-in in Settings' }, { signedIn: false }), /Finish signing in to Kosmos Plus/],
+      ['the switch is off', await make({ state: 'off', address: null, because: 'the switch is off' }, { on: false }), /Kosmos\+ can also give a link/],
+      ['not signed in yet', await make({ state: 'connecting', address: null, because: 'waiting for the sign-in in Settings' }, { signedIn: false }), /Finish signing in to Kosmos\+/],
       ['connecting', await make({ state: 'connecting', address: null, because: 'x' }), /still connecting/],
       ['restarting', await make({ state: 'restarting', address: null, because: 'x' }), /still connecting/],
+      // kosmos#4640: a second computer waiting for its other computer's Allow is told so, not that Kosmos Plus is down.
+      ['waiting-allow', await make({ state: 'waiting-allow', address: null, because: 'x' }), /waiting for your other computer to allow this one/],
       ['on but not started', await make({ state: 'off', address: null, because: 'the board has not started the tunnel' }), /not connected right now/],
       ['an older connector', await make({ ...UP, admitsHooks: false }), /does not take webhooks from the internet\./],
       ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet\./],
@@ -214,14 +216,14 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
       // CONTROL: the local link is there in every case.
       assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/, label);
     }
-    assert.ok(!cases.some(([, r]) => /Kosmos Plus can also give/.test(r.publicWhy) && r !== cases[0][1]), 'only the switch being off is pointed at Kosmos Plus');
+    assert.ok(!cases.some(([, r]) => /Kosmos\+ can also give/.test(r.publicWhy) && r !== cases[0][1]), 'only the switch being off is pointed at Kosmos Plus');
     // An unreadable settings file is its own cause, not "the switch is off".
     remote.status = () => ({ state: 'off', address: null, because: 'x' }); remote.read = () => ({ on: false, ok: false }); remote.enrolled = () => true; remote.address = () => 'hers.kosmosplus.com';
     let badRes; try { badRes = await api(own, { method: 'POST', body: {} }); } finally { Object.assign(remote, real); }
     assert.equal(badRes.status, 201, JSON.stringify(badRes.json));
     const bad = badRes.json;
     assert.equal(bad.publicUrl, null);
-    assert.match(bad.publicWhy, /could not read the Kosmos Plus settings/);
+    assert.match(bad.publicWhy, /could not read the Kosmos\+ settings/);
   } finally { Object.assign(remote, real); }
 });
 

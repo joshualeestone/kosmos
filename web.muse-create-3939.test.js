@@ -55,8 +55,8 @@ function page(answers) {
 test('#3939 3c-3b: the create form offers Meta only when Muse is on, installed and signed in', async () => {
   const cases = [
     [{ enabled: false }, true, ''],
-    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings: Add a provider'],
-    [{ enabled: true, installed: true, signedIn: false }, true, 'Set up in Settings: Add a provider'],
+    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models'],
+    [{ enabled: true, installed: true, signedIn: false }, true, 'Set up in Settings, AI Models'],
     [{ enabled: true, installed: true, signedIn: true }, false, ''],
   ];
   for (const [answer, disabled, off] of cases) {

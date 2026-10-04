@@ -70,6 +70,14 @@ test('a removed agent is NOT resurrected (fail-closed skip on the removed list)'
   assert.deepEqual(src(), ['beta']);
 });
 
+test('#4845: includeRemoved lists a removed (restorable) agent, and does not need the removed list', () => {
+  const { src } = harness({ removed: { ok: true, names: ['alpha'] } });
+  assert.deepEqual(src(new Set(), { includeRemoved: true }).sort(), ['alpha', 'beta'], 'a removed agent with its job and folder was left out');
+  assert.deepEqual(src(), ['beta'], 'CONTROL: without the option the board still skips it');
+  const unreadable = harness({ removed: { ok: false, names: [] } });
+  assert.deepEqual(unreadable.src(new Set(), { includeRemoved: true }).sort(), ['alpha', 'beta'], 'includeRemoved should not depend on the removed list');
+});
+
 test('FAIL CLOSED: an UNREADABLE removed list surfaces NOTHING, never the full list', () => {
   const clean = harness();
   assert.deepEqual(clean.src().sort(), ['alpha', 'beta']);           // control: it CAN return rows

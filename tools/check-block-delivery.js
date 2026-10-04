@@ -87,6 +87,12 @@ function hasContent(name) {
     /* ⚠️ MEMBERSHIP, NOT UNIVERSAL. An agent outside every project is RIGHT to
        lack this, so a raw count reads fifteen correct absences as a failure. */
     case 'projects': return safe(() => (projects.readAll() || []).length > 0);
+    /* #4557: a seeded team member's brief, written ONCE at birth and never re-synced. Per agent, never
+       empty where it exists; who is entitled is decided below. */
+    case 'team':     return true;
+    /* #5050: only on a Mac whose first language is not English (a sure read); a fallback or English read writes none. */
+    /* An unsure read (a failed Mac read, any non-Mac) leaves existing blocks alone, so it is CANNOT TELL (null), never "nothing to deliver". */
+    case 'language': return safe(() => { const pl = require(path.join(REPO, 'engine', 'personlanguage.js')); const got = pl.read(); return got.sure ? !!pl.blockBody(got.tag) : null; });
     default: return null;
   }
 }
@@ -114,6 +120,16 @@ function entitled(name, agents, text) {
       leads.unsure = unsure;
       return leads;
     } catch { return null; }
+  }
+  /* #4557: BIRTH-ONLY, NOT UNIVERSAL. Only an agent made from a seeded team carries it, and nothing but
+     that birth writes it, so the file is the only record: entitled exactly where it was written. Its
+     absence is therefore never STALE (nothing later is supposed to add it). */
+  if (name === 'team') {
+    // A file with either team marker was born with the block; one whose block is not whole (a lone or
+    // doubled marker) is reported rather than counted as delivered, so this row can say something.
+    const ent = agents.filter((a) => projects.teamBlockState(text[a]) !== 'none');
+    ent.unsure = ent.filter((a) => projects.teamBlockState(text[a]) === 'broken');
+    return ent;
   }
   if (name !== 'projects') return agents;
   try {
@@ -207,7 +223,7 @@ for (const name of names) {
     if (have.length) stale += 1;
   } else {
     const unsure = ent.unsure || [];
-    const missing = ent.filter((a) => !have.includes(a));
+    const missing = ent.filter((a) => !have.includes(a) && !unsure.includes(a));   // reported once, as CANNOT TELL
     const extra = have.filter((a) => !ent.includes(a) && !unsure.includes(a));
     if (!missing.length && !extra.length && !unsure.length) verdict = 'delivered to all entitled';
     else {

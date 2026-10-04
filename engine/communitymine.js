@@ -10,6 +10,9 @@
  *
  * No keys, no remote ids, no response bodies: the rows carry only what the owner's own
  * board already shows them.
+ *
+ * #4801: mineComments() does the same for the COMMENTS the agents published on community posts, read from
+ * communitysend.commentRecords and the board's own comment rows; removal goes through the same route.
  */
 const communitystore = require('./communitystore');
 const communitysend = require('./communitysend');
@@ -28,7 +31,12 @@ function canDelete(st) {
 
 /* The agent's own display name when it has one (what the owner calls it on this board),
    else the name the post carries. This view is the owner's own board, never public. */
-function agentName(post) {
+function agentName(post, rec) {
+  // #4994: a record that follows a retired account belongs to a deleted agent; its name may now be a new agent's.
+  if (rec && rec.agentDeleted === true) {
+    const who = typeof post.agent === 'string' && post.agent ? post.agent : '';
+    return who ? `${who} (deleted agent)` : 'a deleted agent';
+  }
   /* post.agent is the authenticated trust key the send layer itself sends as; the author
      name is the fallback (normalizeAuthor sets it from the same key for agent posts). */
   const who = typeof post.agent === 'string' && post.agent ? post.agent
@@ -55,7 +63,7 @@ function mine() {
     return {
       id,
       title: post ? communitysend.titleFor(post) : '',
-      agent: post ? agentName(post) : '',
+      agent: post ? agentName(post, rec) : '',
       // A held post goes public when it is released, not when it came in (communitysend's sweep reads it the same way).
       postedAt: post ? (typeof post.releasedAt === 'string' ? post.releasedAt
         : typeof post.receivedAt === 'string' ? post.receivedAt : null) : null,
@@ -64,6 +72,7 @@ function mine() {
       takenDown: rec.takenDown === true,
       takeDownReason: rec.takeDownReason || null,
       agentRefused: rec.agentRefused === true,
+      agentNameUnclaimed: rec.agentNameUnclaimed === true,   // #4800
       deleteRetrying: rec.deleteRequested === true && typeof rec.deleteStatus === 'number',
       // requestDelete refuses an id with no board post (404), so no Delete without one.
       canDelete: post !== null && canDelete(rec),
@@ -73,4 +82,57 @@ function mine() {
   return rows;
 }
 
-module.exports = { mine };
+/* #4801: a comment can be removed only while the service can be asked about it: sent with the id the service answered
+   with, or pending (not tried yet; a removal withholds it). An unconfirmed comment (tried, no answer) or one sent with
+   no id cannot: the service has no list of an agent's comments to find it in. Pinned by communitycommentmine-4801.test.js. */
+function canDeleteComment(st) {
+  return (st.traceable === true || st.state === 'pending') && st.deleteRequested !== true && st.agentRefused !== true;
+}
+
+/**
+ * #4801: one row per comment the send layer has a record for (or the owner asked to remove), joined to the board's
+ * own comment row for its text, agent and time. Newest first. The same no-remote-ids rule as mine() for the comment
+ * itself: `untraceable` says only that the service never gave Kosmos a handle on it, so the page can say why there is
+ * no Delete. The one service id carried is the POST's (`remotePostId`), which is public: the row links to the post
+ * the comment is on, as the #4525 held list does. `traceUnknown`: keys.json could not be read, so whether the board
+ * still holds the registration that sent it is not known (review 1).
+ * Review 2: null when the comment records cannot be read (commentRecords is null): unknown, never "none".
+ */
+function mineComments() {
+  const recs = communitysend.commentRecords();
+  if (!recs) return null;
+  const ids = Object.keys(recs);
+  if (!ids.length) return [];
+  const rows = new Map();
+  for (const c of communitystore.serviceComments()) if (recs[c.id]) rows.set(c.id, c);
+  const out = ids.map((id) => {
+    const rec = recs[id];
+    const c = rows.get(id) || null;
+    return {
+      id,
+      kind: 'comment',
+      // The first line, cut and scrubbed as a post's title is (titleFor reads a body with no topic that way).
+      text: c ? communitysend.titleFor({ body: c.body }) : '',
+      agent: c ? agentName(c, rec) : '',
+      postedAt: c ? (typeof c.releasedAt === 'string' ? c.releasedAt
+        : typeof c.receivedAt === 'string' ? c.receivedAt : null) : null,
+      // The post it is on, from the board's own comment row (feedpublish.publishServiceComment), for the page's link.
+      remotePostId: c && typeof c.remotePostId === 'string' ? c.remotePostId : null,
+      state: rec.state,
+      deleteRequested: rec.deleteRequested === true,
+      deleteRetrying: rec.deleteRetrying === true,
+      agentRefused: rec.agentRefused === true,
+      untraceable: rec.state === 'unconfirmed' || (rec.state === 'sent' && rec.traceable === false),
+      // Review 3: why a sent comment is untraceable ('no-id' | 'other-registration' | review 4: 'registration-unknown'),
+      // no ids; null otherwise.
+      untraceableReason: rec.state === 'sent' && rec.traceable === false ? rec.untraceableReason || 'no-id' : null,
+      traceUnknown: rec.state === 'sent' && rec.traceable === null,
+      // requestDelete answers 404 for an id with no board comment, so no Delete without one.
+      canDelete: c !== null && canDeleteComment(rec),
+    };
+  });
+  out.sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
+  return out;
+}
+
+module.exports = { mine, mineComments };

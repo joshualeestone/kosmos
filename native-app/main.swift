@@ -40,6 +40,8 @@ import Cocoa
 import WebKit
 import ApplicationServices  // #2125 slice 3: AXIsProcessTrusted / AXIsProcessTrustedWithOptions
 import UserNotifications    // #3996: whether the person turned Kosmos's badges off
+import Speech               // #4409: dictation, on-device only
+import AVFoundation         // #4409: the microphone, while the mic button is on
 
 // MARK: - Install-time configuration
 //
@@ -209,10 +211,11 @@ enum ComputerMode: String {
 
 /* 🚦 KOSMOS_FIRSTRUN_CHOICE: the release switch for the whole of #4356 (Liu Kang m2647). OFF, first
    run is exactly today's: the app never asks, never reads a choice, never connects, so nothing
-   below this line changes a Mac. ON, the full three-button screen Josh approved. It stays off until
-   a connect Mac can update itself (#4382), whose PR turns it on; a test pins it off on main
-   (native-app.computer-mode-4356.test.js). */
-let kosmosFirstRunChoice = false
+   below this line changes a Mac. ON, the full three-button screen Josh approved. It was held off
+   until a connect Mac could update itself; #4382 (startUpdateLooks: `kosmos update --if-newer` at
+   launch and daily, with no board) is what turns it on. Windows keeps its own switch
+   (KosmosLauncher.cs FirstRunChoice) off until a connect Windows computer can update (#4381). */
+let kosmosFirstRunChoice = true
 
 func computerModePath(kosmosHome: String) -> String { kosmosHome + "/mode" }
 
@@ -379,6 +382,83 @@ func holdBoardStopped(kosmosHome: String) {
     } else {
         logLine("#4356: could not write \(marker)")
     }
+}
+
+// MARK: - #4382: a connect computer updates without a board
+
+/// What `kosmos update --if-newer` said, from the last line it printed (install/kosmos cmd_update).
+enum UpdateAnswer: Equatable {
+    case current(String)    // nothing newer than this version, the one installed on disk
+    case newer(String)      // newer, and updates are off here: offered, not installed
+    case updated(String)    // installed
+    case failed(String)     // the installer ran and failed
+    case board              // a board runs here, and it updates itself
+    case unknown            // the release host could not be reached or read, or the CLI said nothing usable
+    case refused            // the CLI will not update here (not a connect computer, or an agent): no retry
+}
+
+/// PURE, so --kosmos-app-update-selftest can drive it. Only the LAST non-empty line counts, and
+/// only a version of the board's own shape (a.b.c): anything else is unknown, never current, so a
+/// garbled answer can neither hide an update nor offer one.
+func updateAnswer(fromOutput text: String) -> UpdateAnswer {
+    guard let last = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }).last(where: { !$0.allSatisfy({ $0 == " " || $0 == "\t" }) })
+    else { return .unknown }
+    // `refused<TAB><why>`: the reason is for people and the log, so only the word and the tab are read.
+    if last.hasPrefix("refused\t"), last.dropFirst("refused\t".count).contains(where: { $0 != " " && $0 != "\t" }) { return .refused }
+    let words = last.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+    func version(_ v: String) -> Bool {
+        let p = v.split(separator: ".", omittingEmptySubsequences: false)
+        return p.count == 3 && p.allSatisfy { !$0.isEmpty && $0.allSatisfy { ("0"..."9").contains($0) } }
+    }
+    switch (words.first, words.count) {
+    case ("board", 1): return .board
+    case ("current", 2) where version(words[1]): return .current(words[1])
+    case ("newer", 2) where version(words[1]): return .newer(words[1])
+    case ("updated", 2) where version(words[1]): return .updated(words[1])
+    case ("failed", 2) where version(words[1]): return .failed(words[1])
+    default: return .unknown
+    }
+}
+
+/// #4382: `bin/kosmos update --if-newer`, off the main thread. On a connect computer the board is
+/// stopped, so nothing else looks for updates; this runs the board's own look and, when updates are
+/// on or the person chose Update, the board's own installer, which leaves a connect computer's board
+/// stopped (install/setup.sh _kosmos_mode_keeps_board_off). It waits for the installer, which can
+/// take minutes: the caller counts it in stopsInFlight, so Run agents cannot start a board under it.
+func runKosmosUpdate(kosmosHome: String, port: Int?, install: Bool) -> UpdateAnswer {
+    let kosmosBin = kosmosHome + "/bin/kosmos"
+    guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
+        logLine("#4382: cannot look for an update: \(kosmosBin) is missing")
+        return .unknown
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: kosmosBin)
+    process.arguments = install ? ["update", "--if-newer", "--install"] : ["update", "--if-newer"]
+    var env = ProcessInfo.processInfo.environment
+    env["KOSMOS_HOME"] = kosmosHome
+    if let port { env["KOSMOS_PORT"] = String(port) }   // setup.sh reads KOSMOS_PORT
+    process.environment = env
+    // To files, as stopBoard explains: an undrained Pipe can deadlock the wait, and the installer's
+    // output (it goes to logs/install.log, but a failure before that can still print) has no bound.
+    let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-update-\(UUID().uuidString).out")
+    FileManager.default.createFile(atPath: outURL.path, contents: nil)
+    defer { try? FileManager.default.removeItem(at: outURL) }
+    process.standardOutput = (try? FileHandle(forWritingTo: outURL)) ?? FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch {
+        logLine("#4382: could not run \(kosmosBin) update: \(error.localizedDescription)")
+        return .unknown
+    }
+    process.waitUntilExit()
+    let said = (try? String(contentsOf: outURL, encoding: .utf8)) ?? ""
+    let answer = updateAnswer(fromOutput: said)
+    logLine("#4382: kosmos update --if-newer\(install ? " --install" : "") exited \(process.terminationStatus): \(answer)")
+    if answer == .unknown || answer == .refused {
+        // What it said, so an answer this app could not read (a version of another shape, say) can be found.
+        let lastLine = said.split(whereSeparator: { $0 == "\n" }).last.map(String.init) ?? ""
+        logLine("#4382: it said: \(String(lastLine.prefix(200)))")
+    }
+    return answer
 }
 
 // MARK: - Starting the board (delegates entirely to `bin/kosmos start`)
@@ -1228,9 +1308,230 @@ final class ModeMessageProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
+/* #4409: talking to an agent. The page's mic button asks this bridge to listen; the words come back
+   into the composer as text, and nothing is sent. ON-DEVICE ONLY, by construction:
+   `requiresOnDeviceRecognition = true`, and a language with no on-device model is REFUSED rather than
+   handed to Apple's servers. Audio goes from the input tap straight to the recognizer and is never
+   written anywhere.
+
+   Why not the page's own `webkitSpeechRecognition`: it exists in our web view (measured on #4409), but the
+   host app still needs the same two permissions and the same entitlement, and the page cannot ask for
+   on-device recognition. Same cost, weaker promise.
+
+   🛑 THE APP NEEDS THREE THINGS OUTSIDE THIS FILE, and missing any one fails SILENTLY:
+     - `com.apple.security.device.audio-input` on the hardened-runtime signature
+       (native-app/kosmos-app.entitlements, applied in tools/build-kosmos-bundle.sh);
+     - `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` in the Info.plist that
+       install/setup.sh writes. With a usage string missing, macOS KILLS the process at the request, so
+       `start` checks for both first and refuses with `not-set-up` instead of crashing.
+
+   Same guard as the badge: only the board's own page, in the main frame, can start the mic. */
+final class VoiceBridge: NSObject, WKScriptMessageHandler {
+    weak var owner: AppDelegate?
+    weak var webView: WKWebView?
+    private var engine: AVAudioEngine?
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    /// #4409 (review 1): held for the life of the task. A recognizer released while its task runs is a commonly
+    /// reported way for the task to never call back; nothing else here owned it.
+    private var recognizer: SFSpeechRecognizer?
+    /// Which start the callbacks belong to. A callback from an older start is dropped, so a stop
+    /// followed by a quick start can never be finished by the first one's late answer.
+    private var session = 0
+    /// #4409 (review 2): the page's own id for the start it asked for, echoed on every event. The page moves between
+    /// mics with cancel-then-start in one turn, and the cancel's "stopped" arrives AFTER the page has begun the next
+    /// session: without an id it switched the new button off while the mic went on listening.
+    private var pageId = ""
+    /// A start is waiting on a permission answer: nothing to stop yet, but a hidden window must still cancel it.
+    private var pending = false
+    private var limit: DispatchWorkItem?
+    init(_ owner: AppDelegate) { self.owner = owner }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let owner else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
+        guard let body = message.body as? [String: Any], let op = body["op"] as? String else { return }
+        switch op {
+        case "start":
+            pageId = (body["id"] as? String) ?? ""
+            start()
+        case "stop": stop()
+        case "cancel": cancel()
+        default: return
+        }
+    }
+
+    /// The first language the person prefers that has an ON-DEVICE model, else nil. PURE, so
+    /// --kosmos-app-voice-selftest drives it. `en-US` is the last resort only because it is the one
+    /// on-device model every Mac we measured carries; it is still asked, never assumed.
+    static func pickLocale(preferred: [String], onDevice: (String) -> Bool) -> String? {
+        var seen = Set<String>()
+        for raw in preferred + ["en-US"] {
+            let id = raw.replacingOccurrences(of: "_", with: "-")
+            if id.isEmpty || !seen.insert(id).inserted { continue }
+            if onDevice(id) { return id }
+        }
+        return nil
+    }
+
+    /// What the page is told when listening ends on an error. PURE for the selftest. 1110 is the
+    /// recognizer's "no speech detected", which is an ordinary silence, not a fault.
+    static func endReason(domain: String, code: Int) -> String {
+        if domain == "kAFAssistantErrorDomain" && code == 1110 { return "nothing-heard" }
+        if domain == "kAFAssistantErrorDomain" && (code == 203 || code == 216 || code == 301) { return "" }   // cancelled or stopped by us
+        return "recognizer"
+    }
+
+    static func usageStringsPresent(_ info: [String: Any]?) -> Bool {
+        guard let info else { return false }
+        return (info["NSMicrophoneUsageDescription"] as? String)?.isEmpty == false
+            && (info["NSSpeechRecognitionUsageDescription"] as? String)?.isEmpty == false
+    }
+
+    private func emit(_ event: [String: Any]) {
+        var event = event
+        event["id"] = pageId   // read NOW: a cancel's "stopped" carries the id of the session it ended
+        guard let web = webView,
+              let data = try? JSONSerialization.data(withJSONObject: event),
+              let json = String(data: data, encoding: .utf8) else { return }
+        web.evaluateJavaScript("window.kosmosVoiceEvent && window.kosmosVoiceEvent(" + json + ")", completionHandler: nil)
+    }
+
+    private func refuse(_ reason: String) {
+        pending = false
+        logLine("voice: not listening (" + reason + ")")
+        emit(["kind": "error", "reason": reason])
+        emit(["kind": "stopped"])
+    }
+
+    private func start() {
+        stopAudio(); task?.cancel(); task = nil; request = nil
+        session += 1
+        let mine = session
+        pending = true
+        guard Self.usageStringsPresent(Bundle.main.infoDictionary) else { refuse("not-set-up"); return }
+        SFSpeechRecognizer.requestAuthorization { status in
+            DispatchQueue.main.async {
+                guard mine == self.session else { return }
+                guard status == .authorized else { self.refuse(status == .notDetermined ? "speech-unanswered" : "speech-denied"); return }
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    DispatchQueue.main.async {
+                        guard mine == self.session else { return }
+                        guard granted else { self.refuse("mic-denied"); return }
+                        self.begin(mine)
+                    }
+                }
+            }
+        }
+    }
+
+    private func begin(_ mine: Int) {
+        pending = false
+        let preferred = Locale.preferredLanguages + [Locale.current.identifier]
+        guard let id = Self.pickLocale(preferred: preferred, onDevice: { SFSpeechRecognizer(locale: Locale(identifier: $0))?.supportsOnDeviceRecognition == true }),
+              let recognizer = SFSpeechRecognizer(locale: Locale(identifier: id)), recognizer.isAvailable else {
+            refuse("no-on-device"); return
+        }
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.requiresOnDeviceRecognition = true   // 🛑 the whole promise: never the network
+        req.shouldReportPartialResults = true
+        req.addsPunctuation = true
+        let eng = AVAudioEngine()
+        let input = eng.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else { refuse("no-mic"); return }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
+        eng.prepare()
+        do { try eng.start() } catch {
+            input.removeTap(onBus: 0)
+            refuse("no-mic"); return
+        }
+        engine = eng
+        request = req
+        self.recognizer = recognizer
+        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal == true
+            let ns = error.map { $0 as NSError }
+            DispatchQueue.main.async {
+                guard let self, mine == self.session else { return }
+                if let text { self.emit(["kind": isFinal ? "final" : "partial", "text": text]) }
+                if ns != nil || isFinal { self.finish(ns) }
+            }
+        }
+        logLine("voice: listening, on-device, " + id)
+        emit(["kind": "listening", "lang": id])
+        // A mic left on by mistake does not listen forever.
+        let cap = DispatchWorkItem { [weak self] in if mine == self?.session { self?.stop() } }
+        limit = cap
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300, execute: cap)
+    }
+
+    /// Stop listening and let the recognizer deliver what it heard (a final result follows).
+    private func stop() {
+        guard let req = request else { session += 1; pending = false; stopAudio(); emit(["kind": "stopped"]); return }
+        stopAudio()
+        req.endAudio()
+        // #4409 (review 1): the final answer normally follows at once; if it never comes, the button must not say
+        // "Stop listening" for good. Bounded, then finished with whatever the page already has.
+        let mine = session
+        let wait = DispatchWorkItem { [weak self] in
+            guard let self, mine == self.session, self.request != nil else { return }
+            self.task?.cancel()
+            self.finish(nil)
+        }
+        limit = wait
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: wait)
+    }
+
+    /// #4409 (review 1): the app itself ends listening when the page cannot show it: the window closed (stay-running
+    /// mode only hides it, so the page gets no pagehide), minimised, or (review 3) the page's process died or a new
+    /// page loaded, which would draw the mic as off while it listened. No-op when not listening.
+    func hostCancel(_ why: String) {
+        guard pending || engine != nil || request != nil || task != nil else { return }
+        logLine("voice: cancelled, " + why)
+        cancel()
+    }
+
+    /// Stop and throw away anything still coming (the person pressed Send).
+    private func cancel() {
+        session += 1
+        pending = false
+        stopAudio()
+        task?.cancel(); task = nil; request = nil; recognizer = nil
+        emit(["kind": "stopped"])
+    }
+
+    private func finish(_ error: NSError?) {
+        stopAudio()
+        task = nil; request = nil; recognizer = nil
+        session += 1
+        if let error {
+            let reason = Self.endReason(domain: error.domain, code: error.code)
+            if !reason.isEmpty {
+                logLine("voice: ended, " + error.domain + " " + String(error.code))
+                emit(["kind": "error", "reason": reason])
+            }
+        }
+        emit(["kind": "stopped"])
+    }
+
+    private func stopAudio() {
+        limit?.cancel(); limit = nil
+        if let eng = engine {
+            eng.stop()
+            eng.inputNode.removeTap(onBus: 0)
+        }
+        engine = nil
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
+    /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
+    var voice: VoiceBridge?
     private var isActuallyQuitting = false
     // #965: whether the most recent navigation ended in a delegate failure.
     // Read by reloadBoard() to decide between a plain page reload and a full
@@ -1957,6 +2258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             DispatchQueue.main.async {
                 self?.stopsInFlight -= 1
                 if outcome == .failed { self?.showBoardStillRunning() }
+                // #4382: after the stop, so the look never meets a board of ours mid-stop.
+                self?.startUpdateLooks()
             }
         }
     }
@@ -2028,6 +2331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 guard self.computerMode == .connect else { return }
                 self.loadConnect()
                 if outcome == .failed { self.showBoardStillRunning() }
+                self.startUpdateLooks()   // #4382: from now on this app, not a board, keeps this computer current
             }
         }
     }
@@ -2038,9 +2342,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// finished on this computer, opens as it would on a fresh one.
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
-        guard stopsInFlight == 0 else {
-            logLine("#4356: Run agents refused for now: a stop of ours is still running")
-            showStartupFailureAlert(detail: "Kosmos is still stopping the board on this computer. Try again in a moment.", title: "One moment")
+        // #4382: an install this app started before it quit is not counted in stopsInFlight; its marker is.
+        let installing = updateLookInFlight || Self.installUnderWay(kosmosHome: home)
+        guard stopsInFlight == 0, !installing else {
+            logLine("#4356: Run agents refused for now: a stop or an update is still running")
+            let detail = installing
+                ? "Kosmos is still updating on this computer. Try again when it has finished."
+                : "Kosmos is still stopping the board on this computer. Try again in a moment."
+            showStartupFailureAlert(detail: detail, title: "One moment")
             return
         }
         guard writeComputerMode(.run, kosmosHome: home) else {
@@ -2049,6 +2358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         computerMode = .run
         logLine("#4356: switching this computer to run agents")
+        stopUpdateLooks()   // #4382: the board looks for updates again, every fifteen minutes
         updateRunAgentsItem()
         loadBoard()
         startA11yTrustChecks()
@@ -2061,6 +2371,261 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Settings… (Cmd-,) opens the page's own Settings, which on a connect computer is the OTHER
         // computer's; hidden there, as the plan says this computer's settings are not on that page.
         items.first(where: { $0.action == #selector(AppDelegate.openSettings(_:)) })?.isHidden = computerMode == .connect
+    }
+
+    // MARK: #4382: a connect computer keeps itself current, with no board
+
+    /// The look, at launch (after stopBoardIfRunning's stop), when a computer switches to connect, and
+    /// once a day while it stays one. A look that could not reach the release host is tried again once,
+    /// an hour later (the retry itself is not retried), and a Mac that wakes when its last look is a day
+    /// old looks then.
+    static let updateLookInterval: TimeInterval = 24 * 60 * 60
+    static let updateRetryAfterUnknown: TimeInterval = 60 * 60
+    private var updateTimer: Timer?
+    private var updateLookInFlight = false
+    /// When the last look finished, whatever it found; the wake look keys on it.
+    private var lastUpdateLookAt: Date?
+    /// The look in flight is the hour retry, which is not retried again: offline, the next look is the
+    /// daily one (or a wake), not one an hour for as long as the app runs.
+    private var updateLookIsRetry = false
+    private var updateRetry: DispatchWorkItem?
+    private var updateWakeObserver: NSObjectProtocol?
+    /// A version the installer finished while nobody asked (updates are on). The new app waits for the
+    /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
+    private var installedUpdate: String?
+    /// The version offered (updates are off, or an install failed), or nil when there is no offer.
+    private var offeredUpdate: String?
+    /// The slim native bar under the title bar. Native on purpose (Liu Kang, #4382): on a connect
+    /// computer the page belongs to the other computer, so nothing is injected into it, and there is
+    /// no macOS notification (this app never asks for that permission).
+    private var updateBar: NSTitlebarAccessoryViewController?
+    private var updateBarLabel: NSTextField?
+    private var updateBarButton: NSButton?
+    /// The version whose bar the person closed with Not Now; the menu item still offers it.
+    private var updateBarDismissed: String?
+
+    private func startUpdateLooks() {
+        guard computerMode == .connect else { return }
+        if updateTimer == nil {
+            updateTimer = Timer.scheduledTimer(withTimeInterval: Self.updateLookInterval, repeats: true) { [weak self] _ in
+                self?.lookForUpdate(install: false)
+            }
+        }
+        if updateWakeObserver == nil {
+            updateWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.computerMode == .connect else { return }
+                if let last = self.lastUpdateLookAt, Date().timeIntervalSince(last) < Self.updateLookInterval { return }
+                logLine("#4382: woke with the last update look a day old or more; looking now")
+                self.lookForUpdate(install: false)
+            }
+        }
+        lookForUpdate(install: false)
+    }
+
+    private func stopUpdateLooks() {
+        updateTimer?.invalidate(); updateTimer = nil
+        updateRetry?.cancel(); updateRetry = nil
+        if let o = updateWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(o); updateWakeObserver = nil }
+        installedUpdate = nil
+        showUpdateOffer(nil)
+    }
+
+    /// #4382: whether the version on disk is one to restart into: strictly newer than the running app.
+    /// An app newer than its install (a hand-run build) is never offered a "Restart" into an older one, and a
+    /// version either side cannot read offers nothing (isBehind's unknown). Pure, for the update selftest.
+    static func restartWanted(running: String?, onDisk: String) -> Bool {
+        guard let running else { return false }
+        return isBehind(running, onDisk) == true
+    }
+
+    /// #4382: an install under way here, as `kosmos update` judges it: logs/install.started younger than
+    /// 30 minutes. An interrupted install leaves an older marker behind, which is not in the way.
+    static func installUnderWay(kosmosHome: String) -> Bool {
+        let marker = kosmosHome + "/logs/install.started"
+        guard let at = (try? FileManager.default.attributesOfItem(atPath: marker))?[.modificationDate] as? Date else { return false }
+        let age = Date().timeIntervalSince(at)
+        return age >= 0 && age < 30 * 60   // a marker from the future (a clock change) holds nothing off
+    }
+
+    /// One more look an hour after one that could not reach the release host, not a day later.
+    private func retryUpdateLookSoon() {
+        guard updateRetry == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.updateRetry = nil
+            self?.lookForUpdate(install: false, retry: true)
+        }
+        updateRetry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.updateRetryAfterUnknown, execute: work)
+    }
+
+    /// One look, and the install when it is due. `install` is the person's choice from the offer.
+    private func lookForUpdate(install: Bool, retry: Bool = false) {
+        guard computerMode == .connect, let home = modeHome else { return }
+        guard !updateLookInFlight else { logLine("#4382: an update look is already running"); return }
+        updateLookInFlight = true
+        updateLookIsRetry = retry
+        // Counted as a stop of ours: "Run agents on this computer" waits for an installer to finish
+        // rather than starting a board in the middle of it.
+        stopsInFlight += 1
+        if install {
+            // Shown even when the bar was put away with Not Now (the menu item is the other way to press
+            // Update): the person is told the app restarts before it does.
+            let bar = updateBar ?? makeUpdateBar()
+            updateBarLabel?.stringValue = "Updating Kosmos. It restarts when the update is installed."
+            updateBarButton?.isHidden = true   // pressed once is enough; it comes back with the answer
+            bar.isHidden = false
+            let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+            items.first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) })?.isHidden = true
+        }
+        let port = modePort   // read here, on the main thread, not from the queue below
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let answer = runKosmosUpdate(kosmosHome: home, port: port, install: install)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.updateLookInFlight = false
+                self.stopsInFlight -= 1
+                self.lastUpdateLookAt = Date()
+                self.updateLookDone(answer, asked: install)
+            }
+        }
+    }
+
+    private func updateLookDone(_ answer: UpdateAnswer, asked: Bool) {
+        guard computerMode == .connect else { showUpdateOffer(nil); return }
+        if !updateLookIsRetry {
+            if case .unknown = answer { retryUpdateLookSoon() }
+            // An install another run of this app started may still be going: look again within the hour.
+            if case .refused = answer, !asked { retryUpdateLookSoon() }
+        }
+        switch answer {
+        case .newer(let v):
+            // Replaces a waiting Restart offer, if any: pressing Update installs the newer one and restarts.
+            showUpdateOffer(v)
+        case .failed(let v):
+            showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
+        case .updated(let v) where asked && !ownDialogOpen:
+            // The person pressed Update, and the bar said it restarts when done. The offer is kept
+            // underneath, so a relaunch that fails leaves Restart on offer, not nothing.
+            showInstalledOffer(v)
+            relaunchAfterUpdate(to: v)
+        case .updated(let v):
+            // Installed because updates are on, or a dialog of ours is open: never restart unasked.
+            showInstalledOffer(v)
+        case .unknown where asked:
+            // The person pressed Update and the release host could not be reached: say so, keep the offer.
+            showUpdateOffer(offeredUpdate, note: "Kosmos could not reach its update server. Check your internet connection and try again.")
+        case .unknown:
+            // Could not look: what is on offer stays on offer (a missed look is not "nothing newer").
+            if let v = installedUpdate { showInstalledOffer(v) }
+        case .board where asked, .refused where asked:
+            // The person pressed Update and it could not start here (another install is under way, or a
+            // board now runs): say so, and keep what was offered.
+            showUpdateOffer(offeredUpdate, note: "Kosmos could not start the update right now. Try again in a few minutes.")
+        case .current(let v) where installedUpdate == nil && Self.restartWanted(running: runningAppVersion(), onDisk: v)
+                                   && Self.freshAppURL(theirs: v) != nil:
+            // What is on disk is newer than what is running, and an app carrying it is there: an install this app
+            // did not see finish (another run of it started it, or a relaunch failed). Offer the Restart.
+            showInstalledOffer(v)
+        case .current, .board, .refused:
+            // A later look finds the installed version current; an installed update still waits for Restart.
+            if let v = installedUpdate { showInstalledOffer(v) } else { showUpdateOffer(nil) }
+        }
+    }
+
+    /// The bar and the menu item, once a new version is installed and waits for a restart.
+    private func showInstalledOffer(_ v: String) {
+        installedUpdate = v
+        showUpdateOffer(v, note: "Kosmos \(v) is installed. Restart Kosmos to start using it.", installed: true)
+    }
+
+    /// Relaunch approved for #4382 (Liu Kang): the installer opens the app only when the board is
+    /// its own (setup.sh), so without this a connect Mac would keep running the old app. The same
+    /// relaunch the stale-app check uses (#2094/#4347), aimed at the copy that now carries `v`.
+    private func relaunchAfterUpdate(to v: String) {
+        guard let target = Self.freshAppURL(theirs: v) else {
+            logLine("#4382: updated to \(v), but no Kosmos.app on disk carries it; not relaunching")
+            showUpdateOffer(nil, note: "Kosmos \(v) is installed. Quit Kosmos and open it again to start using it.", menu: false)
+            return
+        }
+        relaunch(mine: runningAppVersion() ?? "unknown", theirs: v, target: target, waited: 0, asked: true, askedBefore: true)
+    }
+
+    /// The menu item "Update Kosmos to X" and the bar. nil hides both, unless a note is given.
+    /// `installed`: the version is already installed and the button restarts into it.
+    private func showUpdateOffer(_ version: String?, note: String? = nil, menu: Bool = true, installed: Bool = false) {
+        offeredUpdate = (menu && !installed) ? version : nil
+        if !installed { installedUpdate = nil }
+        let actionable: String? = installed ? version : offeredUpdate
+        let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+        if let item = items.first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) }) {
+            item.isHidden = actionable == nil
+            item.title = actionable.map { installed ? "Restart Kosmos to Use \($0)" : "Update Kosmos to \($0)" } ?? "Update Kosmos"
+        }
+        let text: String? = note ?? version.map { "Kosmos \($0) is available. Updates are off on this computer, so it was not installed." }
+        // Not Now holds for that version whatever the bar would say about it (an install waiting for
+        // Restart, a failure); the menu item still offers it, and a new version raises the bar again.
+        guard let text, version == nil || version != updateBarDismissed else {
+            updateBar?.isHidden = true
+            return
+        }
+        let bar = updateBar ?? makeUpdateBar()
+        updateBarLabel?.stringValue = text
+        updateBarButton?.title = installed ? "Restart" : "Update"
+        updateBarButton?.isHidden = actionable == nil
+        bar.isHidden = false
+    }
+
+    private func makeUpdateBar() -> NSTitlebarAccessoryViewController {
+        let label = NSTextField(labelWithString: "")
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let update = NSButton(title: "Update", target: self, action: #selector(AppDelegate.updateKosmosNow(_:)))
+        update.bezelStyle = .rounded
+        update.keyEquivalent = ""
+        let later = NSButton(title: "Not Now", target: self, action: #selector(AppDelegate.dismissUpdateBar(_:)))
+        later.bezelStyle = .rounded
+        let row = NSStackView(views: [label, update, later])
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 32))
+        host.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            row.topAnchor.constraint(equalTo: host.topAnchor),
+            row.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        let bar = NSTitlebarAccessoryViewController()
+        bar.layoutAttribute = .bottom
+        bar.view = host
+        window.addTitlebarAccessoryViewController(bar)
+        updateBar = bar
+        updateBarLabel = label
+        updateBarButton = update
+        return bar
+    }
+
+    /// The menu item and the bar's button: restart into an installed version, or install the offered
+    /// one whatever the Updates switch says, because the person chose it.
+    @objc func updateKosmosNow(_ sender: Any?) {
+        guard computerMode == .connect else { return }
+        guard !updateLookInFlight else { logLine("#4382: Update pressed while a look is running; it answers shortly"); return }
+        if let v = installedUpdate {
+            updateBarDismissed = nil
+            relaunchAfterUpdate(to: v)
+            return
+        }
+        guard offeredUpdate != nil else { return }
+        updateBarDismissed = nil   // asked for it: what follows is shown, even after a Not Now
+        lookForUpdate(install: true)
+    }
+
+    @objc func dismissUpdateBar(_ sender: Any?) {
+        updateBarDismissed = installedUpdate ?? offeredUpdate
+        updateBar?.isHidden = true
     }
 
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing
@@ -2167,7 +2732,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         config.userContentController.add(BadgeMessageProxy(delegate), name: "kosmosBadge")
         // #4356: the first screen's choice (web/index.html frChoose).
         config.userContentController.add(ModeMessageProxy(delegate), name: "kosmosMode")
+        // #4409: the mic button's bridge. Its presence is how the page knows it may draw the button.
+        let voice = VoiceBridge(delegate)
+        config.userContentController.add(voice, name: "kosmosVoice")
         let web = WKWebView(frame: frame, configuration: config)
+        voice.webView = web
+        delegate.voice = voice
         web.navigationDelegate = delegate
         // 🛑 WITHOUT THIS LINE EVERY + BUTTON IN KOSMOS IS DEAD AND SILENT.
         // On macOS a WKWebView does not open a file picker itself: it ASKS the
@@ -2521,7 +3091,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // opens in this window, as a same-window link would (connectLinkDecision); others go on to
         // the browser as before. A new window is a click or a page's own window.open, so "clicked".
         if computerMode == .connect && connectLinkDecision(for: url, clicked: true) == .inApp {
-            logLine("#4356: new window to Kosmos Plus opened in the app window: \(url.absoluteString)")
+            logLine("#4356: new window to Kosmos+ opened in the app window: \(url.absoluteString)")
             webView.load(URLRequest(url: url))
             return nil
         }
@@ -3511,6 +4081,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // reload() branch recovers it (reload relaunches the content process).
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         logLine("WEB CONTENT PROCESS TERMINATED (blank window until reload)")
+        voice?.hostCancel("page process ended")   // #4409 (review 3): no page is left to show the mic is on
+    }
+
+    /// #4409 (review 3): a new page (a reload, a navigation) starts with every mic drawn off, so the old page's
+    /// listening must end with it. Main-frame commits only reach this delegate method.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        voice?.hostCancel("new page loaded")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -3560,7 +4137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // (WebKitErrorDomain 102); that is not Kosmos Plus failing to answer.
         let policyCancel = (error as NSError).domain == "WebKitErrorDomain" && (error as NSError).code == 102
         if computerMode == .connect && !policyCancel && (isBoardLoadNav || webView.backForwardList.currentItem == nil) {
-            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos Plus (\(kosmosPlusSignIn.host!)). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos Plus did not answer")
+            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos+ (\(kosmosPlusSignIn.host!)). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos+ did not answer")
             return
         }
         // One-shot fall-through: the user's reload hit a dead page (the
@@ -3655,8 +4232,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // way, but the point of hiding rather than closing is that re-showing
         // the window later doesn't need to reload or re-authenticate anything.
         logLine("windowShouldClose: hiding (stay-running mode)")
+        voice?.hostCancel("window hidden")   // #4409: a hidden window never leaves the mic on
         window.orderOut(nil)
         return false
+    }
+
+    // #4409: minimised is out of sight too.
+    func windowDidMiniaturize(_ notification: Notification) {
+        voice?.hostCancel("window minimised")
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -3805,6 +4388,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         runAgentsItem.target = settingsTarget
         runAgentsItem.isHidden = true
         appMenu.addItem(runAgentsItem)
+        /* #4382: on a connect computer with updates off, the offer of a newer version ("Update Kosmos
+           to X", showUpdateOffer sets the title). Hidden otherwise; a board shows its own offer. */
+        let updateItem = NSMenuItem(title: "Update Kosmos",
+                                    action: #selector(AppDelegate.updateKosmosNow(_:)),
+                                    keyEquivalent: "")
+        updateItem.target = settingsTarget
+        updateItem.isHidden = true
+        appMenu.addItem(updateItem)
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")
@@ -4912,6 +5503,53 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     exit(0)
 }
 
+// #4382: what `kosmos update --if-newer` said, read the way a connect computer's app reads it. Pure;
+// tools/build-kosmos-bundle.sh runs it at every bundle build.
+if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
+    var bad = 0
+    var ran = 0
+    func row(_ text: String, _ want: UpdateAnswer, _ why: String) {
+        ran += 1
+        let got = updateAnswer(fromOutput: text)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "\(got)".padding(toLength: 18, withPad: " ", startingAt: 0) + why)
+    }
+    row("current 0.7.18\n", .current("0.7.18"), "nothing newer, and which version is on disk")
+    row("newer 0.7.19\n", .newer("0.7.19"), "newer, updates off: offered")
+    row("updated 0.7.19\n", .updated("0.7.19"), "installed: relaunch")
+    row("failed 0.7.19\n", .failed("0.7.19"), "the installer failed")
+    row("board\n", .board, "a board runs here and looks for itself")
+    row("unknown\tthe release host could not be reached\n", .unknown, "the host could not be reached")
+    row("", .unknown, "NO OUTPUT IS UNKNOWN, never current")
+    row("Kosmos is starting\nnewer 0.7.19\n\n", .newer("0.7.19"), "only the last non-empty line is the answer")
+    row("newer 0.7.19\nsomething else\n", .unknown, "a last line that is not an answer is unknown, even after one")
+    row("newer 0.7.19-wedge\n", .unknown, "a version not of the board's shape is never offered")
+    row("newer\n", .unknown, "newer with no version")
+    row("updated 0.7\n", .unknown, "two parts is not a version")
+    row("current 0.7.18 extra\n", .unknown, "an extra word is not an answer")
+    row("Newer 0.7.19\n", .unknown, "case matters, as the CLI prints it")
+    row("refused\tthis computer is not set to connect to agents elsewhere\n", .refused, "refused: nothing to retry")
+    row("refused\n", .unknown, "refused with no reason is not the CLI's answer")
+    row("refused\t   \n", .unknown, "a reason of only spaces is no reason")
+    func want(_ running: String?, _ onDisk: String, _ expect: Bool, _ why: String) {
+        ran += 1
+        let got = AppDelegate.restartWanted(running: running, onDisk: onDisk)
+        if got != expect { bad += 1 }
+        print((got == expect ? "PASS  " : "FAIL  ") + "restart=\(got)".padding(toLength: 18, withPad: " ", startingAt: 0) + why)
+    }
+    want("0.7.18", "0.7.19", true, "the install is newer than the running app: offer Restart")
+    want("0.7.19", "0.7.19", false, "the same version: nothing to restart into")
+    want("0.7.20", "0.7.19", false, "an app newer than its install is never offered an older one")
+    want(nil, "0.7.19", false, "no running version: offer nothing")
+    want("0.7.18-dev", "0.7.19", false, "a version that cannot be read offers nothing")
+    row("Kosmos is starting\r\nnewer 0.7.19\r\n", .newer("0.7.19"), "CRLF lines split too (Swift reads CRLF as one Character)")
+    let expected = 23
+    if ran != expected { print("\nupdate-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
+    if bad > 0 { print("\nupdate-check: \(bad) row(s) wrong"); exit(1) }
+    print("\nupdate-check: all good (\(ran) rows)")
+    exit(0)
+}
+
 /* #3996: the Dock badge's number, read from the board's own JSON the way the timer reads it. */
 if CommandLine.arguments.contains("--kosmos-app-badge-selftest") {
     var bad = 0
@@ -4955,6 +5593,37 @@ if CommandLine.arguments.contains("--kosmos-app-badge-selftest") {
     }
     if bad > 0 { print("\nbadge-check: \(bad) row(s) wrong"); exit(1) }
     print("\nbadge-check: all good (\(ran) rows)")
+    exit(0)
+}
+
+/* #4409: the dictation bridge's decisions that need no microphone and no permission: which language it
+   listens in (on-device only, never a network fallback), what an ending is called, and the refusal that
+   stands in for a crash when the bundle lacks a usage string. */
+if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
+    var bad = 0
+    var ran = 0
+    func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
+    let here: Set<String> = ["en-US", "en-GB"]
+    let has = { (id: String) in here.contains(id) }
+    row(VoiceBridge.pickLocale(preferred: ["en-GB", "en-US"], onDevice: has) == "en-GB", "the person's first language, when it has an on-device model")
+    row(VoiceBridge.pickLocale(preferred: ["fr-FR", "en-GB"], onDevice: has) == "en-GB", "a language with no on-device model is skipped, not sent to a server")
+    row(VoiceBridge.pickLocale(preferred: ["en_GB"], onDevice: has) == "en-GB", "Locale.current's en_GB spelling is the same language")
+    row(VoiceBridge.pickLocale(preferred: ["fr-FR"], onDevice: has) == "en-US", "en-US is the last resort")
+    row(VoiceBridge.pickLocale(preferred: ["fr-FR"], onDevice: { _ in false }) == nil, "NO ON-DEVICE MODEL AT ALL REFUSES: nil, never a network recognizer")
+    row(VoiceBridge.pickLocale(preferred: [], onDevice: has) == "en-US", "no preference at all still asks for en-US")
+    row(VoiceBridge.endReason(domain: "kAFAssistantErrorDomain", code: 1110) == "nothing-heard", "silence is not a fault")
+    row(VoiceBridge.endReason(domain: "kAFAssistantErrorDomain", code: 216) == "", "a stop we asked for says nothing")
+    row(VoiceBridge.endReason(domain: "NSOSStatusErrorDomain", code: -1) == "recognizer", "anything else is a recognizer error")
+    let both: [String: Any] = ["NSMicrophoneUsageDescription": "x", "NSSpeechRecognitionUsageDescription": "y"]
+    row(VoiceBridge.usageStringsPresent(both), "both usage strings present")
+    row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "x"]), "A MISSING SPEECH STRING REFUSES (macOS would kill the app at the request)")
+    row(!VoiceBridge.usageStringsPresent(["NSSpeechRecognitionUsageDescription": "y"]), "a missing mic string refuses")
+    row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "", "NSSpeechRecognitionUsageDescription": "y"]), "an empty string is missing")
+    row(!VoiceBridge.usageStringsPresent(nil), "no Info.plist at all (an unbundled binary) refuses")
+    let expected = 14
+    if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
+    if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
+    print("\nvoice-check: all good (\(ran) rows)")
     exit(0)
 }
 

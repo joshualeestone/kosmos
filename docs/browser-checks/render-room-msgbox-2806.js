@@ -47,7 +47,7 @@
  * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
  * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
  */
-// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member
+// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member pj-back pj-settings-link pj-newtask pj-docs-all pj-alltasks
 const path = require('node:path');
 const playwright = require('playwright');
 /* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
@@ -112,6 +112,121 @@ function spread(rgb) { return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0]
 function blueLead(rgb) { return rgb[2] - Math.max(rgb[0], rgb[1]); }
 
 const now = () => new Date().toISOString();
+
+/* #4663: runs in the page. Reveals the project page's six small controls the way an open project shows them (the
+   static page opens none), measures each one's tap area and its neighbours' centres, then puts every change back, so
+   later arms see the page as it was. A parent is only forced visible where it computes display:none, and only then. */
+function tapProbe4663(skip) {
+  const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'].filter((id) => !(skip || []).includes(id));
+  // What the probe may change, read before and after: each control and its ancestors' hidden, inert and inline display.
+  const snap = () => ids.map((id) => { const out = []; for (let el = document.getElementById(id); el && el !== document.body; el = el.parentElement)
+    out.push([el.hidden, el.hasAttribute('inert'), el.style.display].join('/')); const b = document.getElementById(id); return out.join('>') + '|' + (b ? b.textContent : ''); }).join(';')
+    // The two lists the probe draws into, and the page's cache of the task list (paintProjectTasks skips a repaint
+    // that matches it), so a probe that left either behind reads as not restored.
+    + '|' + ['pj-tasklist', 'pj-docs'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
+    + '|' + ['pj-crumb', 'pj-one-agents'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
+    + '|' + (typeof TK_LIST_HTML === 'undefined' ? '' : String(TK_LIST_HTML))
+    // Every element scrolled away from 0, by position in the page, so a scroll the probe CAUSES reads as not restored
+    // (review round 8: only elements already scrolled at the start were compared).
+    + '|' + [...document.querySelectorAll('*')].map((e, i) => (e.scrollTop || e.scrollLeft ? i + ':' + e.scrollTop + ',' + e.scrollLeft : '')).filter(Boolean).join(';');
+  // Scroll positions too: scrollIntoView below moves the window and every scrolling ancestor.
+  const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
+  const sx = scrollX, sy = scrollY;
+  const start = snap() + '#' + scrolled.map(([, t, l]) => t + ',' + l).join(';') + '#' + sx + ',' + sy;
+  const undo = [];
+  /* A project with one task and one file (review round 4): the first task card and the first file row sit a few px
+     under the tasks and Files headers, so an area reaching below a header takes their top edge. With empty lists the
+     neighbour arm below had nothing under a header to measure. Put back at the end like everything else. */
+  const tasklist = document.getElementById('pj-tasklist'), docs = document.getElementById('pj-docs');
+  const crumb = document.getElementById('pj-crumb'), members = document.getElementById('pj-one-agents');
+  const seeded = [tasklist, docs, crumb, members].map((el) => [el, el && el.innerHTML]);
+  const door = document.getElementById('pj-alltasks'); const doorWas = door && [door.hidden, door.textContent];
+  const cacheWas = typeof TK_LIST_HTML === 'undefined' ? undefined : TK_LIST_HTML;
+  if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, sentence: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
+  if (docs) docs.innerHTML = '<button type="button" class="pj-doc" data-doc="notes.md"><span class="pj-doc-n">notes.md</span></button>';
+  /* A parent project's crumb beside Back (a role=link, 6px from it) and two member rows under + Add member (they open
+     the agent's page): clickable neighbours the sample did not draw before round 8. */
+  if (crumb) crumb.innerHTML = '<span class="pj-crumb-lead"><span class="pj-crumb-link" role="link" tabindex="0" data-project="p0">Parent</span></span><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="pj-crumb-cur">This project</span>';
+  if (members) members.innerHTML = ['april', 'leo'].map((a) => '<div class="pj-member" data-agent="' + a + '"><span class="pj-member-b">' + a + '</span></div>').join('');
+  undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; }
+    if (cacheWas !== undefined) TK_LIST_HTML = cacheWas; });
+  const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
+    undo.push(() => { if (prop === 'hidden') el.hidden = was; else if (prop === 'inert') { if (was) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } else el.style[prop] = was; });
+    if (prop === 'hidden') el.hidden = val; else if (prop === 'inert') el.removeAttribute('inert'); else el.style[prop] = val; };
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) continue;
+    if (b.hidden) set(b, 'hidden', false);
+    if (id === 'pj-alltasks' && !b.textContent.trim()) { const was = b.textContent; undo.push(() => { b.textContent = was; }); b.textContent = 'View All'; }
+    for (let el = b; el && el !== document.body; el = el.parentElement) {
+      if (el.hidden) set(el, 'hidden', false);
+      if (el.hasAttribute('inert')) set(el, 'inert', false);
+      if (getComputedStyle(el).display === 'none') set(el, 'display', 'block');
+    }
+  }
+  const out = [], theirs = []; let subjects = [];
+  try {
+  const hit = (x, y, b) => { const t = document.elementFromPoint(x, y); return !!t && (t === b || b.contains(t)); };
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) { out.push({ id, error: 'missing' }); continue; }
+    // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing.
+    b.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
+    /* The tap area's real extent, whatever its shape (centred, or grown inward where a column clips it): every point
+       of a grid around the control that reaches it, and the box those points span. Off-screen points are not
+       sampled, and the control is mid-screen, so none is. */
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const span = Math.max(r.width, r.height, 36) / 2 + 12;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, hits = 0;
+    for (let y = Math.floor(Math.max(0, cy - span)) + 0.5; y <= Math.min(innerHeight - 1, cy + span); y += 1) {
+      for (let x = Math.floor(Math.max(0, cx - span)) + 0.5; x <= Math.min(innerWidth - 1, cx + span); x += 1) {
+        if (hit(x, y, b)) { hits += 1; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+    }
+    const w = x0 === Infinity ? 0 : x1 - x0 + 1, h = y0 === Infinity ? 0 : y1 - y0 + 1;
+    /* Two halves, because hit-testing cannot see below a pixel (both engines round the asked point to a whole pixel,
+       so a 36px area reads 36 or 37 by where it sits, and a 35px area can read 36: review round 7, measured). The
+       SIZE comes from the area's own used width and height, which is exact; the grid then proves the area is really
+       reachable across that size, not clipped, to within that 1px. */
+    const pa = getComputedStyle(b, '::after'); const aw = parseFloat(pa.width) || 0, ah = parseFloat(pa.height) || 0;
+    const size = pa.content !== 'none' ? Math.max(aw, r.width) : r.width, sizeH = pa.content !== 'none' ? Math.max(ah, r.height) : r.height;
+    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), area: size.toFixed(1) + 'x' + sizeH.toFixed(1), tap: w + 'x' + h,
+      // The hits must FILL the area, not only span it: something laid over its middle would leave the edges hitting
+      // (review round 8, measured: a 36x12 overlay across + Add member's area kept a 37x37 span).
+      hits, reach: size >= 36 && sizeH >= 36 && w >= size - 1 && h >= sizeH - 1 && hits >= (size - 1) * (sizeH - 1) });
+  }
+  // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
+  subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc', '#pj-crumb .pj-crumb-link', '#pj-one-agents .pj-member'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
+    for (const n of document.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], .pj-member[data-agent]')) {
+      if (n === b || b.contains(n) || n.contains(b)) continue;
+      const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
+      if (!(q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40)) continue;
+      const x = q.left + q.width / 2, y = q.top + q.height / 2;
+      if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+      /* Every pixel of the neighbour's drawn box, not only its centre: an area can cover a neighbour's edge (review
+         round 3 found 18% of View All answering as + New task) while its centre stays its own. Any pixel fails, not a
+         share: 1% of a task card is a 6px strip across an area, the round 4 defect (review round 6). */
+      let taken = 0, total = 0, by = '';
+      for (let yy = Math.floor(q.top) + 0.5; yy < q.bottom; yy += 1) for (let xx = Math.floor(q.left) + 0.5; xx < q.right; xx += 1) {
+        if (yy < q.top || xx < q.left) continue;
+        if (xx < 0 || yy < 0 || xx >= innerWidth || yy >= innerHeight) continue; total += 1;
+        const t = document.elementFromPoint(xx, yy);
+        const o = t && ids.map((j) => document.getElementById(j)).find((o2) => o2 && o2 !== n && !n.contains(o2) && (t === o2 || o2.contains(t)));
+        if (o) { taken += 1; by = o.id; }
+      }
+      if (taken) theirs.push((n.id || n.className || n.tagName) + ': ' + taken + ' of ' + total + ' px answer as ' + by);
+    }
+  }
+  } finally {
+    // Put back even if a measurement throws, so later arms never see an altered page.
+    for (const u of undo.reverse()) u();
+    for (const [e, t, l] of scrolled) { e.scrollTop = t; e.scrollLeft = l; }
+    window.scrollTo(sx, sy);
+  }
+  const end = snap() + '#' + scrolled.map(([e]) => e.scrollTop + ',' + e.scrollLeft).join(';') + '#' + scrollX + ',' + scrollY;
+  return { out, theirs, restored: end === start, subjects };
+}
 
 (async () => {
   for (const engineName of ENGINES) {
@@ -418,7 +533,12 @@ const now = () => new Date().toISOString();
         const p = { agents: [] };
         const host = document.createElement('div');
         host.className = 'thread'; host.setAttribute('data-shot', '1');
-        host.style.cssText = 'position:fixed;left:0;top:0;width:760px;height:400px;z-index:99999;';
+        /* #5052: the sampled window below reaches into the message's TEXT (its timestamp sits at the bubble's bottom
+           right). The timestamp is now(), so whether a glyph's ink lands on a sampled pixel depended on the time of day
+           and the font (it did on Linux, and could on a Mac). The body sample at the box centre can land on the message's own
+           text too. So ALL text ink is hidden (on the host, not only .mwhen); geometry, the tint and the tail are
+           not: -webkit-text-fill-color touches glyphs only (the tail paints background-color: inherit). */
+        host.style.cssText = 'position:fixed;left:0;top:0;width:760px;height:400px;z-index:99999;-webkit-text-fill-color:transparent;';
         host.innerHTML = pjRoomRow({ operator: true, at: ts, text: 'can everyone enter a task of 100 character max, please and thanks.' }, p);
         document.body.appendChild(host);
       }, now());
@@ -718,10 +838,15 @@ const now = () => new Date().toISOString();
       await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       // The column that DOES move (Members/Files) must give a focused control its focus back.
       const splitFocus = await phonePage.evaluate(() => {
+        // What this changes is put back after the turn (review round 4: the #4663 probe below measured this altered page).
+        const undo = []; window.__splitUndo = () => { for (const u of undo.reverse()) u(); };
         for (let el = document.querySelector('.pj3 > .pjsplit'); el && el !== document.body; el = el.parentElement) {
+          const was = [el.hidden, el.hasAttribute('inert'), el.style.display];
+          undo.push(() => { el.hidden = was[0]; if (was[1]) el.setAttribute('inert', ''); el.style.display = was[2]; });
           el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
         }
         const b = document.getElementById('pj-add-member'); if (!b) return 'no #pj-add-member';
+        const bWas = [b.hidden, b.style.display]; undo.push(() => { b.hidden = bWas[0]; b.style.display = bWas[1]; });
         b.hidden = false; b.style.display = 'inline-block'; b.focus();
         return document.activeElement === b ? 'pj-add-member' : 'not focusable';
       });
@@ -734,7 +859,13 @@ const now = () => new Date().toISOString();
       const splitBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
-      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); if (window.__splitUndo) window.__splitUndo(); });
+      // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
+      // on each, and none of those areas takes any part of a neighbouring control (the first task and file included).
+      const taps = await phonePage.evaluate(tapProbe4663);
+      chk(taps.out.length === 6 && taps.out.every((x) => !x.error && x.reach), `[phone] #4663: Back, settings, + Add member, + New task and both View All take a tap across at least 36px`, JSON.stringify(taps.out));
+      chk(taps.theirs.length === 0 && taps.subjects.every((n) => n >= 1), `[phone] #4663: no enlarged tap area takes any part of a neighbouring control, the first task and the first file under their headers included`, JSON.stringify({ theirs: taps.theirs, subjects: taps.subjects }));
+      chk(taps.restored, `[phone] #4663: the probe left the page as it found it`, String(taps.restored));
       // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
       // the view toggle must not overlap and must stay inside the row. (The harness only flags
       // overflow past the panel; controls drawn over each other inside it pass that.)
@@ -938,16 +1069,21 @@ const now = () => new Date().toISOString();
         if (!row) return { error: 'no open bar in place' };
         const q = row.querySelector('.rxn-quick');
         const at = (x, y) => document.elementFromPoint(x, y);
-        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
         const C = comp.getBoundingClientRect(), Rw = row.getBoundingClientRect();
         const overlap = Rw.bottom > C.top + 4;
         const t = at(C.left + C.width / 2, Math.min(C.bottom - 4, Math.max(C.top + 4, (C.top + Math.min(C.bottom, Rw.bottom)) / 2)));
-        return { hits, overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
+        return { hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
       });
       await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
-      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === 5 && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
+      // #4409: every phone arm counts the bar's SHOWN buttons (want), so without read aloud they would all pass on the
+      // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it. Seven since
+      // #4631 added Copy reference: it, the three quick emoji, the picker, read aloud and Reply.
+      chk(!inPlaceHits.error && inPlaceHits.want === 7,
+        `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the seven-button bar`, JSON.stringify(inPlaceHits));
+      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === inPlaceHits.want && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
         `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
       const phoneGeometry = await phonePage.evaluate((ts) => {
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
@@ -1024,11 +1160,11 @@ const now = () => new Date().toISOString();
       const hits = await phonePage.evaluate(() => {
         const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick');
         if (!q) return { error: 'no open bar' };
-        return { below: row.classList.contains('rxn-below'), hits: [...q.querySelectorAll('button')].map((b) => {
+        return { below: row.classList.contains('rxn-below'), want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), hits: [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => {
           const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return top === b || b.contains(top); }) };
       });
-      chk(!hits.error && hits.below && hits.hits.length === 5 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
+      chk(!hits.error && hits.below && hits.hits.length === hits.want && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
       // One bar at a time: a tap on a link in ANOTHER row closes it (the link keeps its own job).
       const linkClose = await phonePage.evaluate(() => {
         const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
@@ -1123,8 +1259,8 @@ const now = () => new Date().toISOString();
       chk(rowsLeft === 4 && cardClicks === 1 && barAfterCardTap.shown === 0 && barAfterCardTap.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, barAfterCardTap)));
       // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
       // touch target in it, and the reaction pill, is at least the room's --room-tap (#3811), which
-      // is itself at least 36px (the size decided for these small repeated targets). Five buttons since
-      // #3745: the three quick emoji, the picker, and Reply.
+      // is itself at least 36px (the size decided for these small repeated targets). Six buttons since
+      // #4631: Copy reference, the three quick emoji, the picker, and Reply (five since #3745).
       const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
       await own.tap();
       await phonePage.waitForTimeout(300);
@@ -1138,7 +1274,7 @@ const now = () => new Date().toISOString();
           buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
       });
       chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
-      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 5 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 6 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
       // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
       // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
       const clear = await phonePage.evaluate(() => {
@@ -1157,10 +1293,10 @@ const now = () => new Date().toISOString();
         // Precondition: the bar really lies over the message before it, or "on top" proves nothing.
         const previous = row.previousElementSibling; const barRect = quickBar.getBoundingClientRect();
         const overlapsPrevious = !!(previous && (() => { const p = previous.getBoundingClientRect(); return barRect.top < p.bottom && barRect.bottom > p.top; })());
-        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
-        return { overlapsPrevious, hits };
+        const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+        return { overlapsPrevious, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
       });
-      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === 5 && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
+      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === hitsAbove.want && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
       await own.tap();
       await phonePage.waitForTimeout(300);
       const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
@@ -1189,10 +1325,10 @@ const now = () => new Date().toISOString();
         const room = document.getElementById('pj-room'); const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
         if (!q) return { error: 'no open bar' };
         const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
-        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
+        const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), pinned: q.style.position === 'fixed' };
       });
-      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 5 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === tall.want && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
       // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
       // keeps it pinned, rather than closing it under the person's thumb.
       const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
@@ -1406,14 +1542,14 @@ const now = () => new Date().toISOString();
         button.focus();
         setTimeout(() => {
           const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
-          const hits = [...bar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits };
+          const hits = [...bar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits, want: 6 + (bar.querySelector('.rxn-speak') && bar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
           button.blur();
-          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
+          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST, styled: !!(bar.style.left || bar.style.maxWidth) /* #4409: the fit's inline left and max-width are gone */ }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
         }, 300);
       }));
-      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length > 0 && focusOpen.placed.hits.every(Boolean)
-        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null,
+      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length === focusOpen.placed.want && focusOpen.placed.hits.every(Boolean)
+        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null && !focusOpen.afterBlur.styled,
         `[phone/touch] a bar opened by keyboard focus on the first post opens below it, in view, takes its taps, and drops the flip when focus leaves`, JSON.stringify(focusOpen));
       // Escape
       const openBeforeEscape = await freshBar();
@@ -1556,9 +1692,58 @@ const now = () => new Date().toISOString();
       // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
         `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
+      // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
+      const ttaps = await tabletPage.evaluate(tapProbe4663);
+      chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));
+      chk(ttaps.theirs.length === 0 && ttaps.subjects.every((n) => n >= 1) && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, subjects: ttaps.subjects, restored: ttaps.restored }));
     } finally {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
       await tabletPage.close();
+    }
+    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, set as the dark/consolidated arm above sets it (the
+    // static page does not choose it by itself). Back (its crumb row is display:none) and + Add member (the Members
+    // card is display:none here, #3218) are not shown in this layout, so both are left out rather than forced
+    // visible (forcing Members visible also reflows the Files card); the other four must all take their 36px tap.
+    for (const w of [960, 1024, 1180]) {   // 960: the narrowest width the one-screen layout (and these rules) exist at
+      const consTap = await browser.newPage({ viewport: { width: w, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+      const consTapErrors = watchErrors(consTap);
+      try {
+        await consTap.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+        await consTap.goto(PAGE);
+        await consTap.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+          document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); });
+        const layout = await consTap.evaluate(() => document.documentElement.getAttribute('data-layout') + '/' + document.body.classList.contains('consolidated'));
+        const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back', 'pj-add-member']);
+        chk(layout === 'consolidated/true' && ctaps.out.length === 4 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the four small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
+        chk(ctaps.theirs.length === 0 && ctaps.subjects.slice(0, 2).every((n) => n >= 1) && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, subjects: ctaps.subjects, restored: ctaps.restored }));
+      } finally {
+        chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
+        await consTap.close();
+      }
+    }
+    // #4663 stays off a pointer that hovers (the Mac app is a WKWebView with a mouse or trackpad): no area on any of
+    // the six, and neither one-screen drawn change, in the tab layout and the one-screen layout alike (review round
+    // 10: with the touch gate removed every other arm still passed).
+    for (const cons of [false, true]) {
+      const hoverPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light' });
+      const hoverErrors = watchErrors(hoverPage);
+      try {
+        await hoverPage.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+        await hoverPage.goto(PAGE);
+        const hv = await hoverPage.evaluate((c) => {
+          const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+          if (c) { document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); }
+          const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
+          const withArea = ids.filter((id) => { const b = document.getElementById(id); return !b || getComputedStyle(b, '::after').content !== 'none'; });
+          const f = document.getElementById('pj-tasks-field'), v = document.getElementById('pj-alltasks');
+          return { hoverNone: matchMedia('(hover: none)').matches, withArea, padTop: f ? getComputedStyle(f).paddingTop : 'missing', viewAllRight: v ? getComputedStyle(v).marginRight : 'missing' };
+        }, cons);
+        chk(!hv.hoverNone && hv.withArea.length === 0 && hv.padTop === '0px' && hv.viewAllRight === '0px',
+          `[hover 1180 ${cons ? 'one-screen' : 'tabs'}] #4663: with a mouse or trackpad none of the six has a tap area, and the tasks header and View All are as drawn`, JSON.stringify(hv));
+      } finally {
+        chk(hoverErrors.length === 0, `[hover 1180 ${cons ? 'one-screen' : 'tabs'}] no script errors on the page`, hoverErrors.join(' | '));
+        await hoverPage.close();
+      }
     }
     // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
     // emoji read over the message it covers, and it still takes its taps. (Lifted to body, the
@@ -1588,10 +1773,10 @@ const now = () => new Date().toISOString();
         const quickBar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
         if (!quickBar) return { error: 'no open bar' };
         const barBg = rgba(getComputedStyle(quickBar).backgroundColor); const threadBg = getComputedStyle(room).backgroundColor;
-        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits };
+        const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
       });
-      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 5 && dark.hits.every(Boolean),
+      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === dark.want && dark.hits.every(Boolean),
         `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
     } finally {
       chk(darkPageErrors.length === 0, '[phone dark] no script errors on the page', darkPageErrors.join(' | '));

@@ -28,6 +28,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-verbs-parity-'
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 
 const test = require('node:test');
+// #4632: the ready-made roles are downloaded; sandbox the data root and store the signed fixture
+// first, so the every-role verb sweep below covers the catalogue's roles too.
+require('./test-support/catalogue-fixture').sandboxWithCatalogue('win-cli-verbs');
 const assert = require('node:assert/strict');
 const cli = require('./tools/windows/kosmos-cli');
 
@@ -50,6 +53,7 @@ const PERSON_ONLY_VERBS = {
   agents: 'lists tmux agents for a person at a terminal',
   version: 'the bundle version; the Windows zip carries it in manifest.json',
   adopt: 'one-time tmux adoption (#570), which has no Windows arm (audit #39)',
+  update: 'the Mac app\'s update look on a computer that runs no board (#4382); Windows updates through win32update (#4381)',
 };
 
 // ── what the Mac command has, read out of install/kosmos ────────────────────
@@ -62,11 +66,15 @@ function macVerbsFromDispatch(text) {
   return [...block.matchAll(/^ {2}([a-z]+)\)/gm)].map((m) => m[1]);
 }
 
-/* The verbs its help banner lists (`kosmos start | stop | ...`). */
+/* The verbs its help lists: #4785 made it one row per command (`printf '  kosmos start   start Kosmos...'`)
+   inside kosmos_command_list(), where it had been one `kosmos start | stop | ...` line. */
 function macVerbsFromBanner(text) {
-  const m = /kosmos ((?:[a-z]+ \| )+[a-z]+)\\n/.exec(text);
-  assert.ok(m, 'install/kosmos has no `kosmos a | b | c` banner any more');
-  return m[1].split(' | ');
+  const open = text.indexOf('\nkosmos_command_list() {\n');
+  assert.ok(open >= 0, 'install/kosmos has no kosmos_command_list() any more; this test reads the help\'s verbs from there');
+  const body = text.slice(open, text.indexOf('\n}\n', open));
+  const verbs = [...body.matchAll(/^\s*printf '  kosmos ([a-z]+) /gm)].map((m) => m[1]);
+  assert.ok(verbs.length > 0, 'kosmos_command_list() lists no `kosmos <verb>` rows');
+  return verbs;
 }
 
 /* A verb's subcommands: the arms of every `case "$sub" in` / `case "${1:-}" in` in
@@ -155,10 +163,10 @@ test('every shared verb has the same subcommands on both, in both directions', (
 });
 
 test('the parser really reads subcommands (a guard that cannot find any would pass everything)', () => {
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'list', 'message']);   // built: #3951
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'assign', 'built', 'close', 'hold', 'list', 'message', 'unhold']);   // built: #3951; hold, unhold: #4771; assign: #4914
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['post', 'read'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'endorse', 'follow', 'post', 'read', 'status', 'unendorse', 'unfollow', 'vote', 'votes'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774; status: #4939   // vote, votes: #4884; endorse, unendorse: #4913
 });
 
 test('the verbs that require a subcommand are the same on both (Windows by behaviour)', async () => {
@@ -306,4 +314,8 @@ test('the texts agents are actually given name only verbs the Windows command ha
   assert.ok(uses.some((u) => u.verb === 'community' && u.word === 'read' && u.where.includes('communityblock')), 'the community block was not read (community read is taught there)');
   const problems = uses.map((u) => (PERSON_ONLY_VERBS[u.verb] ? u.where + ': teaches an agent the person-only kosmos ' + u.verb : problemsWith(u))).filter(Boolean);
   assert.deepEqual(problems, []);
+});
+
+test('#4632 premise: the verb sweep covers the downloaded catalogue roles', () => {
+  assert.ok(require('./engine/roles').byKey('cmo'), 'the catalogue fixture is not merged, so the sweep covers only the built-in roles');
 });

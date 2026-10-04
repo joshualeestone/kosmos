@@ -372,7 +372,9 @@ test('a send to a CODEX pane waits at least the codex gap between the paste and 
   // A codex pane the way the supervisor records one: runner set, the
   // process is node, and the screen is codex's own prompt (status.test.js).
   withFleet([fleet.agent('pixel', { state: 'idle', runner: 'codex', command: 'node', screen: CODEX_IDLE })], (board) => {
-    const tmux = arm([ok(), ok()]);
+    /* #4589: a Codex send first reads the screen fresh; a blank read is refused as still starting, so the pane shows
+       codex's prompt (the capture), then the paste and the Enter answer ok. */
+    const tmux = arm([ok(CODEX_IDLE), ok(), ok()]);
     // The pause lands in the same call log as the keystrokes, so ORDER is
     // asserted, not just presence: paste, then the wait, then Enter.
     chat.setPauser((ms) => { tmux.calls.push(['<pause>', ms]); });
@@ -459,6 +461,7 @@ test('#4468: one pane serialises async deliveries and refuses a synchronous swee
     const sweep = chat.deliver('casey', 'sweep', board.agents);
     assert.equal(sweep.state, chat.DELIVERY.COULD_NOT);
     assert.match(sweep.because, /another message is still being placed/);
+    assert.equal(sweep.busy, true, '#4951: the being-placed refusal says the pane was busy');
     assert.equal(tmux.setBuffers().length, 1, 'the queued delivery pasted before the first Enter');
 
     releases.shift()();
@@ -790,6 +793,60 @@ test('the LAST match wins, because a pane accumulates and an answered question c
   assert.ok(!/Do you want to proceed/.test(found.text), 'the stale question above is not the live one');
 });
 
+test('#5051: the safeguards model-switch menu is a question the detail page can find, and gets no buttons', () => {
+  /* The rows of Claude Code's safeguards menu as Splinter captured them on Angel's pane, 2026-10-02 ~11:07 (blank and
+     border rows put back where Claude Code draws them, as #5039's test does). Before #5051, questionIn returned null
+     here, so the detail page said it "cannot find the question" right under the board's own evidence of it. */
+  const MODAL = [
+    'some earlier output',
+    '⏺ Opus 5.5\'s safeguards stopped the response above · continuing once',
+    '  with that noted',
+    '',
+    ' ☐ Model switch',
+    '',
+    '│ Opus 5.5\'s safeguards flagged this session. You may be seeing this for the',
+    '│ first time: Opus 5.5 is more capable and has stronger safeguards as a result,',
+    '│ which can sometimes flag non-cybersecurity work. We\'re improving these',
+    '│ safeguards to reduce the amount of incorrectly flagged messages. Switch to',
+    '│ Opus 4.8 and keep going whenever this happens? You can change this later in',
+    '│ /config.',
+    '',
+    '─'.repeat(80),
+    '❯ 1. Switch automatically',
+    '     Continue on Opus 4.8 now, and switch without asking from now on',
+    '  2. Stay on Opus 5.5',
+    '     Stop here without switching, and ask me each time a message is flagged',
+    '  3. Type something.',
+    '  4. Chat about this',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+  ].join('\n');
+  const found = chat.questionIn(MODAL);
+  assert.ok(found, 'the safeguards menu yields no question region');
+  assert.match(found.text, /^ ☐ Model switch/, 'the region does not start at the menu\'s title: ' + JSON.stringify(found.text.slice(0, 40)));
+  assert.match(found.text, /Switch to\n│ Opus 4\.8 and keep going whenever this happens\?/, 'the question itself is cut off');
+  assert.match(found.text, /2\. Stay on Opus 5\.5/);
+  assert.doesNotMatch(found.text, /some earlier output/, 'the region reaches above the menu');
+  /* A narrower pane wraps the question onto more rows, so a fixed run-up would start mid-question: the region still
+     starts at the title. (Wrapped width assumed; the rows are the captured words.) */
+  const NARROW = MODAL.replace('│ which can sometimes flag non-cybersecurity work.', '│ which can sometimes flag\n│ non-cybersecurity work.')
+    .replace('│ first time: Opus 5.5 is more capable', '│ first time: Opus 5.5 is\n│ more capable');
+  assert.match(chat.questionIn(NARROW).text, /^ ☐ Model switch/, 'a wrapped question cut the title off');
+  /* The options are not on consecutive lines (a description row sits between), so no buttons: the choice is typed by
+     the person, never answered by a guessed button. */
+  assert.equal(chat.optionsIn(found.text), null, 'buttons were drawn for the safeguards menu');
+  /* Review round 1: the same menu WITHOUT description rows (assumed layout) would parse as consecutive options; the
+     refusal is a rule, not a property of the captured layout. */
+  const BARE = MODAL.split('\n').filter((l) => !/^\s{5}(Continue|Stop) /.test(l)).join('\n');
+  assert.equal(chat.optionsIn(chat.questionIn(BARE).text), null, 'buttons were drawn for a compact safeguards menu');
+  /* Review round 1: a non-numbered marker line BELOW the live menu must not start the region mid-menu. */
+  const BELOW = MODAL + '\n✻ Would you like to keep waiting';
+  assert.match(chat.questionIn(BELOW).text, /^ ☐ Model switch/, 'a marker line below the menu cut its question off');
+  /* Controls: the menu's words in an agent's prose above a live permission prompt; the permission prompt is the one. */
+  const PROSE = ['⏺ The choices are:', '  1. Switch automatically', '  2. Stay on Opus 5.5', '', 'Do you want to proceed?', '❯ 1. Yes', '  2. No'].join('\n');
+  assert.doesNotMatch(chat.questionIn(PROSE).text.split('\n').slice(-3).join('\n'), /Switch automatically/);
+  assert.match(chat.questionIn(PROSE).text, /Do you want to proceed\?\n❯ 1\. Yes/);
+});
+
 test('a screen with no question yields null rather than a guess', () => {
   assert.equal(chat.questionIn('Worked for 3m\n⏵⏵ accept edits on'), null);
   assert.equal(chat.questionIn(''), null);
@@ -1066,6 +1123,44 @@ test('describe’s OWN role gate bites: an untied card CARRYING a role still rea
     assert.equal(row.state, 'unknown');
     assert.equal(row.tied, false);
   });
+});
+
+test('#4557: the thread opens on the member the others report to, not the first role that says manager', () => {
+  /* April (#4555 review): a seeded Marketing team's room opened on the Social Media Manager, not the CMO
+     everyone reports to. Real produced cards; only profile.reportsTo is set, where create.js stores it. */
+  withFleet([
+    fleet.agent('sam', { displayName: 'Sam', role: 'Social Media Manager', state: 'idle' }),
+    fleet.agent('cora', { displayName: 'Cora', role: 'Chief Marketing Officer', state: 'idle' }),
+    fleet.agent('wes', { displayName: 'Wes', role: 'Writer', state: 'idle' }),
+  ], (board) => {
+    const reports = { sam: 'cora', wes: 'Cora' }; // the case of the stored name does not matter
+    const agents = board.agents.map((a) => (reports[a.sessionName]
+      ? { ...a, profile: { ...(a.profile || {}), reportsTo: reports[a.sessionName] } } : a));
+    const members = projects.describe({
+      id: 'p', name: 'P', folder: SANDBOX, agents: ['sam', 'cora', 'wes'],
+      everSeen: { sam: true, cora: true, wes: true }, told: {},
+    }, agents).agents;
+    // Controls: the reports came through describe, and the role rule alone WOULD pick sam.
+    assert.equal(members.find((m) => m.sessionName === 'sam').reportsTo, 'cora');
+    assert.equal(chat.looksLikeManager('Social Media Manager'), true);
+    assert.equal(chat.defaultAgentFor(members), 'cora');
+    // With no reports on the project, the old rule stands.
+    assert.equal(chat.defaultAgentFor(members.map((m) => ({ ...m, reportsTo: null }))), 'sam');
+    // An untied card's reportsTo is not read, like its role.
+    const untied = agents.map((a) => (a.sessionName === 'sam' ? { ...a, isNamedOurs: false } : a));
+    const row = projects.describe({
+      id: 'p', name: 'P', folder: SANDBOX, agents: ['sam'], everSeen: { sam: true }, told: {},
+    }, untied).agents[0];
+    assert.equal(row.reportsTo, null);
+  });
+});
+
+test('#4557: most reports wins, and a tie keeps the project order', () => {
+  const m = (sessionName, reportsTo, role) => ({ sessionName, reportsTo: reportsTo || null, role: role || null });
+  assert.equal(chat.defaultAgentFor([m('a', 'c'), m('b', 'd'), m('c'), m('d'), m('e', 'd')]), 'd');
+  assert.equal(chat.defaultAgentFor([m('a', 'c'), m('b', 'd'), m('c'), m('d')]), 'c');
+  // Reporting to someone NOT on the project does not make anybody the head.
+  assert.equal(chat.defaultAgentFor([m('a', 'zed'), m('b', null, 'project manager')]), 'b');
 });
 
 test('a project with nobody on it has nobody to address', () => {
@@ -3129,4 +3224,25 @@ test('#1629: deliver refuses to type at an agent whose snapshot shows the trust 
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
     assert.ok(tmux.sends().length > 0);
   });
+});
+
+test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a middle manager with more direct reports', () => {
+  /* Real produced cards (fixture discipline); only profile.reportsTo is set, where create.js stores it. */
+  const membersFor = (names, reports) => withFleet(names.map((n) => fleet.agent(n, { displayName: n, role: 'Writer', state: 'idle' })), (board) => {
+    const agents = board.agents.map((a) => (reports[a.sessionName] ? { ...a, profile: { ...(a.profile || {}), reportsTo: reports[a.sessionName] } } : a));
+    const everSeen = {}; for (const n of names) everSeen[n] = true;
+    return projects.describe({ id: 'p', name: 'P', folder: SANDBOX, agents: names, everSeen, told: {} }, agents).agents;
+  });
+  // ceo <- vp; vp <- a, b, c (vp has more direct reports than the ceo).
+  const deep = membersFor(['vp', 'a', 'b', 'c', 'ceo'], { vp: 'ceo', a: 'vp', b: 'vp', c: 'vp' });
+  assert.equal(deep.find((m) => m.sessionName === 'vp').reportsTo, 'ceo', 'control: the reports came through describe');
+  assert.equal(chat.defaultAgentFor(deep), 'ceo');
+  // Two separate charts on one project (two roots): most direct reports, as before.
+  assert.equal(chat.defaultAgentFor(membersFor(['x', 'y', 'x1', 'y1', 'y2'], { x1: 'x', y1: 'y', y2: 'y' })), 'y');
+  // Two tops, and a middle manager under one of them with more direct reports than either: a top opens
+  // the room (the one with more direct reports; a tie keeps the project order), never the middle manager.
+  assert.equal(chat.defaultAgentFor(membersFor(['mid', 'm1', 'm2', 'm3', 'top1', 'top2', 't2a'],
+    { mid: 'top1', m1: 'mid', m2: 'mid', m3: 'mid', t2a: 'top2' })), 'top1');
+  // A cycle has no root: it falls to most reports, then list order, and never throws.
+  assert.equal(chat.defaultAgentFor(membersFor(['p', 'q'], { p: 'q', q: 'p' })), 'p');
 });

@@ -89,6 +89,7 @@ async function openImportPanel(page) {
   if (!frOk) { console.log('FAIL  could not complete first run on the board (is it up and sandboxed?)'); process.exit(1); }
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, { timeout: 10000 });
+  await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
   await page.waitForSelector('#pick-import:not([hidden])', { timeout: 10000 });
   await page.click('#pick-import');
   await page.waitForSelector('#importpick:not([hidden])', { timeout: 8000 });

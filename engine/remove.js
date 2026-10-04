@@ -93,6 +93,8 @@ const REMOVED_FILE = path.join(store.ROOT, REMOVED_FILENAME);
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
 let runner = null;
 
+/* #4964: an injected runner also turns the restart's unload wait off (its print would answer "loaded" forever);
+   a test that models launchd's unload sets AGENT_WORKFORCE_UNLOAD_WAIT_MS to get it back. */
 function setRunner(fn) {
   runner = fn || null;
   if (!runner) DRY_RUN = true;
@@ -106,7 +108,7 @@ function setDryRun(on) {
 
 /* Test seam (#1598): back to a clean fail-closed state (no runner, explicit
    dry-run flag off) so a test can exercise the live-execution gate itself. */
-function resetForTests() { runner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; }
+function resetForTests() { runner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; unloadWaits = []; }
 
 /**
  * #2570: can a caller BELIEVE an outcome from this module?
@@ -167,8 +169,79 @@ function retryWait() {
 /* The trade-off, stated: the second and later failures in one burst retry at once, so their second try does not
    get the wait the bootout race needs. Accepted, because a board frozen for N waits is worse than a second try
    that may not help; those agents still end on the failed card. */
+/* #4964: how long a restart waits, after bootout, for launchd to finish unloading the job before it bootstraps.
+   MEASURED on Agent1s (0.7.16): the bootout returned at once, the job then sat in `state = SIGTERMed` for 4.5 s
+   while its supervisor shut down, and only then was gone. A bootstrap sent into that gap answers 5 ("already
+   loaded", success), `launchctl print` still answers for the dying job, so the restart is "confirmed" and the
+   #4006 second try never runs; the job then unloads and nothing brings the agent back. That is every
+   "Switch & Restart to Gemini" agent Josh could not message on Mortals (it ran on, unsupervised, in a pane the
+   board could not tie to a job). 25 s is above launchd's default ExitTimeOut (20 s, which create.js's plist does
+   not change), so a job launchd is still allowed to keep is waited for. The env is the test seam only. */
+function unloadWaitMs() {
+  const raw = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  const v = raw === undefined || raw === '' ? NaN : Number(raw);
+  if (Number.isFinite(v) && v >= 0) return v;
+  /* A test that injects its own launchctl (setRunner) scripts every call it expects; its print answers "loaded"
+     forever, so the wait is off there unless the test asks for it (the #4964 tests do). A board whose commands are
+     not real (dry run, or live execution not allowed: the browser-check boards) has nothing to wait for, and its
+     print answers "loaded" forever too. Live: 25 s. */
+  if (runner || !commandsAreReal() || DRY_RUN) return 0;   // (waitUnloaded's dryRun answer is the backstop)
+  return 25000;
+}
+const UNLOAD_POLL_MS = 100;
+const UNLOAD_PRINT_TIMEOUT_MS = 2000;
+/* The wait blocks this whole process (restart is synchronous, in a route), so a burst (the class-1 sweep restarts
+   every flagged agent in one tick) must not freeze the board for N waits: at most UNLOAD_BURST_MS of waiting in any
+   UNLOAD_BURST_WINDOW_MS. A restart past that allowance does not wait, and the restart does not trust a bootstrap
+   that answered "already loaded" while the old job was still held (restartInner), so it ends PARTIAL, on the
+   failed card, rather than as a RESTARTED with no job. The trade-off, stated: past the allowance (a long class-1
+   sweep) an agent is left stopped and on the failed card, where before it was left stopped under a false
+   RESTARTED. PARTIAL here does not mean nothing changed. */
+const UNLOAD_BURST_MS = 30 * 1000;
+const UNLOAD_BURST_WINDOW_MS = 60 * 1000;
+let unloadWaits = [];   // { at, ms }: the waits inside the window
+function unloadAllowance(now) {
+  const v = Number(process.env.AGENT_WORKFORCE_UNLOAD_BURST_MS);   // test seam only
+  const cap = process.env.AGENT_WORKFORCE_UNLOAD_BURST_MS && Number.isFinite(v) && v >= 0 ? v : UNLOAD_BURST_MS;
+  unloadWaits = unloadWaits.filter((w) => now - w.at < UNLOAD_BURST_WINDOW_MS);
+  return Math.max(0, cap - unloadWaits.reduce((n, w) => n + w.ms, 0));
+}
+/* Gone only on launchd's own "no such service": 113, `Could not find service` (MEASURED on Agent1s). Any other
+   failure of print (a timeout, a launchctl error) says nothing about the job, so it is not read as gone. */
+function printSaysGone(out) {
+  if (!out || out.ok !== false) return false;
+  return out.code === 113 || /could not find service/i.test(`${out.stderr || ''}${out.stdout || ''}`);
+}
+/* True once launchd no longer holds `label` (or when there is nothing real to wait for), false if it is still held
+   when the wait runs out or the burst allowance is spent. Blocking, like retryWait: restart is synchronous. */
+function waitUnloaded(label) {
+  const base = unloadWaitMs();
+  if (base <= 0) return true;   // no wait asked for: not even a look (the scripted tests' call lists stay exact)
+  const started = Date.now();
+  const budget = Math.min(base, unloadAllowance(started));
+  let gone = false;
+  for (;;) {
+    const left0 = budget - (Date.now() - started);
+    const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`],
+      { timeout: Math.max(200, Math.min(UNLOAD_PRINT_TIMEOUT_MS, left0)) });   // a print never carries the wait far past its budget
+    if (out && out.dryRun) { gone = true; break; }
+    if (printSaysGone(out)) { gone = true; break; }
+    const left = budget - (Date.now() - started);
+    if (left <= 0) break;
+    sleepMs(Math.min(UNLOAD_POLL_MS, left));
+  }
+  const spent = Date.now() - started;
+  if (spent > 0) unloadWaits.push({ at: started, ms: spent });
+  return gone;
+}
+/* #4964: did the last Mac bootstrap really load a job (answer 0)? Right after a bootout whose job was still held, an
+   "already loaded" (5) is the dying job, not a new one. */
+function bootstrapLoadedNew() {
+  return Boolean(lastBootstrap && lastBootstrap.ok === true);
+}
 
-function run(file, args) {
+
+function run(file, args, opts) {
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
   /* #1598: fail closed. Live launchctl/tmux only when production has opted in;
@@ -179,7 +252,7 @@ function run(file, args) {
     return { ok: true, stdout: '', dryRun: true };
   }
   try {
-    return { ok: true, stdout: execFileSync(file, args, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }) };
+    return { ok: true, stdout: execFileSync(file, args, { encoding: 'utf8', timeout: (opts && opts.timeout) || 20000, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
     // ⚠️ THE EXIT CODE IS CARRIED. "Already gone" and "it failed" are both
     // non-zero here and mean opposite things: `bootout` answers 3 for a job that
@@ -470,6 +543,8 @@ function jobOps(platform) {
       // 3 is launchd for "no such service", which is the end state we wanted.
       return Boolean(out && (out.ok !== false || out.code === 3));
     },
+    /* #4964: bootout returns before the job is gone; the restart waits for that before it bootstraps. */
+    waitUnloaded: (name, job) => waitUnloaded(job.label),
     enable: (name, record) => {
       const on = run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${record.label}`]);
       return Boolean(on && on.ok !== false);
@@ -695,6 +770,7 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   let revoked;
   /* #4006: and its disruption record, so a failed restart does not outlive the agent onto a new one of that name. */
   try { disruption.clear(clean); } catch { /* best-effort, like the revoke */ }
+  try { require('./crashloop').forget(clean); } catch { /* #5154 review 1: a removed agent's runs go with it */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
   if (!revoked || revoked.ok !== true) {
     console.error('#2323: removed ' + clean + ' but could NOT revoke its sender token'
@@ -778,6 +854,8 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
     return false;
   }
   forgetPendingStart(clean);
+  // #4624: room posts held for it are not told to a later agent of the same name.
+  try { require('./roomhold').forget(clean); } catch { /* best-effort; the posts are in the room */ }
   return isRemoved(clean);
 }
 
@@ -1616,6 +1694,38 @@ function restoreInner(name, platform) {
     return { outcome: OUTCOME.REFUSED, because: `${shown} is not on the removed list.`, steps: [] };
   }
 
+  /* #4896 review 3: a stopped removal frees its folder, so another name may have been connected to it since.
+     Restoring now would put two agents on one folder: one instructions file, the same name and role on both, and two
+     Claudes in one worker folder. Refused, naming who holds it. Review 4: this agent's own profile is read with the
+     missing / unreadable split (store.readProfile answers {} for both): missing means nothing to check, unreadable
+     refuses, and so does an unreadable profile list. */
+  {
+    let dirNow = null;
+    let ownUnreadable = false;
+    try {
+      const own = JSON.parse(fs.readFileSync(path.join(store.PROFILES, store.profileFileName(clean)), 'utf8'));
+      dirNow = own && typeof own.dir === 'string' && own.dir ? own.dir : null;
+    } catch (err) { if (!(err && err.code === 'ENOENT')) ownUnreadable = true; }
+    let taken;
+    try {
+      taken = ownUnreadable ? { ok: false } : dirNow ? require('./discover').folderTakenBy(dirNow, clean, { store }) : { ok: true, other: null };
+    } catch { taken = { ok: false } /* review 7: a throw is "could not check", never an uncaught error */; }
+    if (!taken.ok) {
+      return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
+    }
+    if (taken.other) {
+      /* Review 9: a second name that took a freed folder reads the SAME instructions file, so its display name is
+         usually this agent's own ("Remove Carl first to restore Carl"). Then it is named by its own agent name. */
+      const same = String(taken.other).trim().toLowerCase() === String(shown).trim().toLowerCase();
+      taken = { ...taken, other: same && taken.name ? taken.name : taken.other };
+      /* Review 4: when the holder is itself on the removed list (it may still be running there), "remove it first"
+         would be a dead end: it is already removed. Say what is true instead. */
+      return { outcome: OUTCOME.REFUSED, because: taken.removed
+        ? `${shown}'s folder is also ${taken.other}'s, who was removed but may still be running there, and one folder holds one agent. Stop ${taken.other} first to restore ${shown}.`
+        : `${shown}'s folder is now connected as ${taken.other}, and one folder holds one agent. Remove ${taken.other} first to restore ${shown}.`, steps: [] };
+    }
+  }
+
   /* #2609: the launch file points at the agent's ACCOUNT directory by absolute
      path (CLAUDE_CONFIG_DIR, or CODEX_HOME for a codex agent -- readJob folds
      both into `configDir`). If that account was deleted after the agent was
@@ -1926,7 +2036,7 @@ function restartInner(name, cause, platform, startIfDead) {
   try {
     const participating = require('./communityswitch').participating();
     const told = require('./communityblock').tellAgent(clean, participating);
-    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos community section (${told.because})`, ok: false });
+    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });
   } catch { /* never stops a restart */ }
   /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
      `removeInner`, which is what gives this path a win32 arm. Restart is the
@@ -1985,10 +2095,26 @@ function restartInner(name, cause, platform, startIfDead) {
      `beforeRestart` op and this is null, which the Mac's `loaded` ignores. */
   const before = ops.beforeRestart ? ops.beforeRestart(clean, job) : null;
   lastBootstrap = null;   // #4006: this relaunch's answer only, never an earlier agent's
+  /* #4964: only bootstrap once launchd has really let go of the old job (the Mac; Windows' /End+/Run has no such
+     gap). If it is still held when the wait runs out, bootstrap anyway, but an "already loaded" answer then means the
+     dying job, and print answers for it too, so neither is trusted: not loaded, and the #4006 second try runs. */
+  /* A bootout that failed may have stopped nothing, so its job is taken as still held and is not waited on (a refused
+     one would never leave). A 5 from the bootstrap is then the old job. Not measured: a bootout that timed out after
+     launchd began the teardown; that job does leave, and with no wait the restart ends PARTIAL (honest, not
+     recovered). Accepted. */
+  let held = false;
+  let firstLoadedNew = false;
+  let stopped = false;
   const relaunched = step('asked it to start again now', () => {
-    ops.stopNow(clean, job);
-    return ops.startNow(clean, job);
+    stopped = ops.stopNow(clean, job);
+    if (ops.waitUnloaded) held = stopped ? !ops.waitUnloaded(clean, job) : true;
+    const started = ops.startNow(clean, job);
+    firstLoadedNew = bootstrapLoadedNew();
+    return started;
   });
+  /* Held: only a bootstrap that really answered 0 is a new job. "Already loaded" is the dying job, and no bootstrap at
+     all (a launch file that is gone: startNow returns true without one) leaves print answering for the dying job. */
+  const heldAnswer = () => !ops.win32 && held && !bootstrapLoadedNew();
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
      rather than trusting the OS call -- this is the exact check that would have caught Nora
      (job registered on disk, not loaded). Routed through step() and short-circuited on a dead
@@ -1996,15 +2122,20 @@ function restartInner(name, cause, platform, startIfDead) {
      rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
      failures), and the check gets the same try/catch every other op in this function has. The
      verdict gates on `loaded` directly, not on `steps`. */
-  let loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job, before));
+  let loaded = relaunched && step('confirmed its job is loaded', () => !heldAnswer() && ops.loaded(clean, job, before));
   /* #4006: one more try before giving up, after launchd has had a moment to finish the unload.
      Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
   if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
     retryWait();
-    const again = step('asked it to start once more', () => ops.startNow(clean, job));
-    loaded = again && step('confirmed its job is loaded on the second try', () => ops.loaded(clean, job, before));
+    const again = step('asked it to start once more', () => {
+      /* #4964: and again before the second bootstrap, unless the first one loaded a new job: then launchd holds OURS
+         (a print that failed once sent us here), and waiting would only time out on it and call it the dying one. */
+      if (ops.waitUnloaded) held = firstLoadedNew ? false : stopped ? !ops.waitUnloaded(clean, job) : true;
+      return ops.startNow(clean, job);
+    });
+    loaded = again && step('confirmed its job is loaded on the second try', () => !heldAnswer() && ops.loaded(clean, job, before));
   }
 
   if (!loaded) {
@@ -2050,6 +2181,11 @@ function restartInner(name, cause, platform, startIfDead) {
                   + 'running. It needs another try.'
                 : `we closed ${shown}'s window and started its task, but its supervisor never came `
                   + 'up, so it is not running right now. It needs another restart.')
+            /* #4964: launchd refused the bootout, so the old job was never asked to stop: it may still be running
+               as before, and whatever this restart was for (a switched provider) did not take effect. */
+            : !stopped && !fromDead
+              ? `we closed ${shown}'s window but macOS would not stop its launch job, so the restart did not take `
+                + 'effect. If it is running, it is still running as before; if not, it needs another restart.'
             : (fromDead
                 ? `we could not start ${shown}. Its launch job did not load, so it is not running. `
                   + 'It needs another try.'
@@ -2122,6 +2258,7 @@ module.exports = {
   jobOps,   // #570: exported so the win32 job-act dispatch is assertable from a Mac
   sessionOps, // #570: same, for the session-ending dispatch both remove and restart share
   setRunner,
+  resetUnloadWaitsForTests: () => { unloadWaits = []; },   // #4964: the burst ledger only
   setDryRun,
   resetForTests,
   commandsAreReal,

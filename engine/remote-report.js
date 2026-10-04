@@ -42,7 +42,8 @@ const path = require('node:path');
 function tunnelState(state, on, sup, enrolledHere) {
   if (state === 'up') return 'running';
   if (on && !enrolledHere) return 'stopped';
-  if (state === 'connecting') return 'starting';
+  // kosmos#4640: a second computer waiting for the other one's Allow has a live tunnel that keeps asking.
+  if (state === 'connecting' || state === 'waiting-allow') return 'starting';
   if (state === 'restarting') return sup === 'alive' ? 'starting' : 'crashed';
   return on ? 'stopped' : 'off';
 }
@@ -54,6 +55,7 @@ function tunnelState(state, on, sup, enrolledHere) {
    fixed list, and only the code is sent. The input is cut to CLASSIFY_MAX_CHARS first, and every
    pattern is a short literal, so nothing here can run long on a hostile line. */
 const CLASSIFY_MAX_CHARS = 2000;
+const allowwait = require('./allowwait');   // #4640: pure, so this module's tests never load remote.js
 const CODES = [
   // The first pattern that matches wins. The board's own healthy "still dialling" sentences
   // (remote.js status()) are matched exactly, so no failure pattern may also match them;
@@ -67,6 +69,10 @@ const CODES = [
   // an outage; coordinator.rs writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for
   // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first.
   // 408 and 429 are "not now", not "no" (as remote.js RETIRE_TRANSIENT reads them): an outage.
+  // kosmos#4640: a second computer waiting for its other computer's Allow (403, code own_lineage) is not a failure.
+  // This row is status()'s own sentence for the waiting-allow state; the tunnel's raw line is recognised by
+  // engine/allowwait.js, which classify asks first. Both take the sentence from allowwait.ALLOW_WAIT_SENTENCE.
+  ['waiting-allow', new RegExp('^' + allowwait.ALLOW_WAIT_SENTENCE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))],
   ['coordinator-unreachable', /^Kosmos\+ (answered (5\d\d|408|429)|unreachable)|^Kosmos\+ refused.*\bHTTP (5\d\d|408|429)\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,
@@ -94,6 +100,9 @@ const CODES = [
   ['cert-renewal', /^certificate renewal is due/i],
   // This Mac's own certificate or key (session.rs local TLS setup): unreadable or unparseable
   // tls.crt / tls.key, a plausible failure after an update.
+  // kosmos#4737: an allowed computer still fetching its FIRST certificate (session.rs, when there is none on disk;
+  // includes the tunnel's spacing between asks). Before local-cert-unreadable: that one is a broken certificate.
+  ['cert-first-fetch', /^this computer has no certificate yet/i],
   ['local-cert-unreadable', /^(opening certificate|parsing certificate|opening private key|parsing private key|no private key found|building local TLS config)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket.
@@ -118,13 +127,16 @@ const CODES = [
 function classify(text) {
   if (typeof text !== 'string' || !text.trim()) return null;
   const t = text.slice(0, CLASSIFY_MAX_CHARS);
+  if (allowwait.allowWaitSentence(t)) return 'waiting-allow';   // #4640: the one rule for the raw line
   for (const [code, re] of CODES) if (re.test(t)) return code;
   return 'other';
 }
 /* The enrolment files enrolled() needs, by their FIXED names: which are missing is the reason a
-   board with its switch on and a key in hand still believes it is not enrolled. The same list as
-   remote.js ENROL_FILES, which enrolled() reads; remote.test.js asserts the two are equal. Not required from remote.js here, so this module stays loadable without it. */
-const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
+   board with its switch on and a key in hand still believes it is not enrolled. The same rule as
+   remote.js enrolled(): both ask engine/enrolment.js (pure, so this module stays loadable without
+   remote.js), where a computer waiting to be allowed is not missing its certificate (kosmos#4737).
+   remote.test.js asserts the two ENROL_FILES are equal. */
+const { ENROL_FILES, missingFor, enrolledBy } = require('./enrolment');
 
 /* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
    baseline; commitHeal() adopts it once a report is sent, so a refused or failed send does
@@ -147,7 +159,7 @@ function build(deps) {
     const exists = (f) => { try { return fs.existsSync(path.join(dir, f)); } catch { return false; } };
     const dirThere = (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })();
     const sup = typeof remote.supervisorState === 'function' ? remote.supervisorState() : 'none';
-    const tunnel = tunnelState(st.state, on, sup, ENROL_FILES.every(exists));
+    const tunnel = tunnelState(st.state, on, sup, enrolledBy(exists));
     // While the tunnel dials again it says only "connecting to the relay" (it clears its reason at
     // each retry), so a stuck tunnel is named by the last failure its process wrote.
     let because = st.because;
@@ -191,7 +203,7 @@ function errorCode(because, on, exists, keyHeld) {
   // Only a board holding its key (remote.holdsKey(): mac_id and mac_key, the sender's own test)
   // is named not-enrolled. One that is not falls back to classify(), which loses the missing-files
   // detail but never leaks text.
-  const missing = ENROL_FILES.filter((f) => !exists(f));
+  const missing = missingFor(exists);
   if (on && missing.length && keyHeld) return 'not-enrolled; missing: ' + missing.join(', ');
   return classify(because);
 }
