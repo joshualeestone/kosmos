@@ -1253,8 +1253,9 @@ function list(roster) {
    path once), so the valve's bound (at most one more cap in all, shared with task steps) is unchanged: a loop that
    also writes files still runs to at most twice the cap. Dot-files, scratch names and dependency or build folders are
    not counted (listFiles' rules), and no file is opened. Only the newest `limit` files are kept (the valve stops
-   adding after ROOM_PROGRESS_STEPS steps; the margin over that is for files dated in the future, which are dropped
-   below: a few cannot take every slot, 32 or more would, and that errs on the strict side). listFiles' own bounds apply: a change deeper than its depth, or past its scan
+   adding after ROOM_PROGRESS_STEPS steps; the margin over that is for files dropped below, dated in the future or
+   under a nested project's folder: fewer than 200 such cannot take every slot, more would, which errs on the strict
+   side. The walk costs the same whatever the limit). listFiles' own bounds apply: a change deeper than its depth, or past its scan
    budget, is not seen (the strict side). [] when the project, its folder or the list cannot be read (never throws),
    which is the strict side too: no allowance.
    ⚠️ Every file counts, whoever wrote it: in a folder that is a repo or is synced, a pull or a sync earns steps too.
@@ -1264,15 +1265,26 @@ function list(roster) {
    exactly that save (rejected in review: a 5 s reuse). */
 const FILE_CLOCK_SLACK_MS = 2000;
 const FILE_CREATED_SLACK_MS = 10000;
-function changedFileTimes(projectId, since, now = Date.now(), limit = 32) {
+function changedFileTimes(projectId, since, now = Date.now(), limit = 200) {
   try {
-    const found = readAll().find((p) => p && p.id === projectId);
+    const all = readAll();
+    const found = all.find((p) => p && p.id === projectId);
     if (!found || typeof found.folder !== 'string' || !found.folder) return [];
     const listed = listFiles(found.folder, limit);
     if (!listed || !listed.ok || !Array.isArray(listed.files)) return [];
+    /* Review round 3: another project's folder can sit INSIDE this one (one at ~/repo, another at ~/repo/docs), and
+       that room's work must earn this room nothing, as #4786 holds for task steps. A file under another project's
+       folder is skipped. Paths are compared as listFiles names them: relative to this folder's real path, `/`-joined. */
+    const mine = folderState(found.folder).real;
+    const nested = mine ? all.filter((p) => p && p.id !== projectId && typeof p.folder === 'string' && p.folder)
+      .map((p) => folderState(p.folder).real)
+      .filter((r) => typeof r === 'string' && r.startsWith(mine + path.sep))
+      .map((r) => path.relative(mine, r).split(path.sep).join('/') + '/') : [];
+    const files = nested.length ? listed.files.filter((f) => !nested.some((n) => f.name.startsWith(n))) : listed.files;
     /* What making the project wrote (the BRIEF.md stub, a done typed at creation) is not work moving: a room in its
        first hour would otherwise get a step for being new. A file last changed within FILE_CREATED_SLACK_MS of the
-       project's createdAt does not count. */
+       project's createdAt does not count. A Kosmos write LATER (a done typed into BRIEF.md afterwards) does count:
+   bounded like any step, and the person writing the brief is the project moving. */
     const born = Date.parse(found.createdAt);
     const from = Number.isFinite(born) ? Math.max(since, born + FILE_CREATED_SLACK_MS) : since;
     /* A file written a moment before the post that asks can carry a time a millisecond or so AFTER `now` (the file
@@ -1280,7 +1292,7 @@ function changedFileTimes(projectId, since, now = Date.now(), limit = 32) {
        miss exactly the case this exists for: an agent saves its batch, then posts. So a time up to FILE_CLOCK_SLACK_MS
        ahead counts, as now. Anything further ahead is skipped, as #4786 does for a future task row: it would count in
        every later window. */
-    return listed.files.map((f) => Date.parse(f.modified))
+    return files.map((f) => Date.parse(f.modified))
       .filter((t) => Number.isFinite(t) && t >= from && t <= now + FILE_CLOCK_SLACK_MS)
       .map((t) => Math.min(t, now))
       .sort((a, b) => a - b);

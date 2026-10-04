@@ -3263,6 +3263,26 @@ test('#5260: a file changed in the project folder earns the room the same bounde
   });
 });
 
+test('#5260: a project folder inside another project\'s folder: the inner room\'s files earn the outer room nothing, and still earn the inner room', () => {
+  const projects = require('./projects');
+  const outer = agedProject('Outer Repo Room');
+  const innerDir = path.join(outer.folder, 'docs');
+  fs.mkdirSync(innerDir);
+  fs.utimesSync(innerDir, outer.longAgo, outer.longAgo);
+  const made = projects.create({ name: 'Inner Docs Room', folder: innerDir });
+  const innerId = made.id || (made.project && made.project.id);
+  assert.ok(innerId, 'the nested project was not made, so nothing below proves anything: ' + JSON.stringify(made).slice(0, 200));
+  const longAgo = outer.longAgo;
+  projects.writeAll(projects.readAll().map((p) => (p.id === innerId ? { ...p, createdAt: longAgo.toISOString() } : p)));
+  for (const f of fs.readdirSync(innerDir)) fs.utimesSync(path.join(innerDir, f), longAgo, longAgo);
+  const now = Date.now();
+  fs.writeFileSync(path.join(innerDir, 'batch-3.md'), 'inner work');
+  assert.deepEqual(projects.changedFileTimes(outer.pid, now - 60000), [], 'the inner room\'s file earned the outer room a step');
+  assert.equal(projects.changedFileTimes(innerId, now - 60000).length, 1, 'CONTROL: the inner room\'s own file earned it nothing');
+  fs.writeFileSync(path.join(outer.folder, 'notes.md'), 'outer work');
+  assert.equal(projects.changedFileTimes(outer.pid, now - 60000).length, 1, 'CONTROL: the outer room\'s own file earned it nothing');
+});
+
 test('#5260: changedFileTimes: nothing for an unknown project, the files a new project is made with, or a file dated well ahead; a moment ahead counts as now', () => {
   const projects = require('./projects');
   assert.deepEqual(projects.changedFileTimes('no-such-project', 0), []);
