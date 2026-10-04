@@ -1131,6 +1131,16 @@ async function fitOf(page) {
        every control's own box (every 3px, its edges included), a tap must land on that control. A point
        answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
     const covers = [];
+    // Is `top` in its own layer over `under`: it, or an ancestor not shared with `under`, is positioned out of the
+    // flow (fixed, absolute, sticky) or is an open dialog / popover? Then a point it answers inside its box is
+    // stacking (a menu over the page), not a hit area.
+    const layered = (top, under) => {
+      for (let n = top; n && !n.contains(under); n = n.parentElement) {
+        const pos = getComputedStyle(n).position;
+        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky' || (n.matches && n.matches('dialog[open], :popover-open'))) return true;
+      }
+      return false;
+    };
     // label too: a label row takes a tap for its control, so it can be covered (Angel, #5218 review).
     const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
     const controlOf = (n) => (n && n.closest ? n.closest(SEL) : null);
@@ -1155,14 +1165,15 @@ async function fitOf(page) {
         // An ANCESTOR answering inside this control is skipped (this control is part of it). A DESCENDANT is not: a
         // child's hit area reaching over its own card is a cover like any other (Angel, #5218 review).
         if (!other || other === el || other.contains(el)) continue;
-        // Only a hit area counts: the point lies OUTSIDE the other control's drawn box (a ::after, or padding taken
-        // back, reaching past it). A point inside its box is a control drawn on top (an open menu over the page),
-        // which is stacking, not a tap area too big.
+        // A point OUTSIDE the other control's drawn box is a hit area reaching past it (a ::after). A point INSIDE
+        // it is either a box grown over its neighbour (padding taken back by a negative margin: a hit area too) or a
+        // control drawn on top in another layer (an open menu, a dialog): only the second is stacking, so it is told
+        // apart by layer, not by geometry (review round 2: padding hit areas read clean before).
         const o = other.getBoundingClientRect();
-        // 1px of slack: two controls set edge to edge are hit-tested on snapped pixels, so their shared edge can
-        // answer either way (the agents board's view toggles, 44px boxes with no hit area, did); a hit area that
-        // matters reaches well past that.
-        if (x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1) continue;
+        const inBox = x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1;   // 1px: a snapped shared edge
+        if (inBox && el.contains(other)) continue;   // a control inside this one, drawn where it is (a label's own input)
+        if (inBox && layered(other, el)) continue;
+        if (inBox && Math.abs(x - o.left) <= 1.5 || inBox && Math.abs(x - o.right) <= 1.5 || inBox && Math.abs(y - o.top) <= 1.5 || inBox && Math.abs(y - o.bottom) <= 1.5) continue;   // the shared edge itself
         covers.push(name(el) + ' covered by ' + name(other)); break;
       }
     }
