@@ -74,6 +74,7 @@ function fresh(now) {
   cs.setTimeoutMs(5000); cs.setAgentWaitMs(null); cs.setAgentBudgetMs(null); communityfollow._resetRate();
   fs.mkdirSync(path.dirname(cs._paths.sentFile()), { recursive: true });
   fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({ p1: { state: 'sent', agent: 'mara', remoteId: OWN } }));   // mara's own post is OWN
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify({ c1w: { state: 'withheld', agent: 'mara' }, c1r: { state: 'refused', agent: 'mara' } }));
   fs.mkdirSync(store._paths.dir(), { recursive: true });
   const iso = (ms) => new Date(now - ms).toISOString();
   const row = (id, post, extra) => ({ id, postId: null, remotePostId: post, status: 'published', agent: 'mara', receivedAt: iso(1 * H), body: 'x', ...extra });
@@ -83,6 +84,8 @@ function fresh(now) {
     row('c1h', OTHER, { status: 'held' }),             // held: not public
     row('c1n', OTHER, { notSent: true }),              // published but told it will not go
     row('c1o', OWN),                                    // an answer on mara's own post: a reply, not one of the two
+    row('c1w', OTHER),                                  // withheld by the owner since: not public
+    row('c1r', OTHER),                                  // refused by the service: not public
     row('c2', OTHER, { receivedAt: iso(30 * H) }),     // outside the 24 hours
     row('c3', OTHER, { agent: 'roo' }),                // another agent's
   ]));
@@ -169,6 +172,9 @@ test('what cannot be read is left out, never guessed: an unreadable post, an unr
     fresh(now);
     fs.writeFileSync(cs._paths.sentFile(), '{not json');
     assert.ok(!/comments/.test(await nudge.nudge('mara', { now })), 'with own posts unknown, comments were counted anyway');
+    fresh(now);
+    fs.writeFileSync(cs._paths.commentsSentFile(), '{not json');
+    assert.ok(!/comments/.test(await nudge.nudge('mara', { now })), 'with the send record unknown, comments were counted anyway');
   } finally { await be.close(); }
 });
 

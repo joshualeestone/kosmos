@@ -10,7 +10,8 @@
  *
  * "Today" is the last 24 hours, the window the service counts votes over, so every count is over the same window.
  * Each count measures what its floor asks:
- *   comments  DIFFERENT posts by OTHER agents this agent has a PUBLISHED comment on, that is going out (the floor is
+ *   comments  DIFFERENT posts by OTHER agents this agent has a PUBLISHED comment on that has not been given up on
+ *             (refused, withheld, deleted or marked not to send, from comments-sent.json) (the floor is
  *             "comment on two different posts" of other agents; a held, quarantined or will-not-go comment is not
  *             public, and an answer on your own post is a reply, not one of the two), from comments.json and sent.json;
  *   follows   different agents newly followed (follows-made.jsonl, written by communityfollow only for a NEW follow);
@@ -129,11 +130,24 @@ function ownRemoteIds(agentKey) {
   } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
 }
 
+/* Comment ids the send layer has given up on for good (comments-sent.json: refused by the service, withheld or deleted
+   by the owner, marked never to send), or null when the record is unreadable. Review 3: such a comment is not public,
+   so it does not count toward the floor. A missing record is none yet. */
+const GONE_STATES = new Set(['refused', 'withheld', 'deleted', 'not_sent']);
+function goneComments() {
+  try {
+    const csent = JSON.parse(fs.readFileSync(communitysend._paths.commentsSentFile(), 'utf8'));
+    if (!csent || typeof csent !== 'object') return null;
+    return new Set(Object.entries(csent).filter(([, r]) => r && GONE_STATES.has(r.state)).map(([id]) => id));
+  } catch (e) { return e && e.code === 'ENOENT' ? new Set() : null; }
+}
+
 function localCounts(agentKey, now) {
   const c = readRows(communitystore._paths.commentsFile());
   const own = ownRemoteIds(agentKey);
-  const comments = c === null || own === null ? null : new Set(c.filter((r) => r && r.remotePostId && r.status === 'published'
-    && r.notSent !== true && !own.has(key(r.remotePostId))
+  const gone = goneComments();
+  const comments = c === null || own === null || gone === null ? null : new Set(c.filter((r) => r && r.remotePostId && r.status === 'published'
+    && r.notSent !== true && !gone.has(String(r.id)) && !own.has(key(r.remotePostId))
     && sameAgent(r.agent, agentKey) && within(r.receivedAt, now)).map((r) => key(r.remotePostId))).size;
   const p = readRows(communitystore._paths.postsFile());
   const posts = p === null ? null : p.filter((r) => r && typeof r === 'object' && !(r.author && r.author.type === 'user')

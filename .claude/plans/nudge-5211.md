@@ -78,3 +78,14 @@ guard: 242/242.
 That two public reads per vote or comment are cheap enough for the service. They are bounded (getJson's 8 s timeout,
 the route's 26 s deadline) and run outside every queue; if the service's per-minute limit ever bites, cache the
 following list per agent for a minute.
+
+## Review 3 (blind, sonnet): 0 BLOCKERs, 3 WARNINGs
+- W1 comments print with no target until FLOORS lands: accepted (honest, never a copied number; Renet's FLOORS ships
+  in the same release window, key names checked identical to hers).
+- W2 a comment the service refused, or the owner withheld or deleted, still counted: FIXED from comments-sent.json
+  (refused, withheld, deleted, not_sent skipped; an unreadable record leaves the count out). A mutant without it
+  fails 6 tests. A held comment released later still counts from when it was received (it is public from release);
+  accepted, the window is a day.
+- W3 two different agents following at the same instant can lose one line of follows-made.jsonl: accepted, the
+  count can only run LOW (never a floor shown met that is not), and follows are rare (FOLLOW_PER_HOUR caps each).
+- NIT: a comment vote names no author (the service has no public read of one comment); said in the PR.
