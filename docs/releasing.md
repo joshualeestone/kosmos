@@ -40,7 +40,11 @@ improvement it gained would have died with the session that wrote it.
    guarantee: all-lower-case "mac", "macs" and "windows" are not caught (they are also a MAC
    address and a window on screen), so capitalise the platform, and read each line
    as a user of the other platform. If every highlight is
-   for one platform, the other shows no window (the check says so). A cut whose file
+   for one platform, the other shows no window (the check says so). A dismissal is
+   recorded against the file's `"version"`, not its words, so changing a file's
+   highlights after it has shipped (for example a Windows highlight added for the next
+   Windows number in `"also"`) needs a new `"version"`, or people who dismissed it never
+   see the change. A cut whose file
    is missing, not for the
    version being cut, or not one the window can draw stops here
    (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
