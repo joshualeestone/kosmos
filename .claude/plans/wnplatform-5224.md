@@ -29,6 +29,13 @@ main has the same problem, with two highlights that start "On a Mac".
 - **Platform words in the page:** the server already sends only drawable highlights. Filtering there keeps one
   rule and leaves the page unchanged.
 
+## Accepted costs
+- A contrast line ("Unlike on a Mac, Windows now...") cannot ship under any tag: it names both platforms, so the
+  tag must list both, and then it shows on the Mac too. The refusal says to reword it. Rewording costs a sentence;
+  letting a line name a platform outside its tag would reopen #5224.
+- The word list is not a guarantee ("Finder", "Apple silicon", "Start menu" name no platform here). Whoever writes
+  the file still reads each line as the other platform's user. docs/releasing.md says so.
+
 ## Weakest premise
 `key()` (which highlights a dismissal recorded) now follows the platform-filtered read. On a platform where every
 highlight is filtered out it returns null, and the board keeps the previous `highlightsFor`, as it already does
