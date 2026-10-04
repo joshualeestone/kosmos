@@ -970,12 +970,13 @@ const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
  * took it. Only the words and who said them leave this Mac.
  */
 function post(projectId, msg) {
-  return sendPost(projectId, msg, false);
+  return sendPost(projectId, msg, 0);
 }
 /** Hold one post until the room's key arrives. `why` finishes "That message is held on
-    this computer: ..."; `when` says when it goes. False, as post() returns for a post that
-    did not go now. */
-function holdPost(projectId, s, msg, why, when, flushing) {
+    this computer: ..."; `when` says when it goes. `heldAt`: when a post being flushed was
+    first held (its age carries over, so re-holding never resets the hour); 0 for a new one.
+    False, as post() returns for a post that did not go now. */
+function holdPost(projectId, s, msg, why, when, heldAt) {
   // Posts held past the hour no longer count against the cap; the next flush says so.
   const fresh = [];
   for (const h of s.outbox || []) {
@@ -984,17 +985,20 @@ function holdPost(projectId, s, msg, why, when, flushing) {
   }
   s.outbox = fresh;
   if (s.outbox.length >= HELD_POSTS_MAX) {
-    if (!flushing) say(projectId, 'That message stayed on this computer: ' + why + ', and ' + HELD_POSTS_MAX + ' messages are already waiting for it.');
+    if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and ' + HELD_POSTS_MAX + ' messages are already waiting for it.');
     return false;
   }
-  s.outbox.push({ msg, at: Date.now() });
-  if (!flushing) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
+  s.outbox.push({ msg, at: heldAt || Date.now() });
+  if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
 }
 /** Send the posts held for the key, oldest first, now that it may have arrived. One that
     still cannot go is held again, with everything after it, in order. */
 function flushHeld(projectId, s) {
   if (!s || !s.outbox || !s.outbox.length || s.flushing) return;
+  // Only through this seat while it is the project's live, connected seat: a seat replaced
+  // (an id reused) or not up keeps its posts held rather than sending or dropping them.
+  if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child) return;
   const held = s.outbox;
   s.outbox = [];
   s.flushing = true;
@@ -1005,7 +1009,7 @@ function flushHeld(projectId, s) {
   try {
     for (let i = 0; i < held.length; i++) {
       if (Date.now() - held[i].at > HELD_POSTS_AGE_MS) { stale += 1; continue; }
-      if (sendPost(projectId, held[i].msg, true) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
+      if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
       // Held again (it is now at the end of the outbox): everything after it waits too, in
       // order. Not held again: refused for good (its own line said why); carry on.
       if (!s.outbox.length) continue;
@@ -1021,7 +1025,7 @@ function flushHeld(projectId, s) {
     + (files ? (files === 1 ? ' Its attached file stayed on this computer.' : ' Their attached files stayed on this computer.') : ''));
   if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour.');
 }
-function sendPost(projectId, { from, kind, text, files }, flushing) {
+function sendPost(projectId, { from, kind, text, files }, heldAt) {
   const msg = { from, kind, text, files: files === true };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
@@ -1054,12 +1058,12 @@ function sendPost(projectId, { from, kind, text, files }, flushing) {
   }
   if (sealedRoom) {
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
-      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or when this computer stops waiting for it in a few minutes (then under the key it has, which the others may not accept)', flushing);
+      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or when this computer stops waiting for it in a few minutes (then under the key it has, which the others may not accept)', heldAt);
     }
     if (!hasKey(sealed) || !s.room) {
       return holdPost(projectId, s, msg, link && link.role === 'owner'
         ? 'this shared room is sealed, and no member\'s computer has joined with its key yet'
-        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', 'when the key arrives (within an hour)', flushing);
+        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', 'when the key arrives (within an hour)', heldAt);
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
@@ -1083,8 +1087,11 @@ function sendPost(projectId, { from, kind, text, files }, flushing) {
     noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
   // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
-  if (!flushing && s.outbox && s.outbox.length) flushHeld(projectId, s);
-  try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
+  if (!heldAt && s.outbox && s.outbox.length) flushHeld(projectId, s);
+  try { s.child.stdin.write(line + '\n'); return true; } catch {
+    if (heldAt) s.outbox.push({ msg, at: heldAt });   // a held post the write lost stays held
+    return false;
+  }
 }
 
 /** Stop every seat. Only tests call it: on a board shutdown each connector

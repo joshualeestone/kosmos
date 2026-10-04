@@ -21,6 +21,10 @@ A post held because a member is behind goes, when that hold runs out with no new
 the member has; the hold note says so (the others may not accept it, #5197).
 
 ## Bounds
+A post re-held during a flush keeps the time it was first held, so passes never reset its hour. A
+flush runs only through the project's live, connected seat (a key that arrives while the seat is down
+keeps the posts held until it is up; a replaced seat never sends another's). A held post the write
+loses stays held.
 At most 50 held per seat (past that: "stayed on this computer ... 50 messages are already waiting");
 one held more than an hour is not sent, and no longer counts against the cap; the room says how many. Sealed at send time, so the
 receivers' freshness checks see a fresh time.
@@ -28,6 +32,11 @@ receivers' freshness checks see a fresh time.
 ## Rejected
 "Send now" per post (the card's alternative): a button on a room row is a web change across
 web/index.html and the browser checks for a case that resolves itself within seconds once the key
+arrives.
+
+## Owner side (asked in review, kept)
+An owner's post held before its first member is pinned goes to that member when it joins (within the
+hour). That is the card's ask (held, then sent), and the hold note says it is sent when the key
 arrives.
 
 ## Weakest premise
