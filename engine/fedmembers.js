@@ -278,7 +278,10 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
   }
   let sealed = false;
   try { sealed = !!(o.link && require('./fedseal').isSealedRef(o.link.ref)); } catch { sealed = false; }
-  return { status: 200, body: { owner: true, sealed, invites: out, checked_at: checkedAt } };
+  /* Pete's review of the screens: `shared` says this project has an owner link (something was ever invited or joined),
+     so an answer the coordinator could not check (checked_at null) with no rows reads "could not check", not "never
+     shared": a create-screen joiner has no row here and is listed only from the coordinator's connections. */
+  return { status: 200, body: { owner: true, shared: !!o.link, sealed, invites: out, checked_at: checkedAt } };
 }
 
 /** Slice 1b (Pete's Q-K4): what a project this board JOINED shows about itself. `owner_name` is the handle the
