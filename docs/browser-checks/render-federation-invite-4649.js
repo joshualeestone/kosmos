@@ -63,6 +63,9 @@
  *       there. Control: B4, the same answer in the tab layout.
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
+ *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
+ *       nothing; the next stamp to "show" asks once for it and draws the section; a stamp back to off hides it.
+ *       Control: B8, where the gate stays off and nothing is asked.
  *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
  *       checked answer is not asked again after the same 30 s.
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
@@ -733,6 +736,26 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(150);
     const gone = await page.evaluate(() => !document.getElementById('alist-fed-outside'));
     check('B9 control: an empty answer adds nothing to the rail', gone === true, 'absent=' + gone);
+    await ctx.close();
+  }
+
+  /* B12: the gate reaching "show" with a project already open, through fedGateStamp itself. */
+  {
+    const { ctx, page } = await newPage(1280, OFF);
+    await page.evaluate((a) => { window.__members = a; }, answer([LEE]));
+    await openProjectIn(page, 'tabs');
+    const asksK = () => page.evaluate(() => window.__memberUrls.filter((u) => /project=k(&|$)/.test(u)).length);
+    const off = await asksK();
+    await page.evaluate((d) => fedGateStamp(d), SHOW);
+    await page.waitForTimeout(250);
+    const on = await asksK();
+    let f = await readFed(page, '#pj-fed-outside');
+    const shownRows = f.rows.length;
+    await page.evaluate((d) => fedGateStamp(d), OFF);
+    await page.waitForTimeout(100);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B12 gate off: nothing asked; the stamp to show asks once and draws Lee; the stamp back hides it (control: B8)',
+      off === 0 && on === 1 && shownRows === 1 && f.display === 'none', JSON.stringify({ off, on, shownRows, display: f.display }));
     await ctx.close();
   }
 

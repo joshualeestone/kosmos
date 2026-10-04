@@ -67092,7 +67092,9 @@ function memConfirmClose() {
   document.getElementById('mem-modal').hidden = true;
   const p = MEM_PENDING; MEM_PENDING = null;
   if (typeof fedRemoveReset === 'function') fedRemoveReset();   // kosmos#4649 slice B: the outside removal's look goes with it
-  if (p && p.btn && !p.btn.disabled) p.btn.focus();
+  if (p && p.btn && p.btn.isConnected && !p.btn.disabled) p.btn.focus();
+  // kosmos#4649 slice B: an outside row's button is replaced on every repaint, so its opener may be gone.
+  else if (p && p.fed && typeof fedRefocus === 'function') fedRefocus(p.fed.key);
 }
 /* #761: the minus asks before it acts. The dialog names the agent and the
    project, says what changes and what does not, and Enter lands on the
@@ -67568,7 +67570,7 @@ function fedInviteOpen(opener, prefill) {
 function fedInviteClose() {
   FEDINV_SEQ++;
   document.getElementById('fedinv-modal').hidden = true;
-  const back = [FEDINV_OPENER, document.getElementById('pj-add-member')].find((b) => b && b.getClientRects().length);
+  const back = [FEDINV_OPENER, document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((b) => b && b.getClientRects().length);
   FEDINV_OPENER = null;
   if (back) back.focus();
 }
@@ -67617,9 +67619,9 @@ async function fedInviteMake() {
     document.getElementById('fedinv-copy').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
-    fedMembersLoad(FEDINV_PROJECT);
+    if (PJ_CURRENT === askedFor) fedMembersLoad(askedFor);
   } catch {
-    if (seq === FEDINV_SEQ) msg.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
+    if (seq === FEDINV_SEQ) msg.textContent = FED_UNREACHABLE;
   } finally {
     if (seq === FEDINV_SEQ) make.disabled = false;
   }
@@ -67791,11 +67793,12 @@ function fedGateMembers(show) {
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
     return;
   }
-  // A failed or unchecked load is asked again on a later stamp, at most every 30 s, so the line can clear.
+  // A failed or unchecked load is asked again on a later stamp after 30 s, so the line can clear.
   // So is an answer the board could not check (checked_at not a number): the coordinator may be back.
   const fmNow = FED_MEMBERS;
-  const unsure = fmNow && (!fmNow.ok || (fmNow.body && typeof fmNow.body.checked_at !== 'number' && Array.isArray(fmNow.body.invites) && fmNow.body.invites.length > 0));
-  const stale = unsure && fmNow.project === PJ_CURRENT && Date.now() - (fmNow.at || 0) > 30000;
+  // A checked answer is asked again too, every 60 s, so someone who joins while the project is open shows up.
+  const unsure = fmNow && (!fmNow.ok || (fmNow.body && typeof fmNow.body.checked_at !== 'number' && fedOutsideRows(fmNow.body).length > 0));
+  const stale = fmNow && fmNow.project === PJ_CURRENT && Date.now() - (fmNow.at || 0) > (unsure ? 30000 : 60000);
   if (PJ_CURRENT && (!FED_MEMBERS || FED_MEMBERS.project !== PJ_CURRENT || stale) && FED_MEMBERS_ASKING !== PJ_CURRENT) fedMembersLoad(PJ_CURRENT);
 }
 // The shared dialog back to its #761 self: no danger look, no error, both buttons live.
@@ -67885,10 +67888,10 @@ async function fedRemoveGo() {
   }
   // A 403 means the request did not read as from this screen: nothing the person can act on.
   if (!said) said = res.status === 403 ? fallback : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
-  if (!(res && res.status === 404) && still) { msg.textContent = said; return; }
+  if (!(res && res.status === 404) && still) { msg.textContent = said; fedOutsidePaint(false); return; }   // repaint: the row's Remove is live again
   // 404 (not a connection of this project any more): said beside the list, which is asked again; or the
   // dialog was closed meanwhile, so the refusal is said on the row instead.
-  FED_MSGS[f.key] = said;
+  FED_MSGS[f.key] = said; fedSay(said);
   if (res && res.status === 404) {
     if (still) fedRemoveDone();
     fedMembersLoad(f.project);
@@ -67919,18 +67922,32 @@ async function fedWithdraw(r) {
   }
   FED_BUSY.delete(key);
   if (PJ_CURRENT !== project) return;
-  if (!said && res.ok) { fedMembersLoad(project); return; }
+  if (!said && res.ok) { await fedMembersLoad(project); if (PJ_CURRENT === project) fedRefocus(key); return; }
   if (!said) {
     said = res.status === 403 ? fallback
       : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { lapses: fedShortDate(r.expires_at) });
   }
-  FED_MSGS[key] = said;
+  FED_MSGS[key] = said; fedSay(said);
   fedOutsidePaint(false);
   fedRefocus(key);
   // 409 joined: someone used the code meanwhile, so the row is now a joined one; ask again to show it.
   if (res && res.status === 409 && body && body.reason === 'joined') fedMembersLoad(project);
   // 404: the code is not known any more; let the board say what the row is now.
   else if (res && res.status === 404) fedMembersLoad(project);
+}
+// A refusal is drawn inside markup that every paint replaces, where a live region is not reliably announced,
+// so it is also said once in a region that is never replaced (made on first use, visually hidden).
+function fedSay(text) {
+  let el = document.getElementById('fed-live');
+  if (!el) {
+    el = document.createElement('p');
+    el.id = 'fed-live';
+    el.setAttribute('aria-live', 'polite');
+    el.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
+    document.body.appendChild(el);
+  }
+  el.textContent = '';
+  setTimeout(() => { el.textContent = text || ''; }, 50);
 }
 // The repaint replaces the pressed button: focus goes to the same row's button if it is still shown, else to the
 // Members "+" (as fedRemoveDone does), never to <body>.
