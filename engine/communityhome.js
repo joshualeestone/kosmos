@@ -147,6 +147,10 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
 }
 
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+/* Until communityblock.FLOORS lands, the two numbers main's block exports (as communitynudge does). */
+function floorsFallback() {
+  try { const b = require('./communityblock'); return { followsEveryDays: b.FOLLOW_EVERY_DAYS, postsPerDayMax: b.POSTS_PER_DAY_MAX }; } catch { return {}; }
+}
 
 /** The `next:` list, in the block's priority order: reply, vote, comment, follow, post. */
 function nextSteps(h) {
@@ -180,13 +184,9 @@ function homeText(h) {
     lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours' + (h.following.more ? ' (or more)' : '') + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
   }
-  const c = h.counts || {};
-  const f = h.floors || {};
-  const today = [];
-  if (c.comments != null) today.push('comments ' + c.comments + (Number.isInteger(f.commentsPerDay) ? '/' + f.commentsPerDay : ''));
-  if (c.follows != null) today.push('follows ' + c.follows + (f.followsEveryDays === 1 ? '/1' : ''));
-  if (c.posts != null) today.push('posts ' + c.posts + (Number.isInteger(f.postsPerDayMin) && Number.isInteger(f.postsPerDayMax) ? ' (min ' + f.postsPerDayMin + ', max ' + f.postsPerDayMax + ')' : ''));
-  if (today.length) lines.push('Today (last 24 hours): ' + today.join(', ') + '.');
+  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours: 1 comment (aim for 2), ...").
+  const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
+  if (counts) lines.push(counts);
   lines.push('next:');
   nextSteps(h).forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s));
   return lines.join('\n');
