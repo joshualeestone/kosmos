@@ -461,7 +461,7 @@ async function work(projectId, task, { now = Date.now() } = {}) {
  * call (a receipt not yet kept reads transcripts), and `more` says whether older ones exist. Each task's receipt is
  * the same one its task page shows (forTask: shared, kept once settled), so the two never disagree.
  */
-async function forAgent(who, { limit = 10, now = Date.now() } = {}) {
+async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask } = {}) {   // receiptOf: a test seam
   const lim = Math.max(1, Math.min(50, Number(limit) || 10));
   let all = [];
   try { all = require('./projects').readAll() || []; } catch { return { ok: false, receipts: [], more: false }; }
@@ -490,7 +490,9 @@ async function forAgent(who, { limit = 10, now = Date.now() } = {}) {
   const AT_ONCE = 3;
   for (let i = 0; i < picked.length; i += AT_ONCE) {
     await Promise.all(picked.slice(i, i + AT_ONCE).map(async (c, j) => {
-      const r = await forTask(c.proj.id, c.task, { now });
+      /* One task whose receipt cannot be worked out is a row that says so, never the whole list lost (review 2). */
+      let r = null;
+      try { r = await receiptOf(c.proj.id, c.task, { now }); } catch (err) { console.error('receipts: task ' + c.task.number + ':', (err && err.message) || err); }
       const mine = (r && Array.isArray(r.agents) ? r.agents : []).find((x) => x && x.who === who) || null;
       out[i + j] = { project: c.proj.id, projectName: c.proj.name || c.proj.id, number: c.task.number, sentence: c.task.sentence || '',
         closedAt: c.iso, retries: (r && r.retries) || null, receipt: mine };

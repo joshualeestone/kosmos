@@ -480,3 +480,26 @@ test('an agent\'s receipts leave out a task put back (open again) and one whose 
   const r = await receipt.forAgent('uma', { now: ms('15:00') });
   assert.deepEqual(r.receipts.map((x) => x.number), [3]);
 });
+
+test('an agent\'s receipts are worked out a few at a time, in order, and one that fails is a row, not a lost list', async (t) => {
+  const projects = require('./projects');
+  worker('wes');
+  const pd = 'sd' + (++pn);
+  const tasks = [1, 2, 3, 4, 5].map((n) => ({ number: n, sentence: 'task ' + n, closedAt: T('1' + n + ':00') }));
+  projects.writeAll([...projects.readAll(), { id: pd, name: 'Delta', agents: ['wes'], tasks }]);
+  for (const n of [1, 2, 3, 4, 5]) activity(pd, n, [{ at: '09:00', kind: 'created', who: 'wes' }, { at: '1' + n + ':00', kind: 'closed' }]);
+  t.mock.method(console, 'error', () => {});
+  let inFlight = 0;
+  let most = 0;
+  const receiptOf = async (pid, task) => {
+    inFlight += 1; most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, task.number === 5 ? 15 : 2));   // the newest is slowest: order must not follow speed
+    inFlight -= 1;
+    if (task.number === 3) throw new Error('could not read');
+    return { retries: { reopened: 0, handoffs: 0 }, agents: [{ who: 'wes', available: true, commands: task.number }] };
+  };
+  const r = await receipt.forAgent('wes', { now: ms('20:00'), receiptOf });
+  assert.deepEqual(r.receipts.map((x) => x.number), [5, 4, 3, 2, 1], 'newest close first, whatever finished first');
+  assert.deepEqual(r.receipts.map((x) => x.receipt && x.receipt.commands), [5, 4, null, 2, 1], 'the failed one is a row with no receipt');
+  assert.ok(most > 1 && most <= 3, 'a few at a time, never more than three: ' + most);
+});
