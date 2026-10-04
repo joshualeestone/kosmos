@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: a2a7c22befb3e7c7bd34348030b6c5260ab35b5a86b5a76a3a1ad25fe45a94a0
-validation: passed (Mortals full suite at the stack top agentmanage-4475 0eba704d2, which contains this branch at 0dd07d175 after rebasing onto main; 2026-10-03 02:39 CDT, hash 1263eca19544. The 21:06 red was the #4273 leak guard, fixed by tmpscope)
+diff_hash: 451d2abfa34affce49e144f9e9be0edc6a624c023e966e67e0a67af6b0d4e007
+validation: passed (Mortals full suite at the stack top agentmanage-4475 0eba704d2, which contains this branch at 0dd07d175 after rebasing onto main; 2026-10-03 02:39 CDT, hash 1263eca19544. The 21:06 red was the #4273 leak guard, fixed by tmpscope; then the review fixes, rebased on main: focused 1291/1291 (44 files: every setup-assistant/create/token-only test + every file-scanning guard); a full suite on Agent1s before merge)
 subdir_audit: passed
-timestamp: 2026-10-03T07:50:24Z
+timestamp: 2026-10-04T10:52:53Z
 iterations: 6
 converged: true
 ---
@@ -96,3 +96,12 @@ None.
 - The token-only guard denies board.token in every store root and keeps an agent from rewriting its own guard
 - Sandbox paths canonicalized the way Seatbelt matches them, tested with real symlinks
 - Its test now contains every temp dir it makes (iteration 6)
+
+## Post-PR review round (Angel self-review 2026-10-04, then Ice Cream Kitty independent): 2 BLOCKERs, 4 WARNINGs
+- [BLOCKER] the guard covered reading the board token, not changing it: FIXED (write-denied in both layers, plus the token-only list); test + mutant.
+- [BLOCKER] not every Kosmos world was covered: FIXED (every named world store); test with two worlds + mutant.
+- [WARNING] non-Claude agents reported guarded: FIXED (refused with the reason; the start-up refresh lists them NOT guarded); test + mutant.
+- [WARNING] threat model overstated: FIXED (comment: raises the bar, not a boundary).
+- [WARNING] only the written file was tested: FIXED (creation step passes the runner and refuses on failure; start-up refresh pinned).
+- [WARNING] sandbox may limit normal work: NOT fixed; weakest premise (unmeasured outside the spike).
+Detail kept off the public repo: ~/.cache/claude-handoffs/private/.
