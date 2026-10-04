@@ -176,6 +176,12 @@ test('closed, put back and closed again between two polls repaints for the new c
   assert.equal(calls.length, 4);
 });
 
+test('slice 2: a Codex or Gemini agent with no activity names its own tool', () => {
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'codex', transcriptsWithWork: 0, models: {} }, 'Kay')), /No Codex activity found while it held this task/);
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'gemini', transcriptsWithWork: 0, models: {} }, 'Lu')), /No Gemini CLI activity found/);
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'claude', transcriptsWithWork: 0, models: {} }, 'Ann')), /No Claude Code activity found/);
+});
+
 test('the files are the page\'s own toggle ("N files", a plain list, the folder as its foot), and every line one size', () => {
   const html = B.tkReceiptAgentHtml({ available: true, transcriptsWithWork: 1, models: {}, files: ['a.md', 'b.md'], filesMore: 0, commands: 0, folder: '/w/x' }, 'Ann');
   assert.ok(!html.includes('<details'), 'the browser\'s own toggle');

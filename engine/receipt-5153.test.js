@@ -15,6 +15,8 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, '.claude');
 process.env.AGENT_WORKFORCE_HOME = SB;
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');
+/* Slice 2: the Codex and Gemini homes fall under AGENT_WORKFORCE_HOME only when nothing else names them. */
+for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_GEMINI_HOME', 'GROK_HOME', 'AGENT_WORKFORCE_GROK_HOME', 'AGENT_WORKFORCE_AGY_HOME']) delete process.env[v];
 for (const d of ['data', 'workers', '.claude/projects']) fs.mkdirSync(path.join(SB, d), { recursive: true });
 
 const receipt = require('./receipt');
@@ -137,8 +139,8 @@ test('a closed task: files, a command COUNT, tokens once per message, only insid
   assert.equal(a.transcriptsWithWork, 2, 'the session and its subagent');
   assert.equal(a.folder, ann);
   const b = r.agents.find((x) => x.who === 'bob');
-  assert.deepEqual([b.available, b.provider, b.because], [false, 'codex', 'provider']);
-  assert.equal(b.models, undefined, 'no numbers for a provider this slice cannot read');
+  // Slice 2 reads Codex: bob has no Codex sessions on this sandbox, so his receipt shows no work, never invented numbers.
+  assert.deepEqual([b.available, b.provider, b.transcriptsWithWork, b.commands, b.models], [true, 'codex', 0, 0, {}]);
 });
 
 test('an open task has no receipt yet', async () => {
@@ -257,4 +259,174 @@ test('two requests for one receipt at once share one reading; a different close 
   assert.notEqual(a, c);
   await Promise.all([a, b, c]);
   assert.notEqual(receipt.forTask(project, task, { now: ms('11:01') }), a, 'a finished reading is not kept in flight');
+});
+
+/* ---- slice 2: Codex and Gemini CLI agents ---- */
+const jl = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
+
+test('a Codex agent: commands in its exec scripts, files from patches that completed, tokens by the running total, only its folder and holds', async () => {
+  const project = 'p' + (++pn);
+  const kay = worker('kay');
+  store.writeProfile('kay', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'kay' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
+  const tc = (at, input, cached, output) => ev(at, 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output } } });
+  const call = (at, id, src) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: src });
+  const out = (at, id, text) => ev(at, 'response_item', { type: 'custom_tool_call_output', call_id: id, output: [{ type: 'input_text', text }] });
+  const patch = (...files) => 'const r = await tools.apply_patch({patch:"*** Begin Patch\\n' + files.map((f) => '*** ' + f + '\\n+x\\n').join('') + '*** End Patch"});';
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-kay.jsonl'), jl([
+    ev('10:00', 'session_meta', { cwd: fs.realpathSync(kay) }),
+    ev('10:00', 'turn_context', { model: 'gpt-5.6-sol' }),
+    call('10:05', 'c1', 'await tools.exec_command({cmd:"rm -rf secret"}); await tools.exec_command({cmd:"ls"});'),
+    out('10:05', 'c1', 'Script completed\nWall time 1 seconds'),
+    call('10:10', 'c2', patch('Add File: ' + path.join(fs.realpathSync(kay), 'src/new.js'), 'Update File: notes.md')),
+    out('10:10', 'c2', 'Script completed\nWall time 1 seconds'),
+    call('10:20', 'c3', patch('Update File: refused.md')),
+    out('10:20', 'c3', 'Script failed: patch did not apply'),
+    tc('10:30', 1000, 400, 100),
+    call('11:30', 'c4', 'await tools.exec_command({cmd:"late"});'),   // after the hold
+    tc('11:30', 1500, 400, 150),
+  ]));
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-other.jsonl'), jl([
+    ev('10:00', 'session_meta', { cwd: '/somewhere/else' }),
+    call('10:05', 'o1', 'await tools.exec_command({cmd:"x"});'),
+    out('10:05', 'o1', 'Script completed'),
+  ]));
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  const a = r.agents[0];
+  assert.deepEqual([a.provider, a.available, a.complete], ['codex', true, true]);
+  assert.equal(a.commands, 2, 'two commands in the hold; not the late one, not another folder\'s');
+  assert.deepEqual(a.files, ['src/new.js', 'notes.md'], 'only the patch that completed');
+  assert.deepEqual(a.models['gpt-5.6-sol'], { input_tokens: 600, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 400, rows: 1 });
+  assert.equal(a.transcriptsWithWork, 1);
+  assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
+});
+
+test('a Gemini CLI agent: a reply written twice counts once, an edit counts only when it succeeded', async () => {
+  const project = 'p' + (++pn);
+  const lu = worker('lu');
+  store.writeProfile('lu', { provider: 'google' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'lu' }, { at: '11:00', kind: 'closed' }]);
+  const slug = path.join(SB, '.gemini', 'tmp', 'lu-slug');
+  fs.mkdirSync(path.join(slug, 'chats'), { recursive: true });
+  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync(lu) + '\n');
+  const msg = (status) => ({ id: 'g1', type: 'gemini', timestamp: T('10:15'), model: 'gemini-3.8-flash',
+    tokens: { input: 300, output: 20, cached: 100, thoughts: 5, tool: 0 },
+    toolCalls: [
+      { id: 't-sh', name: 'run_shell_command', args: { command: 'secret stuff' }, status: 'success', timestamp: T('10:15') },
+      { id: 't-w', name: 'write_file', args: { file_path: path.join(fs.realpathSync(lu), 'out.md') }, status, timestamp: T('10:15') },
+      { id: 't-r', name: 'replace', args: { file_path: path.join(fs.realpathSync(lu), 'bad.md') }, status: 'error', timestamp: T('10:15') },
+    ] });
+  fs.writeFileSync(path.join(slug, 'chats', 'session-1.jsonl'), jl([msg('executing'), { $set: { messages: [msg('success')] } }]));
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  const a = r.agents[0];
+  assert.deepEqual([a.provider, a.available, a.complete], ['gemini', true, true]);
+  assert.equal(a.commands, 1, 'the same call written twice is one command');
+  assert.deepEqual(a.files, ['out.md'], 'the write that ended in success; not the failed replace');
+  assert.deepEqual(a.models['gemini-3.8-flash'], { input_tokens: 200, output_tokens: 25, cache_creation_input_tokens: 0, cache_read_input_tokens: 100, rows: 1 });
+  assert.ok(!JSON.stringify(r).includes('secret stuff'));
+});
+
+test('a Grok agent is still not read (not in this slice), never a guessed zero', async () => {
+  const project = 'p' + (++pn);
+  worker('mo');
+  store.writeProfile('mo', { provider: 'xai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'mo' }, { at: '11:00', kind: 'closed' }]);
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.deepEqual([a.provider, a.available, a.because, a.models], ['grok', false, 'provider', undefined]);
+});
+
+test('a forked Codex session: the parent\'s replayed calls are not this hold\'s; calls after the fork are', async () => {
+  const project = 'p' + (++pn);
+  const nia = worker('nia');
+  store.writeProfile('nia', { provider: 'openai' });
+  activity(project, 1, [{ at: '09:00', kind: 'created', who: 'nia' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
+  const call = (at, id) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: 'await tools.exec_command({cmd:"x"});' });
+  const tc = (at, i, o) => ev(at, 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: i, cached_input_tokens: 0, output_tokens: o } } });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-30-00-nia.jsonl'), jl([
+    ev('10:30', 'session_meta', { cwd: fs.realpathSync(nia), forked_from_id: 'parent', timestamp: T('10:30') }),
+    call('09:30', 'parent-1'),            // replayed from the parent, stamped before the fork
+    call('10:20', 'parent-2'),            // replayed, still stamped before the fork; the replay carries no total
+    call('10:40', 'own-1'),               // after the fork, BEFORE this file's first post-fork total
+    tc('10:41', 700, 70),
+  ]));
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.equal(a.commands, 1, 'only the call made after the fork: not a replayed one, and not dropped for coming before a total');
+});
+
+test('a receipt kept by slice 1 with no Codex or Gemini agent is kept as it was, not worked out again', async () => {
+  const project = 'p' + (++pn);
+  worker('oz');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'oz' }, { at: '11:00', kind: 'closed' }]);
+  const kept = { version: 1, closedAt: T('11:00'), retries: { reopened: 0, handoffs: 0 },
+    agents: [{ who: 'oz', provider: 'claude', available: true, commands: 7, files: ['a.md'], models: {}, transcriptsWithWork: 1 }] };
+  const f = receipt.receiptFile(project, 1);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(kept));
+  assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].commands, 7,
+    'a good slice 1 receipt was thrown away (its transcripts may be gone)');
+  kept.agents[0] = { who: 'oz', provider: 'codex', available: false, because: 'provider' };   // one slice 2 can now read
+  fs.writeFileSync(f, JSON.stringify(kept));
+  assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].available, true);
+});
+
+test('a Codex line that parses to null is skipped, and the files after it are still read', async () => {
+  const project = 'p' + (++pn);
+  const pip = worker('pip');
+  store.writeProfile('pip', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'pip' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T09-00-00-aaa-null.jsonl'), 'null\n7\n');   // sorts first
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-pip.jsonl'), jl([
+    { timestamp: T('10:00'), type: 'session_meta', payload: { cwd: fs.realpathSync(pip) } },
+    { timestamp: T('10:05'), type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'p1', input: 'await tools.exec_command({cmd:"x"});' } },
+  ]));
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  assert.equal(r.agents[0].complete, true, 'a null line made the whole Codex scan fail');
+  assert.equal(r.agents[0].commands, 1, 'the file after the bad one was not read');
+});
+
+test('a forked Codex session with no recorded fork time: everything before its first total is the replay', async () => {
+  const project = 'p' + (++pn);
+  const quin = worker('quin');
+  store.writeProfile('quin', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'quin' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ ...(at ? { timestamp: T(at) } : {}), type, payload });
+  const call = (at, id) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: 'await tools.exec_command({cmd:"x"});' });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-quin.jsonl'), jl([
+    ev(null, 'session_meta', { cwd: fs.realpathSync(quin), forked_from_id: 'parent' }),   // no time anywhere
+    call('10:10', 'replayed-1'),
+    ev('10:11', 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: 500, cached_input_tokens: 0, output_tokens: 50 } } }),
+    call('10:40', 'own-1'),
+  ]));
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.equal(a.commands, 1, 'the call before the first total is the replay; the one after it is real');
+});
+
+test('files are shown by their short path under either spelling of a linked agent folder; a same-prefix sibling stays full', { skip: (() => {
+  try { const t = fs.mkdtempSync(path.join(SB, 'lnk-')); fs.symlinkSync(t, t + '-l'); return false; } catch { return 'links cannot be made here'; }
+})() }, async () => {
+  const project = 'p' + (++pn);
+  const real = fs.mkdtempSync(path.join(SB, 'realfolder-'));
+  fs.symlinkSync(real, path.join(SB, 'workers', 'rue'));          // the recorded folder is a link to the real one
+  store.writeProfile('rue', { provider: 'google' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'rue' }, { at: '11:00', kind: 'closed' }]);
+  const slug = path.join(SB, '.gemini', 'tmp', 'rue-slug');
+  fs.mkdirSync(path.join(slug, 'chats'), { recursive: true });
+  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync(real) + '\n');   // the session records the real spelling
+  const write = (id, fp) => ({ id, name: 'write_file', args: { file_path: fp }, status: 'success', timestamp: T('10:15') });
+  fs.writeFileSync(path.join(slug, 'chats', 'session-1.jsonl'), jl([{ id: 'r1', type: 'gemini', timestamp: T('10:15'), model: 'gemini-3.8-flash',
+    tokens: { input: 1, output: 1, cached: 0, thoughts: 0, tool: 0 },
+    toolCalls: [write('w1', path.join(fs.realpathSync(real), 'in.md')), write('w2', fs.realpathSync(real) + '2/sibling.md'),
+      write('w3', path.join(fs.realpathSync(real), '..cache', 'x'))] }]));
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.deepEqual(a.files, ['in.md', fs.realpathSync(real) + '2/sibling.md', path.join('..cache', 'x')]);
 });
