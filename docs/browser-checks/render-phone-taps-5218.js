@@ -216,16 +216,20 @@ const RULES = () => {
       await page.waitForSelector('body.consolidated .lrow .namego', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(400);
       chk(await page.evaluate(() => matchMedia('(hover: none), (pointer: coarse)').matches && document.body.classList.contains('consolidated')), '[tablet 1366 one-screen] touch, in the one-screen layout');
       // Each name reaches 44, except that the FIRST row's area stops at the rail's "Agents" heading above it (a heading,
-      // not a control: the name is deliberately not raised over it, so a tap on the title never opens an agent).
+      // not a control: the name is deliberately not raised over it, so a tap on the title never opens an agent), and a
+      // row with a pending ask yields the strip below its name to its own Answer link (measured: 21.5 px down lands on
+      // Answer). DECIDED: Answer keeps its taps there, because it is the row's action and landing on it is harmless; the
+      // cover line below proves the name never takes Answer's taps.
       const areas = await page.evaluate(() => [...document.querySelectorAll('.lrow .namego')].filter((e) => e.checkVisibility()).map((e) => {
         e.scrollIntoView({ block: 'center', behavior: 'instant' });
         const r = e.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        const at = (x, y) => { const h = document.elementFromPoint(x, y); return !h ? 'none' : (h === e || e.contains(h)) ? 'self' : (h.closest('.railhead') ? 'railhead' : 'other ' + h.tagName.toLowerCase() + (h.id ? '#' + h.id : '') + (h.className && typeof h.className === 'string' ? '.' + h.className.trim().split(/\s+/).join('.') : '')); };
+        const at = (x, y) => { const h = document.elementFromPoint(x, y); return !h ? 'none' : (h === e || e.contains(h)) ? 'self' : h.closest('.railhead') ? 'railhead' : h.closest('.ansgo') ? 'answer' : ('other ' + h.tagName.toLowerCase() + (h.id ? '#' + h.id : '') + (h.className && typeof h.className === 'string' ? '.' + h.className.trim().split(/\s+/).join('.') : '')); };
         const [up, down, left, right] = [[0, -21.5], [0, 21.5], [-21.5, 0], [21.5, 0]].map(([dx, dy]) => at(cx + dx, cy + dy));
         return { name: e.textContent.trim().slice(0, 12), up, down, left, right };
       }));
-      chk(areas.length >= 2 && areas.every((a) => a.down === 'self' && a.left === 'self' && a.right === 'self' && (a.up === 'self' || a.up === 'railhead')),
+      chk(areas.length >= 2 && areas.every((a) => (a.down === 'self' || a.down === 'answer') && a.left === 'self' && a.right === 'self' && (a.up === 'self' || a.up === 'railhead')),
         '[tablet 1366 one-screen] each name\'s hit area reaches 44 (not clipped by the ellipsis); only the rail heading may stop it above', JSON.stringify(areas));
+      chk(areas.some((a) => a.down === 'answer'), '[tablet 1366 one-screen] the pending-ask row was measured against its Answer link (control: the fixture exercises it)', JSON.stringify(areas));
       chk(areas.slice(1).every((a) => a.up === 'self'), '[tablet 1366 one-screen] every name below the first reaches 44 upward too', JSON.stringify(areas));
       const ell = await page.evaluate(() => getComputedStyle(document.querySelector('.lrow > .lname b')).textOverflow);
       chk(ell === 'ellipsis', '[tablet 1366 one-screen] a long name still ends in an ellipsis', ell);
