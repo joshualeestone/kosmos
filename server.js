@@ -1311,6 +1311,7 @@ const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
+const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
@@ -3845,7 +3846,7 @@ function statusForSibling(json) {
   });
 }
 
-/* #5165: hand a file that passed projects.fileInFolder back as a DOWNLOAD, streamed, the way an attachment is
+/* #5165: hand a file that passed the gates (#4997: resolveListedFile's listed mode) back as a DOWNLOAD, streamed, the way an attachment is
    (#4930): over Kosmos+ the person is on another device, so opening it on this computer shows them nothing.
    Whatever the type it is an attachment, and it never renders on the board's origin. The file is opened ONCE,
    before the headers go out. Then two checks: the open descriptor is the file the gates passed
@@ -3882,8 +3883,11 @@ function sendFileDownload(req, res, found, recheck) {
       + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
-  fs.open(found.target, 'r', (openErr, fd) => {
-    if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
+  // #4997: O_NOFOLLOW (a file swapped for a link after the gates is refused, not followed; undefined on win32, where
+  // sameOpenedFile below is the guard) and O_NONBLOCK (a FIFO swapped in must not hang the board; fstat refuses it).
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  fs.open(found.target, flags, (openErr, fd) => {
+    if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' || openErr.code === 'ELOOP' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
       const again = statErr ? null : recheck();
       if (statErr || !projects.sameOpenedFile(found.st, st) || !again || !again.ok || again.target !== found.target) {
@@ -3903,6 +3907,49 @@ function sendFileDownload(req, res, found, recheck) {
   });
 }
 
+/* #4997: the full-page preview for a file in a Files list (an agent's Files folder, a project's folder). The file is
+   named by its LISTED name in ?name= (or the body, for the reveal) and resolved by projects.resolveListedFile in its
+   `listed` mode (openFile's gates plus the list's own rules, which openFile does not apply); no path is taken from the request. GET preview answers a picture or a PDF's first page (nosniff, a sandbox CSP); GET download
+   streams any listed file as an attachment (#5165's sender). Both are refused cross-site. POST reveal-file
+   selects the file in Finder. Returns true when it answered. */
+function listedFileVerb(req, res, verb, folder, where, opts) {
+  if (verb === 'reveal-file') {
+    if (req.method !== 'POST') return false;
+    readBody(req)
+      .then((buf) => {
+        let named;
+        try { named = JSON.parse(buf.toString('utf8') || '{}').name; }
+        catch { sendJson(res, 400, { ok: false, because: 'we could not read that' }); return; }
+        const shown = filepreview.reveal(folder, named, where, opts);
+        if (shown && shown.ok) { sendJson(res, 200, { ok: true }); return; }
+        sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'Finder did not open' });
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return true;
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  const refusedRead = crossSiteRead(req);
+  if (refusedRead) { if (verb === 'download') refuseDownload(req, res, refusedRead, 403); else sendJson(res, 403, { ok: false, because: refusedRead }); return true; }
+  let named = '';
+  try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
+  if (verb === 'download') {
+    /* #5165 + #4997: ONE download route. Any file the list shows (#5165: a click over Kosmos+ reaches the device you
+       are on, whatever the type), through the list's own rules, then #5165's sender (one O_NOFOLLOW handle checked
+       with sameOpenedFile, the gates run again, ?check=1, refusals that a browser never saves as the file). */
+    const gate = () => filepreview.resolve(folder, named, where, { ...(opts || {}), act: 'download' });
+    const found = gate();
+    if (!found.ok) { refuseDownload(req, res, found.because); return true; }
+    sendFileDownload(req, res, found, gate);
+    return true;
+  }
+  const sandbox = "default-src 'none'; sandbox";
+  filepreview.preview(folder, named, where, opts).then((pv) => {
+    if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
+    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox });
+    res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+  }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
+  return true;
+}
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -6298,9 +6345,10 @@ const server = http.createServer(async (req, res) => {
      Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
      the same engine functions as a project's documents: listFiles (top level only here, via
      maxDepth 0, no scratch names (isScratchName), no symlinks, newest first, a stamp), openFile (a bare name or, since
-     #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
+     #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows), and (#4997) preview,
+     download and reveal-file for the full-page preview (listedFileVerb: only a file the flat list would show). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|download))?$/);
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
@@ -6344,6 +6392,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0 })) return;   // flat, as the list
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -6356,16 +6405,6 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 409, { ok: false, because: opened.because });
         })
         .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
-      return;
-    }
-    if (verb === 'download' && (req.method === 'GET' || req.method === 'HEAD')) {
-      // #5165: the same gates as open (projects.fileInFolder), then streamed to the device asking.
-      let named = '';
-      try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
-      const gate = () => projects.fileInFolder(folder, named, 'this agent\u2019s Files folder', 'download');
-      const found = gate();
-      if (!found.ok) { refuse(404, found.because); return; }
-      sendFileDownload(req, res, found, gate);
       return;
     }
     if (verb === 'reveal' && req.method === 'POST') {
@@ -6390,7 +6429,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb === 'download' ? 'use GET for that' : verb ? 'use POST for that' : 'the Files list is read-only; use open, reveal or download' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal or download' });
     return;
   }
   /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
@@ -17598,31 +17637,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #5165: a project file as a download (?name=, the same name open-file takes), for a page reached over
-     Kosmos+, where opening it on this computer would show the person nothing. Same gates as open-file.
-     The path and the refusal shape (404 { ok: false, because }) are #4997's (PR #5119, April), so the two
-     land as ONE route rather than two. */
-  const downloadOne = pathname.match(/^\/api\/project\/([^/]+)\/file-download$/);
-  if (downloadOne && (req.method === 'GET' || req.method === 'HEAD')) {
-    const id = decodeSegment(downloadOne[1]);
-    if (id === null) { refuseDownload(req, res, 'that is not a name we can read', 400); return; }
+  /* #4997: a project's listed file for the full-page preview (file-preview, file-download) and Finder (reveal-file),
+     through open-file's gates plus the list's own rules (listedFileVerb, resolveListedFile's `listed` mode). */
+  const pjListed = pathname.match(/^\/api\/project\/([^/]+)\/(file-preview|file-download|reveal-file)$/);
+  if (pjListed) {
+    const verb = { 'file-preview': 'preview', 'file-download': 'download', 'reveal-file': 'reveal-file' }[pjListed[2]];
+    // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
+    const refuse = (status, because) => (verb === 'download' && (req.method === 'GET' || req.method === 'HEAD')
+      ? refuseDownload(req, res, because, status) : sendJson(res, status, { ok: false, because }));
+    const id = decodeSegment(pjListed[1]);
+    if (id === null) { refuse(400, 'that is not a name we can read'); return; }
     let record;
-    try {
-      record = projects.readAll().find((x) => x.id === id) || null;
-    } catch (err) {
-      refuseDownload(req, res, String((err && err.message) || 'we cannot read your projects right now'), 500);
-      return;
-    }
-    if (!record) { refuseDownload(req, res, 'there is no project by that name'); return; }
-    let named = '';
-    try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
-    const gate = () => projects.fileInFolder(record.folder, named, 'this project', 'download');
-    const found = gate();
-    if (!found.ok) { refuseDownload(req, res, found.because); return; }
-    sendFileDownload(req, res, found, gate);
+    try { record = projects.readAll().find((x) => x.id === id) || null; }
+    catch (err) { refuse(500, String((err && err.message) || 'we cannot read your projects right now')); return; }
+    if (!record) { refuse(404, 'there is no project by that name'); return; }
+    if (listedFileVerb(req, res, verb, record.folder, 'this project')) return;
+    sendJson(res, 405, { ok: false, because: verb === 'reveal-file' ? 'use POST for that' : 'use GET for that' });   // as the agent route says
     return;
   }
-
   const openOne = pathname.match(/^\/api\/project\/([^/]+)\/open-file$/);
   if (openOne && req.method === 'POST') {
     const id = decodeSegment(openOne[1]);

@@ -375,6 +375,7 @@ const SITE_COUNTS = {
   'render-federation-invite-4649.js': [1, 2],
   'render-fields.js': [2, 0],
   'render-file-preview-4930.js': [1, 0],
+  'render-files-preview-4997.js': [1, 1],
   'render-first-run.js': [1, 0],
   'render-firstrun-agy-4081.js': [3, 2],
   'render-firstrun-choice-4356.js': [2, 0],

@@ -75,7 +75,7 @@ test('a project download passes the open gates: escapes, links out, folders and 
   const dl = (name) => fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download' + (name === null ? '' : '?name=' + encodeURIComponent(name)));
   for (const [name, said] of [
     ['../outside/secret.txt', /not a file in this project/],
-    ['link.txt', /lives outside this project, so we will not download it/],
+    ['link.txt', /not a file in this project/],   // #4997's listed mode refuses any link on the path before resolving it
     [path.join(outside, 'secret.txt'), /not a file in this project/],
     ['sub', /not a file we can download/],
     ['gone.pptx', /not there any more/],
