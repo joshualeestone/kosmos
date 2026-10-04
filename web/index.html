@@ -67615,6 +67615,12 @@ function paintThread(body) {
      whose agent has gone -- the ordinary state, not an exotic one. Every
      pointer around it was already gated on the same read; the bold line
      above them was the one that was missed. */
+  pjPaintScreen(body, name);   // #5257: its own function, so a test can run it without a live thread
+}
+
+/* #5257: the project page's "Its screen" block for one thread read (body.viewport) and the member's name. Lifted
+   out of paintThread unchanged so web.pj-screen-5257.test.js can run the real painter on each state. */
+function pjPaintScreen(body, name) {
   const screen = document.getElementById('pj-screen');
   const hint = document.getElementById('pj-screen-hint');
   if (body.viewport && body.viewport.text !== null && body.viewport.text !== undefined) {
