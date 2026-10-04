@@ -35,8 +35,15 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
   resent (#5192). Member side 10 min grace: #5197.
 - Held posts are in memory: a board restart while they wait loses them, like any post in transit.
 
+## Behaviour changes outside the owner's grace
+- acceptedKeys treats an age below zero (the clock stepped back) as outside the grace for MEMBERS too:
+  a member whose clock steps back stops opening the previous epoch early. Fails closed.
+- A post that arrives when the owner's link cannot be read is not held (no check could start); it
+  takes the usual path.
+
 ## Residual (N3)
-With members left: about min(90 s, the relay's ticket life ~60 s) + 15 s, so about 75 s. With none:
+With members left (the held post itself is still shown if its old key is inside the grace; B only
+brings the rotation forward): about min(90 s, the relay's ticket life ~60 s) + 15 s, so about 75 s. With none:
 B's detection, up to 15 s after the ask the last check used, plus one coordinator round trip (a post
 that joins a check already out is released under that check), plus in-flight posts. Held posts pass
 the room's minute budget when released, so a burst released together spends the window it lands in.

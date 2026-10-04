@@ -489,7 +489,7 @@ const EPOCH_GRACE_MS = 10 * 60 * 1000;
    EDGE_FRESH_MS, about 75 s; this narrows the window, it does not close it. */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
-   check first, so a revoke bites within seconds rather than at the next 60 s pass. One
+   check first, so a revoke is found then rather than at the next 60 s pass. One
    check per room per this long, however many posts arrive (they wait on the same one). */
 const EDGE_FRESH_MS = 15 * 1000;
 /* Posts held per room while a check is out: the room's minute COUNT budget
@@ -700,6 +700,9 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
   if (isFresh(s.edgesCheckedAt, now)) return false;
   const opened = s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, env) : null;
   if (!opened || now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS || (s.seen && s.seen.has(opened.id))) return false;
+  // No check can be started without the owner's link: then the post takes the usual path.
+  const link = safeLink(projectId);
+  if (!link || link.role !== 'owner') return false;
   s.held = s.held || [];
   s.heldIds = s.heldIds || new Set();
   if (s.heldIds.has(opened.id)) return true;   // a copy of a held post: it would be refused as seen
@@ -715,13 +718,10 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
   s.heldIds.add(opened.id);
   s.held.push({ line, at: now });
   if (!s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
-    const link = safeLink(projectId);
-    if (link && link.role === 'owner') {
-      const ask = sharedEdges(now);
-      // The answer's own ask time: one joined from another room may be older than this post.
-      s.edgeAskedAt = ask.askedAt;
-      s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });
-    }
+    const ask = sharedEdges(now);
+    // The answer's own ask time: one joined from another room may be older than this post.
+    s.edgeAskedAt = ask.askedAt;
+    s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });
   }
   return true;
 }

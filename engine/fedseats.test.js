@@ -1646,3 +1646,14 @@ test('#5191: a pass that cannot read the rooms record does not count the room as
   await settle();
   assert.deepStrictEqual(shown(h), [], 'an unreadable pass counted as a check');
 });
+
+test('#5191: a post that arrives while the owner\'s link cannot be read is not held with no check to free it', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post } = await pinnedRoom('proj-5191-nolink', 'rnl', 1);
+  t.mock.timers.tick(20 * 1000);
+  const broken = t.mock.method(federation, 'linkFor', () => { throw new Error('EIO'); });
+  post('while the link is unreadable');
+  await settle();
+  broken.mock.restore();
+  assert.deepStrictEqual(shown(h), ['while the link is unreadable'], 'the post was held with nothing to release it');
+});
