@@ -2,7 +2,7 @@
 /* #5165: over Kosmos+ a file click downloads to the device the person is on. These are the two download routes
  * the page uses there, against a real sandboxed board:
  *   GET /api/project/:id/file-download?name=   and   GET /api/agent/:name/files/download?name=
- * They pass the SAME gates as open (projects.fileInFolder), stream the bytes as an attachment, and never ask the
+ * They pass the SAME gates as open (projects.resolveListedFile, listed mode), stream the bytes as an attachment, and never ask the
  * board's computer to open anything (the reveal runner is injected and must stay uncalled).
  *
  *   node --test server.file-download-5165.test.js
@@ -158,7 +158,7 @@ test('a file the gates pass but that cannot be opened is refused as unreadable (
   fs.chmodSync(locked, 0o000);
   try {
     const p = projects.create({ name: 'Locked Room 5165', folder, agents: [], roster: [] });
-    assert.equal(projects.fileInFolder(folder, 'locked.pptx').ok, true, 'fixture: the gates must PASS this file, or this tests the gates instead');
+    assert.equal(projects.resolveListedFile(folder, 'locked.pptx', 'this project', { listed: true, act: 'download' }).ok, true, 'fixture: the gates must PASS this file, or this tests the gates instead');
     const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=locked.pptx');
     const body = await r.text();
     assert.equal(r.status, 404, body);
@@ -211,7 +211,7 @@ test('a zero-byte file and a file of many stream chunks both arrive whole', asyn
 });
 
 test('the ASCII filename= replaces what a quoted string cannot carry (a quote, anything outside printable ASCII)', async () => {
-  // A backslash never reaches this header: fileInFolder's first gate refuses a name holding one.
+  // A backslash never reaches this header: resolveListedFile's first gate refuses a name holding one.
   const files = path.join(SANDBOX, 'workers', 'asc', 'Files');
   fs.mkdirSync(files, { recursive: true });
   fs.writeFileSync(path.join(files, 'caf\u00e9 "q" x.txt'), 'x');

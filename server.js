@@ -3857,7 +3857,8 @@ function sendFileDownload(req, res, found, recheck) {
 
 /* #4997: the full-page preview for a file in a Files list (an agent's Files folder, a project's folder). The file is
    named by its LISTED name in ?name= (or the body, for the reveal) and resolved by projects.resolveListedFile in its
-   `listed` mode (openFile's gates plus the list's own rules, which openFile does not apply); no path is taken from the request. GET preview answers a picture or a PDF's first page (nosniff, a sandbox CSP); GET download
+   `listed` mode (openFile's gates plus the list's own rules, which openFile does not apply); no path is taken from
+   the request. GET preview answers a picture or a PDF's first page (nosniff, a sandbox CSP); GET download
    streams any listed file as an attachment (#5165's sender). Both are refused cross-site. POST reveal-file
    selects the file in Finder. Returns true when it answered. */
 function listedFileVerb(req, res, verb, folder, where, opts) {
