@@ -6264,15 +6264,21 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
-/* #5153: the change receipt under a closed task's activity. */
+/* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
+   like the column's others, every line one size, facts about the tool muted, the page's own toggle for the files. */
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
-.tkreceipt h4 { margin: 0 0 4px; font-size: .9rem; }
+.tkreceipt .dlab { margin: 10px 0 4px; }
+.tkr-line, .tkr-intro, .tkr-again { margin: 2px 0 0; font-size: inherit; }
+.tkr-intro, .tkr-again, .tkr-muted { color: var(--k-ink-3, var(--label-2)); }
 .tkr-agent { padding: 8px 0; }
 .tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }
 .tkr-name { font-weight: 600; }
-.tkr-line { margin-top: 2px; }
-.tkr-where, .tkr-files li { color: var(--label-2); font-size: .85rem; overflow-wrap: anywhere; }
-.tkr-files ul { margin: 4px 0 0; padding-left: 18px; }
+.tkr-files-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; }
+.tkr-chev { transition: transform .15s; }
+.tkr-files-btn[aria-expanded="true"] .tkr-chev { transform: rotate(90deg); }
+.tkr-files { list-style: none; margin: 4px 0 0; padding: 0; }
+.tkr-files li, .tkr-where { color: var(--k-ink-3, var(--label-2)); overflow-wrap: anywhere; }
+@media (max-width: 40rem) { .tkr-files-btn { display: flex; width: 100%; min-height: 44px; } }   /* the whole line taps */
 /* ⚠️ THE ADD ROW HAD TO BE SIZED DOWN, and rendering is the only thing that
    showed it: `.frow` gives the input `flex: 1` and `.btn-quiet` is a
    full-weight control, so at this column's width the pair WRAPPED and Add
@@ -57600,11 +57606,11 @@ function tkReceiptAgentHtml(a, name) {
     const why = a.because === 'provider'
       ? 'A receipt is not available for ' + (TKR_PROVIDER[a.provider] || a.provider || 'this provider') + ' agents yet.'
       : 'Not an agent with a folder on this computer, so there is nothing to read.';
-    return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">' + esc(why) + '</div></div>';
+    return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc(why) + '</p></div>';
   }
   if (!a.transcriptsWithWork) {
     const tool = a.provider === 'claude' || !a.provider ? 'Claude Code' : (TKR_PROVIDER[a.provider] || a.provider);
-    return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">' + esc('No ' + tool + ' activity found while it held this task.') + '</div></div>';
+    return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc('No ' + tool + ' activity found while it held this task.') + '</p></div>';
   }
   const models = a.models || {};
   let tokens = 0;
@@ -57618,15 +57624,23 @@ function tkReceiptAgentHtml(a, name) {
   ];
   if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : ''));
   else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
+  /* The page's own toggle, not the browser's <details> (Mona Lisa): "4 files" with the chevron, a plain list, the folder
+     as its muted foot. Opened by the delegated click on #tk-receipt. */
   const list = (a.files || []).map((f) => '<li>' + esc(f) + '</li>').join('')
-    + (a.filesMore ? '<li>and ' + usageNum(a.filesMore) + ' more</li>' : '');
+    + (a.filesMore ? '<li>and ' + usageNum(a.filesMore) + ' more</li>' : '')
+    + (a.folder ? '<li class="tkr-where">In ' + esc(a.folder) + '</li>' : '');
+  const toggle = nFiles
+    ? '<button type="button" class="linkish tkr-files-btn" aria-expanded="false">' + esc(nFiles === 1 ? '1 file' : usageNum(nFiles) + ' files')
+      + '<svg class="tkr-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+      + '<ul class="tkr-files" hidden>' + list + '</ul>'
+    : (a.folder ? '<p class="tkr-line tkr-where">In ' + esc(a.folder) + '</p>' : '');
   return '<div class="tkr-agent">' + head
-    + '<div class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</div>'
-    + (list ? '<details class="tkr-files"><summary>Files</summary><ul>' + list + '</ul></details>' : '')
-    + (a.folder ? '<div class="tkr-where">In ' + esc(a.folder) + '</div>' : '')
+    + '<p class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</p>'
+    + toggle
     + '</div>';
 }
-/* #5153: the whole receipt. Pure. */
+/* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
+   (Mona Lisa: the receipt between the activity and its summary split the history in two). */
 function tkReceiptHtml(r, p) {
   const agents = Array.isArray(r && r.agents) ? r.agents : [];
   const rt = (r && r.retries) || {};
@@ -57634,11 +57648,11 @@ function tkReceiptHtml(r, p) {
   const again = [rt.reopened ? 'put back ' + times(rt.reopened) : '', rt.handoffs ? 'handed on ' + times(rt.handoffs) : ''].filter(Boolean);
   const body = agents.length
     ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
-    : '<p class="dhint">Nobody held this task, so there is no work to show.</p>';
-  return '<h4>Receipt</h4>'
-    + '<p class="dhint">What each agent did while it held this task. Anything else it did in that time is included. Files are the ones it edited directly; a change made by a command is counted as a command.</p>'
-    + body
-    + '<p class="dhint">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>';
+    : '<p class="tkr-line tkr-muted">Nobody held this task, so there is no work to show.</p>';
+  return '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>'
+    + '<h3 class="dlab">Receipt</h3>'
+    + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
+    + body;
 }
 /* #5153: fetch and draw the receipt for task `n` when it is closed; hidden otherwise. Same stale-page guards as the
    activity below. A failed read hides it rather than showing a receipt of nothing. */
@@ -57804,6 +57818,15 @@ async function tkPartPost(url, body) {
     return false;
   }
 }
+/* #5153: a receipt's "N files" toggle opens its list (the receipt is redrawn whole, so the click is delegated). */
+document.getElementById('tk-receipt').addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.tkr-files-btn');
+  if (!b) return;
+  const list = b.nextElementSibling;
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  b.setAttribute('aria-expanded', String(open));
+  if (list) list.hidden = !open;
+});
 /* Choosing who is on a part. The row's name becomes a menu in place, so the
    fact and the control never sit in two places disagreeing about it. */
 document.getElementById('tk-who').addEventListener('click', (e) => {
