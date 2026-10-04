@@ -223,23 +223,29 @@ async function readCard(pg) {
           /* Only a call that painted: while a press is in flight paintUpdateCard returns early and the line still reads
              "Checking.", and a poll answered then already carries the press's look (iteration 2). */
           const line = document.getElementById('upd-line').textContent;
-          if (!/Checking\.$/.test(line)) window.__updPaints.push({ reached: !!(a[2] && a[2].reached), line });
+          if (!/Checking\.$/.test(line)) {
+            window.__updPaints.push({
+              reached: !(a[2] && a[2].reached === false),
+              fromPress: /updCheckNowClick/.test(new Error().stack || ''),  // iteration 3: tie the paint to the press
+              line,
+            });
+          }
           return r;
         };
       });
       await pg.click('#upd-btn');
-      /* The press's paint is the first with an unreachable look: polls do not paint while a press is in flight, and
-         every poll before it carries this state's reachable look. */
+      /* The press's paint is the first painted by updCheckNowClick itself (its stack names it), so a press that stopped
+         painting cannot be stood in for by the next poll, which the linked stub would also make say could-not-reach. */
       const pressAt = await pg.waitForFunction(() => {
-        const i = window.__updPaints.findIndex((p) => !p.reached);
+        const i = window.__updPaints.findIndex((p) => p.fromPress);
         return i >= 0 ? i + 1 : 0;
       }, null, { timeout: 12000 }).then((h) => h.jsonValue()).then((n) => n - 1).catch(() => -1);
       const press = pressAt >= 0 ? await pg.evaluate((i) => window.__updPaints[i], pressAt) : null;
       chk(press && press.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', press ? JSON.stringify(press) : 'no press paint seen within 12 s');
       chk(press && !/Up to date/.test(press.line), 'unread: never "Up to date."', JSON.stringify(press));
-      /* Then the second paint after the press: by then a full status poll has been answered since it, so it carries the
-         press's look on a real board (one cache, engine/update.js checkNow and lastLook). This guards the fixture's
-         agreement with that; the paint just after the press may still be a poll answered before it. */
+      /* Then the second paint after the press (a heuristic: polls can overlap, but only a poll whose stub answered
+         before the press can carry the old look). On a real board it carries the press's look (one cache,
+         engine/update.js checkNow and lastLook); this guards the fixture's agreement with that. */
       const later = pressAt >= 0 ? await pg.waitForFunction((i) => window.__updPaints.length >= i + 3, pressAt, { timeout: 20000 })
         .then(() => pg.evaluate((i) => window.__updPaints[i + 2], pressAt)).catch(() => null) : null;
       chk(later && later.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', later ? JSON.stringify(later) : 'no second paint after the press within 20 s');

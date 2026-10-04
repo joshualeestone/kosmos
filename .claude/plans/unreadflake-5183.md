@@ -17,10 +17,10 @@ suggestion) would fix nothing.
   answers.status.updateLook before answering. Only unread and current ever press (armed opens the
   confirm, manual/staging hide the button, rollback never presses); current writes {true,true}, the
   same as its readLook, so only unread changes.
-- New assertion (unread): wrap window.paintUpdateCard with a counter after the press, wait for one
-  repaint, then read again; the line must still be "Could not reach the update server."
-  (Review round 1 WARNING: the first version waited for any /api/status response plus 400 ms, which
-  could read before a slow repaint and pass without one. The counter makes the read follow a real paint.)
+- The unread arm records every paint of the card as it happens (look, line, and whether updCheckNowClick painted it),
+  skipping calls that did not paint (paintUpdateCard returns early during a press). It asserts the press's own paint
+  says could-not-reach, and that the second paint after the press still does. (FINAL design after challenge-loop
+  iterations 1-3; the earlier "counter after the press, wait for one repaint" design below is superseded.)
 
 ## Proof (alone, sandboxed board booted as the harness does: fake-tmux, DRY_RUN, first run completed)
 - new assertion + old fixture: FAIL 2 of 2 ("Could not read the update server's answer.")
