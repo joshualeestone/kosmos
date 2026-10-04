@@ -6319,6 +6319,13 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* #5153 slice 3: Profile's Recent work rows: the task's sentence over a muted line. */
+.dwork-list { display: flex; flex-direction: column; }
+.dwork-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 9px 0; color: inherit; font: inherit; cursor: pointer; }
+.dwork-row + .dwork-row { border-top: 1px solid var(--k-rule); }
+.dwork-row:hover .dwork-what, .dwork-row:focus-visible .dwork-what { text-decoration: underline; }
+.dwork-what { display: block; overflow-wrap: anywhere; }
+.dwork-meta { display: block; margin-top: 2px; color: var(--label-2); font-size: .85rem; overflow-wrap: anywhere; }
 /* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
    like the column's others, every line one size, facts about the tool muted, the page's own toggle for the files. */
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
@@ -12535,6 +12542,16 @@ window.kosmosMeasureScrollbarWidth();
     <button class="btn" id="d-save" type="button" aria-label="Save name and role">Save</button>
   </div>
   <div class="fmsg" id="d-role-msg"></div>
+  </section>
+  <!-- #5153 slice 3: what this agent has worked on, at the bottom of Profile (Mona Lisa's placement, 2026-10-03: not a
+       nav entry, since the pack is a pair and a third tile or a full-width button would weigh a read-only history like
+       Direct Message). The newest closed tasks it held, each row opening that task's page, where its full receipt is.
+       Drawn by paintAgentWork on open. -->
+  <section class="dbox" id="d-work" aria-labelledby="d-work-h">
+    <h3 class="dlab" id="d-work-h">Recent work</h3>
+    <p class="dhint" id="d-work-msg" role="status"></p>
+    <div class="dwork-list" id="d-work-list"></div>
+    <button class="linkish" type="button" id="d-work-more" hidden>See all on the Tasks page</button>
   </section>
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
@@ -36767,6 +36784,69 @@ function agentFileRow(f) {
   b.append(n, w);
   return b;
 }
+/* #5153 slice 3: one Recent work row's muted line (Mona Lisa's wording): "closed <date> · <n> files · <n> commands ·
+   <tokens> tokens · about $<x> at API prices". Pure (node-testable). `item` is one entry of GET
+   /api/agent/:name/receipts; its `receipt` is this agent's part of the task's receipt. */
+function dWorkMeta(item, now = Date.now()) {
+  const when = new Date(item && item.closedAt);
+  const sameYear = !isNaN(when) && when.getFullYear() === new Date(now).getFullYear();
+  const bits = [isNaN(when) ? 'closed' : 'closed ' + when.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' })];
+  const a = item && item.receipt;
+  if (!a) return bits.concat('no receipt').join(' · ');
+  if (!a.available) {
+    return bits.concat(a.because === 'provider'
+      ? 'not available for ' + (TKR_PROVIDER[a.provider] || a.provider || 'this provider') + ' agents yet'
+      : 'nothing to read').join(' · ');
+  }
+  if (!a.transcriptsWithWork) return bits.concat('no activity found').join(' · ');
+  const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
+  bits.push(nFiles === 1 ? '1 file' : usageNum(nFiles) + ' files');
+  bits.push(a.commands === 1 ? '1 command' : usageNum(Number(a.commands) || 0) + ' commands');
+  let tokens = 0;
+  for (const b of Object.values(a.models || {})) tokens += usageRowTokenTotal(b);
+  bits.push(usageAbbr(tokens) + ' tokens');
+  const { cost } = usageApiCost({ receipt: a.models || {} });
+  if (cost !== null) bits.push('about ' + usageUsd(cost) + ' at API prices');
+  return bits.join(' · ');
+}
+/* #5153 slice 3: one row. Pure. A button, so it is reachable from the keyboard; it opens the task's page. */
+function dWorkRowHtml(item, now) {
+  return '<button type="button" class="dwork-row" data-project="' + esc(String(item.project)) + '" data-task="' + esc(String(Number(item.number))) + '">'
+    + '<span class="dwork-what">' + esc(item.sentence || ('Task ' + Number(item.number))) + '</span>'
+    + '<span class="dwork-meta">' + esc(dWorkMeta(item, now)) + '</span></button>';
+}
+let AGENT_WORK_EPOCH = 0;
+async function paintAgentWork(sessionName) {
+  const list = document.getElementById('d-work-list');
+  const msg = document.getElementById('d-work-msg');
+  const more = document.getElementById('d-work-more');
+  if (!list || !msg) return;
+  const epoch = (AGENT_WORK_EPOCH += 1);
+  let body = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/receipts?limit=10', { cache: 'no-store' });
+    body = res.ok ? await res.json() : null;
+  } catch { body = null; }
+  if (epoch !== AGENT_WORK_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;   // another agent now
+  if (more) more.hidden = true;
+  if (!body || body.ok !== true) { list.innerHTML = ''; msg.textContent = 'We could not read this agent’s work just now.'; return; }
+  const items = Array.isArray(body.receipts) ? body.receipts : [];
+  if (!items.length) { list.innerHTML = ''; msg.textContent = 'Nothing finished yet.'; return; }
+  msg.textContent = '';
+  list.innerHTML = items.map((x) => dWorkRowHtml(x)).join('');
+  if (more) more.hidden = !body.more;
+}
+/* A row opens its task's page, on its own project (the Tasks page's way there: read, show, open). */
+document.getElementById('d-work-list').addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('.dwork-row');
+  if (!b) return;
+  await loadProjects();
+  if (!pjById(b.dataset.project)) { document.getElementById('d-work-msg').textContent = 'We could not open that task just now.'; return; }
+  if (URL_TAB !== 'projects') showTab('projects');
+  openProject(b.dataset.project);
+  openTaskPage(Number(b.dataset.task));
+});
+document.getElementById('d-work-more').addEventListener('click', () => showTab('tasks'));
 async function paintAgentFiles(sessionName) {
   const section = document.getElementById('d-files');
   const list = document.getElementById('d-files-list');
@@ -37065,6 +37145,11 @@ function openDetail(sessionName, section, fromProject) {
     { const el = document.getElementById('d-filesall-more'); if (el) el.hidden = true; }
   }
   paintAgentFiles(a.sessionName);
+  /* #5153 slice 3: never the last agent's work while this one's is read. */
+  { const wl = document.getElementById('d-work-list'); if (wl) wl.innerHTML = '';
+    const wm = document.getElementById('d-work-msg'); if (wm) wm.textContent = '';
+    const wx = document.getElementById('d-work-more'); if (wx) wx.hidden = true; }
+  paintAgentWork(a.sessionName);
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
