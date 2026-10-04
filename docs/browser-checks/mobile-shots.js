@@ -506,11 +506,11 @@ const SCREENS = [
     ];
     await page.route('**/api/agent/*/receipts**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, receipts, more: true }) }));
     await at(page, '?tab=detail&agent=' + data.chatAgent);
-    /* The Tasks tab, as a board past its threshold has it (the sample board has three tasks): "Open the Tasks page"
-       shows only while that tab is in the bar. Set before Profile opens, which is when Recent work is drawn. */
-    await page.evaluate(() => tskTabGate(true));
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
-    await page.waitForSelector('#d-work-list .dwork-row', { state: 'visible', timeout: 8000 });
+    /* The Tasks tab, as a board past its threshold has it (the sample board has three tasks): "Open the Tasks page"
+       shows only while that tab is in the bar, read when Recent work is drawn, so it is drawn again after. */
+    await page.evaluate(() => { tskTabGate(true); return paintAgentWork(CURRENT.sessionName); });
+    await page.waitForSelector('#d-work-more:not([hidden])', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('d-work').scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
   }, verify: async (page) => {
