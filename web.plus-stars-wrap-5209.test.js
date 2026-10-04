@@ -20,7 +20,7 @@ test('#5209: the instrument is reading the page', () => {
 });
 
 // eslint-disable-next-line no-new-func
-const plusStarScale = new Function(src + '; return plusStarScale;')();
+const plusStarScale = src ? new Function(src + '; return plusStarScale;')() : () => NaN;   // a missing helper fails the first test, by name
 const WRAP = 4;   // the draw loop wraps at -4 and size + 4
 
 test('#5209: a just-wrapped dot near the top stays inside the wrap band when the field grows (the card\'s case)', () => {
@@ -35,6 +35,12 @@ test('#5209: a dot past the bottom keeps its offset from the bottom edge, growin
   for (const [v, o, n] of [[701.9, 698, 1136], [1139.9, 1136, 400]]) {
     assert.ok(plusStarScale(v, o, n) <= n + WRAP, 'a dot past the bottom is pushed past the bottom wrap line');
   }
+});
+
+test('#5209: the wrap lines and the box edge themselves never jump', () => {
+  assert.equal(plusStarScale(-4, 698, 1136), -4);
+  assert.equal(plusStarScale(698 + 4, 698, 1136), 1136 + 4);
+  assert.equal(plusStarScale(698, 698, 1136), 1136);   // in-box and past-the-edge rules meet here
 });
 
 test('#5209: a dot inside the box scales with it, as before', () => {
