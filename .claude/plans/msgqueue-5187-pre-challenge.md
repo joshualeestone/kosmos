@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: msgqueue-5187
-diff_hash: 4e08704fc22691296fb7396be83abb3c8cc63e4f6ac3ecf94a610fca74b59d0e
+diff_hash: a1f73e1a819b3c3447caedd184b44d951b53b97a7f2a472a7b13038e0a88a725
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-04T04:15:00Z
-iterations: 4
+timestamp: 2026-10-04T09:47:00Z
+iterations: 5
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 5
 **Converged:** Yes (iteration 4 resolved reviewer blockers)
-**Total findings:** 8 (2 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 2 NITs)
-**Fixed:** 8 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 9 (2 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 2 NITs)
+**Fixed:** 9 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -35,3 +35,5 @@ converged: true
 #### Iteration 4 (Kano Review Blockers)
 - [BLOCKER] engine/status.js: antigravityQueued exit condition counted waiting messages whenever matches existed without a queue prompt -> FIXED: strictly require hasQueuePrompt.
 - [BLOCKER] engine/status.js: when messages are queued, footer replaces "esc to cancel" with "Press up to edit queued messages", causing classify to fall through to UNKNOWN -> FIXED: return WORKING if /esc to cancel/ matches OR waiting is not null.
+#### Iteration 5
+- [WARNING] engine/msgqueue-5187.test.js: hand-built agent cards with sessionName: violated fixture-discipline.test.js lint -> FIXED: sandboxed environment and used test-support/fleet install to obtain real cards, making fixture-discipline test 20/20 pass.

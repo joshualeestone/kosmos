@@ -14,14 +14,21 @@
  * 7. Folded duplicate sends preserve queued: true.
  */
 
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = path.join(os.tmpdir(), 'kosmos-msgqueue-test-' + process.pid);
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
 
 const status = require('./status');
 const chat = require('./chat');
 const messages = require('./messages');
+const fleet = require('../test-support/fleet');
 
 test('#5187 antigravityQueued parses pane text for queued messages', () => {
   assert.equal(status.antigravityQueued(null), null);
@@ -200,18 +207,9 @@ test('#5187 reconcileReport preserves scraped.waiting when agent reports working
 });
 
 test('#5187 chat.deliver returns queued: true when placing into busy Antigravity agent', () => {
-  const workingAgyCard = {
-    name: 'dana',
-    sessionName: 'dana',
-    session: 'dana',
-    claim: 'dana',
-    target: 'dana:0.0',
-    isAgentPane: true,
-    isNamedOurs: true,
-    state: status.STATE.WORKING,
-    runner: 'antigravity',
-  };
-  const roster = [workingAgyCard];
+  const board = fleet.install([
+    fleet.agent('dana', { runner: 'antigravity', command: 'agy', screen: 'Working...\nesc to cancel', state: 'working' }),
+  ]);
 
   chat.setRunner((args) => {
     if (args[0] === 'display-message') return { ran: true, status: 0, out: 'agy\tdana\t0', err: '' };
@@ -219,52 +217,45 @@ test('#5187 chat.deliver returns queued: true when placing into busy Antigravity
   });
   chat.setDryRun(false);
   try {
-    const res = chat.deliver('dana', 'hello', roster);
+    const res = chat.deliver('dana', 'hello', board.agents);
     assert.equal(res.state, chat.DELIVERY.PLACED);
     assert.equal(res.queued, true);
     assert.match(res.paneNote, /mid-task, so it will not read this until it finishes/);
 
-    const idleAgyCard = { ...workingAgyCard, state: status.STATE.IDLE };
-    const idleRoster = [idleAgyCard];
-    const idleRes = chat.deliver('dana', 'hello', idleRoster);
-    assert.equal(idleRes.state, chat.DELIVERY.PLACED);
-    assert.equal(idleRes.queued, false);
+    const idleBoard = fleet.install([
+      fleet.agent('dana', { runner: 'antigravity', command: 'agy', screen: '> \n? for shortcuts', state: 'idle' }),
+    ]);
+    try {
+      const idleRes = chat.deliver('dana', 'hello', idleBoard.agents);
+      assert.equal(idleRes.state, chat.DELIVERY.PLACED);
+      assert.equal(idleRes.queued, false);
+    } finally {
+      idleBoard.restore();
+    }
 
-    const workingClaudeCard = { ...workingAgyCard, runner: 'claude' };
-    const claudeRoster = [workingClaudeCard];
-    const claudeRes = chat.deliver('dana', 'hello', claudeRoster);
-    assert.equal(claudeRes.state, chat.DELIVERY.PLACED);
-    assert.equal(claudeRes.queued, false);
+    const claudeBoard = fleet.install([
+      fleet.agent('dana', { runner: 'claude', state: 'working' }),
+    ]);
+    try {
+      const claudeRes = chat.deliver('dana', 'hello', claudeBoard.agents);
+      assert.equal(claudeRes.state, chat.DELIVERY.PLACED);
+      assert.equal(claudeRes.queued, false);
+    } finally {
+      claudeBoard.restore();
+    }
   } finally {
     chat.setRunner(null);
     chat.setDryRun(true);
+    board.restore();
   }
 });
 
 test('#5187 messages.send records queued: true and returns queued receipt', () => {
-  const workingAgyCard = {
-    name: 'dana',
-    sessionName: 'dana',
-    session: 'dana',
-    claim: 'dana',
-    target: 'dana:0.0',
-    isAgentPane: true,
-    isNamedOurs: true,
-    state: status.STATE.WORKING,
-    runner: 'antigravity',
-  };
-  const senderCard = {
-    name: 'casey',
-    sessionName: 'casey',
-    session: 'casey',
-    claim: 'casey',
-    target: 'casey:0.0',
-    isAgentPane: true,
-    isNamedOurs: true,
-    state: status.STATE.IDLE,
-    runner: 'claude',
-  };
-  const roster = [workingAgyCard, senderCard];
+  const board = fleet.install([
+    fleet.agent('dana', { runner: 'antigravity', command: 'agy', screen: 'Working...\nesc to cancel', state: 'working' }),
+    fleet.agent('casey', { runner: 'claude', state: 'idle' }),
+  ]);
+  const senderCard = board.card('casey');
 
   chat.setRunner((args) => {
     if (args[0] === 'display-message') return { ran: true, status: 0, out: 'agy\tdana\t0', err: '' };
@@ -282,7 +273,7 @@ test('#5187 messages.send records queued: true and returns queued receipt', () =
       sender: { ok: true, name: 'casey', card: senderCard },
       to: 'dana',
       text: 'please pick up card 5187',
-    }, roster);
+    }, board.agents);
 
     assert.equal(res.state, 'placed');
     assert.equal(res.queued, true);
@@ -300,7 +291,7 @@ test('#5187 messages.send records queued: true and returns queued receipt', () =
       sender: { ok: true, name: 'casey', card: senderCard },
       to: 'dana',
       text: 'please pick up card 5187',
-    }, roster);
+    }, board.agents);
 
     assert.equal(dupRes.duplicate, true);
     assert.equal(dupRes.queued, true);
@@ -308,6 +299,8 @@ test('#5187 messages.send records queued: true and returns queued receipt', () =
     chat.setRunner(null);
     chat.setDryRun(true);
     messages.setRunner(null);
+    board.restore();
     try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ }
   }
 });
+
