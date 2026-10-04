@@ -1147,7 +1147,13 @@ async function fitOf(page) {
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
         const hit = document.elementFromPoint(x, y);
         const other = controlOf(hit);
-        if (other && other !== el && !el.contains(other) && !other.contains(el)) { covers.push(name(el) + ' covered by ' + name(other)); break; }
+        if (!other || other === el || el.contains(other) || other.contains(el)) continue;
+        // Only a hit area counts: the point lies OUTSIDE the other control's drawn box (a ::after, or padding taken
+        // back, reaching past it). A point inside its box is a control drawn on top (an open menu over the page),
+        // which is stacking, not a tap area too big.
+        const o = other.getBoundingClientRect();
+        if (x >= o.left && x < o.right && y >= o.top && y < o.bottom) continue;
+        covers.push(name(el) + ' covered by ' + name(other)); break;
       }
     }
     for (const [a, [l, t]] of moved) a.scrollTo({ left: l, top: t, behavior: 'instant' });   // instant: a smooth box would still be moving
