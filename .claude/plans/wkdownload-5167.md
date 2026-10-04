@@ -482,10 +482,11 @@ kosmos#120 pattern). Cut back to what the card and its four real defects need:
   - The live selftest has 23 rows; the cap, two-failures and burst arms are gone.
   - The rows now assert that real failures are said and policy refusals are not; sabotage (alerting quiet refusals
     again) turns those two rows red.
-  - native-app.download-5167.test.js: 28 tests, with the machinery-only ones dropped and five core tests added (the
+  - native-app.download-5167.test.js: 28 tests (29 after the fresh loop), with the machinery-only ones dropped and five core tests added (the
     per-computer ask and Return, 204 never saved, quiet is log-only with a negative pin that the machinery stays gone,
     a not-a-board page cannot save, a dangling symlink is taken).
   - The 68 related and audit test files: 2835 tests, 0 fail.
   - The mode selftest: 86/86.
 - Fresh-loop round 2: an Allow counts only for the page that asked: a main-frame commit during the question (pageCommits) voids the answer, so a switch to connect and back to the same host cannot record an Allow for a page the person never saw. A same-host reload during the question now fails safe (not saved).
 - Fresh-loop round 3: a page change during the question voids only an Allow; Don't Allow is always kept (a reloading page cannot ask again and again). The question is shown on the next main-queue turn, not inside WebKit's policy callback (the handlers wait in downloadAsks). The cross-origin redirect backstop is a quiet refusal, per the rule.
+- Fresh-loop round 4: a voided Allow is recorded as Don't Allow for the run (answer(false)), so a page that keeps reloading during the question cannot keep asking; View > Reload asks again.
