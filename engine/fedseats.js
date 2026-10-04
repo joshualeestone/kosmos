@@ -490,7 +490,8 @@ const EPOCH_GRACE_MS = 10 * 60 * 1000;
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
-   EDGE_FRESH_MS, about 75 s: there the relay's ticket expiry bounds it, not this. */
+   EDGE_FRESH_MS, about 75 s, and up to one 60 s pass more while Kosmos+ cannot answer
+   (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it. */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One

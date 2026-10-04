@@ -47,7 +47,8 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
 
 ## Residual (N3)
 With members left (the held post itself is still shown if its old key is inside the grace; B only
-brings the rotation forward): about min(90 s, the relay's ticket life ~60 s) + 15 s, so about 75 s. With none:
+brings the rotation forward): about min(90 s, the relay's ticket life ~60 s) + 15 s, so about 75 s, and up to one 60 s pass more while
+Kosmos+ cannot answer (a held post keeps the grace it arrived in). With none:
 B's detection, up to 15 s after the ask the last check used, plus one coordinator round trip (a post
 that joins a check already out is released under that check), plus in-flight posts. Held posts pass
 the room's minute budget when released, so a burst released together spends the window it lands in.
