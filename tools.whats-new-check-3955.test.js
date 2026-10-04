@@ -55,6 +55,8 @@ test('#5224: per-platform counts; a cut for a platform with no highlight of its 
   assert.match(r.stderr, /no highlight for windows.*KOSMOS_CUT_NO_WHATS_NEW=1/);
   assert.equal(run('0.6.98', macOnly, ['--platform=mac']).status, 0, 'CONTROL: the Mac cut has its highlight');
   assert.equal(run('0.6.98', GOOD, ['--platform=linux']).status, 2, 'an unknown platform is a usage error');
+  assert.equal(run('0.6.98', macOnly, ['--platform', 'windows']).status, 2, 'a flag without "=" ran with no platform');
+  assert.match(run('0.6.98', macOnly).stderr, /a windows cut of this file will stop/);
   r = run('0.6.98', GOOD, ['--platform=windows']);
   assert.equal(r.status, 0);
   assert.equal(r.stderr, '', 'CONTROL: an untagged file prints no note');
