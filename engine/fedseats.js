@@ -796,10 +796,12 @@ function onKeyFrame(projectId, s, frame) {
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
       if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
       const keys = Object.assign({}, st.keys, { [got.epoch]: got.roomKey });
-      // The grace runs from the owner's rotation (sealed in the frame), never from now:
-      // a member catching up late must not reopen the old key for a revoked member.
-      // A time ahead of this clock counts as now.
+      // The grace runs from the owner's rotation (sealed in the frame), so a member catching
+      // up late does not reopen the old key. A time ahead of this clock counts as now, so on
+      // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
+      // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
+      s.behind = null;   // caught up: a hold armed by a forged higher epoch ends here too
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
@@ -988,16 +990,16 @@ function post(projectId, { from, kind, text }) {
       say(projectId, 'That message stayed on this computer: it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one.');
       return false;
     }
-    // #5197: past the hold, still behind: the post goes out under the old key, which the
-    // other boards refuse once the rotation is 90 s old. Said once per seat run.
-    if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch) {
-      noteOnce(projectId, s, 'behindSent', 'This computer is still behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
-    }
     if (!hasKey(sealed) || !s.room) {
       say(projectId, link && link.role === 'owner'
         ? 'That message stayed on this computer: this shared room is sealed, and no member\'s computer has joined with its key yet. Nothing is sent until one has.'
         : 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
       return false;
+    }
+    // #5197: past the hold, still behind: the post goes out under the old key, which the
+    // other boards refuse once the rotation is 90 s old. Said once per seat run.
+    if (s.behind && s.behind.epoch > sealed.epoch) {
+      noteOnce(projectId, s, 'behindSent', 'This computer is still behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');

@@ -24,8 +24,10 @@ rotation for more than 90 s while posting (for example sleep-and-post reports af
 Second premise (challenge round 1): the grace is the owner's rotation time judged on the
 member's clock, so a member clock running ahead shortens it, to nothing at 90 s ahead. Fails
 closed (in-flight posts refused on that board, a revoked member's never shown). Stated in
-fedseal.js NOT CLAIMED. Not fixed: measuring from receipt would let a member catching up late
-reopen the old key, which #3728 ruled out.
+fedseal.js NOT CLAIMED. The grace is measured from the owner's rotation time clamped to the
+member's clock (#3728), so a member catching up late does not reopen the old key, EXCEPT when its
+clock runs behind the owner's: then it runs from receipt, lengthening the grace by up to the skew
+(also in NOT CLAIMED). A clock reference to close that is out of scope.
 
 A member refusing an older, retired epoch's post now gets the same 'key was retired' note as
 the owner instead of 'could not open'.
