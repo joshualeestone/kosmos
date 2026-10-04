@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 451d2abfa34affce49e144f9e9be0edc6a624c023e966e67e0a67af6b0d4e007
-validation: passed (Mortals full suite at the stack top agentmanage-4475 0eba704d2, which contains this branch at 0dd07d175 after rebasing onto main; 2026-10-03 02:39 CDT, hash 1263eca19544. The 21:06 red was the #4273 leak guard, fixed by tmpscope; then the review fixes, rebased on main: focused 1291/1291 (44 files: every setup-assistant/create/token-only test + every file-scanning guard); a full suite on Agent1s before merge)
+diff_hash: 10b2dc51e21ed7d1ac5fbe7750acf162392c4ba00c2de18c8d8e33275837c26c
+validation: passed (Mortals full suite at the stack top agentmanage-4475 0eba704d2, which contains this branch at 0dd07d175 after rebasing onto main; 2026-10-03 02:39 CDT, hash 1263eca19544. The 21:06 red was the #4273 leak guard, fixed by tmpscope; then the review fixes, rebased on main: focused 1291/1291 (44 files: every setup-assistant/create/token-only test + every file-scanning guard); a full suite on Agent1s before merge; then Kitty's re-review fix: focused 1292/1292 (44 files))
 subdir_audit: passed
-timestamp: 2026-10-04T10:52:53Z
+timestamp: 2026-10-04T10:56:30Z
 iterations: 6
 converged: true
 ---
@@ -105,3 +105,4 @@ None.
 - [WARNING] only the written file was tested: FIXED (creation step passes the runner and refuses on failure; start-up refresh pinned).
 - [WARNING] sandbox may limit normal work: NOT fixed; weakest premise (unmeasured outside the spike).
 Detail kept off the public repo: ~/.cache/claude-handoffs/private/.
+- [BLOCKER, Kitty re-review] the list of worlds the gate trusts was not change-protected, and a world added later was uncovered: FIXED (option A: registry write-denied in both layers, a glob over every world store for Read and Edit); test + mutant. Option B (gate-side snapshot) left as follow-up hardening.
