@@ -30,6 +30,14 @@ re-seed. Fixed: plant at 3.95 / 0.11 in the read's own evaluate. WARNING (stale 
 (wrong function name plusStarsStep -> plusStarsDraw; fixture could not tell span 1; plant and read split)
 all fixed. Re-proven: new PASS 2/2, 1100 ms stress PASS (dot 0 at 0.006), old compare FAIL, re-seed FAIL.
 
+Round 2 (blind): no blockers; the plant now drifts no more than other dots and crosses every run.
+NITs taken: the crossing comment (it crosses on the first frame after the plant, not at the re-size);
+a negative after-value in the fixture (1.0057 -> -0.0012); and the optional self-check that dot 0
+crossed (shown red with a no-cross plant). Converged.
+WARNING kept OUT of scope (not this change): ordinary drift of 0.14 px a frame passes 3% of a 544-650 px
+box at about 1.5-1.9 s between the reads (reviewer: FAIL on unplanted dots at a 2000 ms wait). Card it if
+it ever shows in a cut run.
+
 ## Weakest premise
 The 4px wrap margin is read from the page source, not from the page at runtime; if it changes, the span
 is slightly off (8/size is under 0.01 at these sizes, well inside 0.03).
