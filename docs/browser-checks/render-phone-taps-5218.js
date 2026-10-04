@@ -220,7 +220,7 @@ const RULES = () => {
       const areas = await page.evaluate(() => [...document.querySelectorAll('.lrow .namego')].filter((e) => e.checkVisibility()).map((e) => {
         e.scrollIntoView({ block: 'center', behavior: 'instant' });
         const r = e.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        const at = (x, y) => { const h = document.elementFromPoint(x, y); return !h ? 'none' : (h === e || e.contains(h)) ? 'self' : (h.closest('.railhead') ? 'railhead' : 'other'); };
+        const at = (x, y) => { const h = document.elementFromPoint(x, y); return !h ? 'none' : (h === e || e.contains(h)) ? 'self' : (h.closest('.railhead') ? 'railhead' : 'other ' + h.tagName.toLowerCase() + (h.id ? '#' + h.id : '') + (h.className && typeof h.className === 'string' ? '.' + h.className.trim().split(/\s+/).join('.') : '')); };
         const [up, down, left, right] = [[0, -21.5], [0, 21.5], [-21.5, 0], [21.5, 0]].map(([dx, dy]) => at(cx + dx, cy + dy));
         return { name: e.textContent.trim().slice(0, 12), up, down, left, right };
       }));
