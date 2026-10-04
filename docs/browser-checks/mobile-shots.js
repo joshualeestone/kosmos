@@ -548,6 +548,15 @@ const SCREENS = [
     await page.evaluate((id) => openProjectTasks(id), data.projectId);
     await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
   } },
+  /* #5200: one open task's page (the seed's task 1), with its parts' Change who and Done links, for the phone tap
+     audit: every control there should be a 44px target on a touch screen. */
+  { name: 'task-page', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+    await page.waitForSelector('#pj-task-view:not([hidden]) #tk-say', { state: 'visible', timeout: 8000 });
+  } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
     await newLook(page);

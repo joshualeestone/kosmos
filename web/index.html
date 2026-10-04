@@ -6296,6 +6296,14 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
   #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
 }
+/* kosmos#5200: on a touch screen every control on the task page is a 44px target. Boxed controls grow to 44; the
+   small text links (Change who, Done/Put back, + Add subtask) keep their look and their line: padding widens the hit
+   area and an equal negative margin takes it back out of the layout. Touch only, as #panel-tasks's rule above. */
+@media (hover: none) {
+  #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold) { min-height: 44px; }
+  /* 14px above and below a 16-17px line makes 44; 10px each side widens the short ones (Done is 35 wide). */
+  #pj-task-view :is(.tkwho-pick, .tkpart-go, #tk-subadd) { padding: 14px 10px; margin: -14px -10px; }
+}
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
               border-bottom: 1px dashed transparent; }
