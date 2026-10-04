@@ -111,6 +111,14 @@ const NO_WINDOW_QUESTION_BECAUSE = 'it did not say what it is asking; on Windows
    confirm run on another program are excluded: codex (OpenAI), and since #3568 gemini, grok and
    antigravity (Gemini on a Google subscription), which also sign in without Claude. No agents at
    all -> false: a fresh install depends on nothing yet, so the banner stays down. */
+/* #4649 slice 3: an outside row without the relay's member stamp, which never leaves this board. */
+function withoutStamp(m) {
+  if (!(m && m.kind === 'external' && Object.prototype.hasOwnProperty.call(m, 'member'))) return m;
+  const c = Object.assign({}, m);
+  delete c.member;
+  return c;
+}
+
 function someAgentNeedsClaude(agentList) {
   // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
@@ -15342,10 +15350,9 @@ const server = http.createServer(async (req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      // #4649 slice 3: an outside row's relay stamp (an account id) stays on this board, as in the room route.
-      const rows = guideMaskedRows(messages.list(who), null).map((m) => (m && m.kind === 'external' && 'member' in m
-        ? (() => { const c = Object.assign({}, m); delete c.member; return c; })() : m));
-      sendJson(res, 200, { messages: withPreviews(rows) });
+      /* #4649 slice 3: an outside row's relay stamp (an account id) stays on this board, as in the room route. The
+         masked read stays written as one expression: server.guide-secrets-3769.test.js finds it by its text. */
+      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)).map(withoutStamp) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
