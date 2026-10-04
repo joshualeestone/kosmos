@@ -239,6 +239,14 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
     }
   }
   const sec = Math.floor(now / 1000);
+  /* #4649 slice 3 review round 2: a member pinned before this shipped (or whose first note failed) has no account on
+     its row, so its posts would never carry the label. The edges read here name it: backfill, best effort. */
+  if (edges) {
+    for (const row of rows) {
+      const e = edges.find((x) => x.invite_id === row.invite_id && x.status === 'active' && typeof x.member_account_id === 'string');
+      if (e && row.member !== e.member_account_id) { try { noteMember(projectId, row.invite_id, e.member_account_id); } catch { /* next look */ } }
+    }
+  }
   const out = rows.slice().reverse().map((row) => {
     const edge = edges ? edges.filter((e) => e.invite_id === row.invite_id).sort((a, b) => b.created_at - a.created_at)[0] : null;
     let state;

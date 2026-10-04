@@ -346,3 +346,15 @@ test('#4649 slice 3: the board remembers which account joined through an invite,
   assert.strictEqual(fedmembers.noteMember('stamped', 'inv-not-made-here', 'acct-x'), false, 'an invite this board never made took a member');
   assert.strictEqual(fedmembers.labelForMember('stamped', undefined), null);
 });
+
+test('#4649 slice 3 review round 2: Members backfills the account of a member pinned before the stamp shipped', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const made = await fedmembers.invite(remote, { project: 'backfill', invited_kind: 'person', label: 'Lee' }, here(['backfill']));
+  const ref = federation.linkFor('backfill').ref;
+  assert.strictEqual(fedmembers.labelForMember('backfill', 'acct-lee'), null, 'precondition: nothing remembered yet');
+  const look = stubRemote({ '/v1/mac/federation/edges': { ok: true, data: { as_owner: [Object.assign(edge('e-lee', ref, made.body.invite_id), { member_account_id: 'acct-lee' })], as_member: [] } } });
+  const m = await fedmembers.members(look, 'backfill');
+  assert.strictEqual(m.status, 200);
+  assert.strictEqual(fedmembers.labelForMember('backfill', 'acct-lee'), 'Lee', 'the account was not backfilled from the edges Members read');
+  assert.ok(m.body.invites.every((r) => !('member' in r)), 'the backfill leaked the account id into the answer');
+});

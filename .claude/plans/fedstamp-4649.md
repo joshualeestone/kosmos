@@ -18,6 +18,19 @@ Shape, agreed with Baron (HEADS-UP 13:47): the connector's stdout event gains a 
   matches, and never the stamp. GET /api/messages strips `member` from outside rows. Members rows carry no `member`.
   Pete's screen shows 'Scout' under 'Dana Ruiz' from `invited_as` alone.
 
+## Review round 2 (sonnet): no leak found; 3 warnings
+- Every reader of outside rows was named and checked (room JSON and text, /api/messages, unread, kept-today, quiet
+  checks, daily log): none returns `member`.
+- A member pinned before this shipped had no account on its row: Members (which already reads the edges) now
+  backfills it, tested. A room nobody opens Members for stays unlabelled until then (stated).
+- The edge field `member_account_id` is the COORDINATOR's (kosmos-relay coordinator/src/db.rs FederationEdge,
+  serialized as is), not Baron's relay frame, so it cannot drift with slice 3's relay half.
+- Scope of the rule, stated: the account id never leaves the board through a ROUTE or anything an agent reads as
+  text. It is in this board's own files (messages.jsonl, fed-invites.json), as everything else the board stores is;
+  an agent with raw file access is outside what a route can guard.
+- NITs stated: one account redeeming two invites gets the first row's label; a rejoin through the same invite with
+  another account relabels that invite.
+
 ## Weakest premise
 An owner's own other computers post as `<account>:<mac>`, never matching a guest edge; they are the owner's, and the
 screen shows them as the owner's (the #4657 `same_account` flag), not under any invitee.
@@ -25,5 +38,5 @@ screen shows them as the owner's (the #4657 `same_account` flag), not under any 
 ## Tests
 engine/fedseats.test.js (slice 3), engine/messages.external-3311.test.js (slice 3), engine/fedmembers.test.js
 (noteMember / labelForMember), server.fedmembers-4649.test.js (the room's invited_as; no id in the room or
-/api/messages), plus the slice 1 / 1b files: 195/195. Mutations, each red: take `member` from `data`; store any
+/api/messages), plus the slice 1 / 1b files: 196/196. Mutations, each red: take `member` from `data`; store any
 `member`; no strip in /api/messages; no invited_as; no noteMember at the pin.
