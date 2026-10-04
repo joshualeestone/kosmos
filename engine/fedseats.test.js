@@ -1782,3 +1782,31 @@ test('#5197: a member that joined after a rotation is not told a key was retired
   assert.ok(!h.notes.some((n) => /was retired/.test(n.text)), JSON.stringify(h.notes));
   assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
 });
+
+test('#5197: a member\'s grace runs from the owner\'s rotation time, clamped to its own clock', async (t) => {
+  for (const [label, skew, at, shows] of [
+    ['member clock 2 min ahead of the owner: fails closed', -120 * 1000, 1000, false],
+    ['member clock 2 min behind the owner: runs from receipt', 120 * 1000, 60 * 1000, true],
+  ]) {
+    t.mock.timers.reset();
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T21:00:00Z') });
+    const id = 'proj-5197-skew-' + (shows ? 'behind' : 'ahead');
+    const owner = fedseal.newKeyPair();
+    federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
+    const k0 = fedseal.randomSecret();
+    fedseal.setRoomState(id, { role: 'member', s: fedseal.randomSecret(), code: 'code-' + id, peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+    const h = harness();
+    await fedseats.ensure(id);
+    const seat = h.spawned[0];
+    say(seat, { event: 'connected', room: 'room-' + id, expires_at: 9 });
+    await settle();
+    // The owner stamps the rotation on ITS clock: skew from this member's.
+    say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, fedseal.randomSecret(), 1, 'room-' + id, Date.now() + skew) });
+    await settle();
+    assert.strictEqual(fedseal.roomState(id).epoch, 1, 'fixture: rotated');
+    t.mock.timers.tick(at);
+    say(seat, { event: 'message', data: fedseal.seal(k0, 0, 'room-' + id, { from: 'In flight', kind: 'person', text: label }) });
+    await settle();
+    assert.deepStrictEqual(h.recorded.map((r) => r.text), shows ? [label] : [], label);
+  }
+});

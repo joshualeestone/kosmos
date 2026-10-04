@@ -203,7 +203,7 @@ function handleEvent(projectId, line, heldAt) {
         }
         if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
           && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired (someone was removed from the shared project), so it was not shown.');
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key.');
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -490,8 +490,8 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
    EDGE_FRESH_MS, about 75 s, and up to one 60 s pass more while Kosmos+ cannot answer
    (a held post keeps the grace it arrived in): there the relay's ticket expiry bounds it,
    which a sealed room does not rely on (the relay is not trusted).
-   #5197: a member that has received the rotation uses the same grace (one the relay keeps
-   from the rotation stays on the old key: fedseal.js NOT CLAIMED). Members hold nothing for
+   #5197: a member that has received the rotation uses the same grace. A member the relay
+   never sends the rotation to stays on the old key (fedseal.js NOT CLAIMED). Members hold nothing for
    an edge check, so on a member's board a revoked member is shown for the owner's
    detection (up to a 60 s pass) plus this grace. A member's grace runs from the
    owner's rotation time on its own clock: a member clock running ahead shortens it
