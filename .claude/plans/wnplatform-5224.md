@@ -30,7 +30,8 @@ main has the same problem, with two highlights that start "On a Mac".
 ## Weakest premise
 `key()` (which highlights a dismissal recorded) now follows the platform-filtered read. On a platform where every
 highlight is filtered out it returns null, and the board keeps the previous `highlightsFor`, as it already does
-for a version with no file. Reasoned from server.js, not exercised on a Windows board.
+for a version with no file. A server.test.js route test exercises it for whichever platform the test host is not
+(Windows on a Mac host); it has not run on a Windows board.
 
 ## Tests
 - engine/whatsnew.test.js adds 4 tests: per-platform filtering, the empty result, the naming rule with controls,
