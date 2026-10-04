@@ -2825,3 +2825,23 @@ test('#5192: a held post whose time is ahead of the clock (it stepped back) is n
   await settle();
   assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
 });
+
+test('#5192: a key that arrives after a post\'s hour, before any pass, does not send it', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T08:00:00Z') });
+  const sk = fedseal.randomSecret();
+  federation.recordLink('proj-5192-late', { role: 'member', edge_id: 'edge-5192-late' });
+  fedseal.setRoomState('proj-5192-late', { role: 'member', s: sk, code: 'code-5192lt', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-late');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5192-late', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-late', { from: 'Ana', kind: 'person', text: 'an hour old' });
+  t.mock.timers.tick(61 * 60 * 1000);
+  const before = lines(seat).length;
+  const roomKey = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.shareFrame(sk, 'code-5192lt', fedseal.newKeyPair(), fedseal.sealingKey().pub, roomKey, 0, 'room-5192-late') });
+  await settle();
+  assert.strictEqual(lines(seat).slice(before).map((f) => fedseal.open({ 0: roomKey }, 'room-5192-late', f)).filter(Boolean).length, 0, 'a post held past its hour was sent');
+  assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
+});

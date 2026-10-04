@@ -1217,8 +1217,6 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
         ? 'when the key arrives, if it arrives within the hour'
         : 'to the first computer that joins with its key from an invite already made, if one joins within the hour', heldAt);
     }
-    // A held post a member sends while still behind goes under the key it has (#5197): counted.
-    if (heldAt && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) s.oldKeySent = (s.oldKeySent || 0) + 1;
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
       return false;
@@ -1244,6 +1242,9 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
     if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
     return false;
   }
+  // A held post a member sent while still behind went under the key it has (#5197): counted
+  // once it is written, for the flush note.
+  if (heldAt && sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) s.oldKeySent = (s.oldKeySent || 0) + 1;
   // #5197 (said once the post has gone): past the hold, still on the epoch it held when the hold armed (the armed epoch is
   // unauthenticated, so a member that has rotated since is not warned): the post goes out
   // under the old key, which the other boards refuse once the rotation is 90 s old. Said

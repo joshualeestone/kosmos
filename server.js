@@ -19415,7 +19415,7 @@ function federateOut(projectId, delivery, operator) {
   // so, or "see the attached plan" arrives with nothing attached and nobody on this
   // side knows. #5192: the seat is told too, so a post it holds for the room key and
   // sends later says the same when it goes.
-  // The delivery says when it carries the fields; only otherwise is the record searched.
+  // From the delivery when it carries the fields (no caller does today), else from the record.
   const filesOf = (r) => !!(r && (r.attachment || (Array.isArray(r.attachments) && r.attachments.length)));
   let hadFiles = false;
   if (Object.prototype.hasOwnProperty.call(delivery, 'attachment') || Object.prototype.hasOwnProperty.call(delivery, 'attachments')) hadFiles = filesOf(delivery);
