@@ -9,7 +9,8 @@ them. That nudges a designer to grow a fine control's layout.
   - It is scrolled into view, and each edge of a 44x44 square centred on it must hit the control
     (document.elementFromPoint; a hit on a descendant or on its ::after counts).
   - A probe that hits something else, or lands off screen, keeps the flag.
-  - The page's scroll is put back. The audit runs after the shot, so shots are unchanged.
+  - The window AND every scrollable ancestor scrollIntoView moved are put back (review round 1), so a screen's verify
+    and after-step see the page as it was. The audit runs after the shot, so shots are unchanged.
 - A settings-advanced screen (Settings > Advanced: three switches).
 
 ## Measured
@@ -20,6 +21,10 @@ them. That nudges a designer to grow a fine control's layout.
 - Probed by hand on main: taps 9px above and below and 0.5px past each side of the Settings switches land on them
   at 390 with touch; at 1280 with a mouse they miss, as intended.
 - Tests touching mobile-shots (desktop, leak, control-arms, pr-select, reason-grep, org-sectors, catalogue): 124/124.
+
+- Synthetic page (lifted fitOf): an inner box and a strip scrolled to 10 and 5 stay at 10 and 5 after the audit;
+  the previous version left them at 350 and 435. A ::after clipped by its scroller still flags (a finger cannot reach
+  clipped space).
 
 ## Weakest premise
 - elementFromPoint on an emulated touch page stands in for a finger. A finger is a disc, not a point, but Apple's 44
