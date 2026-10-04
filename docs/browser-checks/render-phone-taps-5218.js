@@ -65,49 +65,26 @@ const REACH = (sel) => {
     return { sel, w: Math.round(r.width), h: Math.round(r.height), ok };
   });
 };
-// In the page: across every control's own box (every 3px, its edges included), a tap must land on that control and
-// not on a neighbour's hit area reaching over it (the same scan as mobile-shots' covers audit). A point inside the
-// other control's drawn box, with 1px of slack for a snapped shared edge, is stacking, not a hit area.
-const COVERS = () => {
-  const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], input:not([type="hidden"]), textarea';
-  // The nearest ANCESTOR in its own layer: positioned out of the flow (fixed, absolute, sticky) or an
-  // open dialog / popover. Two controls answer each other's points as STACKING only when they sit in different
-  // layers (a menu over the page); two in the same layer overlapping is a hit area, however positioned (round 3).
-  const layerOf = (n) => {
-    for (n = n && n.parentElement; n && n.nodeType === 1; n = n.parentElement) {   // ancestors only: a positioned control is in its container's layer
-      const pos = getComputedStyle(n).position;
-      if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') return n;
-      try { if (n.matches('dialog[open]') || n.matches(':popover-open')) return n; } catch { /* an engine without :popover-open */ }
-    }
-    return null;
-  };
-  const layered = (top, under) => layerOf(top) !== layerOf(under);
-  const out = [];
-  for (const el of document.querySelectorAll(SEL)) {
-    if (el.disabled || !el.checkVisibility()) continue;
-    const r0 = el.getBoundingClientRect();
-    if (r0.width < 4 || r0.height < 4) continue;
-    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    const r = el.getBoundingClientRect();
-    const step = Math.max(3, Math.sqrt((r.width * r.height) / 4000));
-    const pts = [];
-    for (let x = r.left + 0.5; x < r.right - 0.5; x += step) for (let y = r.top + 0.5; y < r.bottom - 0.5; y += step) pts.push([x, y]);
-    for (const x of [r.left + 0.5, r.right - 0.5]) for (let y = r.top + 0.5; y < r.bottom; y += step) pts.push([x, y]);
-    for (const y of [r.top + 0.5, r.bottom - 0.5]) for (let x = r.left + 0.5; x < r.right; x += step) pts.push([x, y]);
-    for (const [x, y] of pts) {
-      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
-      const hit = document.elementFromPoint(x, y);
-      const other = hit && hit.closest ? hit.closest(SEL) : null;
-      if (!other || other === el || other.contains(el)) continue;   // an ancestor; a descendant's hit area still counts
-      const o = other.getBoundingClientRect();
-      const inBox = x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1;
-      if (inBox && el.contains(other)) continue;   // a control inside this one, drawn where it is (a label's own input)
-      if (inBox && layered(other, el)) continue;   // drawn on top in its own layer (a menu): stacking
-      if (inBox && (Math.abs(x - o.left) <= 1.5 || Math.abs(x - o.right) <= 1.5 || Math.abs(y - o.top) <= 1.5 || Math.abs(y - o.bottom) <= 1.5)) continue;   // a snapped shared edge
-      out.push((el.id || el.className) + ' <- ' + (other.id || other.className)); break;
-    }
-  }
-  return out;
+// The covers scan is mobile-shots' own (fitOf, lifted from the file), so the two can never drift apart (round 4).
+const fitOf = (() => {
+  const src = fs.readFileSync(path.join(__dirname, 'mobile-shots.js'), 'utf8');
+  const a = src.indexOf('const MIN_TAP_PX = 44;'), b = src.indexOf('async function run()');
+  if (a < 0 || b < a) throw new Error('cannot find fitOf in mobile-shots.js');
+  return new Function(src.slice(a, b) + '; return fitOf;')();
+})();
+const covers = async (page) => (await fitOf(page)).covers;
+// In the page: a hit area must reach 44 around its control's centre AND stop short of 40px out, so an area knocked
+// loose (its host not positioned: the ::after then spans the page) or shifted reads as a failure (round 4).
+const AREA = (el) => {
+  if (!el) return 'missing';
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const hits = (x, y) => { const h = document.elementFromPoint(x, y); return !!h && (h === el || el.contains(h)); };
+  const reach = [[0, -21.5], [0, 21.5], [-21.5, 0], [21.5, 0]].every(([dx, dy]) => hits(cx + dx, cy + dy));
+  const far = Math.max(40, r.width / 2 + 18), farV = Math.max(40, r.height / 2 + 18);
+  const bounded = [[0, -farV], [0, farV], [-far, 0], [far, 0]].every(([dx, dy]) => !hits(cx + dx, cy + dy));
+  return { reach, bounded };
 };
 
 
@@ -142,6 +119,8 @@ const RULES = () => {
     fleet.agent('basil', { state: 'idle', displayName: 'Basil', role: 'a researcher' })]);
   const launch = projects.create({ name: 'Spring launch' });
   projects.addAgent(launch.id, 'ada', null);
+  require('../../engine/tasks').create(launch.id, { sentence: 'Write the blurb', who: 'ada' });   // so the project has a Tasks view
+  require('../../engine/store').writeSettings({ tasksTabShown: true });
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -168,19 +147,31 @@ const RULES = () => {
       chk(names.length >= 2 && names.every((x) => x.ok), `${tag} board: every agent's name reaches 44`, JSON.stringify(names));
       const sortH = await page.evaluate(() => { const e = document.querySelector('#agent-sort'); return e && e.checkVisibility() ? Math.round(e.getBoundingClientRect().height) : null; });
       chk(sortH === null || sortH >= 44, `${tag} board: Sort agents is 44 tall (or not shown)`, String(sortH));
-      const boardCovers = await page.evaluate(COVERS);
+      const boardCovers = await covers(page);
       chk(boardCovers.length === 0, `${tag} board: no control is taken by a neighbour's hit area`, JSON.stringify(boardCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} board: no sideways scroll`);
+      // The hit areas themselves: each reaches 44 around its control and stops short of 40px out (bounded).
+      const nameAreas = await page.evaluate(`[...document.querySelectorAll('.namego')].filter((e) => e.checkVisibility()).map((e) => (${AREA})(e))`);
+      chk(nameAreas.length >= 2 && nameAreas.every((a) => a.reach && a.bounded), `${tag} board: each name's hit area reaches 44 and is bounded`, JSON.stringify(nameAreas));
+      const closeArea = await page.evaluate(`(() => { const d = document.createElement('div'); d.className = 'utoast'; d.innerHTML = '<button class="ux" type="button">x</button>'; document.body.appendChild(d); const r = (${AREA})(d.firstChild); d.remove(); return r; })()`);
+      chk(closeArea.reach && closeArea.bounded, `${tag} a notice's close: its hit area reaches 44 and is bounded (stand-in)`, JSON.stringify(closeArea));
       // Every rule this change adds, read on the board, where a name is laid out (the reach and cover lines see only what is on screen).
       const rules = await page.evaluate(RULES);
       const bad = Object.entries(rules).filter(([k, v]) => (k === 'terminal box font' ? v !== '16px' : /area$/.test(k) ? !(Array.isArray(v) && v[0] >= 44 && v[1] >= 44) : v !== '44px'));
       chk(bad.length === 0, `${tag} every rule this change adds applies on touch (44px, the 44px areas, 16px)`, JSON.stringify(bad.length ? bad : rules));
 
+      // The Tasks view of a project: the back chevron's area.
+      await open(page, '?tab=tasks', '#panel-tasks');
+      await page.evaluate((id) => openProjectTasks(id), launch.id);
+      await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(300);
+      const backArea = await page.evaluate(`(${AREA})(document.querySelector('#tsk-back'))`);
+      chk(backArea.reach && backArea.bounded, `${tag} tasks: the back chevron's hit area reaches 44 and is bounded`, JSON.stringify(backArea));
+
       // A project's room.
       await open(page, '?tab=projects', '#pj-list .pj-row');
       await page.click(`#pj-list .pj-row[data-project="${launch.id}"]`);
       await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(400);
-      const roomCovers = await page.evaluate(COVERS);
+      const roomCovers = await covers(page);
       chk(roomCovers.length === 0, `${tag} room: no control is taken by a neighbour's hit area`, JSON.stringify(roomCovers));
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} room: no sideways scroll`);
 
@@ -192,7 +183,7 @@ const RULES = () => {
       chk(term.font === '16px' && term.h >= 44, `${tag} AI settings: the terminal box is 16px text and 44 tall (no iPhone zoom)`, JSON.stringify(term));
       const btns = await page.evaluate(() => ['#d-open-terminal', '#d-remove-start', '#d-term-send', '#d-trust-restart'].map((s) => { const e = document.querySelector(s); return e && e.checkVisibility() ? [s, Math.round(e.getBoundingClientRect().height)] : null; }).filter(Boolean));
       chk(btns.length >= 2 && btns.every(([, h]) => h >= 44), `${tag} AI settings: its visible buttons are 44 tall`, JSON.stringify(btns));
-      const aiCovers = await page.evaluate(COVERS);
+      const aiCovers = await covers(page);
       chk(aiCovers.length === 0, `${tag} AI settings: no control is taken by a neighbour's hit area`, JSON.stringify(aiCovers));
 
       chk(errs.length === 0, `${tag} no page errors`, errs.slice(0, 2).join(' | '));
