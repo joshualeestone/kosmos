@@ -1235,7 +1235,7 @@ async function pinnedRoom(id, tag, n, link = {}) {
 }
 const shown = (h) => h.recorded.map((r) => r.text);
 
-test('#5191: revoking the only member: its old-key post is refused at once, and the same post before the revoke shows', async (t) => {
+test('#5191: revoking the only member: its old-key post is refused at once, and a post before the revoke shows', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
   const { h, revoke, post } = await pinnedRoom('proj-5191-one', 'r1', 1);
   post('before the revoke');
@@ -1573,4 +1573,76 @@ test('#5191: a room that joined another room\'s answer asks again once that answ
   await settle();
   assert.strictEqual(a.h.asked - asked, 2, 'B waited on its own ask time instead of the answer\'s');
   assert.deepStrictEqual(a.h.recorded.map((r) => r.text).slice(-3), ['A at 0', 'B at 14', 'B at 16']);
+});
+
+test('#5191: a check that cannot read the rooms record is not counted as a check', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-eio', 'reio', 1);
+  t.mock.timers.tick(20 * 1000);
+  revoke(0);
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  post('held');
+  await settle();
+  // The record cannot be read while the answer comes back.
+  const real = fedseal.roomState;
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  release();
+  h.gate = null;
+  await settle();
+  broken.mock.restore();
+  assert.strictEqual(fedseal.roomState, real);
+  t.mock.timers.tick(2000);
+  post('2 s later');
+  await settle();
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'an unreadable record counted as a check and let the revoked key through');
+  assert.strictEqual(fedseal.roomState('proj-5191-eio').epoch, 1);
+});
+
+test('#5191: a held post keeps the grace it arrived in, even when its check fails until the pass', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-graceheld', 'rgh', 2);
+  revoke(0);
+  await fedseats.ensureAll();   // the pass rotates at R
+  await settle();
+  assert.strictEqual(fedseal.roomState('proj-5191-graceheld').epoch, 1, 'fixture: rotated');
+  t.mock.timers.tick(40 * 1000);
+  h.edges = null;                // Kosmos+ cannot answer
+  post('sealed before the remaining member caught up');   // old key, R+40: inside the 90 s grace
+  await settle();
+  assert.deepStrictEqual(shown(h), []);
+  t.mock.timers.tick(60 * 1000); // the next pass, R+100, its check failing too
+  await fedseats.ensureAll();
+  await settle();
+  assert.deepStrictEqual(shown(h), ['sealed before the remaining member caught up'], 'the hold ran out the post\'s grace');
+});
+
+test('#5191: a clock stepped back does not reopen the previous key', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-backgrace', 'rbg', 2);
+  revoke(0);
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-5191-backgrace', federation.linkFor('proj-5191-backgrace'), null), true);
+  t.mock.timers.setTime(Date.parse('2026-10-03T19:00:00Z'));   // an hour back
+  await fedseats.ensureAll();
+  await settle();
+  post('old key, clock back');
+  await settle();
+  assert.deepStrictEqual(shown(h), []);
+});
+
+test('#5191: a pass that cannot read the rooms record does not count the room as checked', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, revoke, post } = await pinnedRoom('proj-5191-eiopass', 'reip', 1);
+  t.mock.timers.tick(20 * 1000);
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  await fedseats.ensureAll();
+  await settle();
+  broken.mock.restore();
+  revoke(0);
+  t.mock.timers.tick(2000);
+  post('2 s after an unreadable pass');
+  await settle();
+  assert.deepStrictEqual(shown(h), [], 'an unreadable pass counted as a check');
 });

@@ -39,7 +39,8 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
 With members left: about min(90 s, the relay's ticket life ~60 s) + 15 s, so about 75 s. With none:
 B's detection, up to 15 s after the ask the last check used, plus one coordinator round trip (a post
 that joins a check already out is released under that check), plus in-flight posts. Held posts pass
-the room's minute budget on release exactly as they would have live.
+the room's minute budget when released, so a burst released together spends the window it lands in.
+A held post is judged against the grace at the later of its arrival and the last rotation.
 
 ## Controls (engine/fedseats.test.js, '#5191' tests), each perturbed to red
 only-member revoke + post 10 s later refused / same post before shown; two members 90 s grace incl.

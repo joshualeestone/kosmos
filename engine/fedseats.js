@@ -114,11 +114,11 @@ function clean(v, max) {
    only if it carries text, and its `from`/`kind` are taken as the sender's own
    claim about themselves, stored as data. */
 function onEvent(projectId, line) {
-  handleEvent(projectId, line, false);
+  handleEvent(projectId, line, 0);
 }
-/* `checked` (#5191): a post held for an edge check being let through after it. Not exported,
-   so no outside caller can skip the hold. */
-function handleEvent(projectId, line, checked) {
+/* `heldAt` (#5191): when a post held for an edge check arrived, as it is let through after
+   the check. Not exported, so no outside caller can skip the hold. */
+function handleEvent(projectId, line, heldAt) {
   let ev;
   try { ev = JSON.parse(line); } catch { return; }
   if (!ev || typeof ev !== 'object') return;
@@ -166,8 +166,7 @@ function handleEvent(projectId, line, checked) {
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
       // #5191: an owner opens a post only after a recent enough edge check (holdForCheck).
-      // `checked`: this is a held post being let through after its check.
-      if (!checked && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, ev.data, line, now)) return;
+      if (!heldAt && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, ev.data, line, now)) return;
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
       // re-send arrives it holds its posts (a revoked member may still hold its key).
       // Any epoch ahead counts (a member may have missed several rotations), but the
@@ -175,7 +174,10 @@ function handleEvent(projectId, line, checked) {
       // ONCE per epoch this member holds, for BEHIND_HOLD_MS: forged envelopes, however
       // many and whatever epochs they claim, cannot pause a member for longer than that.
       const ahead = sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch > sealed.epoch;
-      const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
+      // A held post is judged at the later of its arrival and the room's last rotation, so the
+      // hold itself cannot run out its grace, and a rotation the check made still applies.
+      const keysAt = heldAt ? Math.max(heldAt, Number.isFinite(sealed && sealed.rotatedAt) ? sealed.rotatedAt : 0) : now;
+      const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, keysAt), s.room, ev.data) : null;
       if (!opened && ahead) {
         if (s.behindArmedAt !== sealed.epoch) {
           s.behindArmedAt = sealed.epoch;
@@ -527,7 +529,7 @@ function isSealedRoom(st, link) {
 function acceptedKeys(st, now) {
   const keys = { [st.epoch]: st.keys[st.epoch] };
   const prev = st.epoch - 1;
-  if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt < graceAfter(st)) keys[prev] = st.keys[prev];
+  if (prev >= 0 && typeof st.keys[prev] === 'string' && Number.isFinite(st.rotatedAt) && now - st.rotatedAt >= 0 && now - st.rotatedAt < graceAfter(st)) keys[prev] = st.keys[prev];
   return keys;
 }
 /** #5191: how long the previous epoch opens after this room's last rotation. An owner
@@ -612,12 +614,15 @@ function rotateForRevoked(projectId, link, edges) {
 function revokeCheck(projectId, link, edges) {
   return sealStep(projectId, async () => {
     const first = roomSeal(projectId);
+    // A record that cannot be read is not a check (nothing could have been rotated).
+    if (first === undefined) return { checked: false, rotated: false };
     if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return { checked: true, rotated: false };
     let r;
     try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return { checked: false, rotated: false }; }
     if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return { checked: false, rotated: false };
     const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
     const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
+    if (st === undefined) return { checked: false, rotated: false };
     if (!hasKey(st) || st.role !== 'owner') return { checked: true, rotated: false };
     const peers = st.peers || {};
     // Only an edge the coordinator names as no longer active counts; an edge it does not
@@ -676,8 +681,8 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     const held = s.held;
     s.held = [];
     s.heldIds = new Set();
-    for (const line of held) {
-      try { handleEvent(projectId, line, true); } catch (err) {
+    for (const { line, at } of held) {
+      try { handleEvent(projectId, line, at); } catch (err) {
         console.error('#5191: a held post for ' + JSON.stringify(projectId) + ' could not be handled: ' + String((err && err.message) || err));
       }
     }
@@ -708,7 +713,7 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
     return true;
   }
   s.heldIds.add(opened.id);
-  s.held.push(line);
+  s.held.push({ line, at: now });
   if (!s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const link = safeLink(projectId);
     if (link && link.role === 'owner') {
