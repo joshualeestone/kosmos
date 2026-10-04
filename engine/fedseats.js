@@ -1046,8 +1046,9 @@ function post(projectId, { from, kind, text }) {
   // #5197: past the hold, still on the epoch it held when the hold armed (the armed epoch is
   // unauthenticated, so a member that has rotated since is not warned): the post goes out
   // under the old key, which the other boards refuse once the rotation is 90 s old. Said
-  // once per epoch that armed a hold: a forged envelope claiming another epoch does not use
-  // up the note for a real miss, one that guesses the next epoch does (the #5192 class).
+  // once per armed hold, the same as the hold: while this member stays on one epoch, a forged
+  // envelope that armed the hold uses up the note for a real miss at that epoch too (the
+  // #5192 class, stated in the plan).
   if (sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) {
     noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
