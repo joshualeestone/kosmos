@@ -1105,6 +1105,16 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   }
 }
 
+/* #5223: what viewport() says for a Windows agent, which has no window. Exported so tests share one copy. */
+const NO_WINDOW_BECAUSE = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
+
+/* #5223: one sentence for every keysAllowed caller (Stop now, stop helpers, the Gemini quota Stop). It says
+   the outcome, true for all three: it was not stopped (for the Gemini quota, its Stop was not chosen). A
+   Windows agent has no window to go to, and Restart (stop and start, under AI Settings) works on Windows
+   (#3431), so that is where it points, with its cost in the page's own words (the Restart dialog's): heavier
+   than the key the person asked for, so said. */
+const WIN32_NO_KEYS_SENTENCE = 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; Restart under its AI Settings ends what it is doing, and it comes back with nothing in its memory';
+
 /**
  * #3564: the gate for Stop now's keystrokes. deliver's own checks for a key that is not a
  * message: exact name, ours, an agent pane (`addressable`); NOT on Claude Code's trust
@@ -1118,7 +1128,7 @@ function keysAllowed(sessionName, roster) {
     return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
   }
   if (allowed.card.reachedByChannel === true) {
-    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
+    return { ok: false, because: WIN32_NO_KEYS_SENTENCE };
   }
   /* #4589 round 2: Stop now's keys obey the same Codex rule as a message (Escape and C-x C-k are keys too, and
      C-x C-k on Codex's hook dialog is unmeasured). */
@@ -1256,7 +1266,7 @@ const CODEX_HOOK_STEPS = {
 };
 async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card, seen) {
   if (card.runner !== 'codex') return no('that is not a Codex agent');
-  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
+  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet, and a Windows agent has no window to answer it in');
   const t = paneTarget(card);
   const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
   const look = () => {
@@ -1863,6 +1873,16 @@ function viewport(sessionName, roster) {
   }
   if (card.isNamedOurs !== true) {
     return { text: null, because: 'something is running under this name, but we cannot tell that it is this agent, so we are not showing you its screen' };
+  }
+  /* #5223: a Windows agent has NO window. It runs headless (`claude -p`, stream-json) under its
+     supervisor, the same fact `send` branches on above, read off the same card mark. The tmux
+     capture below could only fail, and its sentence ("could not reach the agents on this computer")
+     told every Windows user, on every agent page, that a working agent was unreachable. Said as
+     the fact it is, before tmux is asked, so nothing is spawned for an answer that is known.
+     `noWindow` lets a caller that words its own sentence off a null `text` (the routes' question
+     clause) tell "there is no window" from "we could not read it" without matching this wording. */
+  if (card.reachedByChannel === true) {
+    return { text: null, noWindow: true, because: NO_WINDOW_BECAUSE };
   }
   if (!card.target) {
     return { text: null, because: 'we cannot tell where this agent is running' };
@@ -3465,7 +3485,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
