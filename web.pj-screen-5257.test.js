@@ -62,6 +62,6 @@ test('#5257 CONTROL: a captured screen is shown under the member\'s name (the br
 
 test('#5257: paintThread hands its read and name to pjPaintScreen (the block is not painted some other way)', () => {
   const body = page.lift(SCRIPT, 'paintThread');
-  assert.match(body, /pjPaintScreen\(body, name\);/);
+  assert.match(body, /^\s*pjPaintScreen\(body, name\);/m, 'the call is gone, or only in a comment');   // review 1: anchored to a line
   assert.doesNotMatch(body, /getElementById\('pj-screen-label'\)/, 'paintThread paints the label itself again, beside the lifted painter');
 });
