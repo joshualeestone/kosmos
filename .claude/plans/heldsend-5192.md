@@ -54,8 +54,7 @@ An owner's post held before its first member is pinned goes to that member when 
 hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
 is sent to the first computer that joins with its key, if one joins within the hour.
 
-A seat stopped (unshared, project removed) or ended (member removed) with posts held says how many
-were not sent. A post held on no edge (an owner's own room, before any guest) still goes when the seat
+A seat that ends (member removed) with posts held says how many were not sent. A post held on no edge (an owner's own room, before any guest) still goes when the seat
 moves onto a guest's edge: that is the same room.
 
 ## Weakest premise
@@ -65,8 +64,8 @@ would change my mind: evidence that keys routinely take more than an hour to arr
 restart while posts wait.
 
 ## Not covered
-A seat that has ended (this member removed) never flushes: its held posts are never sent and never
-reported as expired; the room already says the connection ended.
+A seat stopped (unshared, project removed, or an id reused) drops its held posts without a note: a note
+keyed by that id could land in another project.
 A post refused because the seat is not connected at all ("the connection ... is not up") is not
 held: that is not this card (the key), and a seat can be down for days.
 A member posting under the old key after its behind hold ran out, past the 90 s grace (#5197), still

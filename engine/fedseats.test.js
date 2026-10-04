@@ -2452,7 +2452,7 @@ test('#5192: a forged epoch that armed a behind hold does not make a later flush
   assert.ok(!h.notes.some((n) => /under the key this computer has/.test(n.text)), 'a forged epoch made a flush under the current key claim the old one: ' + JSON.stringify(h.notes));
 });
 
-test('#5192: a seat stopped or ended with posts held says they were not sent', async () => {
+test('#5192: a seat that ends with posts held says they were not sent; a stopped one drops them silently', async () => {
   for (const how of ['stop', 'ended']) {
     const id = 'proj-5192-gone-' + how;
     federation.recordLink(id, { role: 'member', edge_id: 'edge-' + id });
@@ -2465,7 +2465,8 @@ test('#5192: a seat stopped or ended with posts held says they were not sent', a
     fedseats.post(id, { from: 'Ana', kind: 'person', text: 'held' });
     if (how === 'stop') fedseats.stop(id); else seat.emit('exit', 3);
     await settle();
-    assert.ok(h.notes.some((n) => /1 held message was not sent/.test(n.text)), how + ': ' + JSON.stringify(h.notes));
+    // stop() can run for an id that now names another project: no note there.
+    assert.strictEqual(h.notes.some((n) => /1 held message was not sent/.test(n.text)), how === 'ended', how + ': ' + JSON.stringify(h.notes));
   }
 });
 

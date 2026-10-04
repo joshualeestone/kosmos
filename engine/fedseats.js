@@ -915,7 +915,10 @@ function letGo(child, ms = STOP_KILL_MS) {
 function stop(projectId) {
   const s = seats.get(projectId);
   if (!s) return;
-  dropHeld(projectId, s, 'this project is no longer shared from here');
+  // Held posts go with the seat, silently: stop() also runs for an id that now names another
+  // project (a stale link, a reused id), where a note would land in the wrong room.
+  s.outbox = [];
+  s.staleHeld = 0;
   s.stopped = true;
   if (s.timer) clearTimeout(s.timer);
   if (s.child) letGo(s.child);
@@ -1015,10 +1018,10 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + '.');
   return false;
 }
-/** #5192: a seat stopped or ended with posts still held says so, once, instead of losing
-    them silently after its hold note promised they would go. */
+/** #5192: a seat that ends with posts still held says so, once, instead of losing them
+    silently after its hold note promised they would go. */
 function dropHeld(projectId, s, why) {
-  const n = (s.outbox ? s.outbox.length : 0);
+  const n = (s.outbox ? s.outbox.length : 0) + (s.staleHeld || 0);
   s.outbox = [];
   s.staleHeld = 0;
   if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + why + '.');
