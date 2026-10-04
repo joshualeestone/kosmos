@@ -1163,6 +1163,37 @@ test('a card that says "Needs you" over a screen we cannot read SAYS so, rather 
   } finally { restoreEng(); }
 });
 
+/* #5223: the fixture cannot build a REPORTED needs_you (how a Windows agent asks), so the engine's Windows
+   answer stands in for chat.viewport; engine/chat.test.js pins where that answer comes from (the
+   reachedByChannel card). These pin that each route honours the flag rather than falling through to the
+   could-not-read clause on a null text. The two routes compose the clause separately, so both are pinned. */
+async function withNoWindowViewport(path, fn) {
+  const restoreEng = withEngMode(true);
+  reset();
+  const real = chat.viewport;
+  chat.viewport = () => ({ text: null, noWindow: true, because: chat.NO_WINDOW_BECAUSE });
+  try {
+    await withThread(fleet.agent('zeta', { state: 'needs_you' }),
+      [{ ran: true, status: 1, out: '', err: 'no server running' }],
+      async ({ project }) => fn(json(await req(path(project)))));
+  } finally { chat.viewport = real; restoreEng(); }
+}
+function assertNoWindowClause(body) {
+  assert.equal(body.asking, true);
+  assert.equal(body.question, null);
+  assert.match(body.questionBecause, /on Windows there is no screen to read the question from/);
+  assert.doesNotMatch(body.questionBecause, /could not read/);
+}
+
+test('#5223: on the project thread, a Windows agent asking with no words says there is no screen, never could-not-read', () =>
+  withNoWindowViewport((project) => `/api/project/${project.id}/thread/zeta`, (body) => {
+    assertNoWindowClause(body);
+    assert.equal(body.viewport.noWindow, true, 'the page reads the flag to drop its "right now" lead');
+  }));
+
+test('#5223: on the agent thread, a Windows agent asking with no words says there is no screen, never could-not-read', () =>
+  withNoWindowViewport(() => '/api/agent/zeta/thread', assertNoWindowClause));
+
 test('a "Needs you" card over a READABLE screen missing the markers says that, not could-not-read', async () => {
   const restoreEng = withEngMode(true);
   reset();

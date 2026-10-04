@@ -172,10 +172,14 @@ test('#4607 answer: a bad choice, a non-Codex agent and a Windows agent are refu
   } finally { board.restore(); }
   await withCodex(MENU, async (board2) => {
     const card = board2.agents.find((c) => c.name === 'sam' || c.sessionName === 'sam');
-    if (card) card.reachedByChannel = true;
+    assert.ok(card, 'the Codex card is on the board');
+    card.reachedByChannel = true;
     const t = arm([MENU, MENU, IDLE]);
     const r = await chat.answerCodexHooks('sam', 'trust', board2.agents, SHOWN);
     assert.equal(r.ok, false);
+    assert.match(r.because, /cannot answer this on Windows yet/);
+    assert.match(r.because, /has no window to answer it in/, '#5223: it says why, and sends the person to no window');
+    assert.doesNotMatch(r.because, /own window/);
     assert.deepEqual(t.keys(), []);
   });
 });

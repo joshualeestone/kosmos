@@ -668,6 +668,40 @@ async function main() {
         viewportHidden: document.querySelector('.pj-viewport').hidden,
       }));
       if (revealed.viewportHidden) throw new Error('the switch is On and the raw window stayed hidden');
+      /* #5223, the project page: a Windows agent has NO window, and the engine says so with `noWindow`.
+         This sandbox has no Windows agent, so the engine's own answer is patched into the real thread
+         response (everything else is the route's). The block must state the fact as a sentence, without
+         the "We cannot see its screen right now." lead that would call a lasting fact a passing failure. */
+      {
+        // The engine's sentence, copied: this arm pins how the PAGE renders a no-window answer; the engine's
+        // wording itself is pinned by engine/chat.test.js (chat.NO_WINDOW_BECAUSE).
+        const NOWIN = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
+        let patched = 0;
+        await page.route('**/api/project/hendersonlease/thread/**', async (route) => {
+          const res = await route.fetch();
+          const body = await res.json();
+          body.viewport = { text: null, noWindow: true, because: NOWIN };
+          patched += 1;
+          await route.fulfill({ response: res, json: body });
+        });
+        await page.evaluate(() => loadThread());
+        await page.waitForTimeout(800);
+        const nw = await page.evaluate(() => document.getElementById('pj-screen-hint').textContent);
+        const nwLabel = await page.evaluate(() => document.getElementById('pj-screen-label').textContent);
+        await page.unroute('**/api/project/hendersonlease/thread/**');
+        if (!patched) throw new Error('#5223: the project thread was never fetched, so the no-window arm proved nothing');
+        if (!/^On Windows an agent runs without a window/.test(nw)) throw new Error('#5223: the project page did not state the no-window fact as a sentence: ' + JSON.stringify(nw));
+        if (/right now/.test(nw)) throw new Error('#5223: the project page kept its "right now" lead over a lasting fact: ' + JSON.stringify(nw));
+        if (!/\.$/.test(nw)) throw new Error('#5223: the no-window sentence lost its full stop: ' + JSON.stringify(nw));
+        if (nwLabel !== 'No screen to show') throw new Error('#5223: the project block heading still promises a screen: ' + JSON.stringify(nwLabel));
+        // CONTROL: unpatched, the next read paints the route's own answer, never the Windows sentence.
+        await page.evaluate(() => loadThread());
+        await page.waitForTimeout(800);
+        const back = await page.evaluate(() => document.getElementById('pj-screen-hint').textContent);
+        const backLabel = await page.evaluate(() => document.getElementById('pj-screen-label').textContent);
+        if (/On Windows/.test(back)) throw new Error('#5223 CONTROL: the Windows sentence outlived the Windows answer: ' + JSON.stringify(back));
+        if (backLabel === 'No screen to show') throw new Error('#5223 CONTROL: the Windows heading outlived the Windows answer');
+      }
       // The SECOND surface: the agent page's window box, opened on a card
       // PROVEN TIED. ⚠️ Since agent-page-nav the box is NOT on the switch
       // (an agent's own page always shows its window); this leg now only
@@ -709,6 +743,41 @@ async function main() {
       if (!win.preShown && !win.msgShown) throw new Error('the window box is an empty terminal: neither a capture nor a refusal in words');
       if (!win.preShown && win.hintText) throw new Error('an affirmative hint stands over a refused capture');
       if (win.preShown && !win.hintText) throw new Error('a visible capture lost its as-it-looks-right-now framing');
+      /* #5223, the agent page: the engine's no-window answer (stubbed on the window route; this sandbox
+         has no Windows agent) turns the heading away from "the window it is running in", sets the fact as a
+         sentence, and hides the send-into-this-window composer. Then, unstubbed, a Mac answer restores
+         all three (the state is cleared, never inherited). */
+      {
+        // The engine's sentence, copied: this arm pins how the PAGE renders a no-window answer; the engine's
+        // wording itself is pinned by engine/chat.test.js (chat.NO_WINDOW_BECAUSE).
+        const NOWIN = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
+        const readBox = () => page.evaluate(() => {
+          const comp = document.getElementById('d-term-composer');
+          return {
+            label: document.getElementById('d-window-label').textContent,
+            msg: document.getElementById('d-window-msg').textContent,
+            boxHidden: document.getElementById('d-window-box').hidden,
+            composerShown: getComputedStyle(comp).display !== 'none',
+          };
+        });
+        await page.route('**/api/agent/*/window', (route) => route.fulfill({ json: { text: null, noWindow: true, because: NOWIN } }));
+        await page.click('#d-nav button[data-go="talk"]');
+        await page.waitForTimeout(200);
+        await page.click('#d-nav button[data-go="model"]');
+        await page.waitForTimeout(800);
+        const nw = await readBox();
+        await page.unroute('**/api/agent/*/window');
+        if (nw.boxHidden) throw new Error('#5223: the no-window answer hid the box instead of saying the fact');
+        if (/window it is running in/.test(nw.label)) throw new Error('#5223: the heading still names a window the agent does not have: ' + JSON.stringify(nw));
+        if (!/^On Windows an agent runs without a window.*\.$/.test(nw.msg)) throw new Error('#5223: the no-window fact is not set as a sentence: ' + JSON.stringify(nw));
+        if (nw.composerShown) throw new Error('#5223: "send a message into this window" is offered for an agent with no window: ' + JSON.stringify(nw));
+        await page.click('#d-nav button[data-go="talk"]');
+        await page.waitForTimeout(200);
+        await page.click('#d-nav button[data-go="model"]');
+        await page.waitForTimeout(800);
+        const mac = await readBox();
+        if (!/window it is running in/.test(mac.label) || !mac.composerShown) throw new Error('#5223 CONTROL: the no-window state outlived the answer that set it: ' + JSON.stringify(mac));
+      }
       await page.click('#detail-back');
       await page.waitForTimeout(200);
       await page.click('.tab[data-tab="projects"]');
