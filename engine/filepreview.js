@@ -58,7 +58,8 @@ function readChecked(got) {
     const bytes = Buffer.alloc(st.size);
     let off = 0;
     while (off < st.size) { const n = fs.readSync(fd, bytes, off, st.size - off, off); if (n <= 0) break; off += n; }
-    return { ok: true, bytes: off === st.size ? bytes : bytes.subarray(0, off) };
+    if (off !== st.size) return { ok: false, because: 'that file changed while it was being read' };   // shrank: never a cut-off picture
+    return { ok: true, bytes };
   } catch { return { ok: false, because: 'that file could not be read' }; }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
@@ -72,8 +73,6 @@ function prune() {
   for (const { d } of aged.slice(0, aged.length - CACHE_KEEP)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* next time */ } }
 }
 
-/** The bytes of a listed file, for the preview's Download (over Kosmos+, where the file is not on the computer in
-    front of the person). Capped like an attachment. */
 /** The picture the preview shows: { ok, type, bytes } or { ok: false, because }. */
 async function preview(folder, name, where, opts) {
   const got = resolve(folder, name, where, opts);
