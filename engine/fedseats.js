@@ -493,7 +493,7 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
    #5197: a member that has received the rotation uses the same grace. A member the relay
    never sends the rotation to stays on the old key (fedseal.js NOT CLAIMED). Members hold nothing for
    an edge check, so on a member's board a revoked member is shown until the owner detects
-   the revoke and the rotation reaches the member, plus this grace (longer by any amount the
+   the revoke and the rotation reaches the member, plus at most this grace (longer by any amount the
    member's clock runs behind the owner's: fedseal.js NOT CLAIMED). A member's grace runs from the
    owner's rotation time on its own clock: a member clock running ahead shortens it
    (fails closed: in-flight posts refused there). */
@@ -801,7 +801,6 @@ function onKeyFrame(projectId, s, frame) {
       // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
       // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
-      if (s.behind && got.epoch >= s.behind.epoch) s.behind = null;   // caught up to what armed the hold
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.

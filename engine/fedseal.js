@@ -34,7 +34,9 @@
  * a key rotation is judged the same way, against the owner's rotation time: a member clock
  * running ahead of the owner's shortens it (posts sealed just before a rotation refused), and
  * one running behind lengthens it by up to that difference, since a late rotation and a slow
- * clock look the same from the member's side (#5197).
+ * clock look the same from the member's side (#5197). A member that misses a rotation for
+ * longer than that grace has its next old-key posts refused on the other boards, and its own
+ * board shows them as sent (nothing resends a refused post: #5192).
  * Nonces are random 96-bit under one room key, safe to about 2^32 messages per
  * epoch, far past any room's life at the inbound budget (2,000 rows a day).
  */

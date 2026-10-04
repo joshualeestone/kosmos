@@ -29,8 +29,10 @@ member's clock (#3728), so a member catching up late does not reopen the old key
 clock runs behind the owner's: then it runs from receipt, lengthening the grace by up to the skew
 (also in NOT CLAIMED). A clock reference to close that is out of scope.
 
-A member refusing an older, retired epoch's post now gets the same 'key was retired' note as
-the owner instead of 'could not open'.
+A member refusing an older epoch's post it held now gets a 'key was retired' note instead of
+'could not open'. That note (shared with the owner, reworded here) names both causes, someone
+removed or a computer still catching up; a member's also names its own clock running ahead.
+A member past its 3 minute behind hold is told once that a post may not be shown.
 
 ## Control
 engine/fedseats.test.js '#5197': rotate at R; an old-key post at R+89 s shows, one at R+91 s
