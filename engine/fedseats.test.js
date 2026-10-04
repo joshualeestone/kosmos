@@ -1764,7 +1764,7 @@ test('#5197: a remaining member opens a revoked member\'s old key for 90 s after
   await settle();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['at 89 s'], 'a member opened the old key past 90 s');
   assert.ok(h.notes.some((n) => /earlier key arrived after that key was retired/.test(n.text)), 'refused for some other reason: ' + JSON.stringify(h.notes));
-  assert.ok(h.notes.some((n) => /clock is ahead of the owner/.test(n.text)), 'a member\'s note does not name its clock: ' + JSON.stringify(h.notes));
+  assert.ok(h.notes.some((n) => /clock may be ahead of the owner/.test(n.text)), 'a member\'s note does not name its clock: ' + JSON.stringify(h.notes));
 });
 
 test('#5197: a member that joined after a rotation is not told a key was retired for an epoch it never held', async (t) => {
@@ -1964,4 +1964,23 @@ test('#5197: a forged epoch that armed a hold does not use up the warning for a 
   t.mock.timers.tick(3 * 60 * 1000 + 1000);
   fedseats.post('proj-5197-twice', { from: 'B', kind: 'person', text: 'after a real hold' });
   assert.strictEqual(warned(), 2, 'the forged hold used up the warning for the real one');
+});
+
+test('#5197: a member that rotated since a forged epoch armed its hold is not warned it may be behind', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T22:00:00Z') });
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5197-stale', { role: 'member', edge_id: 'edge-5197-stale' });
+  fedseal.setRoomState('proj-5197-stale', { role: 'member', s: fedseal.randomSecret(), code: 'code-stale', peer: owner.pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('proj-5197-stale');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-5197-stale', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 999, 'room-5197-stale', { from: 'Forger', kind: 'person', text: 'x' }) });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, fedseal.randomSecret(), 1, 'room-5197-stale', Date.now()) });
+  await settle();
+  t.mock.timers.tick(3 * 60 * 1000 + 1000);
+  assert.strictEqual(fedseats.post('proj-5197-stale', { from: 'B', kind: 'person', text: 'current' }), true);
+  assert.ok(!h.notes.some((n) => /may be behind on this shared room/.test(n.text)), JSON.stringify(h.notes));
 });

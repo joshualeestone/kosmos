@@ -203,7 +203,7 @@ function handleEvent(projectId, line, heldAt) {
         }
         if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
           && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : ', or this computer\'s clock is ahead of the owner\'s.'));
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : '. Or this computer\'s clock may be ahead of the owner\'s.'));
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -510,7 +510,8 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    envelope cannot be checked before it opens, so a forged one must cost no more than
    this pause, which is no more than a relay can do anyway by dropping frames. Longer than
    the 90 s grace (#5197), and armed no earlier than the rotation, so a post sent after it,
-   still under the old key, is past the grace and refused on the other boards: holding until the key arrives would let a forger pause a member
+   still under the old key, is past the grace and refused on the other boards (those whose
+   clock is not behind the owner's): holding until the key arrives would let a forger pause a member
    indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
@@ -995,12 +996,6 @@ function post(projectId, { from, kind, text }) {
         : 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
       return false;
     }
-    // #5197: past the hold and maybe still behind (the epoch that armed it is unauthenticated):
-    // the post goes out under the old key, which the other boards refuse once the rotation is
-    // 90 s old. Said once per epoch that armed a hold (a forged one cannot use up the note).
-    if (s.behind && s.behind.epoch > sealed.epoch) {
-      noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
-    }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');
       return false;
@@ -1013,6 +1008,13 @@ function post(projectId, { from, kind, text }) {
   if (Buffer.byteLength(line) > MAX_POST_LINE) {
     say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
     return false;
+  }
+  // #5197: past the hold, still on the epoch it held when the hold armed (the armed epoch is
+  // unauthenticated, so a member that has rotated since is not warned): the post goes out
+  // under the old key, which the other boards refuse once the rotation is 90 s old. Said
+  // once per epoch that armed a hold, so a forged one cannot use up the note.
+  if (sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) {
+    noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
   }
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
 }
