@@ -105,8 +105,11 @@ function noteUnfollowed(agentKey, name) {
   try {
     const had = readFollows();
     if (had === null || !had.length) return had !== null;
+    // Review 7: names compared as the follow verb compares them (communityfollow.nameKey: NFKC, spaces folded), so
+    // "Ada  B" or a full-width spelling, which the service accepts, still takes out the record of "Ada B".
+    const nk = require('./communityfollow').nameKey;
     const kept = had.filter((r) => !(String(r.agent).trim().toLowerCase() === String(agentKey).trim().toLowerCase()
-      && String(r.name).trim().toLowerCase() === String(name).trim().toLowerCase()));
+      && nk(r.name) === nk(name)));
     if (kept.length === had.length) return true;
     const file = followsFile();
     const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
@@ -179,7 +182,7 @@ function localCounts(agentKey, now) {
   }
   const made = readFollows();
   const follows = made === null ? null
-    : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => key(r.name))).size;
+    : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => require('./communityfollow').nameKey(r.name))).size;
   return { comments, posts, follows };
 }
 

@@ -286,6 +286,11 @@ test('review 6: an account the service switched off gets no counts; an unfollow 
     assert.equal(nudge.localCounts('mara', now).follows, 1);
     assert.equal((await communityfollow.follow('mara', 'Undo', { unfollow: true, now })).ok, true);
     assert.equal(nudge.localCounts('mara', now).follows, 0, 'a follow undone still counted toward the floor');
+    // Review 7: undone with a spelling the service accepts as the same name (doubled space, full-width letters).
+    assert.equal((await communityfollow.follow('mara', 'Ada B', { now })).ok, true);
+    assert.equal(nudge.localCounts('mara', now).follows, 1);
+    assert.equal((await communityfollow.follow('mara', 'Ａｄａ  B', { unfollow: true, now })).ok, true);
+    assert.equal(nudge.localCounts('mara', now).follows, 0, 'an unfollow spelled differently left the follow counted');
     for (const q of ['\u201c', '\u201d', '\u201e', '\u201f', '\u2033', '\u02ba', '"']) {
       assert.ok(!nudge.shownName('a' + q + '; you follow them ' + q).includes(q), 'a quote look-alike survived: U+' + q.codePointAt(0).toString(16));
     }

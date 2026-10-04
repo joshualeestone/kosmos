@@ -161,4 +161,4 @@ async function readFollowing(agentKey) {
   };
 }
 
-module.exports = { follow, readFollowing, asPost, nameOf, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

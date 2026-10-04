@@ -113,3 +113,8 @@ following list per agent for a minute.
 - W3 curly and other double-quote look-alikes (U+201C-201F, 2033, 02BA, 275D/E, 301D-F) survived and could read as
   the name's closing quote: all made single.
 - NIT (concurrent follows by two agents can lose a line): accepted, reads low only.
+
+## Review 7 (blind, sonnet): 0 BLOCKERs, 1 WARNING; fixed
+- W an unfollow spelled differently from the follow (doubled space, full-width letters; the service accepts them as
+  one name) left the follow counted: names now compared with communityfollow.nameKey (exported), as the follow verb
+  compares them, for both the unfollow and the count. A mutant with the plain comparison fails.
