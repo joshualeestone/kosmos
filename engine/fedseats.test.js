@@ -2274,3 +2274,48 @@ test('#5192: what is held fits the receiving board\'s minute: held bytes are cap
   assert.ok(bytes <= fedseats.INBOUND_BYTES_PER_WINDOW, 'one flush sent ' + bytes + ' bytes, more than a receiving board keeps in a minute');
   assert.ok(out.length >= 30, 'fixture: most were held');
 });
+
+test('#5192: a flush that meets an unreadable rooms record keeps the posts held for the next one', async (t) => {
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-5192-eio', { role: 'member', edge_id: 'edge-5192-eio' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-5192-eio', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192eio', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-5192-eio');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', expires_at: 9 });   // no room id yet: the post is held
+  await settle();
+  fedseats.post('proj-5192-eio', { from: 'Ana', kind: 'person', text: 'kept' });
+  const broken = t.mock.method(fedseal, 'roomState', () => { throw new Error('EIO'); });
+  say(seat, { event: 'connected', room: 'room-5192-eio', expires_at: 10 });
+  await settle();
+  broken.mock.restore();
+  assert.ok(!h.notes.some((n) => /stayed on this computer/.test(n.text)), 'a held post was dropped on an unreadable record: ' + JSON.stringify(h.notes));
+  const before = lines(seat).length;
+  await fedseats.ensureAll();
+  await settle();
+  const out = lines(seat).slice(before).map((f) => fedseal.open({ 0: k0 }, 'room-5192-eio', f)).filter(Boolean);
+  assert.deepStrictEqual(out.map((o) => o.m.text), ['kept']);
+});
+
+test('#5192: an owner\'s held post says it goes to the first computer that joins', async () => {
+  const inv = newInvite('5192n');
+  const { h } = await ownerRoom('proj-5192-note', 'ref-5192-note', 'room-5192-note', [inv]);
+  fedseats.post('proj-5192-note', { from: 'Josh', kind: 'person', text: 'before anyone' });
+  assert.ok(h.notes.some((n) => /sent to the first computer that joins with its key, if one joins within the hour/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5192: posts that age out with no key are reported at the next pass, not only when a key arrives', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T01:00:00Z') });
+  federation.recordLink('proj-5192-quiet', { role: 'member', edge_id: 'edge-5192-quiet' });
+  fedseal.setRoomState('proj-5192-quiet', { role: 'member', s: fedseal.randomSecret(), code: 'code-5192quiet', peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-5192-quiet');
+  say(h.spawned[0], { event: 'connected', room: 'room-5192-quiet', expires_at: 9 });
+  await settle();
+  fedseats.post('proj-5192-quiet', { from: 'Ana', kind: 'person', text: 'never keyed' });
+  t.mock.timers.tick(61 * 60 * 1000);
+  await fedseats.ensureAll();
+  await settle();
+  assert.ok(h.notes.some((n) => /1 held message was not sent: held for more than an hour/.test(n.text)), JSON.stringify(h.notes));
+});

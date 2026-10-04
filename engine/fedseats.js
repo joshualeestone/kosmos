@@ -964,7 +964,8 @@ async function ensureAll() {
    a board restart loses them, and the room's own copy of each stays where it was. */
 const HELD_POSTS_MAX = 50;
 /* And bytes: a flush sends them in one go, and the receiving board keeps at most
-   INBOUND_BYTES_PER_WINDOW a minute, so what is held must fit inside it. */
+   INBOUND_BYTES_PER_WINDOW a minute for the whole room, so what is held stays well inside
+   it. Not a guarantee: other posts in that same minute share the receiver's budget. */
 const HELD_POSTS_BYTES = INBOUND_BYTES_PER_WINDOW * 3 / 4;
 const heldSize = (m) => Buffer.byteLength(String(m.text || '')) + Buffer.byteLength(String(m.from || ''));
 const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
@@ -999,7 +1000,8 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
 /** Send the posts held for the key, oldest first, now that it may have arrived. One that
     still cannot go is held again, with everything after it, in order. */
 function flushHeld(projectId, s) {
-  if (!s || !s.outbox || !s.outbox.length || s.flushing) return;
+  if (!s || s.flushing || ((!s.outbox || !s.outbox.length) && !s.staleHeld)) return;
+  s.outbox = s.outbox || [];
   // Only through this seat while it is the project's live, connected seat: a seat replaced
   // (an id reused) or not up keeps its posts held rather than sending or dropping them.
   if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child) return;
@@ -1057,19 +1059,23 @@ function sendPost(projectId, { from, kind, text, files }, heldAt) {
   const link = sealLink(projectId);
   const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
   if (sealedRoom === undefined) {
+    // #5192: a held post meeting a record it cannot read now is held again, not dropped.
+    if (heldAt && s.outbox) { s.outbox.push({ msg, at: heldAt }); return false; }
     say(projectId, 'That message stayed on this computer: it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed.');
     return false;
   }
   if (sealedRoom) {
     if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
-      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or when this computer stops waiting for it in a few minutes (then under the key it has, which the others may not accept)', heldAt);
+      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives, or within about four minutes, when this computer stops waiting for it (then under the key it has, which the others may not accept)', heldAt);
     }
     if (!hasKey(sealed) || !s.room) {
       return holdPost(projectId, s, msg, hasKey(sealed)
         ? 'this computer has not heard this shared room\'s name from the relay yet'
         : link && link.role === 'owner'
         ? 'this shared room is sealed, and no member\'s computer has joined with its key yet'
-        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', 'when the key arrives, if it arrives within the hour', heldAt);
+        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', hasKey(sealed) || !link || link.role !== 'owner'
+        ? 'when the key arrives, if it arrives within the hour'
+        : 'to the first computer that joins with its key, if one joins within the hour', heldAt);
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
       say(projectId, 'That message stayed on this computer: it could not be sealed.');

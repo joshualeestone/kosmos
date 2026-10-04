@@ -24,7 +24,9 @@ the member has; the hold note says so (the others may not accept it, #5197).
 A post re-held during a flush keeps the time it was first held, so passes never reset its hour. A
 flush runs only through the project's live, connected seat (a key that arrives while the seat is down
 keeps the posts held until it is up; a replaced seat never sends another's). A held post the write
-loses stays held.
+loses stays held. A flush that meets an unreadable rooms record holds the posts again for
+the next one. The byte cap keeps a flush well inside the receiver's minute but is not a guarantee:
+other posts in that minute share it.
 At most 50 held per seat, and at most 3/4 of the receiving board's minute byte budget (a flush sends them
 in one go; past either: "stayed on this computer ... as many messages as Kosmos sends at once");
 one held more than an hour is not sent, and no longer counts against the cap; the room says how many. Sealed at send time, so the
@@ -37,8 +39,8 @@ arrives.
 
 ## Owner side (asked in review, kept)
 An owner's post held before its first member is pinned goes to that member when it joins (within the
-hour). That is the card's ask (held, then sent), and the hold note says it is sent when the key
-arrives.
+hour). That is the card's ask (held, then sent), and the owner's hold note says exactly that: it
+is sent to the first computer that joins with its key, if one joins within the hour.
 
 ## Weakest premise
 Held posts live in the seat's memory: a board restart, or the seat being stopped, loses them (the
