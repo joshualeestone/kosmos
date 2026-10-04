@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: orgkeys-4560
-diff_hash: 2c7294bb65b77eb524d801e61675d6af73ba02558755782448c2d54863d1c17c
-validation: engine/orgchartkeys.test.js 28/28, engine/orgchartfile.test.js 51/51, server.orgchart-read-4559.test.js 18/18 on the merged tree; web/index.html inline scripts parse; the timeout pin perturbed red (300 s key read, 120 s Claude read); model ids verified current against provider docs 2026-10-03; full suite and render-orgchart-file-4559 browser check NOT yet run (Agent1s queue is day-one only until 07:00)
+diff_hash: 2aa243cfe1b6b9b0a041eeb7517700172597e98348fe6bb642438376f44dcb65
+validation: engine/orgchartkeys.test.js 28/28, engine/orgchartfile.test.js 51/51, server.orgchart-read-4559.test.js 18/18 on the merged tree; web/index.html inline scripts parse; the timeout pin perturbed red (300 s key read, 120 s Claude read); model ids verified current against provider docs 2026-10-03; render-orgchart-file-4559 browser check: 1 FAILED on its first run (05:53, a race in the check), passed TWICE at bdebc7503 after the fix (05:56-05:58); full suite PENDING (queued on Agent1s at bdebc7503)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-04T04:59:41Z
-iterations: 5
+timestamp: 2026-10-04T10:59:43Z
+iterations: 6
 converged: true
 ---
 
@@ -52,3 +52,21 @@ converged: true
 #### Iteration 5 (opus, full fresh read): 0 B, 0 W, 0 C, 2 N. CONVERGED. Confirmed: file/key only to the provider, consent unskippable from the page, right provider billed, Gemini unreachable, model answer never executable, panel never stuck.
 - [NIT] a KEY PROVIDER line's '!consent' half could not fail (FIXED, retitled to what the page shows; server test guards the refusal)
 - [NIT] timeout test title overclaimed the relay case (FIXED). Both test text only, after convergence.
+
+### Re-loop after the browser check's first run (2026-10-04, Ice Cream Kitty)
+The owed browser check render-orgchart-file-4559 ran for the first time at 05:53 on 5065a51a4: 1 FAILED, the KEY
+PROVIDER reading-message arm, got [false, "Reading your chart. This can take up to two minutes."]. Cause, read in the
+check: the page says "Reading your chart" as Read it is pressed, before the request reaches the stubbed route, and the
+check read `heldOnce` at that instant. bdebc7503 waits (bounded, 5 s) for the held request before reading; the check then
+passed twice in a row (one queue turn, 05:56-05:58).
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above
+- [NIT] render-orgchart-file-4559.js:513 - the waitForFunction for the message is now redundant (kept as a cheap early exit)
+- [NIT] render-orgchart-file-4559.js:516 - waitForRequest would be more direct than polling heldOnce
+- [NIT] render-orgchart-file-4559.js:527 - a timer rewriting the message after the request leaves would not be seen by one read
+- [NIT] commit trailer model name (the reviewer's premise was wrong: this session's attribution names Opus 5.5)
+**Converged** - no new actionable findings. The rest of the branch is unchanged since iteration 5.
+
