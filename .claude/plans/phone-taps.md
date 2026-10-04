@@ -82,6 +82,13 @@ MONDAY (main is frozen until the 07:00 pin).
   (T1, T2, T6: fixed); body's overflow was taken as a clip (it is the viewport's: skipped, T4 caught); contain
   paint/strict/content clips like overflow; an off-screen bound probe now fails rather than passes.
 
+- Cross-reviews (April static, Renet ran it; 02:2x): the check passes 34/34 in Chromium AND WebKit (Renet). W1: a 44px
+  document row put the name 6px from the top (align-items baseline) -> align-items: center in the touch rule, pinned.
+  W2: the Browser-check-surface line now names namego, utoast, qopt, pj-doc, plus-site-link, team-orgchart-open, pj-sort,
+  apphead. W3: Sort projects and the menu tabs are now MEASURED on the real page and the real open menu (44, 44/44/44).
+  Still read from computed style only (named): Join Kosmos+, Upload an org chart, Try again and the document row, which
+  need data or flows the fixture does not have.
+
 ## Weakest premise
 - WebKit ran on Mortals in Angel's review (AI settings and names clean); not re-run here after round 2's changes,
   which touch only the tool and the check, not the page's CSS.
