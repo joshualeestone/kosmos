@@ -18,7 +18,7 @@ The design, the provider table, Liu Kang's rulings and the weakest parts are Kan
 ## Changed in the continuation (round 1)
 - Key reads stop at 110 s, was 300 s: a read from a phone goes through the Kosmos+ relay, which gives up after
   120 s with no answer (kosmos-relay crates/tunnel/src/proxy.rs BOARD_RESPONSE_HEAD_TIMEOUT), so a longer read
-  was billed to the key and seen by nobody. The Claude read already stops at 120 s. The page now says "up to two
+  was billed to the key and seen by nobody. The page now says "up to two
   minutes" instead of "a few minutes". Rejected: a longer limit only for local reads (the board would have to
   tell a relayed request apart). Round 2: the Claude read's 120 s was EQUAL to the relay's, not under it (my
   round-1 comment said otherwise), so it stops at 110 s too. Both are pinned under 120 s by one test.

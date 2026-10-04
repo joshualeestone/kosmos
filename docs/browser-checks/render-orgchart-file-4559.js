@@ -511,7 +511,8 @@ async function run() {
       const k1 = await readPreview(pk);
       await pk.click('#orgchart-consent-go').catch(() => {});
       await pk.waitForFunction(() => /Reading your chart/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 5000 }).catch(() => {});
-      const reading = await pk.$eval('#orgchart-msg', (e) => e.textContent).catch(() => '');
+      const reading = await pk.$eval('#orgchart-msg', (e) => (e.hidden || e.closest('[hidden]') ? '(hidden) ' : '') + e.textContent).catch(() => '');
+      const heldReached = heldOnce;   // the consented read reached the route and is waiting there
       releaseFirst();
       await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 }).catch(() => {});
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
@@ -520,7 +521,7 @@ async function run() {
       check('KEY PROVIDER: the consent names the key provider and account, says which key it is billed to, and says what the provider keeps',
         /xAI Grok \(work\), billed to your xAI Grok key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
       check('KEY PROVIDER: Read it sends back the reader the consent named (the board refuses any other)', sentReader === 'xai:0123456789ab', JSON.stringify(sentReader));
-      check('KEY PROVIDER: while a key provider reads, the page says it can take up to two minutes, not Claude\'s ten seconds', /up to two minutes/.test(reading) && !/ten seconds/.test(reading), JSON.stringify(reading));
+      check('KEY PROVIDER: while a key provider reads, the page shows that it can take up to two minutes, not Claude\'s ten seconds', heldReached && /^Reading your chart/.test(reading) && /up to two minutes/.test(reading) && !/ten seconds/.test(reading), JSON.stringify([heldReached, reading]));
       check('KEY PROVIDER: a kind it cannot read (Grok and a PDF) is said with no consent box', k2.msg.includes(grokPdf) && !k2.consent, JSON.stringify([k2.msg, k2.consent]));
       changed = true;
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
