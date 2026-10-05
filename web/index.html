@@ -3598,7 +3598,7 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   #s-nav #s-nav-more { position: sticky; right: -32px; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -12px;
                       display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
                       background: var(--k-bg); color: var(--k-ink); box-shadow: 0 0 0 1px var(--k-rule); }
-  #s-nav:not([data-edge="r"]):not([data-edge="lr"]) .snav-more { display: none; }
+  #s-nav:not([data-edge="r"]):not([data-edge="lr"]) #s-nav-more { display: none; }   /* two ids, to outrank the rule above */
   #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
   #s-nav button[data-dot] { padding-right: 28px; }
   #panel-settings input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
