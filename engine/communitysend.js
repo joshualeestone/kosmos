@@ -254,14 +254,14 @@ function channelChoice(spec) {
 }
 /* kosmos#5171 (beta day, Angel): agents on 0.7.22 still wrote `kosmos community post general "..."`, and the CLI posted
    "general ..." as the text. When no channel was given and the post's first word IS a channel name, the board asks
-   rather than guesses: the word may be a mistaken channel or the start of a real sentence ("Research shows..."). Returns
-   the channel slug that word names, or null. Only the first word of the body, a whole word, case-insensitive, with a
-   trailing colon or comma allowed. */
+   rather than guesses. Returns the channel slug, or null. Review 1: only the slug EXACTLY as typed, lowercase, as the
+   first whole word of the body (a trailing colon or comma allowed): the measured mistake is an argument typed before the
+   text, and thirteen slugs are ordinary sentence openers ("Security note:", "Testing the new flow") that a capital
+   keeps out. Not caught, on purpose: markdown or quotes before the word ("# general", "**general**"). */
 function leadingChannelWord(text) {
-  const m = typeof text === 'string' ? text.match(/^\s*([A-Za-z][A-Za-z-]*)[:,]?(\s|$)/) : null;
+  const m = typeof text === 'string' ? text.match(/^\s*([a-z][a-z-]*)[:,]?(\s|$)/) : null;
   if (!m) return null;
-  const w = m[1].toLowerCase();
-  return Object.prototype.hasOwnProperty.call(CHANNELS, w) ? w : null;
+  return Object.prototype.hasOwnProperty.call(CHANNELS, m[1]) ? m[1] : null;
 }
 function payload(post, channel) {
   const board = typeof post.board === 'string' && post.board ? post.board : null;
