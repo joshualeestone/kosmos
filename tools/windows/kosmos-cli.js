@@ -372,11 +372,12 @@ async function verbMsg(ctx, args) {
     if (kept !== 0) keepPiped();
     return kept;
   }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
   ctx.err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');
+  tokenRefusedHint(ctx, r);   // #5333: a refused msg is a could_not delivery
   keepPiped();
   return 1;
 }
@@ -518,7 +519,7 @@ async function verbPost(ctx, args) {
     if (kept !== 0) keepPiped();   /* #2909: the outbox refused it (e.g. too long); keep a piped message */
     return kept;
   }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
   const d = (r.json && r.json.delivery) || {};
   /* #4653 parity with install/kosmos: an @-word that named two members reached neither as a request, and
      the board's sentence saying so follows the verdict, on the same stream. */
@@ -541,7 +542,7 @@ async function verbPost(ctx, args) {
       ? 'Not posted this time: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting it again.'
       : 'Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later.');
     ctx.err('Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.');
-  } else ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
+  } else { ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.'); tokenRefusedHint(ctx, r); }   // #5333
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
      which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
      piped message goes to its private file instead (keepPiped, below). */
@@ -614,9 +615,10 @@ async function verbReport(ctx, args, opts) {
   /* Dropped, not kept: a state this agent was in while its Kosmos was closed is
      stale by the time it opens. Exit 0, because nothing went wrong. */
   if (ctx.wrongWorld(r)) { ctx.out(ctx.outbox().WRONG_WORLD_SENTENCES.staleReport); return 0; }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }   // #5333
   if (r.json && r.json.recorded === true) { ctx.out('Recorded. The board reads it from here.'); return 0; }
   ctx.err('That was not recorded: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
+  tokenRefusedHint(ctx, r);   // #5333: a refused report is {recorded:false, because}
   return 1;
 }
 
@@ -629,10 +631,10 @@ function tokenRefusedHint(ctx, r) {
   const said = (r && r.json && typeof r.json.because === 'string' ? r.json.because : '') + ' ' + String((r && r.text) || '');
   if (!said.includes(TOKEN_REFUSED)) return;
   ctx.err('');
-  ctx.err('Kosmos did not recognise the agent token this session started with, so it cannot tell which agent you are.');
-  ctx.err('A running session cannot pick up a new token by itself. Ask your person to restart you from Kosmos');
-  ctx.err('(your page, Restart): the new session starts with a fresh token and this works again.');
-  ctx.err('`kosmos adopt` does not help here: the token it makes never reaches a session that is already running.');
+  ctx.err('Kosmos could not match the agent token this session started with to one of your running agents.');
+  ctx.err('If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new');
+  ctx.err('token by itself, so ask your person to restart you from Kosmos (your page, Restart); the new session');
+  ctx.err('starts with a fresh token. `kosmos adopt` does not help: its token never reaches a running session.');
 }
 
 async function verbWhoami(ctx) {
