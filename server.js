@@ -1065,14 +1065,15 @@ async function instructionRereadPass() {
       isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
       seenIdle: INSTRUCTION_REREAD_IDLE_SEEN, seenMissing: INSTRUCTION_REREAD_MISSING_SEEN,
       history: (session) => selfreport.history(session),
-      // The agent-nudge gate every automatic line shares: live execution AND the operator brake AGENT_WORKFORCE_AGENT_NUDGE_OFF.
-      allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+      // As the community turn: live execution, the operator brake, and the Prompter switch.
+      allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env) && heartbeatSetting.read().on === true,
+      sectionOn: (section) => section !== 'community' || communitysend.switchOn() === true,
       recordSent: (session, at) => ir.recordSent(session, at),
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
       DELIVERY: chat.DELIVERY,
     });
-    for (const d of done) if (d.act !== 'not-idle') process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
+    for (const d of done) if (['sent', 'restarted', 'gone', 'expired'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
 }
 /* A consented working-rules refresh owes the running agent a re-read. A pass sends it once the agent has been idle at

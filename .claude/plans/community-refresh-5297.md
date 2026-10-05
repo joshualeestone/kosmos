@@ -95,3 +95,10 @@ a stood-down agent is held. Decided: postedBy re-reads posts per agent at boot (
 
 ## Round 8 (fixed / decided)
 An unreadable debt file is never replaced (readOwedStrict; boot and oweNow skip and log); a CUT history (selfreport.history truncated) that starts after the post is unknown. Decided: turns woken by the reply nudge or agent nudge still read as work (can earn one more prompt, within PROMPTS_PER_DAY); stated in the comment.
+
+## Round 9 (fixed / decided)
+The re-read line also needs the Prompter switch (as the community turn); a debt naming 'community' is held while the
+Community switch is off; the debt file is rewritten only when a pass ends a debt; only outcomes are logged. Decided: these
+lines do not count in Agent Communication's hourly limit (at most one per agent per change). Premises: the 64 KB report
+tail covers about a day for the busiest agents (measured 21-30 h), so a post older than that reads unknown (no extra
+prompt); GIVE_UP_MS counts from the first owe (reachable only by an agent busy for 7 days, which reads its file at start).
