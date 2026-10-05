@@ -169,7 +169,8 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   /* `claude mcp add` defaults to --scope local (its own --help, measured), so the server stays with the folder it
      was added from (review 7). */
   assert.match(flat, /By default \(`--scope local`\) such a server belongs to the project folder it was added from/);
-  assert.match(flat, /ask them which account they added it to rather than guessing/);
+  assert.match(flat, /Check your own yourself; ask them only which account they added it to/);
+  assert.match(flat, /one added with `--scope project` is kept in that project's own `\.mcp\.json` instead/);
   assert.match(flat, /compare the actual folders rather than assuming from the account/);
   /* A connector belongs to an ACCOUNT, not a folder (review: it is never in a plugins file); desktop-app chat additions
      are in neither (review 3). */
