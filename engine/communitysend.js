@@ -2135,7 +2135,7 @@ function pictureUnreachable() {
 function pictureUnsendable() {
   const keys = loadJson(keysFile());
   if (!keys || !endpointAllowed()) return null;
-  const toFit = new Set(pictureToFit() || []);
+  const toFit = new Set(picturesTooBigOrWrongType() || []);   // the count ignores the switch, as it did before #5302
   return Object.keys(keys).filter((a) => {
     const k = keys[a];
     return k && k.apiKey && !k.refused && (toFit.has(a) || (typeof k.avatarRefused === 'string' && k.avatarRefused));
@@ -2149,6 +2149,9 @@ function pictureUnsendable() {
 function pictureToFit() {
   // Community off: nothing goes there, so nothing is fitted for it (review 3).
   try { if (switchOn() !== true) return []; } catch { return []; }
+  return picturesTooBigOrWrongType();
+}
+function picturesTooBigOrWrongType() {
   const keys = loadJson(keysFile());
   if (!keys || !endpointAllowed()) return null;
   return Object.keys(keys).filter((a) => {

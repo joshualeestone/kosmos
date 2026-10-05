@@ -643,7 +643,10 @@ test('#5302 review 3: nothing is listed to fit while Community is off; a version
   await cs.sweep();
   assert.equal(cs.pictureToFit().length, 1, 'fixture: the picture is not listed with Community on');
   cs.setSwitch(() => ({ on: false, ok: true }));
-  try { assert.deepEqual(cs.pictureToFit(), [], 'a picture listed for fitting with Community off'); }
+  try {
+    assert.deepEqual(cs.pictureToFit(), [], 'a picture listed for fitting with Community off');
+    assert.equal(cs.pictureUnsendable(), 1, 'the Settings count changed with the switch (it did not before #5302)');
+  }
   finally { cs.setSwitch(() => SW); }
   assert.throws(() => store.saveRefitAvatar('nobody-5302', 'image/png', png(1), 0), (e) => e.code === 'CHANGED');
 });

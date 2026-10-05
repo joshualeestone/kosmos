@@ -52,3 +52,8 @@ Nothing is fitted while Community is off (pictureToFit returns []); a version-0 
 version AND size; one unreadable name no longer blanks the whole list. Decided: the refit route itself has no HTTP test
 (its gate is store.saveRefitAvatar, runtime-tested; a request test needs a running agent card, the route is pinned by
 source); originals of a picture later replaced through the chooser stay until the agent's picture is removed.
+
+## Review 4 (fixed / decided)
+The Settings count (pictureUnsendable) ignores the Community switch, as before; only the refit list respects it.
+Decided: agent removal (engine/remove.js) does not delete an agent's picture today, so its kept originals follow the same
+lifetime (removeAvatar clears both); a hard kill mid-copy can leave a dot-named temp file in avatar-originals/.
