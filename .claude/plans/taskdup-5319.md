@@ -143,3 +143,8 @@ with the strip removed, the row goes red.
 - [N] FIXED: the comment header says rounds 1 to 8; the note also strips zero-width characters, line and paragraph
   separators, the BOM and tag characters (the class is ASCII escapes with the u flag).
 - [N] not changed: a lone surrogate prints as its escape through the macOS sed (cosmetic).
+
+## Review round 9 (opus): no B/W, CONVERGED
+- [N] FIXED: an unpaired surrogate survived into the note (printed as a backslash escape by the macOS sed), so the
+  "no backslash" promise was false; the class now strips \ud800-\udfff (with the u flag, only unpaired halves; a real
+  emoji is kept, checked).
