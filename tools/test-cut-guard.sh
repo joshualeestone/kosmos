@@ -707,6 +707,60 @@ KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4609 two light runs keep oldest-first order between them" \
   || fail "#4609 a later light run went ahead of an earlier one (rc=$rc, $out)"
+# --- #5272 the main canary waits first among waiters, one canary at a time ---
+# cw <pid> <queue time> <class>: a CURRENT-lib marker (6 lines: line 5 the class, line 6 the side flag, empty here).
+# lwait above writes 5 lines, which every reader takes as an older lib and switches to the legacy order (no canary),
+# so these arms need the 6-line shape; the legacy arm below uses lwait on purpose.
+cw() { printf '%s %s\n%s\n%s\n%s\n%s\n\n' "$2" "$1" "$(ps -ww -o command= -p "$1")" "$(_kosmos_pid_started_local "$1")" "$(_kosmos_pid_started "$1")" "$3" > "$W/markers/suitewait.$1"; }
+sleep 60 & wp2=$!
+cw "$wp" $((NOW - 3000)) heavy                        # heavy, starving (past the 2700 s line)
+KOSMOS_QUEUE_CLASS=canary kosmos_mark_suite_waiting $((NOW - 30))
+[ "$(sed -n '5p' "$W/markers/suitewait.$$")" = canary ] && pass "#5272 the marker records canary on line 5" \
+  || fail "#5272 the marker's line 5 is $(sed -n '5p' "$W/markers/suitewait.$$"), not canary"
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#5272 a canary goes ahead of an older STARVING heavy waiter" \
+  || fail "#5272 a canary waited behind a starving heavy one (rc=$rc, $out)"
+kosmos_mark_suite_waiting $((NOW - 30))                # CONTROL: the same place, heavy
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#5272 CONTROL: a heavy run in the same place waits behind the starving one" \
+  || fail "#5272 CONTROL: a heavy run jumped a starving heavy waiter (rc=$rc, $out)"
+# A heavy run keeps its place: a canary that queued AFTER it goes first, and nothing else moves.
+cw "$wp" $((NOW - 10)) canary                         # the canary, newest of all
+cw "$wp2" $((NOW - 100)) heavy                        # an older heavy run
+kosmos_mark_suite_waiting $((NOW - 200))               # this run: heavy, older than wp2
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+{ has_pid "$ahead" "$wp" && ! has_pid "$ahead" "$wp2"; } && pass "#5272 a heavy run has only the canary ahead of it, and keeps its place ahead of a newer heavy" \
+  || fail "#5272 a heavy run's place moved behind a canary (ahead: $ahead)"
+kosmos_mark_suite_waiting $((NOW - 50))                # CONTROL: this run newer than wp2
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+{ has_pid "$ahead" "$wp" && has_pid "$ahead" "$wp2"; } && pass "#5272 CONTROL: a newer heavy run has the canary AND the older heavy ahead" \
+  || fail "#5272 CONTROL: the order behind a canary is wrong (ahead: $ahead)"
+# One canary at a time: a second canary ranks as heavy, behind the first AND behind an older heavy run.
+cw "$wp" $((NOW - 100)) canary                        # the first canary
+cw "$wp2" $((NOW - 60)) heavy                         # an older heavy run (not starving)
+KOSMOS_QUEUE_CLASS=canary kosmos_mark_suite_waiting $((NOW - 30))
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+{ has_pid "$ahead" "$wp" && has_pid "$ahead" "$wp2"; } && pass "#5272 a second canary waits as heavy, behind the first canary and an older heavy run" \
+  || fail "#5272 a second canary jumped the queue (ahead: $ahead)"
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "#5272" && has "$out" "one canary at a time"; } && pass "#5272 and its refusal says why a canary is waiting" \
+  || fail "#5272 a waiting canary was not told why (rc=$rc, $out)"
+cw "$wp" $((NOW - 100)) heavy                         # CONTROL: the same places, but this run is the ONLY canary
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+[ -z "${ahead// /}" ] && pass "#5272 CONTROL: the only canary has nobody ahead of it" \
+  || fail "#5272 CONTROL: the only canary had waiters ahead (ahead: $ahead)"
+# Two canaries in the OTHER order: this run is the older, so it keeps canary rank and the newer one waits.
+cw "$wp" $((NOW - 10)) canary
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+[ -z "${ahead// /}" ] && pass "#5272 of two canaries the older keeps canary rank" \
+  || fail "#5272 the older canary was put behind a newer one (ahead: $ahead)"
+# Mixed generations: while a waiter from an older lib is live (a 5-line marker), every reader uses the older order,
+# which has no canary, so a canary is heavy there and all readers still agree.
+rm -f "$W/markers/suitewait.$wp2"; lwait $((NOW - 60)) heavy
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+has_pid "$ahead" "$wp" && pass "#5272 with an older-lib waiter live, a canary is heavy (the older order), so the older heavy is ahead" \
+  || fail "#5272 a canary used its rank against an older lib's order (ahead: $ahead)"
+kill "$wp2" 2>/dev/null; wait "$wp2" 2>/dev/null; rm -f "$W/markers/suitewait.$wp2"
 KOSMOS_QUEUE_CLASS=bogus kosmos_mark_suite_waiting $((NOW - 30))
 [ "$(sed -n '5p' "$W/markers/suitewait.$$")" = heavy ] && pass "#4609 an unknown class is recorded as heavy" \
   || fail "#4609 an unknown class was recorded as $(sed -n '5p' "$W/markers/suitewait.$$")"
@@ -1005,11 +1059,11 @@ _seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" |
 # Review rounds 1-2: a full suite queues HEAVY whatever class it inherited. Driven, not grepped: a real copy of
 # run-tests.sh started with KOSMOS_QUEUE_CLASS=light queues behind a waiter, and the class line (5) of the marker it
 # writes is read. CONTROL: the same copy with the assignment removed writes "light", so the arm can see the danger.
-_rt_marker_class() {   # <tree>: start its run-tests.sh queued behind a waiter, print its marker's line 5, stop it
-  local tree="$1" rp i cls="" wq
+_rt_marker_class() {   # <tree> [class]: start its run-tests.sh (class light by default) queued behind a waiter, print its marker's line 5, stop it
+  local tree="$1" qc="${2:-light}" rp i cls="" wq
   sleep 60 & wq=$!
   printf '100 %s\n%s\n%s\n%s\n' "$wq" "$(ps -ww -o command= -p "$wq")" "$(_kosmos_pid_started_local "$wq")" "$(_kosmos_pid_started "$wq")" > "$(_kosmos_marker_dir)/suitewait.$wq"
-  (cd "$tree" && exec env KOSMOS_QUEUE_CLASS=light KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
+  (cd "$tree" && exec env KOSMOS_QUEUE_CLASS="$qc" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
     KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh) >/dev/null 2>&1 &
   rp=$!; RP_LIVE="$rp $wq"   # stopped by the EXIT trap too, if this test is interrupted before the cleanup below
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
@@ -1031,6 +1085,11 @@ _cls_ctl="$(_rt_marker_class "$RT3")"; rm -rf "$RT3"
   || fail "#4609 CONTROL: the copy without the heavy line queued as '$_cls_ctl', so the arm below proves nothing"
 [ "$_cls_real" = heavy ] && pass "#4609 run-tests.sh queues heavy even with KOSMOS_QUEUE_CLASS=light inherited" \
   || fail "#4609 run-tests.sh queued as '$_cls_real' with KOSMOS_QUEUE_CLASS=light inherited"
+# #5272: the one exception is the canary. The light arm above is its control: the same run-tests.sh still forces light
+# to heavy, so the canary line lets through canary only.
+_cls_can="$(_rt_marker_class "$RT" canary)"
+[ "$_cls_can" = canary ] && pass "#5272 run-tests.sh queues as canary when started with KOSMOS_QUEUE_CLASS=canary" \
+  || fail "#5272 run-tests.sh queued as '$_cls_can' with KOSMOS_QUEUE_CLASS=canary"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \

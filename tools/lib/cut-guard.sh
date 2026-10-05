@@ -648,17 +648,23 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_ko
 # many hold the box. A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, the queue's bound) goes ahead
 # of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
-_kosmos_queue_class() { case "${KOSMOS_QUEUE_CLASS:-}" in light) echo light ;; *) echo heavy ;; esac; }
-# _kosmos_queue_rank <queue time> <class> <now>: 0 any waiter past the starve line, 1 a light one, 2 any other heavy.
+# #5272: KOSMOS_QUEUE_CLASS=canary is the main canary (a full suite on origin/main's tip, the backstop for merges that
+# skip a re-run). It waits first among waiters (_kosmos_queue_rank), one canary at a time (_kosmos_suite_waiters_ahead).
+_kosmos_queue_class() { case "${KOSMOS_QUEUE_CLASS:-}" in light) echo light ;; canary) echo canary ;; *) echo heavy ;; esac; }
+# _kosmos_queue_rank <queue time> <class> <now>: 0 the canary, 1 any waiter past the starve line, 2 a light one, 3 any
+# other heavy. #5272: the canary ranks ABOVE a starving waiter. Ranked equal, it waited behind every heavy job past the
+# starve line, which on a busy day is most of the queue (6 h on 2026-10-04). It changes the order, never how many hold
+# the box, and never pre-empts a running job. Only the oldest canary waiter gets the class (_kosmos_suite_waiters_ahead).
 # #4911: a LIGHT waiter past the starve line is rank 0 too (it ages like a heavy one). Before this a light waiter could
 # never reach rank 0, so once every heavy waiter was past 45 min (most of the day on 2026-10-01) the light lane stood
 # still: Baron's one test file waited 185 min behind full suites. Among rank 0 the order is queue time, as before.
 _kosmos_queue_rank() {
   local starve="${KOSMOS_QUEUE_STARVE_S:-2700}"
   case "$starve" in ''|*[!0-9]*) starve=2700 ;; esac
-  if [ $(( $3 - $1 )) -ge "$starve" ]; then echo 0
-  elif [ "$2" = light ]; then echo 1
-  else echo 2; fi
+  if [ "$2" = canary ]; then echo 0
+  elif [ $(( $3 - $1 )) -ge "$starve" ]; then echo 1
+  elif [ "$2" = light ]; then echo 2
+  else echo 3; fi
 }
 
 # The #4609 rank, for a waiter whose marker an older lib wrote (5 lines): a light waiter never ages there. Compared
@@ -677,7 +683,7 @@ _kosmos_queue_rank_legacy() {
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
 # Ahead means first by rank (_kosmos_queue_rank), then by queue time, then by pid.
 _kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_cls now legacy=0 seen="" lines
+  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_cls now legacy=0 seen="" lines first_canary=""
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
   # check that the marker exists and this read; otherwise it is read here.
@@ -726,6 +732,14 @@ _kosmos_suite_waiters_ahead() {
   # other: an older reader that names this one has, by its own rule, this one ahead, which this reader's "both" test
   # then cannot contradict. The cost is the other direction, two waiters each reading themselves first, which the
   # claim and the live-suite checks already serialise.
+  # #5272: one canary at a time. Only the OLDEST live canary waiter (queue time, then pid; this run included) ranks as
+  # canary; any other canary waiter ranks as heavy, so naming a run canary cannot jump the queue twice. Every reader
+  # computes the same first canary from the same markers, so they all read one order.
+  first_canary="$(printf '%s' "$seen" | awk -v mp="${mine_pid:-}" -v mt="${mine_ts:-}" -v mc="${mine_cls:-}" '
+    BEGIN { if (mc == "canary" && mt != "" && mp != "") { bt = mt + 0; bp = mp + 0; got = 1 } }
+    $3 == "canary" { t = $2 + 0; q = $1 + 0; if (!got || t < bt || (t == bt && q < bp)) { bt = t; bp = q; got = 1 } }
+    END { if (got) print bp }')"
+  [ "${mine_cls:-}" = canary ] && [ "$first_canary" != "${mine_pid:-}" ] && mine_cls=heavy
   if [ -n "$mine_ts" ]; then
     if [ "$legacy" = 1 ] || [ "$legacy" = 2 ]; then mine_rank="$(_kosmos_queue_rank_legacy "$mine_ts" "$mine_cls" "$now")"
     else mine_rank="$(_kosmos_queue_rank "$mine_ts" "$mine_cls" "$now")"; fi
@@ -733,6 +747,7 @@ _kosmos_suite_waiters_ahead() {
   printf '%s' "$seen" | while read -r pid ts cls; do
     [ -n "$pid" ] || continue
     if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
+    [ "$cls" = canary ] && [ "$pid" != "$first_canary" ] && cls=heavy   # #5272: a second canary waits as heavy
     if [ "$legacy" = 1 ] || [ "$legacy" = 2 ]; then rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"
     else rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"; fi
     older=0; { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; } && older=1
@@ -752,6 +767,9 @@ kosmos_refuse_if_earlier_suite_waiter() {
   pid="$(_kosmos_suite_waiters_ahead | { read -r p || true; printf '%s' "$p"; cat >/dev/null; })" || true
   [ -n "$pid" ] || return 0
   echo "another queued run (pid $pid) is ahead of $what in the queue (it has waited longer, or it is a light run, #4609); it goes first." >&2
+  # #5272: a canary named a waiter ahead of it only when it is ranked as heavy, for one of two reasons. Say both.
+  [ "$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" = canary ] \
+    && echo "  (this run is a canary, which waits first, #5272. It waits as heavy here because another canary queued before it (one canary at a time), or because a waiter from an older lib is live, whose order has no canary.)" >&2
   return 1
 }
 
