@@ -7022,6 +7022,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn-ref-n { opacity: .7; font-variant-numeric: tabular-nums; }
 .rxn-ref:hover, .rxn-ref:focus-visible, .rxn-copy:hover, .rxn-copy:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .rxn-ref:focus-visible, .rxn-copy:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#d-linklost { color: var(--label-2); }   /* #5333: a state that means "your messages will not be answered", not helper text */
 .msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
             background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
 .msg-menu[hidden] { display: none; }
@@ -12185,7 +12186,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5333: a RUNNING agent that has lost its link to Kosmos (its run's token is no longer on file, card.linkLost)
            cannot read its messages or answer, and nothing else says so. One sentence and the one remedy, the restart
            (the shared confirm, which offers "Write a handoff, then restart"). Shown ONLY while linkLost is true. -->
-      <p class="fhint detail-linklost" id="d-linklost" style="color: var(--label-2);" hidden><span id="d-linklost-text"></span>
+      <p class="fhint detail-linklost" id="d-linklost" hidden><span id="d-linklost-text"></span>
         <button type="button" class="btn" id="d-linklost-restart" data-restart-agent="">Restart</button></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
@@ -37800,6 +37801,9 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
  * line's dots and the card's green all read one sample.
  */
 const LINK_LOST_SEEN = new Map();   // #5333: per agent, { n, card, at }: polls in a row it has read as link-lost (paintDetailState)
+/* Six of the board's 5-second polls (setInterval(tick, 5000)): wide enough for a slow answer or a tab the browser
+   throttled while hidden (it polls every 5 s again once looked at), narrow enough that a visit long ago never counts. */
+const LINK_LOST_WINDOW_MS = 6 * 5000;
 function paintDetailState(card) {
   /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
      ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
@@ -37857,7 +37861,7 @@ function paintDetailState(card) {
     let n = 0;
     if (seen) {
       if (prev && prev.card === card) n = prev.n;
-      else n = prev && Date.now() - prev.at < 12000 ? prev.n + 1 : 1;
+      else n = prev && Date.now() - prev.at < LINK_LOST_WINDOW_MS ? prev.n + 1 : 1;
       LINK_LOST_SEEN.set(a.sessionName, { n, card, at: Date.now() });
     } else LINK_LOST_SEEN.delete(a.sessionName);
     const on = n >= 2;
