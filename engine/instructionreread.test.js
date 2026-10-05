@@ -291,3 +291,17 @@ test('review 19: at most MAX_PER_PASS lines a pass; the rest stay owed for the n
   assert.equal(p.sent.length, ir.MAX_PER_PASS);
   assert.equal(Object.keys(p.file()).length, names.length - ir.MAX_PER_PASS, 'the unsent debts were lost');
 });
+
+test('review 20: the missing-once mark is not kept for a debt that ended, nor across an empty roster', async () => {
+  const seenMissing = new Set(['zed']);
+  // An empty roster clears it.
+  await ir.passOnce(passArgs({ owed: { zed: debt() }, o: { roster: () => [], seenMissing } }).o);
+  assert.equal(seenMissing.size, 0);
+  // Two passes end zed as gone; the mark does not survive for a later debt.
+  const p = passArgs({ owed: { zed: debt() }, o: { seenMissing } });
+  await ir.passOnce(p.o);
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['gone']);
+  assert.equal(seenMissing.has('zed'), false, 'an ended debt left its missing mark behind');
+  const later = passArgs({ owed: { zed: debt() }, o: { seenMissing } });
+  assert.deepEqual((await ir.passOnce(later.o)).map((x) => x.act), ['missing'], 'a new debt ended as gone after one absence');
+});

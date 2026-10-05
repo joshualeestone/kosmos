@@ -16,7 +16,7 @@ Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarde
    today's block into every agent of ours with an instructions file (adding it where missing to agents Kosmos made,
    Splinter 11:16; a connected agent is refreshed only, Splinter 11:37), only when
    the community is on, never creating a file or removing a block, and reports rulesChanged (compared with the body it
-   composed, introduction line aside); tellAgent opts introduce / withBody; header WHEN rewritten.
+   composed, introduction line aside); tellAgent opts introduce / withBody / onlyIfPresent (connected agents: refresh, never add); header WHEN rewritten.
 2. engine/instructionreread.js (new): the "read this section again" debt (community, rules), on disk, passOnce (idle at two
    passes, re-checked just before typing, live execution and the agent-nudge brake), oweChanged, and the sent log the
    community turn reads.
@@ -151,3 +151,8 @@ At most MAX_PER_PASS (3) re-read lines a pass, the rest the next pass (the first
 several passes instead of one); the repo CLAUDE.md Community row names communityblock's board-start refresh,
 instructionreread and communityturn. Decided, duplicates of earlier decisions: the Gemini/Grok 'started' premise; null
 history prompts nobody beyond the floor; server wiring is pinned by source and now exercised by the 13 boot tests.
+
+## Round 20 (fixed)
+The missing-at-two-passes mark is cleared with the idle marks and kept only for still-open debts; the per-pass cap is
+checked before the roster read. Decided NITs: a gate-off pass leaves debts for later (they expire normally); a CRLF block
+costs at most one extra line.
