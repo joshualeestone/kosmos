@@ -53,6 +53,8 @@ const REPO = path.resolve(__dirname, '..', '..');
 const MADE = [];
 const made = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); MADE.push(d); return d; };
 process.on('exit', () => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
+// Review 1: Ctrl-C or a TERM from a runner is an exit too, so its folders go as well (SIGKILL cannot be caught).
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(130));
 const OUT = process.env.SHOT_DIR || made('toast-shots-');   // unnamed shots are never reported, so they go too
 /* A free port, asked of the kernel, never a number (#708): the gate got this
    in #633 and the self-booting checks still carried fixed ports, so two agents
@@ -316,7 +318,10 @@ const RELPORT = freePort();
     console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
+    // Review 1: wait (up to 5 s) for the board to stop before its data root is removed on exit.
+    const stopped = new Promise((r) => { if (srv.exitCode !== null || srv.signalCode !== null) r(); else srv.once('exit', r); });
     srv.kill();
+    await Promise.race([stopped, new Promise((r) => setTimeout(r, 5000))]);
     rel.close();
   }
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
