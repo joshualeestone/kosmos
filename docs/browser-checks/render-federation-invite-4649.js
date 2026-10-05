@@ -76,6 +76,7 @@
  *      Cancel did not stop says it went through (d); a Withdraw nobody answers is given up on (e); the rows at 390 (f);
  *      Remove pressed in the rail (g); a late answer never pulls focus out of another dialog (h); a Remove nobody
  *      answers is given up on (i); a rail "Make a new code" cancelled after a rebuild returns focus to its row (j).
+ *  B16 owner:false and self_shared draw no From outside section. Control: the same invites as owner draw rows.
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
  *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
@@ -85,7 +86,7 @@
  *       minus opens it with no danger look, no stale message and a live button. Control: the 502 state just before.
  *  B14  after a Withdraw refusal, focus is on that row's Withdraw (not <body>) and the sentence is in #fed-live.
  *       Control: #fed-live is empty or absent before the action.
- *  B15  consolidated layout on a board with NO agents of its own: the rail still lists the project's people from
+ *  B17  consolidated layout on a board with NO agents of its own: the rail still lists the project's people from
  *       outside (the Members card is hidden there). Control: B9, the same rows with agents on the board.
  *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
  *       checked answer is not asked again after the same 30 s.
@@ -1048,7 +1049,7 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate((a) => { window.__members = a; window.__agents = []; }, answer([DANA, LEE]));
     await openProjectIn(page, 'consolidated');
     const f = await readFed(page, '#alist-fed-outside');
-    check('B15 no agents on the board: the rail still lists the people from outside (control: B9 with agents)',
+    check('B17 no agents on the board: the rail still lists the people from outside (control: B9 with agents)',
       f.exists && f.rows.length === 2 && f.rows.some((r) => r.act === 'Remove') && f.rows.some((r) => r.act === 'Withdraw'), JSON.stringify(f));
     await ctx.close();
   }

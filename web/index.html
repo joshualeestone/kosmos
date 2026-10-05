@@ -67675,7 +67675,9 @@ function fedInviteClose(force) {
   // slice B: a From outside row's "Make a new code" opened it, and a repaint (the rail rebuilds on every poll) has
   // replaced that button since: its row key finds the new one, so focus goes back to the row, not to the "+".
   const k = FEDINV_OPENER && !FEDINV_OPENER.isConnected && FEDINV_OPENER.dataset ? FEDINV_OPENER.dataset.fedKey : null;
-  const again = k ? [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === k) : null;
+  // Visible only: the tab view's list is filled in every layout, and in the consolidated one its hidden copy of the
+  // row comes first in the page.
+  const again = k ? [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === k && x.getClientRects().length) : null;
   const back = [FEDINV_OPENER, again, document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((b) => b && b.isConnected && b.getClientRects().length);
   FEDINV_OPENER = null;
   if (back) back.focus();
@@ -67745,7 +67747,7 @@ async function fedInviteMake() {
     document.getElementById('fedinv-done').hidden = false;
     document.getElementById('fedinv-code').value = body.code;
     const until = fedInviteLongDate(body.expires_at);
-    // Shot 03 also says "You can withdraw it from Members until <name> joins."; that sentence comes with Withdraw (slice B).
+    // Shot 03 also says "You can withdraw it from Members until <name> joins."; that sentence comes with slice C's code-step changes.
     document.getElementById('fedinv-until').textContent = until ? 'It works once, until ' + until + '.' : 'It works once.';
     document.getElementById('fedinv-copy').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
@@ -67855,9 +67857,14 @@ function fedDiscLetters(label) {
 function fedRowKey(r) { return r.edge_id ? 'e:' + r.edge_id : 'i:' + r.invite_id; }
 function fedOutsideRows(body) {
   const all = (body && Array.isArray(body.invites)) ? body.invites.filter((r) => r && typeof r === 'object') : [];
-  const live = new Set(all.filter((r) => (r.state === 'pending' || r.state === 'joined') && r.label).map((r) => r.label));
+  // An expired row goes once a NEWER code with its label is pending or joined (made at or after it; a row with no
+  // made_at counts as newer). An older joined "Dana" does not hide a later "Dana" code that lapsed.
+  const t = (r) => (typeof r.made_at === 'number' ? r.made_at : Infinity);
+  const newest = new Map();
+  all.filter((r) => (r.state === 'pending' || r.state === 'joined') && r.label)
+    .forEach((r) => newest.set(r.label, Math.max(newest.has(r.label) ? newest.get(r.label) : -Infinity, t(r))));
   return all.filter((r) => r.state === 'joined' || r.state === 'pending'
-    || (r.state === 'expired' && !(r.label && live.has(r.label))));
+    || (r.state === 'expired' && !(r.label && newest.has(r.label) && newest.get(r.label) >= (typeof r.made_at === 'number' ? r.made_at : -Infinity))));
 }
 function fedRowByKey(key) {
   const fm = FED_MEMBERS;
@@ -67890,7 +67897,7 @@ function fedOutsideRowHtml(r, unchecked) {
   const wait = r.state === 'joined' ? '' : ' fedout-wait';
   const btn = act
     ? '<button class="fedout-act" type="button" data-fed-act="' + act + '" data-fed-key="' + esc(key) + '"'
-      + ' aria-label="' + esc(!r.label ? (act === 'remove' ? 'Remove this person' : act === 'withdraw' ? 'Withdraw this code' : 'Make a new code')
+      + ' aria-label="' + esc(!r.label ? (act === 'remove' ? 'Remove them' : act === 'withdraw' ? 'Withdraw this code' : 'Make a new code')
         : act === 'remove' ? 'Remove ' + r.label : act === 'withdraw' ? 'Withdraw the code for ' + r.label : 'Make a new code for ' + r.label) + '"'
       // Busy: aria-disabled, not disabled, so the rebuilt button can keep focus while it is asked (a disabled one
       // drops focus to <body> for up to the time limit); the click handler ignores it.
@@ -68127,7 +68134,16 @@ async function fedRemoveGo() {
   if (!said) said = res.status === 403 ? fallback : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { change: true });
   // The board says this is not (or no longer) the owner's list to change: ask it again, which may hide it.
   const stale = !!(body && ['not-owner', 'self-shared'].includes(body.reason));
-  if (stale) fedMembersLoad(f.project);
+  if (stale) {
+    // The list is asked again and may hide this section: close the dialog and say it beside the list (as 404),
+    // rather than leave Remove live for a row that may no longer be shown.
+    if (still) fedRemoveDone();
+    FED_MSGS[f.key] = said; fedSay(said);
+    fedOutsidePaint(false);
+    await fedMembersLoad(f.project);
+    if (PJ_CURRENT === f.project && !still) fedRefocus(f.key);
+    return;
+  }
   // Repaint (the row's Remove is live again) and put focus back on Remove, which was disabled while it was asked,
   // so a keyboard user is not left on <body> inside the dialog.
   if (!(res && res.status === 404) && still) { msg.textContent = said; fedOutsidePaint(false); go.focus(); return; }

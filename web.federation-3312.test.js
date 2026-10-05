@@ -301,6 +301,12 @@ test('#4649 slice B: which outside rows show, and their keys', () => {
     null, 'junk',
   ] });
   assert.deepEqual(rows.map(fedRowKey), ['e:e1', 'i:b', 'i:d']);
+  // "Newer": an older joined Dana does not hide a later Dana code that lapsed; a newer pending one does.
+  const dana = (extra) => fedOutsideRows({ invites: [
+    { invite_id: 'j', label: 'Dana', state: 'joined', edge_id: 'e9', made_at: 100 },
+    { invite_id: 'x', label: 'Dana', state: 'expired', made_at: 300 }].concat(extra || []) }).map(fedRowKey);
+  assert.deepEqual(dana(), ['e:e9', 'i:x']);
+  assert.deepEqual(dana([{ invite_id: 'p', label: 'Dana', state: 'pending', made_at: 400 }]), ['e:e9', 'i:p']);
   assert.deepEqual(fedOutsideRows({}), []);
   assert.deepEqual(fedOutsideRows(null), []);
 });
