@@ -161,6 +161,24 @@ test('#4926 review 1 (Opus): the held line riding a typed arrival leaves out a s
   });
 });
 
+test('#4926 R2: the held line riding a typed arrival leaves out an ask the member answered, and names one it did not', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    roomhold.forget('dee');
+    const asked = await postAs(roster, 'cy', '@dee which file?');
+    const open = await postAs(roster, 'cy', '@dee and which branch?');
+    await postAs(roster, 'dee', 'hello.txt', { replyTo: asked.id });   // dee answered the first in the room
+    roomhold.forget('dee');
+    roomhold.hold('dee', 'room4926', roomhold.addressedId(asked.id)); roomhold.hold('dee', 'room4926', roomhold.addressedId(open.id));
+    calls.length = 0;
+    await postAs(roster, 'ava', '@dee one more');
+    const typed = calls.map((a) => a.join(' ')).join('\n');
+    assert.ok(new RegExp('\\b' + open.id + '\\b').test(typed), 'fixture: the typed arrival carried no held line naming the unanswered ask');
+    assert.ok(!new RegExp('\\b' + asked.id + '\\b').test(typed), 'an ask the member had answered rode the arrival');
+    roomhold.forget('dee');
+  });
+});
+
 test('#4926 review 1 (Opus): a post the members got but the record could not take is answered unconfirmed, not refused', async () => {
   await withRoom(async (roster) => {
     arm();

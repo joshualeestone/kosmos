@@ -229,7 +229,8 @@ function clauseFor(projectId, shown, ids) {
 }
 
 /* #4926: telling a member about a held post is a WAKE (a typed line into an idle agent, which then answers it). A held
-   post that asks nothing of the member and has gone stale (stale(projectId, plainIds, member) -> Set of stale plain ids: the
+   post that asks nothing of the member and has gone stale (stale(projectId, plainIds, member) -> Set of stale plain ids,
+   with an optional `evenIfAsked` Set of ids to drop even when addressed: the
    caller decides, messages.staleHeld says older than HELD_TELL_MAX_MS or the room's loop guard has stopped it since) is
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
    the person had asked for quiet. A held post that names the member and asks for an answer is told unless the member
