@@ -67688,8 +67688,6 @@ async function fedInviteMake() {
     if (seq === FEDINV_SEQ) make.disabled = false;
   }
 }
-// Copy the code: pjCopyInvite's pattern ("Copied", the copy-keys fallback, one revert timer),
-// on this sheet's own elements and timer so the two screens never revert each other.
 /* The sheet's one way to copy (both buttons): select-and-copy first, synchronously inside the press, then the clipboard
    with a 3 s limit while holding the shared busy flag (so neither button's answer can wipe the other's line). A write
    that lands after the limit calls onLate, if the sheet is still the same one. Returns null when the sheet was closed
@@ -67709,6 +67707,11 @@ async function fedCopyText(text, btn, onLate) {
   finally { if (limit) clearTimeout(limit); if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }   // not a reopened sheet's flag
   return seq === FEDINV_SEQ ? ok : null;
 }
+// Copy the code alone: pjCopyInvite's words ("Copied", the copy-keys fallback, a revert timer) on this sheet's own
+// elements. It shares one timer and one message line with Copy the invitation (fedInviteCopyReset).
+// Known and accepted (review, 2026-10-04): after the 3 s limit the busy flag is freed while a held write may still
+// land; holding the flag until it settles would let one unanswered permission prompt silently disable the other
+// button, which is worse. The late write's content is still one the person asked to copy.
 async function fedInviteCopy() {
   const codeEl = document.getElementById('fedinv-code');
   const btn = document.getElementById('fedinv-copy');
