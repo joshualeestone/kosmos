@@ -67526,7 +67526,7 @@ function pjAddMenuPlace() {
   const lo = Math.max(gutter, c.left);
   const hi = Math.min(vw - gutter, c.right);
   let left, width;
-  // The app's one phone width (40rem, as its @media rules and matchMedia use), not a second definition.
+  // The app's one phone width (40rem, as its media-query rules and matchMedia use), not a second definition.
   if (window.matchMedia && window.matchMedia('(max-width: 40rem)').matches) { left = lo; width = Math.max(0, hi - lo); }
   else {
     // Right edge ON the "+" AND inside the card: a card narrower than 250 px (the tab view's Members column
