@@ -538,6 +538,26 @@ test('round: a computers refresh that never answers holds up neither the reads n
   assert.equal(asked.filter((u) => u === '/api/remote/computers').length, 1, 'and does not pile up a second refresh');
 });
 
+test('round: a known list is not refreshed while "This computer only" is ticked; unticked it is', { timeout: 2000 }, async () => {
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  let only = '1';
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true,
+    value: { getItem: (k) => (k === 'kosmos.agents.thisOnly' ? only : null), setItem() {}, removeItem() {} } });
+  try {
+    const { api, asked } = loadRound(async () => ({ ok: true, json: async () => LIST }));
+    const refreshes = () => asked.filter((u) => u === '/api/remote/computers').length;
+    api.computers = LIST; api.at = 0;   // known, and due for a refresh
+    await api.oaRound();
+    assert.equal(refreshes(), 0, 'ticked: the route that probes every computer is not asked');
+    assert.equal(asked.length, 0, 'and no other computer is read');
+    only = null;   // CONTROL: unticked, the same due list is refreshed
+    await api.oaRound();
+    assert.equal(refreshes(), 1, 'unticked: the refresh runs');
+  } finally {
+    if (had) Object.defineProperty(globalThis, 'localStorage', had); else delete globalThis.localStorage;
+  }
+});
+
 test('round: the first round waits for the list, then reads; a computer dropped from it is forgotten', { timeout: 2000 }, async () => {
   const { api, asked } = loadRound(async () => ({ ok: true, json: async () => ({ ...LIST, computers: LIST.computers.filter((c) => c.name !== 'pizzarama') }) }));
   api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [card('old')], at: 1 });
