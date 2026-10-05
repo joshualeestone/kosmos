@@ -328,6 +328,7 @@ const SITE_COUNTS = {
   'render-acct-stop-focus-4271.js': [1, 1],
   'render-addmem-flash-2429.js': [1, 0],
   'render-adopt-1531.js': [1, 0],
+  'render-allagents-4812.js': [1, 0],
   'render-alltasks.js': [1, 0],
   'render-assistant-bubble-3034.js': [2, 0],
   'render-assistant-hosted-3660.js': [2, 0],
