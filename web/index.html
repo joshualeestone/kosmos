@@ -63600,7 +63600,7 @@ function msgCopyText(row) {
   const names = [...c.querySelectorAll('.att-name')].map((n) => n.textContent.trim()).filter(Boolean);
   c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .msg-ext-tag, .vh, .rxns, button, .att-pic, .att-meta, .att-txt, .lpv').forEach((n) => n.remove());   // .lpv: a link's preview card is not the message
   c.querySelectorAll('br').forEach((n) => n.replaceWith(document.createTextNode('\n')));
-  c.querySelectorAll('p, li, div, pre').forEach((n) => n.after(document.createTextNode('\n')));
+  c.querySelectorAll('p, li, div, pre, .mdcb').forEach((n) => n.after(document.createTextNode('\n')));   // .mdcb: a fenced block (pjRich)
   const text = c.textContent.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return [text].concat(names).filter(Boolean).join('\n');
 }
@@ -63640,7 +63640,7 @@ function msgCopyPressed(btn, row) {
 }
 async function msgTextCopy(row) {
   const text = msgCopyText(row);
-  if (!text) return;
+  if (!text) { msgToast('There is nothing to copy in this message.'); return; }   // as on a touchscreen: never a silent press
   const ok = await msgClipboard(text);
   /* Never the words in the toast: a message can be long. On a failure the browser's own Copy still works on a selection. */
   msgToast(ok ? 'Copied the message.' : 'Could not copy. Select the message and copy it instead.');
