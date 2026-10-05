@@ -58,6 +58,16 @@ saves and the warning goes, and the project reads its new folder.
 - NITs fixed: chat.DELIVERY from the module-level import; a refusal puts the keyboard back in the path box; the README
   row says self-hosted, headless-fine, Chromium only, and what reds it.
 
+## Review 4 (sonnet, blind)
+- W fixed: with some members not updated, the line still promised "the others will see it" or "agents now use the new
+  location" beside "could not update N". Now, when any member was not updated, the line gives the counts only (Mona Lisa's
+  wording for the not-updated clause).
+- NIT fixed: a late answer for a project the person has since left neither writes its sentence nor clears the open
+  project's path box.
+- NIT accepted: a member with NO instructions file counts as not updated (tellAgent's could_not, "we will not create
+  one"). Its file names no old folder, so the sentence slightly overstates; telling the cases apart would key on an
+  error string.
+
 ## Weakest premise
 That a person knows where they moved the folder. If not, "Show me where it is" (beside it) cannot help, since the old
 place is gone; the form's sentence is the honest limit.

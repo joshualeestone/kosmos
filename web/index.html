@@ -68966,17 +68966,23 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'we could not move it');
+    /* Review 4: a late answer for a project the person has since left touches nothing on the one now open. */
+    if (PJ_CURRENT !== p.id) { if (!(await loadProjects())) await loadProjects(); return; }
     box.value = '';
     if (!(await loadProjects())) await loadProjects();
     /* Review 1: only what happened. Each member's instructions name the new place; a running one is also told on its
        screen, and the board says how many it reached. */
     const total = Number(body.members) || 0, reached = Number(body.reached) || 0, notUpdated = Number(body.notUpdated) || 0;
+    if (PJ_CURRENT !== p.id) return;   // left during the reload too
     const head = PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.';
-    said.textContent = total === 0 ? head + ' Kosmos now uses the new location.'
-      : reached >= total ? (PJ_READ_FAILED ? head + ' Kosmos and this project\'s agents now use the new location.' : 'Done. Kosmos and this project\'s agents now use the new location.')
-        : head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project; the others will see it when they next start.';   // Mona Lisa's wording
-    /* Review 3: an agent whose instructions could not be updated will NOT see it at its next start: said, never promised. */
-    if (notUpdated > 0) said.textContent += ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';   // Mona Lisa's wording
+    let line;
+    if (total === 0) line = head + ' Kosmos now uses the new location.';
+    /* Review 4: when an agent's instructions could not be updated, nothing is promised about the others: the counts only. */
+    else if (notUpdated > 0) line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project.'
+      + ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';   // Mona Lisa's wording
+    else if (reached >= total) line = PJ_READ_FAILED ? head + ' Kosmos and this project\'s agents now use the new location.' : 'Done. Kosmos and this project\'s agents now use the new location.';
+    else line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project; the others will see it when they next start.';   // Mona Lisa's wording
+    said.textContent = line;
     // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
     if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
   } catch (e) {
