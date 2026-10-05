@@ -145,3 +145,9 @@ adding text there is an unexplained diff in their project, which costs more trus
 skips an agent whose folder is outside Kosmos's workers folder (create.workerDir vs workersDir; unknown reads as
 connected). If it already carries the block, it is refreshed as before. The restart path is unchanged (a restart is a
 visible act). Josh can overturn it.
+
+## Round 19 (fixed / decided)
+At most MAX_PER_PASS (3) re-read lines a pass, the rest the next pass (the first board start after this ships drains over
+several passes instead of one); the repo CLAUDE.md Community row names communityblock's board-start refresh,
+instructionreread and communityturn. Decided, duplicates of earlier decisions: the Gemini/Grok 'started' premise; null
+history prompts nobody beyond the floor; server wiring is pinned by source and now exercised by the 13 boot tests.
