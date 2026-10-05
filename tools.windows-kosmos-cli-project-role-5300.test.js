@@ -42,7 +42,7 @@ test('#5300 Windows: a refusal says the board\'s reason; bad calls are refused b
   const no = await run(['project', 'role', 'p1', 'Writer'], () => ({ status: 403, body: JSON.stringify({ error: 'that agent is not on this project' }) }));
   assert.equal(no.code, 1);
   assert.match(no.err, /did not set that role: that agent is not on this project/);
-  for (const [args, code] of [[['project', 'role', 'p1'], 2], [['project', 'role', 'p1', 'a', 'b'], 2], [['project', 'role', 'bad id!', 'x'], 1], [['project', 'role', 'p1', '--clear'], 2]]) {
+  for (const [args, code] of [[['project', 'role', 'p1'], 2], [['project', 'role', 'p1', 'a', 'b'], 2], [['project', 'role', 'bad id!', 'x'], 1], [['project', 'role', '..', 'x'], 1], [['project', 'role', 'p1', '--clear'], 2]]) {
     const r = await run(args, () => ({ body: '{}' }));
     assert.equal(r.code, code, args.join(' ') + ': ' + r.err);
     assert.equal(r.calls.length, 0, args.join(' ') + ' reached the board');
