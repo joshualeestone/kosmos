@@ -160,13 +160,14 @@ test('#5309: it tells an agent the two things that decide whether it gets a plug
   assert.match(flat, /## A plugin the person installed in their own app/);
   assert.match(flat, /the folder in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
   assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
-  assert.match(flat, /On Windows the home folder is the user's own folder/);
+  assert.match(flat, /On Windows the home folder is `%USERPROFILE%`/);
+  assert.match(flat, /compare the actual folders rather than assuming from the account/);
   /* A connector follows the ACCOUNT, not the folder (review: a connector is never in a plugins file). */
   assert.match(flat, /Connectors added on the claude\.ai website come with the Claude account you are signed in to, not with a folder/);
   assert.match(flat, /signed in to that same account, never on an API key/);
   /* Restart is ruled out only for the other-folder case; added-after-start is where a restart IS the fix. */
   assert.match(flat, /Restarting does not change that, so do not suggest it then/);
-  assert.match(flat, /added after you started \(then a restart is what picks it up\)/);
+  assert.match(flat, /added after you started \(then a restart or reload is what picks it up\)/);
   assert.match(flat, /switched off, set up for one project only/);
   assert.ok(flat.indexOf('## A plugin the person') < flat.indexOf('## The Connections tab'), 'the plugin section moved after the Connections tab section');
   assert.doesNotMatch(flat, /—/, 'an em dash reached the agent block');
