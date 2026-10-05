@@ -1291,7 +1291,7 @@ function tasksTabShown() {
 /* #5319: a task added with the same text as an OPEN task is still added (no silent dedup: the adder knows whether it
    is the same ask), but the answer names the open copies so the adder can close the new one. Seen on 0.7.22: one ask
    added as #1 and #11, another as #26, #27 and #29 -- both EXACT copies.
-   🔑 ONLY THE SAME TEXT, by design (review rounds 1 to 5). The note tells the adder to close the NEW task, and the
+   🔑 ONLY THE SAME TEXT, by design (review rounds 1 to 8). The note tells the adder to close the NEW task, and the
    reader is usually an agent that will, so a false match costs a real task while a miss costs only today's behaviour.
    Three rounds of fuzzy rules (word overlap, contained words) each still matched different asks: another person
    ("Email Alice" / "Email Bob"), the opposite verb (approve / reject), a negation ("Do not enable" / "Enable"), swapped
@@ -1302,7 +1302,8 @@ function tasksTabShown() {
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
    told to close, never both. Never the task's own parent (a subtask may repeat it), and only tasks under the same
    parent (review 6: generic subtask text under two parents is two tasks), with the same detail and the same people on
-   it (review 7). At most three, oldest first. */
+   it (review 7), and not one already under way (review 8: on hold, due, built, a part closed). At most three, oldest
+   first. */
 function sameTaskText(sentence) {
   // Review 4: EVERY character counts but case, runs of whitespace and Unicode form (NFC: one character written two
   // ways; review 5: never NFKC, which folds x² into x2 and ① into 1). Dropping punctuation and symbols
@@ -1326,6 +1327,9 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
     // two real tasks.
     if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
     if (sameTaskText(t.sentence) !== mine || sameTaskText(t.detail) !== myDetail || people(whoOf(t)) !== myWho) continue;
+    // Review 8: an older task already under way (on hold, a due date, a built mark, a closed part) is that ask in
+    // another state, perhaps last week's run: closing the new one could drop this week's.
+    if (isOnHold(t) || t.dueDate || t.builtAt || partsOf(t).some((x) => x && x.closedAt)) continue;
     out.push({ number: t.number, sentence: t.sentence });
   }
   out.sort((a, b) => a.number - b.number);

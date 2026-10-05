@@ -100,6 +100,14 @@ test('#5319: which open tasks count as the same (pure)', () => {
   assert.deepEqual(tasks.sameTextOpen(targets, 'Draft weekly report', 9, { who: ['bob'] }), [], 'given to someone else');
   assert.equal(tasks.sameTextOpen(targets, 'Draft weekly report', 9, { who: ['alice'] }).length, 1, 'given to the same agent');
   assert.deepEqual(tasks.sameTextOpen(targets, 'Draft weekly report', 9), [], 'unassigned is not given to alice');
+  // Review 8: an older task already under way is that ask in another state (perhaps last week's run): not named.
+  const base5 = { number: 1, sentence: 'Send the weekly report', closedAt: null };
+  const one = (extra) => tasks.sameTextOpen({ tasks: [{ ...base5, ...extra }] }, 'Send the weekly report', 9).length;
+  assert.equal(one({}), 1, 'CONTROL: the same text, nothing under way, is named');
+  assert.equal(one({ onHold: true }), 0, 'on hold');
+  assert.equal(one({ dueDate: '2026-10-09' }), 0, 'a due date');
+  assert.equal(one({ builtAt: '2026-10-05T10:00:00Z' }), 0, 'marked built');
+  assert.equal(one({ parts: [{ id: 1, who: null, closedAt: '2026-10-05T10:00:00Z' }] }), 0, 'a closed part');
   // Review rounds 1 to 3: different asks a fuzzy rule matched; each judged against ONE open task.
   const pair = (open, added) => tasks.sameTextOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
   for (const [open, added, want, why] of [
