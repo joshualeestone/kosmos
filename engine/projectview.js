@@ -188,7 +188,8 @@ function quietExcused(summary, member, tasks, nowMs) {
  * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object,
  *   readReport?: (sessionName: string) => object }} [o]
  * Each member's `summary` is summaryFreshness's answer, or (#4581 N10, idleExcused) a stale one marked
- * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped.
+ * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped, or
+ * (#4581 R9, quietExcused) { state: 'quiet', quietSince, quietMinutes } when it was current as the project's tasks ended.
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
@@ -329,7 +330,7 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
-  quiet: (s) => 'current when the project\'s work ended (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; the last task ended ' + ago(s.quietMinutes) + ')',
+  quiet: (s) => 'current when work on the project\'s tasks ended (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; that was ' + ago(s.quietMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',

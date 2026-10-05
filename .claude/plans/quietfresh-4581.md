@@ -21,6 +21,16 @@ closed after the summary, a later task closed after the summary, the 4-hour edge
 current, a non-idle member never quiet. Each site perturbed: open check, parts, task closedAt, NaN guard, stale-only,
 member check, rhythm, wiring; each turns a test red.
 
+## Review 1 (Sonnet)
+- The printed line names the clock it uses ("current when work on the project's tasks ended"), so a reader is not told
+  more than the task times show (untasked work, the weakest premise below, is not counted and the words say tasks).
+- A summary written AFTER the work ended reads quiet too (it was current then); tested.
+- openTasks reads progress.closed and lastWorkAt reads closedAt/part closedAt; describe derives progress.closed from
+  those same fields (tasks.progressOf), and either disagreement fails safe (stale).
+- Deferred: quietSince is never in the future in practice (a future end time is more than 4 hours past any summary that
+  is not itself 'future', so it stays stale); quietExcused/lastWorkAt not exported (tested through overviewOf, which is
+  the real path).
+
 ## Weakest premise
 Work done outside any task (asked in a room or DM) leaves no task time, so a member who did hours of untasked work
 after the last task closed, and wrote no summary, reads quiet. Kept because the alternative is the diagnostic's

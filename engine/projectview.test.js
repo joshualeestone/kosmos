@@ -432,7 +432,7 @@ test('#4581 R9: on a project with no open task, a summary current when its work 
   const done = [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }];
   const quiet = show(done, recentIdle);
   assert.equal(quiet.m.summary.state, 'quiet', JSON.stringify(quiet.m.summary));
-  assert.match(quiet.text, /summary: current when the project's work ended \(summaries\/2026-09-24-15\.md, 5 days ago; the last task ended 5 days ago\)$/m);
+  assert.match(quiet.text, /summary: current when work on the project's tasks ended \(summaries\/2026-09-24-15\.md, 5 days ago; that was 5 days ago\)$/m);
   assert.doesNotMatch(quiet.text, /older than the 4-hour rhythm/);
   // A task finished by its parts counts as the end too (a part's closedAt, no task closedAt).
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(5 * DAY) }] }], recentIdle).m.summary.state, 'quiet');
@@ -449,6 +449,10 @@ test('#4581 R9: on a project with no open task, a summary current when its work 
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(2 * DAY) }] }], recentIdle).m.summary.state, 'stale');
   // CONTROL: work that ended more than four hours after the summary leaves it stale (it was behind when work ended).
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 240) }], recentIdle).m.summary.state, 'stale');
+  // One minute past four hours after the summary is not quiet (pins the strict comparison from the other side).
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 181) }], recentIdle).m.summary.state, 'stale');
+  // A summary written AFTER the work ended (the last task closed 6 days ago, the summary 5 days ago) was current then too.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(7 * DAY), closedAt: at(6 * DAY) }], recentIdle).m.summary.state, 'quiet');
   // The edge: exactly four hours after the summary still reads quiet.
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 180) }], recentIdle).m.summary.state, 'quiet');
   // CONTROL: a project that never had a task has no end time, so it stays stale.
