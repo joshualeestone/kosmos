@@ -2705,6 +2705,37 @@ function edit(id, fields = {}) {
   });
 }
 
+/**
+ * kosmos#5340: point a project at its folder's new place (the folder was moved on this computer). The same checks a new
+ * project's folder passes (create): a full path, a folder that is there and readable, not a temporary folder, not
+ * another project's folder. Moving to the folder it already has is refused, not answered "moved". The members'
+ * instructions name the folder, so the caller re-tells them. The board can check only that IT can read the folder:
+ * an agent's own access (a sandbox or a privacy grant) is not something it can see from here.
+ */
+function moveFolder(id, folder) {
+  const given = String(folder == null ? '' : folder).trim();
+  if (!given) throw new Error('that needs the full path to the folder');
+  if (!path.isAbsolute(given)) throw new Error('that needs to be the full path to a folder');
+  const state = folderState(given);
+  if (state.state === FOLDER.MISSING) throw new Error('there is no folder at that path');
+  if (state.state === FOLDER.NOT_A_FOLDER) throw new Error('that is a file, not a folder');
+  if (state.state === FOLDER.UNREADABLE) throw new Error('we cannot read that folder');
+  if (tmpFolderRefused(state.real || given, store.ROOT)) {
+    throw new Error('that folder is inside a temporary folder, which the system clears; point Kosmos at a folder you keep your work in');
+  }
+  const all = readAll();
+  const self = all.find((p) => p.id === id);
+  if (!self) throw new Error('there is no project by that name');
+  if (folderState(self.folder).real === state.real) throw new Error('that is already this project\'s folder');
+  const already = all.find((p) => p.id !== id && folderState(p.folder).real === state.real);
+  if (already) {
+    const taken = new Error(`that folder is already the project "${already.name}"`);
+    taken.code = 'FOLDER_TAKEN';
+    throw taken;
+  }
+  return mutate(id, (p) => { p.folder = given; return p; });
+}
+
 function rename(id, name) {
   // ⚠️ The id does NOT change with the name. It is what the agents' recorded
   // membership and any open URL point at, and renaming is a display change
@@ -3528,7 +3559,7 @@ module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
-  list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
+  list, get, projectsFor, namesFor, create, edit, moveFolder, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,

@@ -16678,6 +16678,14 @@ window.kosmosMeasureScrollbarWidth();
       <p class="shint" style="margin-top:8px;"><code class="t" id="pjs-folder-name"></code></p>
       <p class="fhint" id="pjs-folder-where"></p>
       <p class="pj-folder-state" id="pj-one-folder-state"></p>
+      <!-- kosmos#5340: the folder was moved on this computer. Shown only when the recorded folder is not there; the
+           person gives its new place, the board checks it as it checks a new project's folder, and the members are told. -->
+      <div id="pjs-move" hidden>
+        <label class="fhint" for="pjs-move-path">If you moved it, paste where it is now (its full path), and Kosmos will use it from now on.</label>
+        <input class="t" id="pjs-move-path" type="text" spellcheck="false" autocomplete="off" autocapitalize="off">
+        <button class="btn" id="pjs-move-btn" type="button">Move project folder</button>
+        <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
+      </div>
       <button class="btn" id="pjs-reveal" type="button">Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
       <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
@@ -60540,6 +60548,9 @@ function paintSettingsFacts(p) {
   const state = document.getElementById('pj-one-folder-state');
   state.textContent = fl.bad ? fl.text : '';
   state.className = 'pj-folder-state' + (fl.bad ? ' bad' : '');
+  /* kosmos#5340: offered only when the folder is not there (moved, removed, or on a drive that is not connected). */
+  const mv = document.getElementById('pjs-move');
+  if (mv) mv.hidden = !(p.folderState && p.folderState.state === 'missing');
 }
 
 /* #2928: the top-left back chevron. Nesting-based rather than a history stack
@@ -68924,6 +68935,38 @@ document.getElementById('pj-one-pause').addEventListener('click', async () => {
 // (which drops the membership list and cannot be undone by re-adding the
 // folder), archiving keeps everything and Restore is one click away in the
 // disclosure this returns you to.
+/* kosmos#5340: point a project whose folder moved at its new place. The board checks the path as it checks a new
+   project's folder (there, a folder, readable, not a temporary folder, not another project's) and tells the members. */
+document.getElementById('pjs-move-btn').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  const box = document.getElementById('pjs-move-path');
+  const msg = document.getElementById('pjs-move-msg');
+  const btn = document.getElementById('pjs-move-btn');
+  const want = box.value.trim();
+  msg.textContent = '';
+  if (!want) { msg.textContent = 'Paste the folder\'s full path first.'; box.focus(); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: want }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'we could not move it');
+    box.value = '';
+    if (!(await loadProjects())) await loadProjects();
+    msg.textContent = PJ_READ_FAILED
+      ? 'Moved, but we could not re-read your projects just then.'
+      : 'Moved. The agents on this project were told where it is now.';
+  } catch (e) {
+    const t = String((e && e.message) || 'we could not move it');
+    msg.textContent = 'Not moved: ' + t + '.';
+  } finally {
+    btn.disabled = false;
+  }
+});
 document.getElementById('pj-one-archive').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;

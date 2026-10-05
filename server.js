@@ -17031,6 +17031,31 @@ const server = http.createServer(async (req, res) => {
           missing.status = 404;
           throw missing;
         }
+        /* kosmos#5340: the project's folder moved on this computer, and the person points the project at its new place.
+           The person's own act, from the page (isViaScreen, as community release: an agent token is refused), and on
+           its own, so it is one write that happened or did not. The engine checks the new folder as create does. The
+           members' instructions name the folder, so they are re-told, and the room is told where it went. */
+        if (body.folder !== undefined) {
+          const others = Object.keys(body).filter((k) => k !== 'folder' && k !== 'token' && k !== 'from_pane');
+          if (others.length) {
+            const mixed = new Error('move the folder on its own, then save the other changes');
+            mixed.status = 400;
+            throw mixed;
+          }
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('the project\'s folder is the person\'s to move, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          const moved = projects.moveFolder(id, body.folder);
+          const rosterM = safeRoster();
+          try { for (const a of (moved.agents || [])) projects.syncAgent(a, rosterM); } catch { /* the row's told verdict reports it */ }
+          try { messages.roomNote(id, 'This project\'s folder is now ' + moved.folder + ' (it was moved). Work there from now on.'); } catch { /* best effort */ }
+          let projectM = null;
+          try { projectM = projects.get(id, rosterM); } catch { projectM = null; }
+          sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null });
+          return;
+        }
         /* ⚠️ Each field moves only when the request CARRIES it, and every
            carried field is applied in ONE engine write. Two separate
            mutations here meant a failure in the second answered "your save
