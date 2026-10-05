@@ -160,6 +160,10 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   assert.match(flat, /## A plugin the person installed in their own app/);
   assert.match(flat, /your folder is the one in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
   assert.match(flat, /or set up for the project you are working in/);
+  /* MCP servers are in .claude.json, which sits BESIDE .claude when CLAUDE_CONFIG_DIR is unset (review 5; measured). */
+  assert.match(flat, /recorded in `\.claude\.json`, which sits next to `\.claude` in the home folder when `CLAUDE_CONFIG_DIR` is not set and inside that folder when it is/);
+  assert.match(flat, /\*\*Your account \(Claude\)\.\*\*/);
+  assert.match(flat, /this is about Claude and Codex agents/);
   assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
   assert.match(flat, /On Windows the home folder is `%USERPROFILE%`/);
   assert.match(flat, /compare the actual folders rather than assuming from the account/);

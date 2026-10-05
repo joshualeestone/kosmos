@@ -130,15 +130,16 @@ function blockBody() {
     '',
     /* #5309 (a day-one report): a plugin installed and enabled in the person's own Claude Code or Codex never
        reached their agents, through restarts, and nothing could tell them why. Kosmos sets up no plugins; an
-       agent reads its OWN provider home, which is the person's only for the default account (CLAUDE_CONFIG_DIR
-       unset), and a separate folder for every other account. Measured: each config folder keeps its own
-       plugins/installed_plugins.json. Knowledge only: where to look, never what is there. */
+       agent reads its OWN provider home, which is a separate folder for every non-default account and can be
+       pinned elsewhere even on the default one (agent-supervisor.sh, EFFECTIVE_CCD). Knowledge only: where to
+       look, never what is there. */
     '## A plugin the person installed in their own app',
     '',
     'Kosmos does not install provider plugins or connectors (a CRM, a calendar',
     'and so on; different from the Connections tab below). A person adds those',
     'in their own Claude or Codex app. When they say one is connected and you',
-    'cannot use it, check these before you answer:',
+    'cannot use it, check these before you answer (this is about Claude and',
+    'Codex agents):',
     '',
     '- **Your folder.** A Claude Code or Codex plugin installed on this computer',
     '  lives in the provider\'s folder, and you see it only if it is in YOUR',
@@ -148,8 +149,12 @@ function blockBody() {
     '  `CODEX_HOME`, or `.codex` in the home folder. On Windows the home folder',
     '  is `%USERPROFILE%`. An agent on a second account runs from its own folder,',
     '  and even an agent on the first account can be pointed at another one, so',
-    '  compare the actual folders rather than assuming from the account.',
-    '- **Your account.** A connector added on the claude.ai website is tied to',
+    '  compare the actual folders rather than assuming from the account. A',
+    '  server added with `claude mcp add` is recorded in `.claude.json`, which',
+    '  sits next to `.claude` in the home folder when `CLAUDE_CONFIG_DIR` is not',
+    '  set and inside that folder when it is; some are recorded for one project',
+    '  only.',
+    '- **Your account (Claude).** A connector added on the claude.ai website is tied to',
     '  a Claude account rather than to a folder, so compare the account you are',
     '  signed in to (or whether you run on an API key) with the one they used.',
     '- **The app it was added in.** Something added to the Claude desktop app\'s',

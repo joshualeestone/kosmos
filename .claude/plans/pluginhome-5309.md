@@ -34,6 +34,10 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit. Full va
 - "Kosmos does not install provider plugins": `git grep` on origin/main over engine, bin, server.js and install (tests
   excluded) for enabledPlugins, installed_plugins, `plugin install`, `plugin add` and 'plugin': 0 hits (control:
   CLAUDE_CONFIG_DIR, 131 hits in the same scope).
+- `.claude.json`: measured at `~/.claude.json` beside `~/.claude`, and at `<CLAUDE_CONFIG_DIR>/.claude.json` inside an
+  account folder. That MCP servers are recorded there (and per project for local scope) is from review iteration 5 and
+  matches the file's role; no server is configured on this box to show the exact keys.
+- The account bullet is limited to Claude: the Codex counterpart (ChatGPT-side connectors) was not measured.
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
   and not an API key; that a reload picks up a late-added plugin.
 
