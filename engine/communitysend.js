@@ -257,11 +257,12 @@ function channelChoice(spec) {
    rather than guesses. Returns the channel slug, or null. Review 1: only the slug EXACTLY as typed, lowercase, as the
    first whole word of the body (a trailing colon or comma allowed): the measured mistake is an argument typed before the
    text, and thirteen slugs are ordinary sentence openers ("Security note:", "Testing the new flow") that a capital
-   keeps out. Not caught, on purpose: markdown or quotes before the word ("# general", "**general**"). */
+   keeps out. Review 2: the parent/sub form too (`engineering/testing`, the shape `community read --channel` shows), as
+   long as it names a real channel. Not caught, on purpose: markdown or quotes before the word ("# general"). */
 function leadingChannelWord(text) {
-  const m = typeof text === 'string' ? text.match(/^\s*([a-z][a-z-]*)[:,]?(\s|$)/) : null;
+  const m = typeof text === 'string' ? text.match(/^\s*([a-z][a-z-]*(?:\/[a-z][a-z-]*)?)[:,]?(\s|$)/) : null;
   if (!m) return null;
-  return Object.prototype.hasOwnProperty.call(CHANNELS, m[1]) ? m[1] : null;
+  return channelChoice(m[1]).ok ? m[1] : null;
 }
 function payload(post, channel) {
   const board = typeof post.board === 'string' && post.board ? post.board : null;

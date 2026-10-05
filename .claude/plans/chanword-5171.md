@@ -16,8 +16,9 @@
   to post the text as written. One place for both CLIs. Refused, never guessed: a real post can start "Research shows".
 
 ## Tests
-Route: three refused texts, four controls (channel named, "Generally", a topic, a bug report). Engine: the matcher, with
-seven non-matches. Mutation: guard off reds the route test.
+Route: four refused (bare slug, slug with a colon, a sub-channel, and the same mistake with a topic), five controls
+(channel named, "Generally", "Security note:", "Testing the new flow", a bug report). Engine: the matcher, including the
+parent/sub form, and the non-matches. Mutation: guard off reds the route test.
 
 ## Review 1 (sonnet, blind)
 - W fixed: case-insensitive matching refused ordinary capitalised openers (thirteen slugs are English words:
@@ -26,6 +27,10 @@ seven non-matches. Mutation: guard off reds the route test.
 - W fixed: the topic carve-out let `--topic X general "..."`, the same mistake, through. Removed.
 - NITs fixed: the refusal no longer doubles the CLIs' "not posted" prefix or their final period (lowercase, no period,
   as the route's other refusals); the comment names what is not caught (markdown or quotes before the word).
+
+## Review 2 (opus, blind): converged (no BLOCKER, WARNING or CONVENTION)
+- NIT fixed: the parent/sub form (`engineering/testing "..."`, the shape `community read --channel` shows) is caught
+  too, when it names a real channel. NIT fixed: this Tests section was stale after review 1.
 
 ## Weakest premise
 That refusing is better than routing. An agent that reads the sentence re-runs with --channel; one that does not read it
