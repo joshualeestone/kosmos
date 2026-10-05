@@ -37857,13 +37857,16 @@ function paintDetailState(card) {
        card (opening the page paints the cached one) adds nothing. And only if the last lost reading was recent, so a
        count left from an earlier visit cannot carry over. */
     const seen = card.linkLost === true && a.state !== 'stopped' && a.state !== 'auth_failed';   // each of those has its own remedy on the page
-    const prev = LINK_LOST_SEEN.get(a.sessionName);
+    /* typeof-guarded: page tests lift this function alone (no LINK_LOST_SEEN there), and it must not throw. */
+    const memo = typeof LINK_LOST_SEEN !== 'undefined' ? LINK_LOST_SEEN : null;
+    const windowMs = typeof LINK_LOST_WINDOW_MS !== 'undefined' ? LINK_LOST_WINDOW_MS : 30000;
+    const prev = memo ? memo.get(a.sessionName) : null;
     let n = 0;
-    if (seen) {
+    if (seen && memo) {
       if (prev && prev.card === card) n = prev.n;
-      else n = prev && Date.now() - prev.at < LINK_LOST_WINDOW_MS ? prev.n + 1 : 1;
-      LINK_LOST_SEEN.set(a.sessionName, { n, card, at: Date.now() });
-    } else LINK_LOST_SEEN.delete(a.sessionName);
+      else n = prev && Date.now() - prev.at < windowMs ? prev.n + 1 : 1;
+      memo.set(a.sessionName, { n, card, at: Date.now() });
+    } else if (memo) memo.delete(a.sessionName);
     const on = n >= 2;
     if (lost.hidden === on) lost.hidden = !on;
     if (on) {
