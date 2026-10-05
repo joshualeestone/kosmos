@@ -52,6 +52,9 @@ const P = {
     { number: 11, sentence: 'Do not enable dark mode on login', closedAt: null },
     { number: 40, sentence: 'Deep dive: Worlds', closedAt: null },
     { number: 12, sentence: 'Ship the "beta" \\ build', closedAt: null },
+    { number: 20, sentence: 'Ship onboarding', closedAt: null },
+    { number: 21, sentence: 'Write tests', closedAt: null, parent: 20 },
+    { number: 22, sentence: 'Write tests', closedAt: null },
   ],
 };
 
@@ -86,6 +89,17 @@ test('#5319: which open tasks count as the same (pure)', () => {
   assert.deepEqual(tasks.sameTextOpen(kids, 'Write tests', 9, { parent: 7 }).map((t) => t.number), [], 'under another parent, and top-level: two real tasks');
   assert.deepEqual(tasks.sameTextOpen(kids, 'Write tests', 9, { parent: 3 }).map((t) => t.number), [4], 'a sibling with the same text is named');
   assert.deepEqual(tasks.sameTextOpen(kids, 'Write tests', 9).map((t) => t.number), [8], 'top-level is compared with top-level only');
+  // Review 7: the same sentence for another target is another ask.
+  const targets = { tasks: [
+    { number: 1, sentence: 'Review the PR', detail: 'PR 12', who: null, closedAt: null },
+    { number: 2, sentence: 'Draft weekly report', detail: null, who: 'alice', closedAt: null },
+  ] };
+  assert.deepEqual(tasks.sameTextOpen(targets, 'Review the PR', 9, { detail: 'PR 15' }), [], 'another detail');
+  assert.equal(tasks.sameTextOpen(targets, 'Review the PR', 9, { detail: 'pr  12' }).length, 1, 'the same detail (case and spacing aside)');
+  assert.deepEqual(tasks.sameTextOpen(targets, 'Review the PR', 9), [], 'no detail is not detail PR 12');
+  assert.deepEqual(tasks.sameTextOpen(targets, 'Draft weekly report', 9, { who: ['bob'] }), [], 'given to someone else');
+  assert.equal(tasks.sameTextOpen(targets, 'Draft weekly report', 9, { who: ['alice'] }).length, 1, 'given to the same agent');
+  assert.deepEqual(tasks.sameTextOpen(targets, 'Draft weekly report', 9), [], 'unassigned is not given to alice');
   // Review rounds 1 to 3: different asks a fuzzy rule matched; each judged against ONE open task.
   const pair = (open, added) => tasks.sameTextOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
   for (const [open, added, want, why] of [
@@ -137,6 +151,17 @@ test('#5319: the route adds a same-text task and names the open one, with the cl
   assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
 
   // The open task's stored text has a double quote and a backslash; the note must carry neither (the macOS CLI's sed).
+  // Review 7: the route passes the parent through (as the integer the store keeps), so a subtask is compared with its
+  // siblings only. #20 has a subtask "Write tests" (#21); a top-level "Write tests" (#22) is open too.
+  const sub = async (sentence, parent) => {
+    const res = await fetch(base + '/api/project/p5319/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence, parent }) });
+    return { code: res.status, json: await res.json() };
+  };
+  const underOther = await sub('Write tests', 1);
+  assert.equal(underOther.code, 200, JSON.stringify(underOther.json));
+  assert.equal(underOther.json.note, undefined, 'under another parent: no note (neither the sibling under #20 nor the top-level #22)');
+  const underSame = await sub('Write tests', 20);
+  assert.match(underSame.json.note || '', /exists: #21 \(Write tests\)\./, 'CONTROL: under the same parent, the sibling #21 is named, not the top-level #22');
   const quoted = await add('SHIP the "beta" \\ build');
   assert.match(quoted.json.note || '', /^Note: an open task with the same text already exists: #12 \(Ship the beta build\)\./, quoted.json.note);
   assert.doesNotMatch(quoted.json.note, /["\\]/, 'the note holds no double quote or backslash');

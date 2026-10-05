@@ -1301,16 +1301,22 @@ function tasksTabShown() {
    miss, which costs only today's behaviour.
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
    told to close, never both. Never the task's own parent (a subtask may repeat it), and only tasks under the same
-   parent (review 6: generic subtask text under two parents is two tasks). At most three, oldest first. */
+   parent (review 6: generic subtask text under two parents is two tasks), with the same detail and the same people on
+   it (review 7). At most three, oldest first. */
 function sameTaskText(sentence) {
   // Review 4: EVERY character counts but case, runs of whitespace and Unicode form (NFC: one character written two
   // ways; review 5: never NFKC, which folds x² into x2 and ① into 1). Dropping punctuation and symbols
   // made opposite asks equal ("-5" / "5", "x > 5" / "x < 5", a check mark / a cross, "C++" / "C").
   return String(sentence == null ? '' : sentence).normalize('NFC').toLowerCase().replace(/\s+/gu, ' ').trim();
 }
-function sameTextOpen(p, sentence, beforeNumber, { parent = null } = {}) {
+function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null, who = [] } = {}) {
   const mine = sameTaskText(sentence);
   if (!mine) return [];
+  // Review 7: the same sentence for another target is another ask ("Review the PR" for PR 12 and for PR 15, "Draft
+  // weekly report" for alice and for bob), so the detail and who it is given to must match too.
+  const myDetail = sameTaskText(detail);
+  const people = (list) => [...new Set((list || []).filter((x) => typeof x === 'string' && x))].sort().join('\n');
+  const myWho = people(who);
   const out = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
@@ -1319,7 +1325,8 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null } = {}) {
     // Review 6: only tasks under the SAME parent (top-level with top-level): "Write tests" under #3 and under #7 are
     // two real tasks.
     if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
-    if (sameTaskText(t.sentence) === mine) out.push({ number: t.number, sentence: t.sentence });
+    if (sameTaskText(t.sentence) !== mine || sameTaskText(t.detail) !== myDetail || people(whoOf(t)) !== myWho) continue;
+    out.push({ number: t.number, sentence: t.sentence });
   }
   out.sort((a, b) => a.number - b.number);
   return out.slice(0, 3);
