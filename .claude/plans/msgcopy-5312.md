@@ -11,7 +11,9 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   attached file's name on its own line; a post that is only files copies the names once. Toast: "Copied the message."
 - Copy message id copies #4631's reference ("message 530 in Kosmos Growth"), unchanged.
 - Right-click (and ctrl-click on Windows) opens a menu with both, Copy message first and focused; the arrow keys move
-  between them. An outside guest's row (no id) offers Copy message alone.
+  between them. With a pointer, an outside guest's row (no id) and a DM reply still on its way offer Copy message alone
+  (both now open the Kosmos menu, where before the browser's own menu showed). On a touchscreen a guest's row has no
+  hover bar and no right-click, so it copies by the system's selection, as before.
 - On a touchscreen the bar keeps #4409's seven buttons: its Copy button opens the menu with both items (a phone has
   no right-click, and an eighth button made the DM's open bar cover the person's own message under it).
 - render-msgref-4631.js asserts it (C1 to C6) in Chromium as Windows and as a Mac, on a Chromium touchscreen, and in
