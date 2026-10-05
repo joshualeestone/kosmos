@@ -67405,6 +67405,10 @@ function pjAddMenuPlace() {
   if (!menu || menu.hidden || !opener) return;
   if (!opener.getClientRects().length) { pjAddMenuCloseKeepFocus(); return; }   // its + is gone (scrolled away, a tab change): no zero-rect jump
   const r = opener.getBoundingClientRect();
+  // Its + scrolled out of the window (a long project page, the phone stack): close, rather than pin the menu over
+  // whatever scrolled under it.
+  const vh = document.documentElement.clientHeight || window.innerHeight;
+  if (r.bottom < 0 || r.top > vh) { pjAddMenuCloseKeepFocus(); return; }
   const host = opener.closest('.pjcard-members') || opener.closest('#rail-agents');
   const vw = document.documentElement.clientWidth || window.innerWidth;
   const gutter = PJ_ADDMENU_GUTTER;
@@ -67556,7 +67560,7 @@ function fedInviteClose(force) {
   document.getElementById('fedinv-cancel').disabled = false;   // forced: the in-flight reply is dropped by the seq below, so it will not clear this
   FEDINV_SEQ++;
   document.getElementById('fedinv-modal').hidden = true;
-  const back = [FEDINV_OPENER, document.getElementById('pj-add-member')].find((b) => b && b.getClientRects().length);
+  const back = [FEDINV_OPENER, document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((b) => b && b.getClientRects().length);
   FEDINV_OPENER = null;
   if (back) back.focus();
 }
@@ -67566,7 +67570,7 @@ function fedInviteLongDate(sec) {
   try { return new Date(sec * 1000).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); } catch { return ''; }
 }
 let FEDINV_MAKE_LIMIT_MS = 60000;   // above the board's worst case for one invite (see fedInviteMake); a let so a check can shorten it
-// True without slice B (which lists pending codes in Members and could point there): an unseen code still lapses.
+// An unseen code is harmless: it stops working on its own when it lapses (a pending-codes list could also be named here).
 const FEDINV_TIMED_OUT = 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.';
 async function fedInviteMake() {
   if (!fedShow()) {   // a passing signup reading keeps the asking step open, but no new code is made under it
@@ -67668,6 +67672,7 @@ document.getElementById('fedinv-modal').addEventListener('click', (e) => {
 // so it may close the code step; not while an input method is composing (Escape there cancels the composition).
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || document.getElementById('fedinv-modal').hidden) return;
+  e.stopPropagation();   // the sheet is aria-modal: its Escape is its own, as the menu's is
   fedInviteClose();
 });
 // Tab stays inside the sheet, which declares aria-modal (plus-lost-modal's trap): among its visible, enabled controls.
