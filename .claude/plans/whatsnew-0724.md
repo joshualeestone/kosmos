@@ -6,10 +6,13 @@ two builds under one version, and a Mac already on staging 0.7.23 would never be
 
 ## Change
 web/whats-new.json for 0.7.24: dropped "Org charts read without Claude" and "Key accounts show their key". Added:
-- Agents on all your computers (#4812, df55e789b): web/index.html "Your other computers" section (#oa-wrap), grouped per computer.
+- Agents on all your computers (#4812, 453605299): web/index.html "Your other computers" section (#oa-wrap), grouped per
+  computer. It appears ONLY on a page served from this computer's Kosmos+ https address (oaEligible), so the line says so.
 - See what a task changed (#5205 / #5153 slice 1): paintTaskReceipt shows the receipt on any closed task, no setting
-  (only the undo inside it waits on Settings > Advanced). Claude agents; other providers say "not available yet", hence
-  "each Claude agent".
+  (only the undo inside it waits on Settings > Advanced). engine/receipt.js gives Claude, Codex and Gemini CLI agents a
+  full receipt; other runners (Grok, Antigravity, Muse) show "not available", which the receipt itself says, so the line
+  says "its agents" rather than naming providers. It covers what an agent did WHILE it held the task (the receipt's own
+  intro), hence "while they held it".
 Kept, unchanged: Name an agent file, Token Usage for every provider, A refused Restore says why. No "API key" anywhere.
 tools/whats-new-check.js 0.7.24: 5 highlights, mac 5, windows 5.
 

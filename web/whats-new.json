@@ -4,12 +4,12 @@
     {
       "icon": "swarm",
       "title": "Agents on all your computers",
-      "line": "With Kosmos+, the Agents view now also lists the agents on your other connected computers, under each computer's name."
+      "line": "When you open Kosmos through its Kosmos+ address, the Agents view also lists the agents on your other connected computers."
     },
     {
       "icon": "tasks",
       "title": "See what a task changed",
-      "line": "A closed task now shows what each Claude agent changed: the files it created or edited, how many commands it ran, and its tokens."
+      "line": "A closed task now shows what its agents did while they held it: files created or edited, how many commands ran, and tokens used."
     },
     {
       "icon": "list",
