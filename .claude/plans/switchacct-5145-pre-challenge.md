@@ -2,13 +2,27 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchacct-5145
-diff_hash: 5f33a785a2783359573830866bf58d783f3068b38b2e5e6621af904357682dc6
-validation: passed (focused at a9aadb5a9: web.switch-landed-5145 22/22, the #5145 route tests 5/5; the full suite and the FULL browser checks are queued after this proof)
+diff_hash: 575f89a46133959033d1e39bf2d0d6ea21fa096c92477a78fc4eef313506dc8b
+validation: passed (focused at 4d3a59dd6 on main 6ebbeca4d: 156 related and audit files, 4095 tests, 0 fail; the earlier full suite and FULL browser checks passed at 31733c8d9; both re-run at this head after this proof)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-04T17:36:19Z
-iterations: 8
+timestamp: 2026-10-05T09:52:50Z
+iterations: 9
 converged: true
 ---
+
+## [CHALLENGE-LOOP] Summary: onto main after #5150 (2026-10-05)
+
+**Iterations:** 9 (iteration 9 is a blind opus review of the combination with main's #5150, PR #5280, which rewrote acctParenthetical).
+**Converged:** Yes. Iteration 9 found no BLOCKER, WARNING or NIT.
+**Why a re-run:** under Splinter's 19:29 ruling an overlap with a function this PR calls requires a re-run. A commit-by-commit rebase conflicted, and taking the old side would have reverted #5150, so the branch is ONE commit (4d3a59dd6) on main 6ebbeca4d, built from the conflict-free merge-tree of the tested head 31733c8d9. Iteration 9 confirmed this PR's changed lines are byte-identical to 31733c8d9's and #5150 is intact.
+
+### Per-Iteration Breakdown
+- iteration 9: NO NEW FINDINGS. A Gemini or Grok key-account switch repaints "API key ending XXXX" as #5150 intends; both PRs' tests pass together (64/64).
+
+### Final Ledger
+| # | Iter | Cat | File | Origin | Description | Status |
+|---|---|---|---|---|---|---|
+| (none) | 9 | - | - | - | no findings | - |
 
 ## [CHALLENGE-LOOP] Summary
 
