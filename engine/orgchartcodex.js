@@ -270,6 +270,11 @@ function sweepStale() {
 // todo_list is what update_plan produces. request_user_input's item type is not listed on purpose: if it ever emits
 // one, the read is refused, which fails safe. Do not add a type here without a capture showing what it is.
 const QUIET_ITEMS = new Set(['agent_message', 'reasoning', 'todo_list', 'error']);
+/* The top-level events a read may produce (the real reads on #5346 emitted thread.started, turn.started,
+   item.completed and turn.completed). Any other kind of event is refused the same way, so a tool call reported
+   outside an item cannot pass. */
+const KNOWN_EVENTS = new Set(['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'item.started',
+  'item.updated', 'item.completed', 'error']);
 
 /* The environment Codex runs with: an ALLOWLIST, so the board's token, another provider's key, NODE_OPTIONS, or an
    OPENAI_ or CODEX_ variable (a key or base URL that would bill a key or send the chart elsewhere while the box says
@@ -380,7 +385,13 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
     const onLine = (l) => {
       let ev;
       try { ev = JSON.parse(l); } catch { return; }
-      const item = ev && ev.item;
+      if (!ev || typeof ev !== 'object') return;
+      if (!KNOWN_EVENTS.has(ev.type)) {
+        console.warn('[orgchart] codex sent an event of an unknown kind (' + String(ev.type).slice(0, 40) + '); the read is refused');
+        finish({ ok: false, because: 'ChatGPT tried to use a tool, so the answer was not used' });
+        return;
+      }
+      const item = ev.item;
       // An item with no readable type is refused too: the tripwire fails closed.
       if (item && (typeof item.type !== 'string' || !QUIET_ITEMS.has(item.type))) {
         console.warn('[orgchart] codex used a tool (' + String(item.type).slice(0, 40) + '); the read is refused');
@@ -427,4 +438,4 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
   });
 }
 
-module.exports = { WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

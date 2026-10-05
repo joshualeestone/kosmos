@@ -388,3 +388,32 @@ test('a read removes a read folder left by a board that died over 15 minutes ago
   } finally { fs.rmSync(old, { recursive: true, force: true }); fs.rmSync(fresh, { recursive: true, force: true }); }
   await grandchildGone();
 });
+
+test('tripwire: an event of an unknown kind (a tool call outside an item, say) is refused', async () => {
+  events({ type: 'turn.started' }, { type: 'function_call', name: 'exec_command' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.completed' });
+  assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /tried to use a tool/);
+  await grandchildGone();
+  answer(PEOPLE);
+  assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).ok, true, 'CONTROL: the events a real read sends pass');
+  await grandchildGone();
+});
+
+/* Runs everywhere, Codex installed or not: the exact command line the capture test certified. Any change to a switch
+   reds here, so the capture test (which needs the pinned Codex) is re-run before the change ships. */
+test('the exact Codex command line is pinned', () => {
+  const a = c.codexArgs({ dir: '/D', catalog: '/C', schema: '/S', image: '/I', prompt: 'P' });
+  assert.deepEqual(a, ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules',
+    '--sandbox', 'read-only', '-C', '/D',
+    '--disable', 'shell_tool', '--disable', 'unified_exec', '--disable', 'apps', '--disable', 'browser_use',
+    '--disable', 'browser_use_external', '--disable', 'browser_use_full_cdp_access', '--disable', 'computer_use',
+    '--disable', 'image_generation', '--disable', 'multi_agent', '--disable', 'multi_agent_v2', '--disable', 'hooks',
+    '--disable', 'memories', '--disable', 'plugins', '--disable', 'remote_plugin', '--disable', 'view_image',
+    '--disable', 'in_app_browser', '--disable', 'code_mode_host', '--disable', 'tool_suggest', '--disable', 'skill_search',
+    '--disable', 'goals', '--disable', 'shell_snapshot', '--disable', 'skill_mcp_dependency_install',
+    '--disable', 'workspace_dependencies', '--disable', 'enable_request_compression', '--disable', 'recommended_plugins',
+    '-c', 'web_search="disabled"', '-c', 'tools.view_image=false', '-c', 'agents.enabled=false', '-c', 'history.persistence="none"',
+    '-c', 'skills.bundled.enabled=false', '-c', 'skills.include_instructions=false', '-c', 'include_permissions_instructions=false',
+    '-c', 'include_environment_context=false', '-c', 'include_apps_instructions=false',
+    '-c', 'include_collaboration_mode_instructions=false', '-c', 'project_doc_max_bytes=0',
+    '-c', 'model_catalog_json="/C"', '--output-schema', '/S', '-i', '/I', '--', 'P']);
+});
