@@ -160,7 +160,6 @@ function handleEvent(projectId, line, heldAt) {
     sendRotates(projectId, s);
     // #5285: someone did join; a post held for that check now waits as any held post does (for the key, the hour).
     for (const h of s.outbox || []) if (h.msg && h.msg.joinWait) h.msg = Object.assign({}, h.msg, { joinWait: false });
-    s.joinHoldNoted = false;
     flushHeld(projectId, s);   // a post held for the room id, or for a key that arrived meanwhile
     return;
   }
@@ -1313,7 +1312,6 @@ function dropJoinWait(projectId, s, askedMono, why) {
   const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait && (askedMono === Infinity || (h.mono !== undefined && h.mono < askedMono))));
   const n = s.outbox.length - keep.length;
   s.outbox = keep;
-  if (!hasJoinWait(s)) s.joinHoldNoted = false;
   if (!n) return;
   if (why) say(projectId, (n === 1 ? 'That message stayed' : n + ' messages stayed') + ' on this computer: ' + why + '.');
   else say(projectId, n === 1 ? NOBODY_JOINED : n + ' messages stayed on this computer: nobody outside has joined this shared project yet.');
@@ -1335,14 +1333,14 @@ function kickJoinCheck(projectId, s) {
       // An ensure that returned without asking (a start or a pass already under way) answers nothing: ask again
       // when the window ends, like a post held while a check was out.
       if (!ask) { s.joinCheckAgain = true; return; }
-      // Kosmos+ could not answer (ensure turns that into 'reconnecting'): ask again at the window's end, and say
-      // once (per outage) that the post is held, since the quiet hold would otherwise leave the person nothing.
+      // Kosmos+ could not answer (ensure turns that into 'reconnecting'): ask again at the window's end, and tell
+      // each waiting post's writer once that it is held (the quiet hold would otherwise leave them nothing). Kept on
+      // the post itself, not the seat, so nothing has to be reset when posts leave by any path.
       if (status === 'reconnecting') {
         s.joinCheckAgain = true;
-        if (!s.joinHoldNoted && hasJoinWait(s)) {
-          s.joinHoldNoted = true;
-          say(projectId, 'That message is held on this computer: Kosmos+ cannot be reached right now to check who has joined. It is sent once they are connected, while Kosmos keeps running.');
-        }
+        const fresh = (s.outbox || []).filter((h) => h.msg && h.msg.joinWait && !h.outageNoted);
+        for (const h of fresh) h.outageNoted = true;
+        if (fresh.length) say(projectId, (fresh.length === 1 ? 'That message is held' : fresh.length + ' messages are held') + ' on this computer until Kosmos+ can be reached to say whether anyone has joined.');
         return;
       }
       if (status === 'waiting') dropJoinWait(projectId, s, ask.mono);

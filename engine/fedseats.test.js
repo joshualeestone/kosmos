@@ -3569,7 +3569,7 @@ test('#5285: when Kosmos+ cannot answer the check, a follow-up asks again at the
   h.edges = null;   // Kosmos+ answers with a failure
   fedseats.post('proj-fail', { from: 'Josh', kind: 'person', text: 'after a failure' });
   await settle();
-  const heldLines = () => h.notes.filter((n) => n.projectId === 'proj-fail' && /Kosmos\+ cannot be reached right now/.test(n.text)).length;
+  const heldLines = () => h.notes.filter((n) => n.projectId === 'proj-fail' && /held on this computer until Kosmos\+ can be reached/.test(n.text)).length;
   assert.strictEqual(heldLines(), 1, 'an outage left the person no line: ' + JSON.stringify(h.notes.map((n) => n.text)));
   // A second failed answer: asked again, but the line is not repeated.
   const asked0 = h.asked;
@@ -3577,6 +3577,12 @@ test('#5285: when Kosmos+ cannot answer the check, a follow-up asks again at the
   await settle();
   assert.ok(h.asked > asked0, 'no follow-up after the first failed answer');
   assert.strictEqual(heldLines(), 1, 'the outage line was repeated on the second failure');
+  // A second post in the same outage is not left silent: the seat is reconnecting, and says so (as before #5285).
+  fedseats.post('proj-fail', { from: 'Josh', kind: 'person', text: 'and another' });
+  await settle();
+  const last = h.notes.filter((n) => n.projectId === 'proj-fail').pop().text;
+  assert.match(last, /stayed on this computer: the connection to .* is not up right now/, 'a second post in the outage got no line');
+  assert.strictEqual(heldLines(), 1);
   const asked = h.asked;
   h.edges = [{ id: 'edge-fail', project_ref: 'ref-fail', status: 'active' }];
   t.mock.timers.tick(10000);
@@ -3588,6 +3594,7 @@ test('#5285: when Kosmos+ cannot answer the check, a follow-up asks again at the
   say(seat, { event: 'connected', room: 'r', expires_at: 9 });
   await settle();
   assert.match(seat.written.join(''), /after a failure/);
+  assert.strictEqual(heldLines(), 1, 'the outage line was said again after recovery');
 });
 
 test('#5285: a check still out when its seat is stopped does nothing when it answers', async () => {

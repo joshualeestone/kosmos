@@ -50,3 +50,8 @@ Review 5 (0 blockers): the quiet hold left the person no line during a real outa
 cannot reach Kosmos+ now says once per outage "held ... Kosmos+ cannot be reached right now to check who has joined",
 reset on connect or release. Accepted and stated in #5191's comment: in an outage N waiting rooms ask up to N times
 per window, each for at most the hour.
+
+Review 6 (0 blockers): the seat-level "said once" flag had exits of its own (it stuck when a post aged out). Replaced
+by a mark on each held post, so nothing needs resetting. The outage sentence now claims only what is true: "held on
+this computer until Kosmos+ can be reached to say whether anyone has joined" (the old wording promised a send that a
+"nobody joined" answer would not make). A new post during the outage gets the seat's existing "not up right now".
