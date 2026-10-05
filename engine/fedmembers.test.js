@@ -330,6 +330,8 @@ test('#4649 slice 1b: a project shared only with this account\'s other computers
   const m = await fedmembers.members(stubRemote({}), 'ownonly');
   assert.strictEqual(m.status, 200, JSON.stringify(m));
   assert.deepStrictEqual([m.body.owner, m.body.self_shared, m.body.invites], [true, true, []]);
+  // `shared` means shared with people OUTSIDE; a project shared only with this account's computers is not.
+  assert.strictEqual(m.body.shared, false);
 });
 
 test('#4649 slice 1b: joinedLine uses the owner\'s label for that invite, else a plain sentence', () => {
@@ -370,4 +372,36 @@ test('#4649 slice 3 review round 3: the newest invite\'s label wins for an accou
   assert.strictEqual(fedmembers.noteMembers('rejoin', [[a.body.invite_id, 'acct-d'], [b.body.invite_id, 'acct-d']]), 2);
   assert.strictEqual(fedmembers.labelForMember('rejoin', 'acct-d'), 'Dana (contractor)');
   assert.strictEqual(fedmembers.labelsFor('rejoin').get('acct-d'), 'Dana (contractor)');
+});
+
+test('#4649 (Pete): an owner\'s Members says shared, so an unchecked empty list reads "could not check", not "never shared"', async () => {
+  federation.recordLink('shared-down', { role: 'owner', ref: 'ref-shared-down' });
+  const down = await fedmembers.members(stubRemote({}), 'shared-down');
+  assert.deepStrictEqual([down.body.shared, down.body.invites, down.body.checked_at], [true, [], null],
+    'a shared project whose coordinator was unreachable looked like a project never shared');
+  const never = await fedmembers.members(stubRemote({}), 'never-shared');
+  assert.deepStrictEqual([never.body.shared, never.body.invites], [false, []], 'CONTROL: a project never shared says shared:false');
+});
+
+test('#4649 (Pete): a refused Remove or Withdraw shows the coordinator\'s words without the HTTP status and request path', async () => {
+  federation.recordLink('plain', { role: 'owner', ref: 'ref-plain' });
+  const edges = { ok: true, data: { as_owner: [edge('e-plain', 'ref-plain', 'i-plain')], as_member: [] } };
+  const refused = stubRemote({ '/v1/mac/federation/edges': edges,
+    '/v1/mac/federation/revoke': { ok: false, because: 'no active connection to revoke (already removed, or not yours). (HTTP 400 on /v1/mac/federation/revoke)' } });
+  const r = await fedmembers.remove(refused, 'plain', 'e-plain');
+  assert.strictEqual(r.status, 502);
+  assert.strictEqual(r.body.error, 'no active connection to revoke (already removed, or not yours).');
+  assert.ok(!/HTTP|\/v1\//.test(r.body.error), 'the request path reached the person: ' + r.body.error);
+  // Nothing readable left: the board's own sentence.
+  const bare = stubRemote({ '/v1/mac/federation/edges': edges, '/v1/mac/federation/revoke': { ok: false, because: '(HTTP 502 on /v1/mac/federation/revoke)' } });
+  assert.strictEqual((await fedmembers.remove(bare, 'plain', 'e-plain')).body.error, 'Kosmos could not remove them just now. Try again in a moment.');
+});
+
+test('#4649 (Pete) review round 1: Withdraw cleans the trailer too; a sentence that mentions an HTTP code keeps its words', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const made = await fedmembers.invite(remote, { project: 'plainw', invited_kind: 'person' }, here(['plainw']));
+  const odd = stubRemote({ '/v1/mac/federation/invite/withdraw': { ok: false, because: 'the service is busy (HTTP 429 means slow down). (HTTP 503 on /v1/mac/federation/invite/withdraw).' } });
+  const w = await fedmembers.withdraw(odd, 'plainw', made.body.invite_id);
+  assert.strictEqual(w.status, 502);
+  assert.strictEqual(w.body.error, 'the service is busy (HTTP 429 means slow down)..', 'the trailer was not removed, or the sentence lost its own words');
 });

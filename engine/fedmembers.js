@@ -63,6 +63,17 @@ function cleanLabel(v) {
   return s ? s.slice(0, LABEL_MAX) : null;
 }
 
+/* Pete's review: the connector's reason, as the person may read it. It can end with "(HTTP 409 on /v1/mac/...)" and
+   carry the request's path; that trailer goes (as #5193 does for the room's line), whitespace collapses, and the rest
+   is cut to 300 characters. Empty when nothing readable is left, so the caller's own sentence is used. */
+function plainBecause(v) {
+  if (typeof v !== 'string') return '';
+  // Only the connector's own trailer, "(HTTP <code> on /<path>)": a sentence that merely mentions an HTTP code keeps
+  // its words, and punctuation after the trailer stays (review round 1).
+  const s = v.replace(/\s*\(HTTP \d{3} on \/[^)]*\)/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  return s ? cut(s, 300) : '';
+}
+
 /* Cut to at most n UTF-16 units (the unit federation.invite counts in) by whole CHARACTERS, never inside an emoji
    (review round 5): half a surrogate pair is not valid text to send. */
 function cut(v, n) { let o = ''; for (const ch of v) { if (o.length + ch.length > n) break; o += ch; } return o; }
@@ -225,7 +236,7 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
   if (o.status && o.body.reason === 'not-owner') return { status: 200, body: memberView(projectId) };
   /* Slice 1b (Pete's Q-K6): a project shared only with this account's other computers is answered, not refused, so the
      screen can leave out "Invite someone outside" (#4658) rather than fail when it makes a code. */
-  if (o.status && o.body.reason === 'self-shared') return { status: 200, body: { owner: true, self_shared: true, sealed: false, invites: [], checked_at: null } };
+  if (o.status && o.body.reason === 'self-shared') return { status: 200, body: { owner: true, self_shared: true, shared: false, sealed: false, invites: [], checked_at: null } };
   if (o.status) return o;
   let rows;
   try { rows = rowsFor(projectId); } catch (err) { return { status: 500, body: { error: err.message } }; }
@@ -278,7 +289,10 @@ async function members(remote, projectId, now = Date.now(), { projectExists } = 
   }
   let sealed = false;
   try { sealed = !!(o.link && require('./fedseal').isSealedRef(o.link.ref)); } catch { sealed = false; }
-  return { status: 200, body: { owner: true, sealed, invites: out, checked_at: checkedAt } };
+  /* Pete's review of the screens: `shared` says this project has an owner link (something was ever invited or joined),
+     so an answer the coordinator could not check (checked_at null) with no rows reads "could not check", not "never
+     shared": a create-screen joiner has no row here and is listed only from the coordinator's connections. */
+  return { status: 200, body: { owner: true, shared: !!o.link, sealed, invites: out, checked_at: checkedAt } };
 }
 
 /** Slice 1b (Pete's Q-K4): what a project this board JOINED shows about itself. `owner_name` is the handle the
@@ -355,7 +369,7 @@ async function remove(remote, projectId, edgeId) {
   const edge = e.data.as_owner.find((x) => x && x.id === edgeId && x.project_ref === o.link.ref);
   if (!edge) return { status: 404, body: { error: 'That member is not in this project.' } };
   const r = await remote.macRequest('POST', MAC_REVOKE, { edge_id: edgeId });
-  if (!r || !r.ok) return { status: 502, body: { error: (r && r.because) || 'Kosmos could not remove them just now. Try again in a moment.' } };
+  if (!r || !r.ok) return { status: 502, body: { error: plainBecause(r && r.because) || 'Kosmos could not remove them just now. Try again in a moment.' } };
   /* The room line the contract promises, written here (the screen does not): the owner's label when there is one. */
   let label = null;
   try { const row = rowsFor(projectId).find((x) => x && x.invite_id === edge.invite_id); label = row ? row.label : null; } catch { label = null; }
@@ -385,7 +399,7 @@ async function withdraw(remote, projectId, inviteId, now = Date.now()) {
     if (/already withdrawn/i.test(b)) { try { markWithdrawn(projectId, inviteId, now); } catch { /* the list reads it next time */ } return { status: 200, body: { withdrawn: true } }; }
     if (/no such invite/i.test(b)) return { status: 404, body: { error: 'Kosmos+ does not know this code any more. It cannot be used.' } };
     if (/does not sign/i.test(b) || /\bHTTP 404\b/.test(b)) return { status: 409, body: { reason: 'unsupported', error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.' } };
-    return { status: 502, body: { error: b || 'Kosmos could not withdraw this code just now. Try again in a moment.' } };
+    return { status: 502, body: { error: plainBecause(b) || 'Kosmos could not withdraw this code just now. Try again in a moment.' } };
   }
   try { markWithdrawn(projectId, inviteId, now); } catch (err) { return { status: 500, body: { error: err.message } }; }
   return { status: 200, body: { withdrawn: true } };
