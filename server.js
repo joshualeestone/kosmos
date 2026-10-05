@@ -8571,7 +8571,7 @@ const server = http.createServer(async (req, res) => {
     let picturesToFit = [];
     try {
       picturesToFit = typeof communitysend.pictureToFit === 'function'
-        ? (communitysend.pictureToFit() || []).slice(0, 100).map((name) => ({ name, ver: store.avatarVersion(name) }))
+        ? (communitysend.pictureToFit() || []).slice(0, 100).flatMap((name) => { try { return [{ name, ver: store.avatarVersion(name) }]; } catch { return []; } })
         : [];
     } catch { picturesToFit = null; }
     return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable, picturesToFit };

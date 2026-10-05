@@ -2147,6 +2147,8 @@ function pictureUnsendable() {
    refitOldPictures) stops counting before the next sweep re-marks it. A file that cannot be read this moment keeps
    counting. null when the sweep cannot run at all. */
 function pictureToFit() {
+  // Community off: nothing goes there, so nothing is fitted for it (review 3).
+  try { if (switchOn() !== true) return []; } catch { return []; }
   const keys = loadJson(keysFile());
   if (!keys || !endpointAllowed()) return null;
   return Object.keys(keys).filter((a) => {

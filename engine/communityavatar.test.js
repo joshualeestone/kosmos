@@ -635,3 +635,15 @@ test('#5302 saveRefitAvatar: a stale version writes nothing; otherwise the origi
   store.removeAvatar('kos');
   assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.')).length, 0);
 });
+
+test('#5302 review 3: nothing is listed to fit while Community is off; a version-0 refit is refused', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/gif', GIF);
+  await cs.sweep();
+  assert.equal(cs.pictureToFit().length, 1, 'fixture: the picture is not listed with Community on');
+  cs.setSwitch(() => ({ on: false, ok: true }));
+  try { assert.deepEqual(cs.pictureToFit(), [], 'a picture listed for fitting with Community off'); }
+  finally { cs.setSwitch(() => SW); }
+  assert.throws(() => store.saveRefitAvatar('nobody-5302', 'image/png', png(1), 0), (e) => e.code === 'CHANGED');
+});
