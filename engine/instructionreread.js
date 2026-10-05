@@ -4,8 +4,8 @@
  *
  * An agent reads its instructions file once, when its session starts (engine/instructions.js), so a section rewritten
  * while it runs reaches it only at its next restart. A user's 0.7.22 report (Josh, 2026-10-05) found five running agents
- * still following the community rules and the CLI text they started with, days after both changed. Kosmos now writes two
- * such changes while agents run, and each one owes the agent a line telling it to read that section again:
+ * still following the community rules and the CLI text they started with, days after both changed. Each change Kosmos
+ * writes while agents run owes the agent a line telling it to read that section again (SECTIONS), for example:
  *   - community: the Kosmos+ community block, refreshed at every board start (communityblock.refreshEveryone);
  *   - rules: the working rules, rewritten only when the person accepts the refresh (engine/doctrine.js refresh, #539).
  *
@@ -36,7 +36,7 @@ const SECTIONS = Object.freeze({
   // kosmos#5304: the blocks the board-start sweeps and the About-you save rewrite.
   you: 'the section headed "Who you work for"',
   reports: 'the section headed "Who you report to"',
-  connections: 'the section headed "How connecting a provider works"',
+  connections: 'the sections headed "How connecting a provider works" and "The Connections tab: the services you can work with"',
   dmfiles: 'the section headed "Where to save files you make for the person"',
   language: 'the section headed "The person\'s language"',
 });
@@ -163,7 +163,8 @@ function oweChanged(told, owed, now = Date.now()) {
 /* Pure (kosmos#5304): every verdict whose block was rewritten (`changed`) owes `section`. */
 function oweEach(told, owed, section, now = Date.now()) {
   let next = { ...owed };
-  for (const t of Array.isArray(told) ? told : []) if (t && t.changed === true && t.agent) next = owe(next, t.agent, section, now);
+  // A removed block (`removed`) owes nothing: there is no section left to read; the agent drops it at its next start.
+  for (const t of Array.isArray(told) ? told : []) if (t && t.changed === true && t.removed !== true && t.agent) next = owe(next, t.agent, section, now);
   return next;
 }
 
