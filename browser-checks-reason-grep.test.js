@@ -372,6 +372,7 @@ const SITE_COUNTS = {
   'render-emoji-mute-2357.js': [1, 1],
   'render-fed-external-3311.js': [2, 0],
   'render-fed-plus-gate.js': [2, 2],
+  'render-federation-invite-4649.js': [1, 2],
   'render-fields.js': [2, 0],
   'render-file-preview-4930.js': [1, 0],
   'render-first-run.js': [1, 0],

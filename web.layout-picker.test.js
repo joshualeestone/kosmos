@@ -126,7 +126,9 @@ test('piece two: the rail heads exist once, hidden until the mode, with a + on t
   assert.match(SCRIPT, /getElementById\('rail-agents'\)\.hidden = !cons/);
   // #3387: the agents rail + is conditional -- it adds an existing agent while a project's
   // members are grouped at the top (AGENTS_GROUPED), and is the board's own New agent otherwise.
-  assert.match(SCRIPT, /getElementById\('rail-agents-new'\)\.addEventListener\('click', \(\) => \{\s*if \(AGENTS_GROUPED\) \{ openAddMemberModal\(\); return; \}\s*document\.getElementById\('new-agent'\)\.click\(\);\s*\}\)/, 'the agents rail + adds an existing agent when grouped, else the board\'s own New agent');
+  // kosmos#4649: while grouped it goes through pjAddPlus, which opens the Members "+" menu when the
+  // federation gate is "show" and openAddMemberModal directly otherwise.
+  assert.match(SCRIPT, /getElementById\('rail-agents-new'\)\.addEventListener\('click', \(e\) => \{\s*(\/\/[^\n]*\n\s*)?if \(AGENTS_GROUPED\) \{ pjAddPlus\(e\.currentTarget, openAddMemberModal\); return; \}\s*document\.getElementById\('new-agent'\)\.click\(\);\s*\}\)/, 'the agents rail + adds an existing agent when grouped, else the board\'s own New agent');
   assert.match(SCRIPT, /getElementById\('rail-projects-new'\)\.addEventListener\('click', \(\) => document\.getElementById\('pj-new'\)\.click\(\)\)/, 'the rail + is not the list\'s own New project');
   assert.match(SCRIPT, /sessionStorage\.getItem\('rail-fold-' \+ k\)/, 'a fold is not per session');
   assert.match(PAGE, /body\.consolidated\.fold-a \{ grid-template-columns: 48px/);
