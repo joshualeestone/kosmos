@@ -209,7 +209,9 @@ test('#1674: `kosmos reply --help` (and every verb\'s --help) reaches a LISTENIN
 
 function feedbackCli(args, input) {
   const root = feedbackCli.root || (feedbackCli.root = fs.mkdtempSync(path.join(SANDBOX, 'feedback-')));
-  const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: root });
+  // #5294 review 1: write now SENDS, so these writes go to a DEAD loopback, never installkosmos.com, even run
+  // without `node --test`.
+  const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: root, AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback' });
   delete env.KOSMOS_WORLD;
   const r = cp.spawnSync(process.execPath, [CLI_FILE, ...args], { env, input: input === undefined ? '' : input, encoding: 'utf8', timeout: 60000 });
   return { code: r.status, out: String(r.stdout).replace(/\r?\n$/, ''), err: String(r.stderr).replace(/\r?\n$/, ''), root };
@@ -237,8 +239,8 @@ test('#5294 feedback write SENDS the report now to the collector (a loopback stu
 test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads it back; list names the day', () => {
   const w = feedbackCli(['feedback', 'write', 'The', 'task', 'verbs', 'were', 'missing.']);
   assert.equal(w.code, 0, w.err);
-  /* kosmos#5294: under the test runner the real collector is never reached, so the CLI says it was not sent. */
-  assert.equal(w.out, require('./engine/feedbacksend').writeMessage('blocked'));
+  /* kosmos#5294: the harness aims writes at a dead loopback, so the send fails and the CLI says it was not sent. */
+  assert.equal(w.out, require('./engine/feedbacksend').writeMessage('failed'));
   /* The store root is AGENT_WORKFORCE_DATA plus the app's own folder (store.js
      dataRootFor), so the report is looked for one level down, and only there. */
   const appDirs = fs.readdirSync(w.root);

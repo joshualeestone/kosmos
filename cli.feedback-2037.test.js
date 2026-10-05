@@ -32,7 +32,9 @@ function makeHome() {
 
 function run(args, { home, data }, input) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: '9' };
+    // #5294 review 1: write now SENDS, so every write here goes to a DEAD loopback, never installkosmos.com, even
+    // when this file is run without `node --test` (which is what sets the engine's test-run guard).
+    const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: '9', AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback' };
     const child = execFile('bash', [CLI, ...args], { env, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, out: `${stdout}`, err: `${stderr}`, both: `${stdout}${stderr}` });
@@ -164,7 +166,7 @@ function stubCollector() {
 function runWith(args, h, extra) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, KOSMOS_HOME: h.home, AGENT_WORKFORCE_DATA: h.data, KOSMOS_PORT: '9',
-      AGENT_WORKFORCE_WORKERS: path.join(h.data, 'workers'), ...extra };
+      AGENT_WORKFORCE_WORKERS: path.join(h.data, 'workers'), AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback', ...extra };
     execFile('bash', [CLI, ...args], { env, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code))); return; }
       resolve({ code: err ? err.code : 0, out: `${stdout}`.trim(), err: `${stderr}`, both: `${stdout}${stderr}` });
@@ -201,7 +203,10 @@ test('#5294 with sending switched off, feedback write saves, sends nothing, and 
   } finally { await c.close(); }
 });
 
-test('#5294 under test, the real collector address is never reached: "blocked" (CONTROL for the stub arms)', async () => {
+test('#5294 under test, the real collector address is never reached: "blocked" (CONTROL for the stub arms)', async (t) => {
+  // This arm points the child at the REAL default address on purpose, so it runs only where the engine's guard holds:
+  // under `node --test`, whose NODE_TEST_CONTEXT the child inherits. Run any other way, it skips rather than send.
+  if (!process.env.NODE_TEST_CONTEXT) { t.skip('not under node --test, so the guard that blocks a real send is off'); return; }
   const h = makeHome();
   const w = await runWith(['feedback', 'write', 'body'], h, { AGENT_WORKFORCE_FEEDBACK_URL: '' });
   assert.equal(w.code, 0, w.both);

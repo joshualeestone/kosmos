@@ -837,6 +837,37 @@ test('#5294 the collector refuses (4xx) or the network throws: "failed", the att
   }
 });
 
+test('#5294 review 1: after a FAILED send, writing again retries at once (no 3 h wait when nothing was delivered)', async () => {
+  feedback.write('first try', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let ok = false; let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+  ok = true;
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + 60 * 1000)).state, 'sent', 'a failed send could not be retried for 3 h');
+  assert.equal(calls, 2);
+});
+
+test('#5294 review 1: "later" only after a version was DELIVERED today, never after a failed attempt', async () => {
+  feedback.write('v1', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  feedbacksend.setSender(() => Promise.resolve({ ok: false }));
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+  feedback.write('v2', { date: '2026-09-04' });
+  const r = await feedbacksend.sendNow('2026-09-04', 2000);
+  assert.notEqual(r.state, 'later', '"later" told the agent a report reached the team when none did');
+});
+
+test('#5294 review 1: an unreadable setting file is "unreadable", not "off", and nothing is sent', async () => {
+  feedback.write('body', { date: '2026-09-04' });
+  fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
+  fs.writeFileSync(feedbacksend.FILE, 'not json{');
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'unreadable');
+  assert.equal(calls, 0);
+});
+
 test('#5294 the marker cannot be saved: "unsent", and nothing is POSTed (the sweep\'s rule)', async () => {
   feedback.write('body', { date: '2026-09-04' });
   feedbacksend.setOn(true);
@@ -873,7 +904,7 @@ test('#5294 a test run never phones home: a real endpoint is "blocked"; only loo
 });
 
 test('#5294 every state has its own sentence, and only "sent" says the report left this computer', () => {
-  const states = ['sent', 'already', 'later', 'off', 'none', 'failed', 'unsent', 'blocked'];
+  const states = ['sent', 'already', 'later', 'off', 'unreadable', 'none', 'failed', 'unsent', 'blocked'];
   for (const s of states) assert.ok(feedbacksend.writeMessage(s) && feedbacksend.writeMessage(s).startsWith('Saved'), s);
   assert.equal(new Set(states.map((s) => feedbacksend.writeMessage(s))).size, states.length, 'two states share a sentence');
   assert.match(feedbacksend.writeMessage('sent'), /sent it to the Kosmos team \(installkosmos\.com\)/);

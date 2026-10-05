@@ -527,14 +527,18 @@ function loopback(url) {
  * agent read "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), believed its report
  * never reached the team, and posted it in the community instead. The board's hourly sweep did send it, later.
  *
- * Same gates, in the same order, as sendDailyOnce: the person's opt-out first; then unchanged-since-sent, and the
- * #4766 floor (a CHANGED report waits RESEND_MIN_MS after the last send, so an agent that rewrites often cannot flood
- * the collector); then the mark, persisted BEFORE the POST; then the POST; and the delivered hash only after the
- * collector accepted it. Same payload, scrub, endpoint and timeout as maybeSend.
+ * The gates sendDailyOnce uses, with two differences (review 1 of #5294): the person's opt-out (an UNREADABLE setting is
+ * its own state, never called "off"); unchanged-since-delivered; then the #4766 floor (a CHANGED report waits
+ * RESEND_MIN_MS) applies ONLY when a version was actually DELIVERED today (`sentHash` set). With nothing delivered,
+ * the person's write is the retry, so a failed send can be retried by writing again, instead of being told to wait for
+ * a board sweep that only covers today and only after the floor. Then the mark, persisted BEFORE the POST; then the
+ * POST; and the delivered hash only after the collector accepted it. The test guard comes after the opt-out and the
+ * report checks; it still blocks before anything is marked. Same payload, scrub, endpoint and timeout as maybeSend.
  *
  * Resolves (never rejects) to { state }, one of:
- *   sent     the collector accepted it          already  sent today, and unchanged since
- *   later    changed, but sent < 3 h ago        off      the person switched sending off
+ *   sent     the collector accepted it          already  delivered today, and unchanged since
+ *   later    changed, but a version was DELIVERED < 3 h ago   off   the person switched sending off
+ *   unreadable  the setting file cannot be read, so nothing is sent (the safe direction)
  *   none     no report for that day             failed   the collector did not take it (retried after the floor)
  *   unsent   the marker could not be saved, so nothing was sent (the sweep's own rule)
  *   blocked  a test run aimed at a real address (a test may POST only to loopback, so it never phones home)
@@ -547,12 +551,13 @@ function sendNow(date, now) {
       const d = date || feedback.today();
       const t = Number.isFinite(now) ? now : Date.now();
       const st = read();
+      if (!st.ok) return done('unreadable');
       if (!st.on) return done('off');
       const body = feedback.readBody(d);
       if (body == null) return done('none');
       if (!sender && underTest() && !loopback(endpoint())) return done('blocked');
       const h = bodyHash(body);
-      if (st.sent === d) {
+      if (st.sent === d && st.sentHash) {   // a version was DELIVERED today
         if (st.sentHash === h) return done('already');
         const age = st.sentAt == null ? Infinity : t - st.sentAt;
         if (age >= 0 && age < RESEND_MIN_MS) return done('later');
@@ -569,6 +574,8 @@ function sendNow(date, now) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(data),
         signal: ctl.signal,
+        // review 1: under test a loopback stub could redirect to a real host; refuse redirects there.
+        ...(underTest() ? { redirect: 'error' } : {}),
       })).then((res) => {
         if (res && res.ok === false) return done('failed');
         const cur = read();
@@ -586,12 +593,13 @@ function sendNow(date, now) {
  * it left the computer, where it went and what was taken out first.
  */
 const WRITE_MESSAGES = Object.freeze({
-  sent: 'Saved today\'s product-feedback report and sent it to the Kosmos team (installkosmos.com), with home paths, agent and project names, and keys taken out first. A copy stays on this computer.',
+  sent: 'Saved today\'s product-feedback report and sent it to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
   already: 'Saved today\'s product-feedback report. It is the same as the one already sent to the Kosmos team today, so nothing new was sent.',
-  later: 'Saved today\'s product-feedback report. A report from today went to the Kosmos team less than three hours ago, so this version goes with the next send, within three hours, while Kosmos is running.',
+  later: 'Saved today\'s product-feedback report. An earlier version from today already reached the Kosmos team, and Kosmos sends an updated one at most every three hours, so this version has not been sent yet.',
   off: 'Saved today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
+  unreadable: 'Saved today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
   none: 'Saved today\'s product-feedback report on this computer.',
-  failed: 'Saved today\'s product-feedback report on this computer, but it could not be sent to the Kosmos team just now. Kosmos tries again within three hours, while it is running.',
+  failed: 'Saved today\'s product-feedback report on this computer, but it could not be sent to the Kosmos team just now, so it has not reached them. Run kosmos feedback write again later to try again.',
   unsent: 'Saved today\'s product-feedback report on this computer, but it could not be sent: Kosmos could not record the send. It was not sent.',
   blocked: 'Saved today\'s product-feedback report on this computer. Not sent: this is a test run.',
 });
