@@ -157,8 +157,8 @@ function lineFor(sections) {
   if (!named.length) return null;
   const list = named.map((s) => SECTIONS[s]);
   const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
-  return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it again now. '
-    + 'What it says now replaces what you read when you started.';
+  return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
+    + 'What it says now replaces anything you read there when you started.';
 }
 
 /*

@@ -558,13 +558,6 @@ test('#5297 review 1: the introduction line coming or going is never a change of
   } finally { cs.postedBy = real; }
 });
 
-test('#5297 review 1: tellAgent with onlyIfPresent never adds a block a file does not carry; CONTROL: without it, it adds', () => {
-  const f = agentFile('vic', '# Vic\n\nNo block.\n');
-  assert.deepEqual(cb.tellAgent('vic', true, { onlyIfPresent: true }), { state: projects.TOLD.TOLD, because: null, changed: false });
-  assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 0);
-  assert.equal(cb.tellAgent('vic', true).changed, true);
-  assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 1);
-});
 
 test('#5297 Splinter 11:16: an agent with no instructions file is skipped, never given one', () => {
   const fleet = require('../test-support/fleet');
@@ -573,7 +566,14 @@ test('#5297 Splinter 11:16: an agent with no instructions file is skipped, never
   let roster;
   try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
   const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'wyn');
-  fs.rmSync(dir, { recursive: true, force: true });
+  // A folder with no instructions file: skipped, and no file is made.
+  fs.mkdirSync(dir, { recursive: true });
+  fs.rmSync(path.join(dir, 'CLAUDE.md'), { force: true });
   assert.deepEqual(cb.refreshEveryone(roster, true), []);
   assert.equal(fs.existsSync(path.join(dir, 'CLAUDE.md')), false, 'a file was created');
+  // No folder at all: reported (as the sibling sweeps report it), still nothing made.
+  fs.rmSync(dir, { recursive: true, force: true });
+  const r = cb.refreshEveryone(roster, true);
+  assert.deepEqual(r.map((t) => [t.agent, t.state, t.changed]), [['wyn', projects.TOLD.COULD_NOT, false]]);
+  assert.equal(fs.existsSync(dir), false, 'a folder was created');
 });

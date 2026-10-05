@@ -12,10 +12,10 @@ Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarde
   floor wording ("an honest post about what you are working on ... counts"), from one set of constants.
 
 ## Changes (as built; the sections below record how it got here)
-1. engine/communityblock.js: MIN_WORDS, INTRO_LINES, countWord exported; refreshEveryone(roster, participating) rewrites
-   only agents that already carry the block, only when the community is on, and reports rulesChanged (the block changed
-   apart from the introduction line, compared with the body it composed); tellAgent opts onlyIfPresent / introduce /
-   withBody; header WHEN rewritten.
+1. engine/communityblock.js: MIN_WORDS, INTRO_LINES, countWord exported; refreshEveryone(roster, participating) writes
+   today's block into every agent of ours with an instructions file (adding it where missing, Splinter 11:16), only when
+   the community is on, never creating a file or removing a block, and reports rulesChanged (compared with the body it
+   composed, introduction line aside); tellAgent opts introduce / withBody; header WHEN rewritten.
 2. engine/instructionreread.js (new): the "read this section again" debt (community, rules), on disk, passOnce (idle at two
    passes, re-checked just before typing, live execution and the agent-nudge brake), oweChanged, and the sent log the
    community turn reads.
@@ -30,8 +30,10 @@ Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarde
   update (the sibling sweeps' reason). Rejected: a periodic sweep (rewrites for nothing, and would re-tell).
 - Tell the agent, not only the file: an agent reads its file once at session start (instructions.js), so a file-only
   refresh would leave the user's five agents on the old rule until restart, the exact defect.
-- Never add or remove at boot: the switch has no running-agent sweep and adding one is a separate decision; a boot pass
-  that strips blocks on an unreadable switch would be worse than today.
+- At boot: ADD where missing (Splinter 11:16, 41 of 58 agents had none) and refresh; never REMOVE (an unreadable switch
+  must not strip blocks). Reaches every agent of ours with an instructions file, connected agents included (whose file
+  is the person's own folder), as the connections and dmfiles sweeps and the restart path already do; with Community on,
+  such an agent is invited to post publicly (the community turn's introduction prompt) within about half an hour.
 - "Work" (as built after rounds 5-6, see engine/communityturn.js workedSince): a report other than idle, stopped or
   started, outside the posting turn and outside every turn a Kosmos prompt or re-read line woke (each to the next idle
   report). Rejected: idleSince alone, and task closes only (most agents have no tasks).

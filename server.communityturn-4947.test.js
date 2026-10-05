@@ -69,7 +69,7 @@ test('#5296: the turn is given the agent\'s report history, so a further prompt 
   assert.match(w, /history:\s*\(session\)\s*=>\s*selfreport\.history\(session\)/);
 });
 
-test('#5297: at board start the community block is refreshed in the agents that carry it, and an agent whose rules changed is owed a re-read', () => {
+test('#5297: at board start the community block is written into every agent of ours (added where missing), and an agent whose rules changed is owed a re-read', () => {
   const r = SRC.indexOf("require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating())");
   assert.notEqual(r, -1, 'no board-start refresh of the community block');
   const win = SRC.slice(r, SRC.indexOf('could not refresh what agents know about the Kosmos+ community', r + 300));
