@@ -18610,8 +18610,13 @@ const server = http.createServer(async (req, res) => {
       let out;
       try { out = projects.setRoleHere(id, name, body.role); }
       catch (err) {
-        const because = String((err && err.message) || 'the role was not set');
-        sendJson(res, err && err.code === 'UNREADABLE' ? 503 : /no project by that name/.test(because) ? 404 : (/not on this project/.test(because) && !viaScreen) ? 403 : 400, { error: because });
+        const because = String((err && err.message) || '');
+        // Only the engine's own sentences go back; anything else (a failed write) is ours, said without its details.
+        if (err && err.code === 'UNREADABLE') { sendJson(res, 503, { error: because }); return; }
+        if (/no project by that name/.test(because)) { sendJson(res, 404, { error: because }); return; }
+        if (/not on this project/.test(because)) { sendJson(res, viaScreen ? 400 : 403, { error: because }); return; }
+        if (/^say the role in words$|^keep the role to /.test(because)) { sendJson(res, 400, { error: because }); return; }
+        sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
         return;
       }
       sendJson(res, 200, { ok: true, role: out.role });

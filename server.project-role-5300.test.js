@@ -143,3 +143,19 @@ test('#5300 review 9: the pane path (no token, as a Mac agent without its token 
     } finally { fs.writeFileSync(file, before); projects.readAll(); }
   } finally { board.restore(); }
 });
+
+test('#5300 review 13: a write that fails for a reason of the board\'s own is a 500 with a fixed sentence, not a 400 with its details', async () => {
+  const { board, ada } = twoAgents();
+  const dir = path.dirname(projects.file());
+  try {
+    const p = projects.create({ name: 'Role Write Fails' });
+    projects.addAgent(p.id, ada, board.agents);
+    const minted = sendertoken.mint(ada);
+    fs.chmodSync(dir, 0o555);   // the write-then-rename cannot land
+    const r = await asAgent(p.id, minted.token, { role: 'Writer' });
+    const body = await r.json();
+    assert.equal(r.status, 500, JSON.stringify(body));
+    assert.equal(body.error, 'Kosmos could not save that role just now');
+    assert.ok(!body.error.includes(dir), 'the file system\'s details reached the caller');
+  } finally { fs.chmodSync(dir, 0o755); board.restore(); }
+});
