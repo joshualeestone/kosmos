@@ -24,3 +24,10 @@ Recording create-screen invites: the project has no id yet when they are made (s
 ## Tests
 engine/fedmembers.test.js: shared:true with the coordinator unreachable; CONTROL: a never-shared project says false;
 a mutation making it always true reds the control (run, ℹ fail 1). 33/33 with the server route file.
+
+## Pete's note on #5266 (added here)
+Remove and Withdraw passed the connector's raw `because` to the dialog, including "(HTTP 409 on /v1/mac/...)". Now `plainBecause()`:
+- strips that trailer and control characters;
+- collapses whitespace and cuts to 300;
+- falls back to the board's own sentence when nothing readable is left.
+Tested (path and status gone; the bare trailer falls back). A mutation passing the raw text reds it. 34/34.
