@@ -7101,9 +7101,6 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
   #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak, #pj-room .rxn-ref, #pj-room .rxn-copy { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4409: read-aloud; #4631: Copy reference too; #5312 Copy message */
-  /* #4631: on a touchscreen Copy reference is the icon alone. The number is for a pointer resting on a post; a
-     thumb's bar is short of width on a phone, and the button's label and the toast still name the number. */
-  #pj-room .rxn-ref-n, #d-dmthread .rxn-ref-n { display: none; }
   /* #4409 after #4631: Reply is its arrow alone on a touchscreen too (its label still says "Reply to this message").
      Seven buttons with the word were 331px, and the open bar, which sits over the message above its own, then
      covered that message's whole width: a tap meant to close the bar on the visible corner of a person's message
@@ -62582,7 +62579,7 @@ const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block
 function msgCopyRelabel() {
   const touch = msgCopyTouch();
   document.querySelectorAll('.rxn-copy').forEach((b) => {
-    b.setAttribute('aria-label', touch ? 'Copy message or its id' : 'Copy message');
+    b.setAttribute('aria-label', touch ? 'Copy message or its id' : 'Copy message'); b.title = b.getAttribute('aria-label');
     if (touch) b.setAttribute('aria-haspopup', 'menu'); else b.removeAttribute('aria-haspopup');
   });
 }
@@ -63480,8 +63477,8 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    panel already uses, opened beside whichever post's smiley was clicked. */
 /* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
    message to then reference it to an agent later on". Every message offers a reference (#5312: "Copy message id"): right-click
-   (which is ctrl-click on a Mac), ctrl-click on Windows, and a button at the start of the hover bar for touch and
-   keyboard. It copies words a person can paste to any agent: "message 530 in Kosmos Growth" for a message with a
+   (which is ctrl-click on a Mac), ctrl-click on Windows, and a button in the hover bar for the keyboard (#5312: after
+   Copy message; on a touchscreen the bar's Copy opens a menu with both). It copies words a person can paste to any agent: "message 530 in Kosmos Growth" for a message with a
    number (ids are one sequence for the whole Kosmos, so the number alone finds it and the room is for the reader;
    the agent's commands take this whole phrase, engine/messages.js messageIdOf), and "Mark's message to me at
    2:31 PM on Sep 29" for a direct-conversation row, which has no number. The hover button shows the number
@@ -63508,8 +63505,8 @@ function msgCopyTouch() {
   return typeof PJ_TOUCH_MQ !== 'undefined' && !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches;
 }
 function msgCopyButton() {
-  return '<button class="rxn-copy" type="button" title="Copy message" '
-    + (msgCopyTouch() ? 'aria-label="Copy message or its id" aria-haspopup="menu">' : 'aria-label="Copy message">')
+  return '<button class="rxn-copy" type="button" '
+    + (msgCopyTouch() ? 'title="Copy message or its id" aria-label="Copy message or its id" aria-haspopup="menu">' : 'title="Copy message" aria-label="Copy message">')
     + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
     + '</button>';
 }
@@ -63674,10 +63671,11 @@ function msgMenuOpen(row, x, y) {
     });
     m.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } msgMenuClose(e.key === 'Escape'); return; }
-      /* A menu's arrow keys move between its items (and wrap). */
+      /* A menu's arrow keys move between its items (and wrap); Home and End go to the first and the last. */
+      const items = [...m.querySelectorAll('.msg-menu-i:not([hidden])')];
+      if ((e.key === 'Home' || e.key === 'End') && items.length) { e.preventDefault(); items[e.key === 'Home' ? 0 : items.length - 1].focus(); return; }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       e.preventDefault();
-      const items = [...m.querySelectorAll('.msg-menu-i:not([hidden])')];
       const i = items.indexOf(document.activeElement);
       const next = i < 0 ? items[e.key === 'ArrowDown' ? 0 : items.length - 1]   // focus on none of them: the first, or the last
         : items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
