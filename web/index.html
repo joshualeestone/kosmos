@@ -53056,11 +53056,11 @@ function importNamesKept(box) {
   for (const f of Array.from(box.querySelectorAll('.fr-importinput'))) {
     const row = f.closest && f.closest('.fr-importrow');
     const file = row && row.getAttribute('data-import-file');
-    if (f.disabled) continue;   // an added or adding row's name comes back through importRowApply, never into a fresh field
+    if (!file || f.disabled) continue;   // no row to key it by; or an added or adding row, whose name comes back through importRowApply
     const said = row.querySelector('.fr-importsaid');
     const why = said ? said.textContent : '';
     const bad = f.getAttribute('aria-invalid') === 'true';
-    if (file && (f.value || why || bad || document.activeElement === f)) kept.set(file, { value: f.value, focused: document.activeElement === f, why, bad });
+    if (f.value || why || bad || document.activeElement === f) kept.set(file, { value: f.value, focused: document.activeElement === f, why, bad });
   }
   return kept;
 }

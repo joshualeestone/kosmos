@@ -184,3 +184,5 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
   (a Kosmos export header the scan does not read) adds under its own name in one click, as before this card; only a
   file that names nothing asks for a name (same words, cursor in the field, nothing created). Unit tests for both;
   browser check N2 now waits for the row's answer. Adopt-row Enter scope: unchanged, as decided.
+- Iteration 6 (sonnet): importNamesKept skips a field with no row before reading the row (raised as a nit four times,
+  a warning here). The committed proof file is the old run's and is replaced by this loop's. Adopt-row Enter: unchanged.
