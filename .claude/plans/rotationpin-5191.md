@@ -17,3 +17,12 @@ graces to be re-decided. The function boundary now knows `async function` and en
 missing files fail rather than being skipped; a URL's "://" is not taken for a comment; the third test claims only
 what it checks. Mutants: a new writer with a spelling the regex cannot see -> red; an async function after
 revokeCheck advancing the epoch -> red; a reason branch in graceAfter -> red. Control green.
+
+## Review 2 (0 blockers, 4 warnings)
+- Any mention of setRoomState counts (an alias like `const set = fedseal.setRoomState` is a writer); in fedseal.js its
+  definition and top-level export list are excluded, a use inside any function is not.
+- Any other unindented code line ends a function, so a writer after an allowed function cannot borrow its name.
+- Block comments are stripped before graceAfter's "why" check (the next function's doc comment is in the slice).
+- Accepted residual (stated in the header): a new rotation inside one of the three allowed functions, spelled other
+  than `epoch + 1` / `+= 1` / `++`.
+- Mutants: an alias -> red; a writer in a top-level `if` after an allowed function -> red. Control green.
