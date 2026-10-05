@@ -67589,8 +67589,11 @@ let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
 const FEDINV_BUSY_LINE = 'One moment: Kosmos is still copying. Press again in a few seconds.';
-let FEDINV_COPY_TEXT = '';
-let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is known to have put on the clipboard     // slice C: the text the newest copy press asked for
+let FEDINV_COPY_TEXT = '';     // slice C: the text the newest copy press asked for
+let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is known to have put on the clipboard
+// Anything copied in another app replaces the clipboard without this page knowing, so leaving the window forgets the
+// record: a later refusal then says so honestly rather than claiming an earlier copy still stands.
+window.addEventListener('blur', () => { FEDINV_CLIP_HOLDS = ''; });
 let FEDINV_COPY_TOKEN = 0;     // slice C: counts copy presses, so a late write from an earlier press is known as stale
 let FEDINV_COPY_BUSY = false;  // slice C: either copy (the code, or the invitation) is waiting on the clipboard
 let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project, projectId })

@@ -108,6 +108,11 @@
  *  C7  a held write landing after a newer, successful copy on the other button: the line says what the clipboard
  *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
  *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
+ *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
+ *      second Copied.)
+ *  C8  the sheet's own type inside #panel-projects: its title is the size of another dialog's .rm-title (the add-
+ *      agent dialog's), and its fields carry no hairline (border-top-width 0). Control: a .field outside the sheet
+ *      keeps its hairline.
  *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
  *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
@@ -1226,6 +1231,25 @@ const closeAll = (page) => page.evaluate(() => {
         refused.status.startsWith('Kosmos could not copy the invitation.') && landed.status === 'Invitation copied.',
         JSON.stringify({ refused: refused.status, landed: landed.status }));
       await p7.ctx.close();
+    }
+
+    /* C8: the sheet's type (Mona's NIT 4): title size equals the add-agent dialog's .rm-title; fields have no hairline. */
+    {
+      const p8 = await newPage(1280, SHOW);
+      await openProjectIn(p8.page, 'tabs');
+      await p8.page.click('#pj-add-member');
+      await p8.page.click('#pj-addmenu-outside');
+      const css = await p8.page.evaluate(() => {
+        const px = (el) => el ? parseFloat(getComputedStyle(el).fontSize) : null;
+        const ref = document.querySelector('#am-modal .rm-title');
+        const fields = [...document.querySelectorAll('#fedinv-modal .field')].map((f) => getComputedStyle(f).borderTopWidth);
+        const outside = [...document.querySelectorAll('.field')].find((f) => !f.closest('#fedinv-modal') && parseFloat(getComputedStyle(f).borderTopWidth) > 0);
+        return { title: px(document.getElementById('fedinv-t')), ref: px(ref), fields, outside: !!outside };
+      });
+      check('C8 the sheet title is the size of the add-agent dialog\'s .rm-title, and its fields carry no hairline (control: a .field elsewhere does)',
+        css.ref !== null && css.title === css.ref && css.fields.length > 0 && css.fields.every((w) => parseFloat(w) === 0) && css.outside,
+        JSON.stringify(css));
+      await p8.ctx.close();
     }
 
     // C0 with a label that is not a name: they/their, never "my's".
