@@ -1288,60 +1288,33 @@ function tasksTabShown() {
   return shown;
 }
 
-/* #5319: a task added with the same ask as an OPEN task is still added (no silent dedup: two asks can look alike and
-   be different, and the agent or person adding it knows), but the answer names the open look-alikes so the adder can
-   close one. Seen on 0.7.22: one ask added as #1 and #11, another as #26, #27 and #29.
-   The note tells the adder to close the NEW task, and the reader is usually an agent that will, so a false match costs
-   a real task. Hence, on lowercase words (punctuation and a few filler words dropped; a dotted or dashed number such as
-   0.7.23 is ONE word):
-   - numbers: a word with a digit in it (0.7.23, v2, Q3) is a number, and when both sides carry numbers they must be
-     the same numbers in the same order ("Release 0.7.23" is not "Release 0.7.22", "Add v2 page" is not "Add v3 page",
-     "Move 1 to 2" is not "Move 2 to 1");
-   - the very same text, whatever its length or script (a one-word task, or Chinese or Thai with no spaces);
-   - the same words, two or more of them ("Fix this" is not "Fix it");
-   - or a word overlap (Jaccard) of 0.75 or more, two or more words each side ("Fix login bug in app" is not
-     "Fix signup bug in app");
-   - or every word of the shorter (three or more) in the other, which has at most two more ("Enable dark mode" is not
-     "Do not enable dark mode on login").
+/* #5319: a task added with the same text as an OPEN task is still added (no silent dedup: the adder knows whether it
+   is the same ask), but the answer names the open copies so the adder can close the new one. Seen on 0.7.22: one ask
+   added as #1 and #11, another as #26, #27 and #29 -- both EXACT copies.
+   🔑 ONLY THE SAME TEXT, by design (review rounds 1 to 3). The note tells the adder to close the NEW task, and the
+   reader is usually an agent that will, so a false match costs a real task while a miss costs only today's behaviour.
+   Three rounds of fuzzy rules (word overlap, contained words) each still matched different asks: another person
+   ("Email Alice" / "Email Bob"), the opposite verb (approve / reject), a negation ("Do not enable" / "Enable"), swapped
+   places (Dallas to Austin / Austin to Dallas). The same text, with case, punctuation, spacing and Unicode form aside
+   (NFKC), has none of those, and catches both real cases.
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
-   told to close, never both (round 1). Never the task's own parent (a subtask may repeat its parent's words).
-   At most three, closest first. A pure function of the project record. */
-const SIMILAR_FILLER = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'with', 'at', 'by', 'is',
-  'it', 'this', 'that', 'be', 'as', 'from', 'our', 'my', 'we', 'i']);
-function similarWords(sentence) {
-  const words = String(sentence == null ? '' : sentence).toLowerCase().match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{M}\p{N}]+/gu) || [];
-  return new Set(words.filter((w) => !SIMILAR_FILLER.has(w)));
+   told to close, never both. Never the task's own parent (a subtask may repeat it). At most three, oldest first. */
+function sameTaskText(sentence) {
+  return (String(sentence == null ? '' : sentence).normalize('NFKC').toLowerCase()
+    .match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{M}\p{N}]+/gu) || []).join(' ');
 }
 function similarOpen(p, sentence, beforeNumber, { parent = null } = {}) {
-  const mine = similarWords(sentence);
-  if (mine.size === 0) return [];
-  const numbersOf = (set) => [...set].filter((w) => /\p{N}/u.test(w)).join(' ');   // in order: 1 to 2 is not 2 to 1
-  // The very same text: every word, filler included ("Fix this" is not "Fix it"), case and punctuation aside.
-  const plain = (v) => (String(v == null ? '' : v).toLowerCase().match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{M}\p{N}]+/gu) || []).join(' ');
-  const myPlain = plain(sentence);
-  const myNumbers = numbersOf(mine);
-  const found = [];
+  const mine = sameTaskText(sentence);
+  if (!mine) return [];
+  const out = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
     if (Number.isInteger(beforeNumber) && t.number >= beforeNumber) continue;
     if (parent !== null && t.number === parent) continue;
-    const theirs = similarWords(t.sentence);
-    if (theirs.size === 0) continue;
-    const theirNumbers = numbersOf(theirs);
-    if (myNumbers && theirNumbers && myNumbers !== theirNumbers) continue;
-    let both = 0;
-    for (const w of mine) if (theirs.has(w)) both += 1;
-    const union = mine.size + theirs.size - both;
-    const small = Math.min(mine.size, theirs.size);
-    const big = Math.max(mine.size, theirs.size);
-    const same = (both === mine.size && both === theirs.size && both >= 2) || (myPlain !== '' && plain(t.sentence) === myPlain);
-    const ratio = both / union;
-    const overlap = mine.size >= 2 && theirs.size >= 2 && ratio >= 0.75;
-    const inside = small >= 3 && both === small && big - small <= 2;
-    if (same || overlap || inside) found.push({ number: t.number, sentence: t.sentence, score: same ? 2 : ratio });
+    if (sameTaskText(t.sentence) === mine) out.push({ number: t.number, sentence: t.sentence });
   }
-  found.sort((a, b) => (b.score - a.score) || (a.number - b.number));
-  return found.slice(0, 3).map(({ number, sentence: s2 }) => ({ number, sentence: s2 }));
+  out.sort((a, b) => a.number - b.number);
+  return out.slice(0, 3);
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,

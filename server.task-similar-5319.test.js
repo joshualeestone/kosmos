@@ -51,50 +51,46 @@ const P = {
     { number: 10, sentence: 'Fix it', closedAt: null },
     { number: 11, sentence: 'Do not enable dark mode on login', closedAt: null },
     { number: 40, sentence: 'Deep dive: Worlds', closedAt: null },
+    { number: 12, sentence: 'Ship the "beta" \\ build', closedAt: null },
   ],
 };
 
-test('#5319: which open tasks count as similar (pure)', () => {
+test('#5319: which open tasks count as the same (pure)', () => {
   const rows = [
-    ['verify Theo AI and Enzo Health', [1], 'the same ask, different case'],
-    ['Deep dive - Worlds', [26], 'the same words, other punctuation (the closed #7 is not named)'],
-    ['deep dive worlds again', [26], 'every word of the shorter is in the longer'],
-    ['write the release notes for 0.7.23', [5], 'the open ask, with more words'],
-    ['Fix the signup bug', [], 'one word in common of four is not the same ask'],
-    ['Update the website', [], 'nothing in common'],
-    ['Health check', [], 'a single shared word is not enough'],
+    ['verify Theo AI and Enzo Health', [1], 'the same text, other case (the report\'s #1 and #11)'],
+    ['Deep dive - Worlds', [26], 'the same text, other punctuation (the report\'s #26, #27, #29); the closed #7 is not named'],
+    ['deep dive worlds again', [], 'one word more is not the same text (a miss costs only today\'s behaviour)'],
+    ['write the release notes for 0.7.23', [], 'more words is not the same text'],
+    ['Fix the signup bug', [], 'another word'],
+    ['Release 0.7.23', [], 'another version'],
+    ['Fix this', [], 'another word, even a short one'],
+    ['Enable dark mode on login', [], 'without the negation'],
     ['', [], 'no words'],
-    // Round 1: the note tells the adder to close the new task, so a false match costs a real task.
-    ['Release 0.7.23', [], 'a different version is a different ask (0.7.23 is one word, and the numbers differ)'],
-    ['Fix this', [], 'one word in common is never the same words'],
-    ['Enable dark mode', [], 'inside a much longer task (Do not enable dark mode on login) is not the same ask'],
   ];
   for (const [sentence, want, why] of rows) {
     assert.deepEqual(tasks.similarOpen(P, sentence, 31).map((t) => t.number), want, `${JSON.stringify(sentence)}: ${why}`);
   }
-  assert.deepEqual(tasks.similarOpen(P, 'Verify Theo AI and Enzo Health', 1), [], 'a task is never similar to itself');
-  // Round 1: two agents add the same ask at once (#40 and #41): only the OLDER copy is named, so never both close.
+  assert.deepEqual(tasks.similarOpen(P, 'Verify Theo AI and Enzo Health', 1), [], 'a task is never the same as itself');
+  // Review round 1: two agents add the same ask at once (#40 and #41): only the OLDER copy is named, so never both close.
   assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41).map((t) => t.number), [26, 40], 'the newest copy names the older ones');
   assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 40).map((t) => t.number), [26], 'the older copy never names the newer one');
   assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [40], 'a subtask never names its own parent');
-  // Round 2: pairs, each judged against ONE open task.
+  // Review rounds 1 to 3: different asks a fuzzy rule matched; each judged against ONE open task.
   const pair = (open, added) => tasks.similarOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
   for (const [open, added, want, why] of [
-    ['Add v2 login page', 'Add v3 login page', false, 'v2 and v3 are numbers, and they differ'],
-    ['Plan Q3 launch event', 'Plan Q4 launch event', false, 'Q3 and Q4 differ'],
-    ['Fix login bug in app', 'Fix signup bug in app', false, 'one word different in four is not the same ask'],
-    ['Move 1 to 2', 'Move 2 to 1', false, 'the numbers in the other order'],
+    ['Email Alice about the contract renewal terms and pricing', 'Email Bob about the contract renewal terms and pricing', false, 'another person'],
+    ['Ask Josh to approve the Ingram MSA draft today', 'Ask Josh to reject the Ingram MSA draft today', false, 'the opposite verb'],
+    ['Do not enable dark mode on login', 'Enable dark mode on login', false, 'a negation'],
+    ['Book flight from Dallas to Austin', 'Book flight from Austin to Dallas', false, 'swapped places'],
+    ['Add user Alice', 'Add user Alice Smith Jones', false, 'more of a name'],
+    ['Add v2 login page', 'Add v3 login page', false, 'another version'],
     ['Deploy', 'Deploy', true, 'the very same one-word task'],
-    ['\u4fee\u590d\u767b\u5f55\u9519\u8bef', '\u4fee\u590d\u767b\u5f55\u9519\u8bef', true, 'the very same Chinese task (no spaces)'],
-    ['Fix this', 'Fix it', false, 'the very same text means every word, filler included'],
+    ['修复登录错误', '修复登录错误', true, 'the very same Chinese task (no spaces)'],
+    ['Café menu', 'Café menu', true, 'the same text, another Unicode form (NFKC)'],
+    ['Ｆｉｘ login bug', 'Fix login bug', true, 'full-width letters are the same text'],
   ]) assert.equal(pair(open, added), want, `${open} | ${added}: ${why}`);
-  const ranked = { tasks: [
-    { number: 2, sentence: 'deep dive worlds plus notes', closedAt: null },
-    { number: 3, sentence: 'deep dive worlds', closedAt: null },
-  ] };
-  assert.deepEqual(tasks.similarOpen(ranked, 'Deep dive: Worlds', 9).map((t) => t.number), [3, 2], 'closest first: the exact copy before the loose one');
   const many = { tasks: [2, 3, 4, 5].map((n) => ({ number: n, sentence: 'deep dive worlds', closedAt: null })) };
-  assert.equal(tasks.similarOpen(many, 'deep dive worlds', 99).length, 3, 'at most three are named');
+  assert.deepEqual(tasks.similarOpen(many, 'deep dive worlds', 99).map((t) => t.number), [2, 3, 4], 'at most three, oldest first');
 });
 
 function seed() {
@@ -112,7 +108,7 @@ test('#5319: the route adds a look-alike task and names the open one, with the c
   const r = await add('verify theo ai and enzo health');
   assert.equal(r.code, 200, JSON.stringify(r.json));
   assert.equal(r.json.task.number, 31, 'the task is ADDED as asked (no silent dedup)');
-  assert.equal(r.json.note, 'Note: an open task with similar text already exists: #1 (Verify Theo AI and Enzo Health). '
+  assert.equal(r.json.note, 'Note: an open task with the same text already exists: #1 (Verify Theo AI and Enzo Health). '
     + 'If this is the same ask, close the new one: kosmos task close p5319 31');
   const stored = projects.readAll().find((x) => x.id === 'p5319');
   assert.ok(stored.tasks.some((t) => t.number === 31), 'and it is stored');
@@ -121,8 +117,9 @@ test('#5319: the route adds a look-alike task and names the open one, with the c
   assert.equal(other.code, 200);
   assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
 
-  const quoted = await add('Fix the "login" bug \\ today');
-  assert.match(quoted.json.note || '', /^Note: an open task with similar text already exists: #8 \(Fix the login bug\)\./);
+  // The open task's stored text has a double quote and a backslash; the note must carry neither (the macOS CLI's sed).
+  const quoted = await add('ship the beta build');
+  assert.match(quoted.json.note || '', /^Note: an open task with the same text already exists: #12 \(Ship the beta build\)\./, quoted.json.note);
   assert.doesNotMatch(quoted.json.note, /["\\]/, 'the note holds no double quote or backslash');
 });
 
@@ -134,7 +131,7 @@ test('#5319: the macOS CLI prints the note from a real answer, and nothing witho
   const lift = (after.match(/^\s*local _note; (_note=\$\(printf '%s' "\$body" \| sed -n .*\))$/m) || [])[1];
   assert.ok(lift, 'the macOS CLI lifts the note with one sed line after the added sentence');
   assert.match(after, /if \[ -n "\$_note" \]; then say "\$_note"; fi ;;/);
-  const note = 'Note: an open task with similar text already exists: #1 (Verify Theo AI). If this is the same ask, close the new one: kosmos task close p 31';
+  const note = 'Note: an open task with the same text already exists: #1 (Verify Theo AI). If this is the same ask, close the new one: kosmos task close p 31';
   const run = (body) => execFileSync('/bin/bash', ['-c', lift + '; printf %s "$_note"'], { env: { body, PATH: process.env.PATH } }).toString();
   assert.equal(run(JSON.stringify({ task: { number: 31, sentence: 'he said "note":"x"' }, told: null, heard: null, note })), note,
     'the board\'s note comes out, even past a sentence that spells "note":"');
@@ -154,7 +151,7 @@ test('#5319: the Windows CLI prints the note after the added sentence (run, not 
     });
     return { code, out: out.join('\n'), err: err.join('\n') };
   };
-  const note = 'Note: an open task with similar text already exists: #1 (Verify Theo AI). If this is the same ask, close the new one: kosmos task close p5319 31';
+  const note = 'Note: an open task with the same text already exists: #1 (Verify Theo AI). If this is the same ask, close the new one: kosmos task close p5319 31';
   const withNote = await go({ task: { number: 31, who: null }, note });
   assert.equal(withNote.code, 0, withNote.err);
   assert.equal(withNote.out, 'Task 31 added to p5319. See it with: kosmos task list p5319\n' + note);
