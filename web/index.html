@@ -6517,6 +6517,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
+/* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
+   the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
+   rather than growing the header without bound. */
+.pjmidhead .pjhead #pj-one-shared { flex: 1 0 100%; min-width: 0; max-width: 100%; font-size: .8125rem; }
+#pj-one-shared-desc { overflow-wrap: anywhere; max-height: 10.5em; overflow-y: auto; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
    + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
@@ -10584,6 +10589,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      and at the row's end it would reach 4px past the page. */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
