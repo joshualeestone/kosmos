@@ -26,6 +26,8 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   first: eight buttons with the gap at 2px (308px, one line in a 375px thread), but the DM's open bar then covered the
   visible corner of the person's own message under it, so a tap meant to close the bar hit Reply
   (render-dm-tapreact-718). Rejected: smaller targets (the room's 36px is #3811's).
+- A store is read only when it was painted for what is on screen (PJ_ROOM_POSTS_OF / DM_ROWS_OF, the reply code's own
+  test): one left from another project or agent could hold a different message under the same key.
 - A row a repaint detached (the menu was open), and a DM reply still on its way (pending:), have no record, so they copy
   their own words through the same screen fallback an outside guest's row uses (C4 pins it on the real renderer).
 - The person's own rows in a direct conversation have no hover bar (never had, #4256), so on a touchscreen, where there is
