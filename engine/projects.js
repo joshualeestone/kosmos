@@ -2887,7 +2887,7 @@ function setRoleHere(id, sessionName, role) {
   const words = cleanRoleHere(role);
   let out = null;
   // Unchanged: no write, so re-running the verb is not project activity (updatedAt). A non-member goes on to mutate,
-  // which refuses it.
+  // which refuses it. Advisory: this read is outside mutate, so a race costs at most one extra write.
   const cur = readAll().find((p) => p && p.id === id);
   if (cur && (cur.agents || []).includes(key) && roleHereOf(cur, key) === (words || null)) return { role: words || null };
   mutate(id, (p) => {

@@ -264,6 +264,10 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   /* #4771: a pause the person asks for in the room reaches the Prompter only through this verb, so it is taught. */
   assert.match(body, /project pause <project-id>/, 'the pause command is not taught (#4771)');
   assert.match(body, /project role <project-id> "what you do here"/, 'the role command is not taught (#5300)');
+  /* #5300: a member's role here is its own words; they never enter anyone's instructions (shown by project show only). */
+  const withRole = projects.blockBody([{ ...stored, rolesHere: { teachee: 'ROLEHERE-CANARY-5300' } }], 'teachee');
+  assert.ok(!/ROLEHERE-CANARY-5300/.test(withRole), 'a role here reached the instructions block');
+  assert.ok(withRole.includes('project role <project-id>'), 'control: the block was not built');
   assert.match(body, /by your person: do not resume it yourself/);
   // One-arg compatibility: no session name, no task lines, no trailer.
   const bare = projects.blockBody([stored]);
