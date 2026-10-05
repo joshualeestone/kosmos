@@ -271,6 +271,19 @@ const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
    not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
 const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
+/* kosmos#4743: a switch flip the coordinator has not been told yet. Set by setOn when the value changes (it also asks at once),
+   by a sign-in that switches on and by a cancelled sign-in that switches off (neither asks inside the sign-in:
+   see turnOnAfterSignin). While set, the next standing poll is due whatever its stamp, and a refresh that
+   was already out re-asks when it ends. */
+let flipPending = false;
+function askAfterFlip() {
+  const cur = read();
+  // flipPending makes the refresh below due. Off (enrolled or not): the stamp is also set back, so if this
+  // ask's answer is thrown away by a Forget while it is out, the next poll asks again (a new identity comes
+  // from a sign-in, which stamps fresh; there the flag set by the sign-in paths is what re-asks).
+  if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 });
+  try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
+}
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
@@ -325,12 +338,19 @@ async function refreshStandingIfStale(opts) {
   const s = read();
   if (s.ok !== true) return;
   // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
-  const due = s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS);
+  // kosmos#4743: a flip not yet told (no ask has started since it was made) is due at once, whatever stamp
+  // another writer left meanwhile. Once an ask starts the flag is cleared; if that ask then fails, the flip
+  // is retried on the ordinary cadence (OFF_RETRY_MS off, the TTL on), not at once.
+  const due = flipPending ? 0 : (s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS));
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
   if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
+  // This refresh reads the switch as it is now (mac-standing reads it at send time). Cleared when an ask
+  // starts. One that then stops early is not re-asked at once, and writes no stamp of its own: the stamp
+  // already there decides the next poll.
+  flipPending = false;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
   // and it must not be written onto another (#3827).
@@ -343,10 +363,16 @@ async function refreshStandingIfStale(opts) {
     } else {
       // could not determine: KEEP the last-known value, back the retry off to the next TTL; while OFF,
       // stamped so the retry lands OFF_RETRY_MS from now rather than a whole OFF_STANDING_TTL_MS (#4731).
+      // s.on is the switch as read before the ask; a flip made meanwhile set flipPending, which re-asks below.
       write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
-  finally { standingRefreshInFlight = false; }
+  finally {
+    standingRefreshInFlight = false;
+    // Not cleared here: the ask clears it when it really proceeds (above), so a re-ask stopped early (busy,
+    // not enrolled) leaves it pending for the next refresh rather than dropping the flip (review 5).
+    if (flipPending) askAfterFlip();
+  }
 }
 /* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its
    switch is on and it still holds a key: a board in that state never asks for a relay
@@ -591,10 +617,20 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
+  // An unreadable file (#4308) says nothing about the old value, so a save over it counts as a flip.
+  const before = read();
+  const was = before.ok === true ? before.on === true : !on;
   const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
+  /* kosmos#4743: tell the coordinator about a real flip now, not at the next cadence (up to
+     OFF_STANDING_TTL_MS when off), or the account page reads the old state for hours ("Answering
+     now" for a computer just switched off). If a refresh is already out it carries the old state, so
+     the flip is told when it ends (flipPending). Best-effort and never awaited. Asked at once here, unlike
+     turnOnAfterSignin: this is the person's own toggle, and a Forget straight after it waits at most one
+     signed call's bound (MAC_REQUEST_TIMEOUT_MS, 20 s) for it. */
+  if (was !== on) { flipPending = true; askAfterFlip(); }
   return { ok: true };
 }
 
@@ -1090,6 +1126,7 @@ async function forgetNow() {
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
   write({ on: false }, { repair: true });
+  flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
   if (canRetire) {
@@ -1309,6 +1346,12 @@ function allowSelfQuietly() {
     .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
   return true;
 }
+/* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
+   plus was_a_computer). Anything else is dropped rather than shown. */
+const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
+/* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
+   crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
+const JOIN_CODE = /^\d{3} \d{3}$/;
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -1334,11 +1377,14 @@ function pendingDevices() {
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
       // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
-      // 🛑 It softens the page's prompt ("Allow it if you just signed it in"), so the coordinator must set it from its OWN
+      // 🛑 It softens the page's prompt ("Allow it if <name> shows this same code"), so the coordinator must set it from its OWN
       // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
       joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
       denied_at: Number(settings.denied[String(d.device_id)]) || 0,
+      /* kosmos#4794: why a joining computer's code is still "" (the tunnel's wait_reason, or was_a_computer), from a
+         fixed list so the page words each one; null while the code is shown or being worked out. */
+      code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
     }));
   return { devices, snapshot: raw !== null, email: settings.email || '' };
 }
@@ -1404,13 +1450,25 @@ async function devicesList() {
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow
     stands. `name` is the kind the phone gave, recorded for the list. */
-async function deviceAllow(id, name) {
+async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  return parseSaid(await tracked(setupRun(args, null, retireTimeoutMs())));
+  /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
+     refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
+  if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
+  const r = await tracked(setupRun(args, null, retireTimeoutMs()));
+  /* kosmos#4794: the tunnel's pairing refusals start with a fixed tag (pairing.rs allow_joining). The page words two
+     of them; any other failure keeps the tunnel's own reason, as before. */
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_mismatch: more than one computer/.test(said)) return { ok: false, because: 'code_many' };
+    if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
+    if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
+  }
+  return parseSaid(r);
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
@@ -1456,6 +1514,63 @@ async function deviceRemove(id) {
 function removeAnswer(r) {
   if (!r.ok && r.timedOut) return { ok: true, because: null, data: { timed_out: true } };
   return parseSaid(r);
+}
+
+/* ---- kosmos#4794 slice 1: this computer is JOINING, waiting for one of the person's computers to allow it. Both
+   screens show a six-digit code worked out from the two computers' keys; the person checks they match, presses Allow
+   on the other computer and "The codes match" here. Only then does this computer trust the other's key. */
+/* A computer name as the coordinator gives it, by the same rule as pendingDevices' joining_computer. */
+const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().toLowerCase()) ? v.trim().toLowerCase() : null);
+/* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
+function joinUnsupported(r) {
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  return !r.ok && r.code === 2 && /unrecognized subcommand '?join'?/.test(said);
+}
+/** One pairing round, then what the page may show: held, the code (or ""), whom it was asked of, and the
+    failed / confirmed / confirm_expired states. Not enrolled means not joining, without asking the binary. */
+async function joinStatus() {
+  /* A pairing round signs with this computer's key and writes pairing state, so it is a tracked signed call (#3827): a
+     Forget or a register in flight waits for it, and it does not start during one. */
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: true, because: null, data: { supported: true, held: false } };
+  const r = await tracked(setupRun(['join', 'status', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) return { ok: true, because: null, data: { supported: false, held: false } };
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  const d = got.data || {};
+  const names = (v) => (Array.isArray(v) ? v : []).map(computerName).filter(Boolean).slice(0, 10);
+  return { ok: true, because: null, data: {
+    supported: true,
+    held: d.held === true,
+    join_code: typeof d.join_code === 'string' && JOIN_CODE.test(d.join_code) ? d.join_code : '',
+    /* The computer this one pairs with, once its code is worked out (the tunnel lists at most one). */
+    on: (Array.isArray(d.join_codes) ? d.join_codes : []).map((c) => (c ? computerName(c.on) : null)).find(Boolean) || null,
+    asked_of: names(d.asked_of),
+    failed: d.failed === true,
+    confirmed: d.confirmed === true,
+    confirm_expired: d.confirm_expired === true,
+  } };
+}
+/** "The codes match": the person says the code on this screen is the one on the other computer. Local only; the
+    tunnel refuses a code it did not show (or one past its time). Answers the other computer's name. */
+async function joinConfirm(code) {
+  { const b = busy(); if (b) return b; }
+  if (typeof code !== 'string' || !JOIN_CODE.test(code)) return { ok: false, because: 'that is not the code on this screen' };
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'confirm', '--state-dir', STATE_DIR(), '--code', code], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) return { ok: false, because: 'this version of Kosmos cannot pair computers yet' };
+  /* The tunnel's refusals (pairing.rs confirm_joining), tagged for the page to word: the code ran out, or it is not the
+     code this computer shows now. */
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_expired' };
+    if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  const d = got.data || {};
+  if (d.confirmed !== true) return { ok: false, because: 'the code was not confirmed' };
+  return { ok: true, because: null, data: { confirmed: true, with: computerName(d.with) } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -1688,10 +1803,16 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
+    // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin).
+    // Set even if the switch was already off: one extra off check-in, which also tells a new identity.
+    flipPending = true;
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
     if (macIdHere() !== before) { fedSetStanding(''); forgetPendingSnapshot(); }   // #4610
+    // kosmos#4743: AFTER fedSetStanding (which stamps standing_at fresh): the stamp is set back past the off
+    // cadence, so the off is told by the next standing poll even after a restart (flipPending lives in memory).
+    try { write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 }); } catch { /* best-effort */ }
   }
   return SIGNIN_CANCELLED;
 }
@@ -1991,8 +2112,16 @@ function busy() {
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
 function turnOnAfterSignin() {
+  const before = read();
   const wrote = write({ on: true }, { repair: true });
-  if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
+  if (!wrote.ok) { process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n'); return; }
+  // kosmos#4743: an off-to-on flip made by signing in makes the NEXT standing poll due at once, whatever
+  // its stamp (the account page would otherwise read "Remote access off" until the next on-cadence
+  // refresh). Not asked here: a signed call started inside the sign-in would hold up a Forget right
+  // after it, which waits for signed calls in flight before it switches off. (A refresh already out when
+  // this runs still re-asks when it ends, once the register has finished: the same narrow window any
+  // signed call in flight has.)
+  if (!(before.ok === true && before.on === true)) flipPending = true;
 }
 
 /* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
@@ -2206,6 +2335,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   pendingDevices,
   devicesList,
   deviceAllow,
+  joinStatus,
+  joinConfirm,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment
@@ -2235,7 +2366,11 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
+  standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
+  standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

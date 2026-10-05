@@ -105,6 +105,27 @@ test('#3734 a member the board refused is said with its reason', () => withStub(
     assert.match(r.out, /did not make that agent: there is already an agent called PM/);
   }));
 
+for (const [reason, want] of [['two stops..', 'two stops.'], ['a space. ', 'a space.'], ['a question?', 'a question?'], ['..', 'it did not say why.']]) {
+  test('#5127 the reason ' + JSON.stringify(reason) + ' ends the line once', () => withStub(
+    () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: reason }] }],
+    async (port) => {
+      const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
+      assert.notEqual(r.code, 0);
+      assert.ok(r.out.includes('Kosmos did not make that agent: ' + want), r.out);
+      assert.ok(r.out.split('\n').map((x) => x.trim()).includes('Kosmos did not make that agent: ' + want),
+        'the line must be exactly the reason with one end (nothing after it, even after a space)');
+    }));
+}
+
+test('#5127 a reason that ends a sentence is printed with one full stop, not two', () => withStub(
+  () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: 'connect a Claude account in Settings, AI Models.' }] }],
+  async (port) => {
+    const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /did not make that agent: connect a Claude account in Settings, AI Models\.(\n|$)/);
+    assert.doesNotMatch(r.out, /\.\./, 'a doubled full stop');
+  }));
+
 test('#3734 agent roles lists the role keys, and a bad call is named before the board is asked', () => withStub(
   () => [500, {}],
   async (port, seen) => {

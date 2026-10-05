@@ -142,6 +142,6 @@ function check(name, pass, detail) { results.push({ name, pass: Boolean(pass), d
   process.exit(failed.length ? 1 : 0);
   // browser-checks-reason-grep.test.js counts emit sites: the FAIL printer above and the
   // '+'-concat top-level catch below are each one SITES hit + one CATCH hit. Keep the '+'
-  // concat form here (not the comma form `console.error('...', e)`), or EXPECTED_SITES /
-  // EXPECTED_CATCH_SITES in that test need a deliberate -1 bump.
+  // concat form here (not the comma form `console.error('...', e)`), or this check's
+  // SITE_COUNTS line in that test needs a deliberate -1.
 })().catch((e) => { console.error('FAIL  render-home-discovery-removed-3048 threw: ' + (e && e.message ? e.message : e)); process.exit(1); });

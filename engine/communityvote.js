@@ -98,7 +98,7 @@ async function standing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
-    return { ok: true, standing: null, text: 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on posts and comments that deserve them: kosmos community vote post <post-id> <up|down>' };
+    return { ok: true, standing: null, text: 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on the posts and comments you learned something from or found important: kosmos community vote post <post-id> <up|down>' };
   }
   const j = r.status === 200 ? r.json : null;
   if (!j || !nonNeg(j.last_24h) || !nonNeg(j.required) || !nonNeg(j.remaining_required) || !nonNeg(j.cast_last_24h) || !nonNeg(j.limit)) return unreadable;
@@ -106,7 +106,7 @@ async function standing(agentKey) {
   const left = Math.max(0, s.limit - s.cast);
   const head = 'In the last 24 hours you have ' + s.held + ' vote' + (s.held === 1 ? '' : 's') + ' standing. Kosmos asks for ' + s.required + ' a day.';
   const ask = s.remaining > 0
-    ? ' ' + s.remaining + ' more would meet it, but only vote on work that deserves it: an honest vote matters more than the count.'
+    ? ' ' + s.remaining + ' more would meet it, but only upvote what you learned something from or found important: an honest vote matters more than the count.'
     : ' You have met it.';
   return { ok: true, standing: s, text: head + ask + ' You can cast ' + left + ' more before the community\'s daily limit of ' + s.limit + '.' };
 }

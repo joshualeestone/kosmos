@@ -101,3 +101,84 @@ test('#4928: the highlights show for any version in "also" (a platform cut on an
   assert.match(whatsnew.problems(Object.assign({}, GOOD, { also: '0.6.95' }), '0.6.98').join(' '), /"also" is not a list/);
   assert.match(whatsnew.problems(Object.assign({}, GOOD, { also: ['v0.6.95'] }), '0.6.98').join(' '), /"also" is not a list/);
 });
+
+test('#5224: a highlight tagged for one platform shows only there; an untagged one shows everywhere', () => {
+  const o = { version: '0.6.98', highlights: [
+    { icon: 'shield', title: 'Keeps stopping', line: 'On a Mac, an agent that keeps stopping now says so.', platforms: ['mac'] },
+    { icon: 'tasks', title: 'Tasks', line: 'Break a task into smaller ones.' },
+    { icon: 'spark', title: 'Installer', line: 'The Windows installer is smaller.', platforms: ['windows'] },
+  ] };
+  const f = tmp(o);
+  const titles = (p) => (whatsnew.read('0.6.98', f, p) || []).map((h) => h.title);
+  assert.deepEqual(titles('darwin'), ['Keeps stopping', 'Tasks']);
+  assert.deepEqual(titles('win32'), ['Tasks', 'Installer'], 'a Windows user would be told about a Mac');
+  assert.deepEqual(titles('linux'), ['Tasks'], 'any other platform shows only untagged highlights');
+  assert.ok(!('platforms' in whatsnew.read('0.6.98', f, 'darwin')[0]), 'the tag is not served to the page');
+});
+
+test('#5224: with no platform given, the read uses the platform the page is stamped with (engine/platform describe)', () => {
+  const o = { version: '0.6.98', highlights: [
+    { icon: 'shield', title: 'Mac', line: 'On a Mac, it says so.', platforms: ['mac'] },
+    { icon: 'spark', title: 'Win', line: 'On a Windows PC, it says so.', platforms: ['windows'] },
+    { icon: 'tasks', title: 'All', line: 'Everywhere.' },
+  ] };
+  const f = tmp(o);
+  const stamped = require('./platform').describe().platform;
+  assert.deepEqual(whatsnew.read('0.6.98', f), whatsnew.read('0.6.98', f, stamped));
+  assert.notDeepEqual(whatsnew.read('0.6.98', f, 'darwin'), whatsnew.read('0.6.98', f, 'win32'), 'CONTROL: the platform changes the read');
+});
+
+test('#5224: when every highlight is for another platform there is no window (null), and key follows the same read', () => {
+  const o = { version: '0.6.98', highlights: [
+    { icon: 'shield', title: 'Keeps stopping', line: 'On a Mac, an agent that keeps stopping now says so.', platforms: ['mac'] },
+  ] };
+  const f = tmp(o);
+  assert.equal(whatsnew.read('0.6.98', f, 'win32'), null);
+  assert.equal(whatsnew.readFull('0.6.98', f, 'win32'), null);
+  assert.deepEqual(whatsnew.read('0.6.98', f, 'darwin').map((h) => h.title), ['Keeps stopping'], 'CONTROL: the Mac still sees it');
+  assert.equal(whatsnew.key('0.6.98', f, 'win32'), null, 'a dismissal on Windows records no words it never showed');
+  assert.equal(whatsnew.key('0.6.98', f, 'darwin'), '0.6.98');
+  assert.deepEqual(whatsnew.countsByPlatform(o), { mac: 1, windows: 0 });
+});
+
+test('#5224: a title or line that names a platform must carry a "platforms" tag naming only platforms it names', () => {
+  const one = (h) => whatsnew.problems({ version: '0.6.98', highlights: [{ icon: 'chat', title: 'T', line: 'L', ...h }] }, '0.6.98');
+  assert.match(one({ line: 'On a Mac set to another language, agents are told your language.' }).join(' '), /names mac but has no "platforms"/,
+    'the #5224 sentence itself, untagged');
+  assert.match(one({ title: 'Windows PCs' }).join(' '), /names windows but has no "platforms"/);
+  assert.match(one({ line: 'Works on macOS.', platforms: ['mac', 'windows'] }).join(' '), /is for mac and windows but names only mac: take the other platform out/);
+  assert.match(one({ line: 'Now on MacOS.' }).join(' '), /names mac but has no "platforms"/, 'a common miswriting of macOS');
+  assert.match(one({ title: 'WINDOWS' }).join(' '), /names windows but has no "platforms"/);
+  assert.deepEqual(one({ title: 'Faster OS', line: 'X marks the spot.' }), [], 'a title ending "OS" and a line starting "X" are not "OS X"');
+  for (const line of ['Now on macos.', 'On a Macintosh.', 'Since OS X 10.9.', 'On an imac.', 'PCS too.', 'Now on MacOSX.']) {
+    assert.ok(one({ line }).some((p) => /has no "platforms"/.test(p)), line + ' was not seen as naming a platform');
+  }
+  assert.match(one({ line: 'On a Mac, like Windows already did.', platforms: ['mac'] }).join(' '), /is for mac but names mac and windows.*reword it to name only/,
+    'a Mac-tagged line that names Windows too');
+  assert.match(one({ line: 'On a MacBook or an iMac.' }).join(' '), /names mac but has no "platforms"/);
+  assert.match(one({ title: 'Windows that remember their size' }).join(' '), /or reword it if it is not about one/,
+    'a word list cannot tell the platform from the UI word, so the refusal offers both ways out');
+  assert.match(one({ platforms: 'mac' }).join(' '), /"platforms" is not a list/);
+  assert.match(one({ platforms: [] }).join(' '), /"platforms" is not a list/);
+  assert.match(one({ platforms: ['linux'] }).join(' '), /"platforms" is not a list/);
+  assert.match(one({ platforms: ['mac', 'mac'] }).join(' '), /"platforms" is not a list/);
+  // CONTROLS: tagged correctly, both named, a tag with no platform word, and words that are not platforms.
+  assert.deepEqual(one({ line: 'On a Mac, it says so.', platforms: ['mac'] }), []);
+  assert.deepEqual(one({ line: 'On a Mac or a Windows PC.', platforms: ['mac', 'windows'] }), []);
+  assert.deepEqual(one({ line: 'A smaller download.', platforms: ['windows'] }), [], 'a tag needs no platform word');
+  assert.deepEqual(one({ line: 'The machine shows its windows and a mac address.' }), [], 'the lower-case window and MAC-address words are not platforms');
+});
+
+test('#5224: the committed file never tells one platform about another (checked as each board reads it)', () => {
+  if (!fs.existsSync(whatsnew.FILE)) return;
+  const obj = JSON.parse(fs.readFileSync(whatsnew.FILE, 'utf8'));
+  assert.ok(whatsnew.read(obj.version, whatsnew.FILE, 'darwin') || whatsnew.read(obj.version, whatsnew.FILE, 'win32'),
+    'CONTROL: some platform shows the committed file, so the loop below reads something');
+  for (const [node, other] of [['darwin', 'windows'], ['win32', 'mac']]) {
+    const shown = whatsnew.read(obj.version, whatsnew.FILE, node) || [];   // none is allowed: every highlight may be for the other
+    for (const h of shown) {
+      const named = [...new Set([...whatsnew.platformsNamed(h.title), ...whatsnew.platformsNamed(h.line)])];   // each field alone, as problems() reads them
+      assert.ok(!named.length || named.includes(node === 'darwin' ? 'mac' : 'windows'), node + ' would show "' + h.line + '" (about ' + other + ')');
+    }
+  }
+});

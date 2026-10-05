@@ -51,8 +51,43 @@ launchagent_snapshot() {
 # PATH to stderr and returns 1 if any com.kosmos.agent.* was created or modified during
 # the run; returns 0 (clean) otherwise. Fail-soft: if the args are unusable it returns
 # 0 rather than reddening the suite on its own bookkeeping.
+#
+# #5092: the machine's LIVE Kosmos restarting one of its OWN agents during the run is not a leak. On Mortals
+# (2026-10-02 22:11) Josh switched Liu Kang mid-suite; the live board rewrote com.kosmos.agent.liukang.plist
+# (born Sep 11) and the full run of an unrelated branch went red. So a changed plist is skipped when BOTH hold:
+#   - it was already in the pre-suite snapshot (MODIFIED, never NEW: a new plist is the #3011 leak shape and
+#     always reds, whatever it points at), and
+#   - its WorkingDirectory is directly under the live install's workers root (<live_root>/<name>). Tests are
+#     expected to sandbox AGENT_WORKFORCE_WORKERS into a temp dir; that is a per-test convention, not enforced
+#     here (run-tests.sh exports none), so the real backstop is #3605, below.
+# <live_root> is the optional 4th argument, default $HOME/work/workers (the product's default,
+# store.workersRootFor); an empty 4th argument also means the default (${4:-...}), and "/" turns the skip off
+# (it trims to an empty root, which launchagent_live_owned refuses). Each skip is written to the optional 3rd
+# argument (a file) so the runner can say so. The WorkingDirectory is read by launchagent_leak_origin, which
+# takes the one-line form create.js writes; a multi-line plist from another writer reads empty and is not
+# skipped (it reds, the safe direction).
+# Weakest premise: a writer that rewrites a REAL pre-existing plist AND keeps its real WorkingDirectory now
+# passes. #3605 refuses in-process fs writes into the real LaunchAgents under node --test (launch-guard.js) and
+# create.js refuses under NODE_TEST_CONTEXT; NOT covered: a child spawned with a scrubbed env and no preload, or
+# a shell tool (cp, plutil, touch) run by a test. That is the residual hole.
+# Known false red, accepted (#5092 review 1): only the DEFAULT world's root is trusted. An agent in a named world
+# (engine/worlds.js: <world>/workers) or a connected-folder agent (create.js workerDir -> its recorded dir)
+# restarted mid-suite still reds. It fails safe (a red, never a hidden leak); widening means reading the worlds
+# registry and recorded dirs from the shell.
+launchagent_live_owned() {   # <plist> <live_root> -> 0 when its WorkingDirectory is <live_root>/<one name>
+  local wd root="${2%/}"
+  [ -n "$root" ] || return 1
+  wd="$(launchagent_leak_origin "$1")"
+  case "$wd" in
+    "$root"/*) ;;
+    *) return 1 ;;
+  esac
+  local rest="${wd#"$root"/}"
+  case "$rest" in ''|*/*|.|..) return 1 ;; esac
+  return 0
+}
 launchagent_leak_check() {
-  local dir="$1" before="$2" after leaked
+  local dir="$1" before="$2" notes="${3:-}" live_root="${4:-${HOME:-}/work/workers}" after leaked kept="" f
   [ -n "$dir" ] && [ -f "$before" ] || return 0
   after="$(mktemp "${TMPDIR:-/tmp}/la-leak-after.XXXXXXXXXX")" || return 0
   launchagent_snapshot "$dir" > "$after"
@@ -60,11 +95,39 @@ launchagent_leak_check() {
   # Both inputs are LC_ALL=C-sorted by launchagent_snapshot. cut drops the mtime column.
   leaked="$(LC_ALL=C comm -13 "$before" "$after" | cut -f2-)"
   rm -f "$after"
+  # #5092: drop a MODIFIED plist the live install owns (see above); keep everything else.
+  if [ -n "$leaked" ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      # awk, not cut | grep -q: under the runner's pipefail an early grep exit could SIGPIPE cut (review 3).
+      if awk -F'\t' -v p="$f" '$2==p{found=1} END{exit !found}' "$before" && launchagent_live_owned "$f" "$live_root"; then
+        [ -n "$notes" ] && printf '%s\n' "$f" >> "$notes"
+        continue
+      fi
+      kept="${kept}${f}
+"
+    done <<EOF_LEAKED
+$leaked
+EOF_LEAKED
+    leaked="$(printf '%s' "$kept" | sed '/^$/d')"
+  fi
   if [ -n "$leaked" ]; then
     printf '%s\n' "$leaked" >&2
     return 1
   fi
   return 0
+}
+
+# launchagent_live_notes_report <notes_file> : #5092, one stderr line per plist the leak check skipped as the
+# live install's (the runner calls this after the check, so a skip is never silent). Nothing when the file is
+# missing or empty.
+launchagent_live_notes_report() {
+  local notes="$1" f
+  [ -n "$notes" ] && [ -s "$notes" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    echo "run-tests: #5092 note -- $f changed during the run but existed before the suite and points at a live agent folder ($(launchagent_leak_origin "$f")); assumed to be this machine's live Kosmos (or, less likely, a concurrent older checkout's suite), not counted as a leak" >&2
+  done < "$notes"
 }
 
 # launchagent_leak_origin <plist> -> the plist's WorkingDirectory, i.e. the sandbox the

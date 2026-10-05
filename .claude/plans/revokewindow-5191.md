@@ -1,0 +1,90 @@
+# #5191: an owner refuses a revoked member's posts within seconds
+
+Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + B, owner side only.
+
+## A. The owner's grace after a rotation (engine/fedseats.js graceAfter)
+- A member keeps EPOCH_GRACE_MS (10 min): it is not told why the owner rotated.
+- An owner rotates only on a revoke (rotateForRevoked is its only rotation), so every owner
+  rotation gets REVOKE_GRACE_MS (90 s) while a member peer remains and NO previous epoch once none
+  does. A revoke that leaves nobody also drops the revoked key from the record, so a member pinned
+  later cannot bring the grace back for it (challenge iteration 3). The grace is computed from the rooms file alone (peers + rotatedAt), so a restart cannot
+  forget it (W1). Decided in challenge iteration 1: no `rotatedFor` field. With one reason it was a
+  field nothing read, and the restart safety comes from the record, not from it.
+- "A member" is a pinned member peer only (N4).
+
+## B. A post waits for an edges answer asked for in the last 15 s (holdForCheck, checkRoom)
+- A sealed post to an owner room with pinned members, whose last edge check is older than
+  EDGE_FRESH_MS (15 s), is held and one room-keyed check is asked (N5: one per room per 15 s, and
+  never a second while one is out).
+- On a check: the held posts open under the keys it leaves (a found revoke has rotated the room).
+- On a failed check they stay held (W2), and the 60 s pass shows them unchecked if its own check also
+  fails. That shows the same posts as before #5191, but up to one pass (60 s) later while Kosmos+ is
+  unreachable: a member's posts lag during a coordinator outage. Kept as Renet's W2 asked (hold,
+  then show at the pass), not released early, because releasing on a failed check would let a
+  revoked member through whenever Kosmos+ is slow.
+- A shared answer asked for at T counts the room as checked from T, so a revoke landing just after T
+  is seen at the first check asked after T + 15 s.
+- An age below zero (the clock stepped back) is never fresh.
+- A post is held only if it would be shown now (opens, inside the time window, not shown before,
+  not already held by its sealed id); anything else takes no place.
+  Held count is capped at INBOUND_PER_WINDOW; past it the room's minute-budget note.
+- Post-triggered checks share one Mac-wide edges answer per 15 s (sharedEdges), a failed one too, so busy rooms do
+  not multiply requests; a room counts as checked from when the answer was ASKED for.
+- An owner refusing an older epoch's post re-sends the current key at once (at most once per 15 s),
+  so a remaining member that missed a rotation catches up before the pass. Its refused post is not
+  resent (#5192). Member side 10 min grace: #5197.
+- Held posts are in memory: a board restart while they wait loses them, like any post in transit.
+
+## Behaviour changes outside the owner's grace
+- acceptedKeys treats an age below zero (the clock stepped back) as outside the grace for MEMBERS too:
+  a member whose clock steps back stops opening the previous epoch early. Fails closed.
+- A post that arrives when the owner's link record cannot be read is HELD with no check started; the
+  first pass that can read the record checks and releases it (fails closed; decided in iteration 7,
+  reversing iteration 6, which failed open with no time bound).
+- With one member, a post sealed before the revoke but held when the check finds it is refused (its
+  key is retired): fails closed, its sender is now revoked. The room says the key was retired.
+- The pass does not release held posts unchecked while the rooms record is unreadable.
+
+## Residual (N3)
+With members left (the held post itself is still shown if its old key is inside the grace; B only
+brings the rotation forward): about min(90 s, the relay's ticket life ~60 s) + 15 s, so about 75 s, and up to one 60 s pass more while
+Kosmos+ cannot answer (a held post keeps the grace it arrived in). With none:
+B's detection, up to 15 s after the ask the last check used, plus one coordinator round trip (a post
+that joins a check already out is released under that check), plus in-flight posts. Held posts pass
+the room's minute budget when released, so a burst released together spends the window it lands in.
+A held post is judged against the grace at the later of its arrival and the last rotation.
+
+## Controls (engine/fedseats.test.js, '#5191' tests), each perturbed to red
+only-member revoke + post 10 s later refused / same post before shown; two members 90 s grace incl.
+a post sealed 1 s before the rotation (N6); restart with two members keeps the 90 s grace (W1); junk takes no held place; the cap; two rooms one request; freshness from the ask; key re-sent once on an old-epoch refusal; failing then succeeding
+check shows once (W2); failing at the pass shows unchecked; 50 posts = 1 check, slow check not
+doubled (N5); selfShared owner (N4).
+
+## Cross-agent review (Angel, 21:56, card #5191), after convergence
+- W1 (confirmed): a revoke found but not saved (setRoomState throws) resolved undefined and the
+  pass released held posts unchecked. Fixed twice over: revokeCheck returns
+  {checked:false, unreadable:true} when the save throws, and checkRoom releases at the pass only
+  on a defined, readable answer. The test is red only with BOTH reverted (each guard alone holds).
+- W2: posts held across a long gap all opened under the grace of the rotation that ended it. A held
+  post now gets a rotation's grace only if it came within HELD_ROTATION_LAG_MS (80 s: a pass plus a
+  round trip, widened in the post-review round so an honest post whose own check failed survives the
+  pass that rotates) of arrival. Held longer, an honest post is refused with the rest (cost stated).
+- W3: an owner rotatedAt in the future (clock was fast) is closed in revokeCheck.
+- W4: the residual is relay-bounded with members left (owner side alone about 15 s + 20 s + 90 s),
+  and while Kosmos+ cannot answer the pass shows held posts unchecked: comment says so.
+- Unverified premise (Angel): detection needs the coordinator to keep listing a revoked edge with a
+  non-active status; if it deletes the edge nothing rotates (the coordinator is not in this repo).
+
+## Post-review blind round (22:06)
+- Lag widened 35 s -> 80 s (honest post held through one failed check, rotated at the next pass).
+- A coordinator answer that lists none of the pinned edges counts as checked (as #3728 always did: an
+  edge it does not list is not taken as revoked); with the unverified premise above, a deleted edge
+  is never detected. Stated, not changed.
+- With no members left, a post that joins a check already out can be shown if the revoke landed after
+  that check was asked: bounded by about 15 s plus a round trip (N3), not the members-left 75 s.
+
+## Round 12 (22:11)
+- A checked answer releases only held posts that arrived within EDGE_FRESH_MS of when it was asked
+  (a pass step delayed behind a slow sealing step used an answer older than the post). Later posts
+  wait for their own check or the next pass. The no-members residual holds again: up to 15 s from the
+  ask, plus the round trip of the check that covers the post.

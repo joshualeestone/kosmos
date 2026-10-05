@@ -122,7 +122,7 @@ test('#1885: an agent on a DEAD suffixed config dir reads NOT connected, and nam
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   assert.equal(r.body.connected, false, 'the agent on the dead suffixed dir read as connected: ' + JSON.stringify(r.body));
   assert.equal(r.body.state, 'none');
-  assert.match(r.body.remedy || '', /Re-authenticate this agent/, 'the remedy must name this agent, not the account: ' + JSON.stringify(r.body));
+  assert.match(r.body.remedy || '', /Sign this agent in again/, 'the remedy must name this agent, not the account: ' + JSON.stringify(r.body));
   assert.equal(r.body.account.email, 'aria@example.com', 'the answer is about the wrong account');
 });
 

@@ -19,6 +19,9 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 /* #4447: a long message now spills into the recipient's own worker folder, so the workers root is
    sandboxed too: unset, it falls back to the real ~/work/workers, where live agents boot from. */
 process.env.AGENT_WORKFORCE_WORKERS = require('node:path').join(SANDBOX, 'workers');
+/* #5260: and the projects root. A test that makes a project (projects.create) makes its FOLDER there, and unset it is
+   the real ~/Kosmos/Projects: the #3564 tests had been leaving "Swarm Valve Room" and "Swarm Off Room" in it. */
+process.env.AGENT_WORKFORCE_PROJECTS = require('node:path').join(SANDBOX, 'Projects');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -3190,6 +3193,121 @@ test('#4786: work done BEFORE the person last spoke earns nothing after it; the 
   });
   assert.equal(run(2), chat.DELIVERY.PLACED, 'CONTROL: a step after the person spoke did not earn room, so the other arm proves nothing');
   assert.equal(run(5), chat.DELIVERY.COULD_NOT, 'a step before the person spoke still earned room after they reset it');
+});
+
+/* #5260: a project made by the test, aged two hours (its record and its files), so that only what the test writes next
+   is new. What making a project writes does not count as work moving, and this keeps the tests off that rule. */
+function agedProject(name) {
+  const projects = require('./projects');
+  const made = projects.create({ name });
+  const pid = made.id || (made.project && made.project.id);
+  const longAgo = new Date(Date.now() - 2 * 3600000);
+  projects.writeAll(projects.readAll().map((p) => (p.id === pid ? { ...p, createdAt: longAgo.toISOString() } : p)));
+  const folder = (projects.readAll().find((p) => p.id === pid) || {}).folder;
+  for (const f of fs.readdirSync(folder)) fs.utimesSync(path.join(folder, f), longAgo, longAgo);
+  return { pid, folder, longAgo };
+}
+
+test('#5260: a file changed in the project folder earns the room the same bounded allowance as a task step; old files, dot-files and rewrites earn nothing more, and a loop that writes files is still held', () => {
+  const taskchat = require('./taskchat');
+  const { pid, folder, longAgo } = agedProject('Fact Check Room');
+  assert.ok(folder && fs.existsSync(folder), 'the project has no folder, so nothing below proves anything');
+  withFleet(room3(), (board) => {
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.writeFileSync(messages.LOG, '');
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'f' + (i + 1), project: pid,
+          from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+          text: 'batch checked ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+        }) + '\n');
+      }
+      let seq = 0;
+      const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
+        return messages.sendPost({ fromPane: '%7', project: pid, text: 'corrections applied ' + seq }, board.agents, MEMBERS); };
+      const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
+      const held = () => messages.record().rows.filter((m) => m.kind === 'post' && !m.operator
+        && m.project === pid).reduce((n, m) => n + m.to.length, 0);
+      const credit = Math.ceil(ROOM_BUDGET / 4);
+      // CONTROL: at its budget, no task and no file moved, the room is held.
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'the room was not held to begin with, so nothing below proves anything');
+      // A file last changed before the window earns nothing.
+      const old = path.join(folder, 'batch-0.md');
+      fs.writeFileSync(old, 'old');
+      fs.utimesSync(old, longAgo, longAgo);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a file changed before the window released the room');
+      // A dot-file (a tool's scratch) is not the work.
+      fs.writeFileSync(path.join(folder, '.scratch'), 'x');
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a dot-file released the room');
+      // One file changed now earns a quarter of the cap, exactly as one task step does.
+      fs.writeFileSync(path.join(folder, 'batch-1.md'), 'checked, with corrections');
+      assert.ok(through() > 0, 'a changed file earned nothing: the fact-check cycle of #5260 is still held');
+      assert.ok(held() <= ROOM_BUDGET + credit && held() > ROOM_BUDGET + credit - 2,
+        `one changed file should earn a quarter of the cap: held at ${held()}, cap ${ROOM_BUDGET}`);
+      // Rewriting the SAME file is not a new step.
+      fs.writeFileSync(path.join(folder, 'batch-1.md'), 'checked again');
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'rewriting one file earned the room more');
+      // A loop that writes a new file every turn earns at most one more cap in all, shared with task steps.
+      assert.equal(taskchat.record(pid, 1, { kind: 'created', sentence: 'busywork' }), true);
+      for (let k = 2; k < 22; k += 1) fs.writeFileSync(path.join(folder, 'batch-' + k + '.md'), 'busywork ' + k);
+      assert.ok(through() > 0, 'twenty new files and a task earned nothing');
+      assert.ok(held() <= 2 * ROOM_BUDGET && held() > 2 * ROOM_BUDGET - 2,
+        `files and tasks together should buy at most one more cap: held at ${held()}, cap ${ROOM_BUDGET}`);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a loop that writes files was never held');
+    } finally {
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});
+
+test('#5260: a project folder inside another project\'s folder: the inner room\'s files earn the outer room nothing, and still earn the inner room', () => {
+  const projects = require('./projects');
+  const outer = agedProject('Outer Repo Room');
+  const innerDir = path.join(outer.folder, 'docs');
+  fs.mkdirSync(innerDir);
+  fs.utimesSync(innerDir, outer.longAgo, outer.longAgo);
+  const made = projects.create({ name: 'Inner Docs Room', folder: innerDir });
+  const innerId = made.id || (made.project && made.project.id);
+  assert.ok(innerId, 'the nested project was not made, so nothing below proves anything: ' + JSON.stringify(made).slice(0, 200));
+  const longAgo = outer.longAgo;
+  projects.writeAll(projects.readAll().map((p) => (p.id === innerId ? { ...p, createdAt: longAgo.toISOString() } : p)));
+  for (const f of fs.readdirSync(innerDir)) fs.utimesSync(path.join(innerDir, f), longAgo, longAgo);
+  const now = Date.now();
+  fs.writeFileSync(path.join(innerDir, 'batch-3.md'), 'inner work');
+  assert.deepEqual(projects.changedFileTimes(outer.pid, now - 60000), [], 'the inner room\'s file earned the outer room a step');
+  assert.equal(projects.changedFileTimes(innerId, now - 60000).length, 1, 'CONTROL: the inner room\'s own file earned it nothing');
+  fs.writeFileSync(path.join(outer.folder, 'notes.md'), 'outer work');
+  assert.equal(projects.changedFileTimes(outer.pid, now - 60000).length, 1, 'CONTROL: the outer room\'s own file earned it nothing');
+});
+
+test('#5260: changedFileTimes: nothing for an unknown project, the files a new project is made with, or a file dated well ahead; a moment ahead counts as now', () => {
+  const projects = require('./projects');
+  assert.deepEqual(projects.changedFileTimes('no-such-project', 0), []);
+  // What making a project writes (the BRIEF.md stub) is not work moving.
+  const fresh = projects.create({ name: 'Brand New Room' });
+  const freshId = fresh.id || (fresh.project && fresh.project.id);
+  const freshFolder = (projects.readAll().find((p) => p.id === freshId) || {}).folder;
+  assert.ok(fs.readdirSync(freshFolder).length > 0, 'the new project has no files, so the next line proves nothing');
+  assert.deepEqual(projects.changedFileTimes(freshId, Date.now() - 60000), [], 'a new project earned a step for being made');
+  const { pid, folder } = agedProject('Future Files Room');
+  const now = Date.now();
+  const ahead = path.join(folder, 'ahead.md');
+  fs.writeFileSync(ahead, 'x');
+  const future = new Date(now + 3600000);
+  fs.utimesSync(ahead, future, future);
+  assert.deepEqual(projects.changedFileTimes(pid, now - 60000, now), [], 'a file dated an hour ahead counted (it would earn room in every later window)');
+  // A file written a moment before the asking post, whose time reads a little after `now`, counts, as now.
+  const moment = path.join(folder, 'moment.md');
+  fs.writeFileSync(moment, 'x');
+  const justAhead = new Date(now + 1000);
+  fs.utimesSync(moment, justAhead, justAhead);
+  assert.deepEqual(projects.changedFileTimes(pid, now - 60000, now), [now], 'a file a second ahead of now was dropped (the save-then-post race)');
+  // Files dated well ahead (a sync tool with a skewed clock) are newest in the list; ten of them must not hide a real change.
+  for (let k = 0; k < 10; k += 1) { const f = path.join(folder, 'skewed-' + k + '.md'); fs.writeFileSync(f, 'x'); fs.utimesSync(f, future, future); }
+  assert.deepEqual(projects.changedFileTimes(pid, now - 60000, now), [now], 'files dated in the future took every slot and hid the real change');
 });
 
 test('#4786: with the limit Off, work moving changes nothing: the room still gets its told-only notice at the cap', () => {

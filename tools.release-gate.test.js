@@ -82,6 +82,16 @@ fs.writeFileSync(TUNNEL_BIN, 'MACHO-STAND-IN\n', { mode: 0o755 });
 fs.writeFileSync(`${TUNNEL_BIN}.commit`, `${gitfx('-C', RELAY_REPO, 'rev-parse', 'HEAD')}\n`);
 fs.writeFileSync(`${TUNNEL_BIN}.sha256`,
   `${require('node:crypto').createHash('sha256').update(fs.readFileSync(TUNNEL_BIN)).digest('hex')}\n`);
+/* #5037: step 1d2 reads tools/coordinator-floor and refuses a cut it cannot read. The arms that must reach step 2
+   get a REAL floor for this fixture: one relay commit NEWER than the connector that touches no connector input (so
+   step 1d still finds the connector current). The connector is a strict ancestor of that line, so 1d2 passes through
+   its real "older than every floor line" path and never asks a coordinator over the network. Its own arms are in
+   tools/test-coordinator-floor-5037.sh. */
+fs.writeFileSync(path.join(RELAY_REPO, 'README.md'), 'fixture: a coordinator-first change, newer than the connector\n');
+gitfx('-C', RELAY_REPO, 'add', '-A');
+gitfx('-C', RELAY_REPO, 'commit', '-q', '-m', 'fixture: coordinator-first');
+gitfx('-C', RELAY_REPO, 'push', '-q', 'origin', 'main');
+const FLOOR_FX = gitfx('-C', RELAY_REPO, 'rev-parse', 'HEAD');
 
 const REAL = path.join(__dirname, 'tools', 'release.sh');
 
@@ -479,6 +489,8 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      that far. Copy just release.sh here and every arm dies on a missing file
      and returns 0, which reads as "did not refuse". */
   fs.cpSync(path.join(__dirname, 'tools', 'lib'), path.join(dir, 'tools', 'lib'), { recursive: true });
+  // #5037: the fixture floor (see FLOOR_FX above); step 1d2 refuses a cut with no readable floor file.
+  fs.writeFileSync(path.join(dir, 'tools', 'coordinator-floor'), `${FLOOR_FX} fixture: newer than the connector\n`);
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sandbox', version }, null, 2));
   /* #3955: step 1b-ii checks web/whats-new.json with tools/whats-new-check.js (and engine/whatsnew.js);
      the sandbox carries both and a committed highlights file for the version being cut, so the arms
@@ -913,7 +925,7 @@ test('#3955: KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through, and says there
 test('#3955 round 11: with the opt-out set and a real highlights file for the version, the cut says the window WILL show', () => {
   const { dir, home, site } = git_sandbox('0.6.02');   // its whats-new.json is for 0.6.03, the cut version
   const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
-  assert.match(r.said, /the highlights check is not enforced; web\/whats-new\.json is for 0\.6\.03, so the "Kosmos has been updated" window will show/, r.said.slice(0, 800));
+  assert.match(r.said, /the highlights check is not enforced; web\/whats-new\.json is for 0\.6\.03, so the "Kosmos has been updated" window will show on the Mac/, r.said.slice(0, 800));
   assert.doesNotMatch(r.said, /0\.6\.03 ships with no highlights/, 'the cut claimed no window over a real highlights file');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
