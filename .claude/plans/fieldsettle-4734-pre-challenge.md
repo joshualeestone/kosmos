@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: fieldsettle-4734
-diff_hash: 98e906aaab91ffe10ba21aa41b96832ce796c454321ec24074297350383ededb
-validation: full tools/run-tests.sh on Agent1s at 844103b7d (2026-10-02 21:34 CDT): 14469 tests, 14245 pass, 1 fail, the shared reason-grep emit-site count; fixed (rebased onto main, 233 -> 236 as measured) and that file passes 5/5; both browser-check gates rc 0. The PR's CI runs every suite on the merged tree before the watcher merges.
+diff_hash: e537f6110bd43d78a774f7b99ca82cfec6f94a3966efb6b6fa032c9a3e66fb08
+validation: REBASED 2026-10-04 19:15 CDT onto main after #5106 merged (this branch had been stacked on an older #5106 head; git dropped those commits as applied, this branch's own commits replayed clean); browser-checks-reason-grep + tools.browser-checks-wired 18/18 on the rebased tree. A fresh Mortals run on this head is queued. Earlier: full tools/run-tests.sh on Agent1s at 844103b7d (2026-10-02 21:34 CDT): 14469 tests, 14245 pass, 1 fail, the shared reason-grep emit-site count; fixed (rebased onto main, 233 -> 236 as measured) and that file passes 5/5; both browser-check gates rc 0. The PR's CI runs every suite on the merged tree before the watcher merges.
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-10-03T02:36:30Z
 iterations: 2
