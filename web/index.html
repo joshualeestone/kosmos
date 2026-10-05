@@ -49077,9 +49077,8 @@ function enhanceProviderSelect(selectId) {
     const disabled = o.disabled;
     if (disabled) { li.setAttribute('aria-disabled', 'true'); li.classList.add('pcombo-off'); }
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
-    // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or " · set up
-    // first"); strip it,
-    // the widget shows a pill instead.
+    // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or
+    // " · set up first"); strip it, the widget shows a pill instead.
     const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');

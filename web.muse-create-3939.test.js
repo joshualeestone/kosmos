@@ -196,3 +196,33 @@ test('#5316: the logo list strips the new suffix as it strips "coming soon"', ()
     assert.equal('Google Gemini (API key)'.replace(re, '').trim(), 'Google Gemini (API key)', l);
   }
 });
+
+/* #5316 review 3: Add a provider's option (museAsk) says the same words as its state, without the browser queue. */
+// eslint-disable-next-line no-new-func
+const loadAsk = new Function('document', 'fetch', `
+  ${grabLine('const ACCT_ADD_INTRO =')}
+  ${grabLine('const ACCT_ADD_INTRO_MUSE =')}
+  ${grabLine('const MUSE_NOT_HERE =')}
+  function acctAddPickSay() {}
+  function pjSentence(b) { return typeof b === 'string' && b ? b : ''; }
+  ${grabLine('function museMetaOption(')}
+  let MUSE_ASK_GEN = 0;
+  ${grab('async function museAsk(')}
+  return { museAsk };
+`);
+test('#5316: Add a provider\'s Meta option says what its state is (live, not installed, off, a failed read)', async () => {
+  const cases = [
+    [{ enabled: true, installed: true, signedIn: false }, false, 'Meta Muse'],
+    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, true, 'Meta Muse \u00b7 set up first'],
+    [{ enabled: false }, true, 'Meta Muse \u00b7 coming soon'],
+    ['throw', true, 'Meta Muse \u00b7 coming soon'],
+  ];
+  for (const [answer, disabled, text] of cases) {
+    const opt = { value: 'meta', disabled: true, dataset: {}, textContent: 'Meta Muse \u00b7 coming soon', parentElement: { dataset: {} } };
+    const doc = { querySelector: (q) => (q === '#acct-provider-pick option[value="meta"]' ? opt : null), getElementById: () => null };
+    const fetch = async () => { if (answer === 'throw') throw new Error('offline'); return { ok: true, json: async () => answer }; };
+    await loadAsk(doc, fetch).museAsk();
+    assert.equal(opt.disabled, disabled, JSON.stringify(answer));
+    assert.equal(opt.textContent, text, 'Add a provider\'s words do not match its state: ' + JSON.stringify(answer));
+  }
+});
