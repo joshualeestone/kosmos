@@ -558,7 +558,7 @@ function chk(ok, label, extra) {
     await p.mouse.move(shortBox.x, shortBox.y);
     await p.waitForTimeout(300);
     const shortBar = await measureShort();
-    chk(shortBar.inside && shortBar.hits.length === 7 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Copy reference, #4631, read-aloud, #4409, and Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+    chk(shortBar.inside && shortBar.hits.length === 8 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Copy message and Copy message id, #5312, read-aloud, #4409, and Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
     // The hovered row itself changes in the repaint (its words are edited here; in life a reaction lands), so
     // the page draws a NEW element without the measured class. Read in the same moment as the repaint:
     // Chromium re-sends a hover to a still mouse shortly after, which would mend it by accident.
