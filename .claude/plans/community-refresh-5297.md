@@ -53,8 +53,9 @@ are person-owned: Kosmos rewrites them only on the person's click (engine/doctri
 running-agent half: an agent reads its file once, so even a consented refresh left it on the old text until restart.
 - engine/instructionreread.js (new): the "read this section again" debt, on disk until a line lands, for two sections:
   community (board-start refresh) and rules (a consented doctrine refresh, per agent and fleet).
-- server.js: instructionRereadPass (30 s after boot, every 15 min while owed, at once after a doctrine refresh); live
-  execution checked per send; agents no longer ours dropped; merge onto the file so a debt owed mid-pass survives.
+- server.js: instructionRereadPass runs instructionreread.passOnce every 5 min (INSTRUCTION_REREAD_MS); a line goes only
+  to an agent idle at two passes running (never into a prompt or question), so it lands 5-10 min after a change; live
+  execution checked per send; agents no longer ours dropped; merged onto the file by a per-owe counter.
 - Not covered, decided: the five other boot-refreshed blocks (you, reports, connections, dmfiles, language) still
   refresh the file only. Their tellAgent returns no changed flag, and they carry names/paths rather than daily behaviour.
   Follow-up if wanted. Why the user's agents never took the #5013 offer is not knowable from the report (#4890 comment).
@@ -64,3 +65,13 @@ Re-read line retried until it lands (was sent once, lost on a refusal); "held" c
 coming or going is not a change of rules, and an unreadable post store keeps it; a whole prompt-woken turn is not work
 (not only 15 min); live execution per send; onlyIfPresent closes the add race; countWord/FLOORS in the prompt; "in the
 last day"; stale comments in remove.js and projects.js. communityswitch.js:8 left: still true (refresh writes only when on).
+
+## Rounds 2-4 (fixed)
+Roster guard; a restart since the debt ends it; per-owe counter `n`; the rules compare uses the composed body; the line is
+typed only into an idle agent (round 3 BLOCKER: a line typed into a permission prompt or question would submit its
+default); passOnce and oweChanged extracted and tested behaviourally; a prompt that woke nothing owns only its 15 min.
+
+## Weakest premise (re-read debt)
+startedSince ends a debt on any 'started' report after it. For Claude agents the hook writes 'started' only on a fresh
+startup (engine/kosmos-report-hook.js, #1058), which reads the file. The Gemini and Grok bridges write it on any
+SessionStart source; if one of those runners did not re-read its instructions on a resume, that agent would miss the line.

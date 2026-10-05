@@ -1071,8 +1071,8 @@ async function instructionRereadPass() {
     for (const d of done) if (d.act !== 'not-idle') process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
 }
-/* A consented working-rules refresh owes the running agent a re-read; the next pass (within INSTRUCTION_REREAD_MS)
-   sends it once the agent is idle. */
+/* A consented working-rules refresh owes the running agent a re-read. A pass sends it once the agent has been idle at
+   two passes running, so it lands one to two INSTRUCTION_REREAD_MS after the click. */
 function instructionRereadOwe(session) {
   try { require('./engine/instructionreread').oweNow(session, 'rules'); } catch { /* the file is right; only the line is lost */ }
 }
@@ -21041,18 +21041,16 @@ if (require.main === module) {
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (stuck.length) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
-      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${(stuck[0] && stuck[0].agent) || 'the list of agents'} - ${why}\n`);
     }
     const ir = require('./engine/instructionreread');
-    let owed = ir.readOwed();
-    for (const t of told) if (t && t.rulesChanged === true && t.agent) owed = ir.owe(owed, t.agent, 'community');
-    ir.writeOwed(owed);
+    ir.writeOwed(ir.oweChanged(told, ir.readOwed()));
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
   }
   /* kosmos#5297: the re-read lines owed (engine/instructionreread.js), a pass every INSTRUCTION_REREAD_MS from boot (it
-     returns at once when nothing is owed). A line goes only to an agent idle at two passes running, so the first can
-     land one interval after boot or after a working-rules refresh. */
+     returns at once when nothing is owed). A line goes only to an agent idle at two passes running, so the first lands
+     two intervals after boot at the earliest. */
   {
     const again = setInterval(() => { instructionRereadPass(); }, INSTRUCTION_REREAD_MS);
     if (again && typeof again.unref === 'function') again.unref();
