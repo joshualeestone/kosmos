@@ -322,4 +322,6 @@ test('#4649 slice B: Remove and Withdraw get the owner-list sentences, not the i
   assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x', { change: true }), 'Only the owner of this project can change who is in it.');
   // Control: without the flag, the invite sheet and the joiner keep their own sentences.
   assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x'), 'Only the owner of this project can invite people to it.');
+  assert.equal(s.pjFedMessage({ reason: 'self-shared' }, 'x', { change: true }), 'This project is shared with your other computers, so its outside members cannot be changed here.');
+  assert.match(s.pjFedMessage({ reason: 'self-shared' }, 'x'), /cannot be shared with other people yet/);
 });

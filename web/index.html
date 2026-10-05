@@ -66461,6 +66461,7 @@ function pjFedMessage(body, fallback, opts) {
   // Remove and Withdraw (opts.change): the owner's own list, so the invite sheet's and the joiner's sentences do
   // not fit. Their callers ask the list again for these reasons (it may hide the section or the row).
   if (opts && opts.change && reason === 'not-owner') return 'Only the owner of this project can change who is in it.';
+  if (opts && opts.change && reason === 'self-shared') return 'This project is shared with your other computers, so its outside members cannot be changed here.';
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',
@@ -66469,7 +66470,7 @@ function pjFedMessage(body, fallback, opts) {
     'self-join': 'That is your own project, so there is nothing to join.',
     'double-join': 'You are already on that project.',
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
-    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
+    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',   // (Remove/Withdraw: below)
     'not-owner': 'Only the owner of this project can invite people to it.',   // kosmos#4649 invite sheet, Kitty's 409
     'joined': 'Someone already joined with this code. Remove them instead.',   // kosmos#4649 slice B: Withdraw's 409, when the board gave no sentence
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
@@ -67671,7 +67672,11 @@ function fedInviteClose(force) {
   document.getElementById('fedinv-cancel').disabled = false;   // forced: the in-flight reply is dropped by the seq below, so it will not clear this
   FEDINV_SEQ++;
   document.getElementById('fedinv-modal').hidden = true;
-  const back = [FEDINV_OPENER, document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((b) => b && b.getClientRects().length);
+  // slice B: a From outside row's "Make a new code" opened it, and a repaint (the rail rebuilds on every poll) has
+  // replaced that button since: its row key finds the new one, so focus goes back to the row, not to the "+".
+  const k = FEDINV_OPENER && !FEDINV_OPENER.isConnected && FEDINV_OPENER.dataset ? FEDINV_OPENER.dataset.fedKey : null;
+  const again = k ? [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === k) : null;
+  const back = [FEDINV_OPENER, again, document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((b) => b && b.isConnected && b.getClientRects().length);
   FEDINV_OPENER = null;
   if (back) back.focus();
 }

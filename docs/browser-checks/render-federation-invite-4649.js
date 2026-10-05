@@ -75,7 +75,7 @@
  *  B15 focus across a tab rebuild (a) and a rail rebuild (b); focus on the "+" after a Remove (c); a Remove that a
  *      Cancel did not stop says it went through (d); a Withdraw nobody answers is given up on (e); the rows at 390 (f);
  *      Remove pressed in the rail (g); a late answer never pulls focus out of another dialog (h); a Remove nobody
- *      answers is given up on (i).
+ *      answers is given up on (i); a rail "Make a new code" cancelled after a rebuild returns focus to its row (j).
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
  *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
@@ -1243,6 +1243,15 @@ const closeAll = (page) => page.evaluate(() => {
     const b15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey : null, rebuilt: !(a && a.__mark),
       inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });
     check('B15b a rail rebuild keeps focus on the same row\'s action (control: the button was replaced)', b15.key === 'i:inv-lee' && b15.rebuilt && b15.inRail, JSON.stringify(b15));
+    // B15j: "Make a new code" in the rail, the rail rebuilt while the sheet is open, then Cancel: focus goes back to
+    // that row's (new) button, not to the "+". Control: the opener was detached by the rebuild.
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="i:inv-old"] .fedout-act');
+    await page.evaluate(() => paintAgentList());
+    const detached = await page.evaluate(() => !!FEDINV_OPENER && !FEDINV_OPENER.isConnected);
+    await page.click('#fedinv-cancel');
+    const j15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey || a.id : null, inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });
+    check('B15j a rail "Make a new code" cancelled after a rebuild returns focus to that row (control: its opener was detached)',
+      detached && j15.key === 'i:inv-old' && j15.inRail, JSON.stringify({ detached, j15 }));
     // B15g: Remove pressed in the rail asks the board for that connection, and the row goes.
     await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
