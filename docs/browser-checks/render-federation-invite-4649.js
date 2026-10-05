@@ -296,6 +296,13 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#rail-agents-new');
     let s = await read(page);
     check('A2 consolidated: the rail "+" opens the same menu', s.menuBox !== null && s.amBox === null && !!s.items && s.items.length === 2, JSON.stringify({ menu: s.menuBox, items: s.items }));
+    const railGeo = await page.evaluate(() => {
+      const r = (el) => { const b = el.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right) }; };
+      return { rail: r(document.getElementById('rail-agents')), plus: r(document.getElementById('rail-agents-new')) };
+    });
+    check('A2 consolidated: the menu sits inside the rail with its right edge on the rail "+" (Q-M4)',
+      !!s.menuBox && Math.abs(s.menuBox.r - railGeo.plus.r) <= 2 && s.menuBox.l >= railGeo.rail.l - 1 && s.menuBox.r <= railGeo.rail.r + 1,
+      JSON.stringify({ menu: s.menuBox, railGeo }));
     await page.click('#pj-addmenu-agent');
     s = await read(page);
     check('A2 consolidated: "Add one of your agents" opens #am-modal with a real box', !!s.amBox && s.amBox.w > 200 && s.amBox.h > 80, JSON.stringify({ am: s.amBox }));
@@ -315,6 +322,10 @@ const closeAll = (page) => page.evaluate(() => {
     let s = await read(page);
     check('A6 393 wide: the menu opens inside the window', !!s.menuBox && s.menuBox.l >= 0 && s.menuBox.r <= s.vw && s.overflowX <= 0,
       JSON.stringify({ menu: s.menuBox, vw: s.vw, overflowX: s.overflowX }));
+    const pcard = await page.$eval('.pjcard-members', (c) => { const b = c.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right) }; });
+    check('A6 393 wide: the menu takes the card\'s full width under its head (Q-M4 phone rule; 16 px gutters)',
+      !!s.menuBox && Math.abs(s.menuBox.l - Math.max(16, pcard.l)) <= 1 && Math.abs(s.menuBox.r - Math.min(s.vw - 16, pcard.r)) <= 1,
+      JSON.stringify({ menu: s.menuBox, card: pcard, vw: s.vw }));
     await page.click('#pj-addmenu-outside');
     s = await read(page);
     check('A6 393 wide: the asking step fits, no sideways scroll', !!s.invBox && s.invBox.l >= 0 && s.invBox.r <= s.vw && s.overflowX <= 0,
@@ -380,6 +391,41 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(100);
     s = await read(page);
     check('A7c the asking step closes on a signup reading', s.invBox === null, JSON.stringify({ inv: s.invBox }));
+    await ctx.close();
+  }
+
+  /* ---------------- A8: the sheet's ways out and its Tab trap ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    const openSheet = async () => { await page.click('#pj-add-member'); await page.click('#pj-addmenu-outside'); };
+    const sheet = () => page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    // Asking step: the backdrop and Escape both close it.
+    await openSheet();
+    await page.mouse.click(5, 5);
+    const askBackdrop = await sheet();
+    await openSheet();
+    await page.keyboard.press('Escape');
+    const askEscape = await sheet();
+    // Tab stays inside the sheet (aria-modal): ten presses each way, focus never leaves it.
+    await openSheet();
+    const trapped = [];
+    for (const key of ['Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+      await page.keyboard.press(key);
+      trapped.push(await page.evaluate(() => document.getElementById('fedinv-modal').contains(document.activeElement)));
+    }
+    // Code step: the backdrop keeps it (a code cannot be shown again); Escape, deliberate, closes it.
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.click('#fedinv-make');
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    await page.mouse.click(5, 5);
+    const codeBackdrop = await sheet();
+    await page.keyboard.press('Escape');
+    const codeEscape = await sheet();
+    check('A8 asking step: backdrop and Escape close it; code step: the backdrop keeps it, Escape closes it',
+      askBackdrop === false && askEscape === false && codeBackdrop === true && codeEscape === false,
+      JSON.stringify({ askBackdrop, askEscape, codeBackdrop, codeEscape }));
+    check('A8 Tab and Shift+Tab stay inside the sheet (aria-modal)', trapped.length === 10 && trapped.every(Boolean), JSON.stringify(trapped));
     await ctx.close();
   }
 

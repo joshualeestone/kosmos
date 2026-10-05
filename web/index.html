@@ -67583,9 +67583,23 @@ document.getElementById('fedinv-copy').addEventListener('click', fedInviteCopy);
 document.getElementById('fedinv-modal').addEventListener('click', (e) => {
   if (e.target.id === 'fedinv-modal' && !document.getElementById('fedinv-ask').hidden) fedInviteClose();
 });
+// Escape closes either step (#1316: every dialog's keyboard way out). Unlike a stray backdrop click it is deliberate,
+// so it may close the code step; not while an input method is composing (Escape there cancels the composition).
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || document.getElementById('fedinv-modal').hidden) return;
+  if (e.key !== 'Escape' || e.isComposing || document.getElementById('fedinv-modal').hidden) return;
   fedInviteClose();
+});
+// Tab stays inside the sheet, which declares aria-modal (plus-lost-modal's trap): among its visible, enabled controls.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const back = document.getElementById('fedinv-modal');
+  if (!back || back.hidden) return;
+  const reachable = [...back.querySelectorAll('button, input, textarea, select, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+  if (!reachable.length) { e.preventDefault(); return; }
+  const order = e.shiftKey ? reachable.slice().reverse() : reachable;
+  if (!back.contains(document.activeElement)) { e.preventDefault(); order[0].focus(); return; }
+  if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 });
 /* The ways out, per #1316: the corner X (0.6.45, was a Cancel button) that is not
    the action, and Escape, because somebody who opened this from the keyboard is
