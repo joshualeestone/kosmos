@@ -241,6 +241,23 @@ _qh_kill_desc() {
     kill -KILL -- "-$p" 2>/dev/null
   done < "$QH_DESC"
 }
+# #5331: stop the capper and reap it WITHOUT ever blocking. The group kill alone missed it once (where job control did
+# not take effect the capper is not a group leader), and the unbounded `wait` after it held a side turn's claim, and the
+# canary that ran it, for 1 h 43 min. A KILL to its own pid lands even on a stopped process, and it is waited on only
+# once it has died (a zombie or gone), so a capper that somehow lives is left behind rather than blocking the release.
+_qh_stop_capper() {
+  [ -n "$CAPPER" ] || return 0
+  kill -KILL -- "-$CAPPER" 2>/dev/null
+  pkill -KILL -P "$CAPPER" 2>/dev/null
+  kill -KILL "$CAPPER" 2>/dev/null
+  local i=0
+  while [ "$i" -lt 40 ]; do
+    case "$(ps -o stat= -p "$CAPPER" 2>/dev/null)" in ''|Z*) wait "$CAPPER" 2>/dev/null; CAPPER=""; return 0 ;; esac
+    sleep 0.25; i=$((i + 1))
+  done
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') the side turn's capper (pid $CAPPER) did not stop; left behind so the claim is released"
+  CAPPER=""
+}
 _qh_end() {
   trap '' TERM INT HUP PIPE   # review 4: a second signal during cleanup must not abandon it (the command would run on
                              # unclaimed); round 9: nor a reader that has gone (SIGPIPE at an echo below)
@@ -261,7 +278,7 @@ _qh_end() {
   # Round 18 (Opus): the capper LAST, so a KILL of this script during the grace above still leaves the capper to see it
   # gone and finish the stop (it watches this pid). Round 10: KILL, not TERM: the capper holds nothing to clean up (the
   # command group is stopped above), and a TERM into its trap-reset subshell made bash 3.2 warn on most side turns.
-  if [ -n "$CAPPER" ]; then kill -KILL -- "-$CAPPER" 2>/dev/null; wait "$CAPPER" 2>/dev/null; fi
+  _qh_stop_capper
   # Review 4: the stop file too, once the capper is gone (a yield in the window before could write it again).
   rm -f ${QH_STOPPED:+"$QH_STOPPED"} ${QH_DESC:+"$QH_DESC"}
   if [ "$LANE" = side ]; then kosmos_release_light_side; else kosmos_release_machine; fi
@@ -351,7 +368,7 @@ if [ "$LANE" = side ]; then
     _qh_wrapper_gone "$$" && rm -f "$QH_STOPPED" "$QH_DESC" ) &
   CAPPER=$!; set +m
   wait "$CMD"; rc=$?
-  kill -KILL -- "-$CAPPER" 2>/dev/null; wait "$CAPPER" 2>/dev/null
+  _qh_stop_capper
   # Round 6 (Sonnet): a yield or a cap exits 75 (EX_TEMPFAIL: try again later), so a caller can tell it from a red.
   # Round 18 (Opus): a recorded stop is 75 WHATEVER the command exits with. A command that traps TERM and exits 0 was
   # stopped part way and is not a pass (round 16 had kept rc 0 here). The capper records a stop only when it signalled a
