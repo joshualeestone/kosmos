@@ -147,6 +147,10 @@ test('#4649: Withdraw marks only an invite this project made; a joined code and 
   assert.deepStrictEqual((await fedmembers.withdraw(joined, 'lease', id)).body.reason, 'joined');
   const old = stubRemote({ '/v1/mac/federation/invite/withdraw': { ok: false, because: 'HTTP 404 on /v1/mac/federation/invite/withdraw' } });
   assert.deepStrictEqual((await fedmembers.withdraw(old, 'lease', id)).body.reason, 'unsupported');
+  // An OLDER CONNECTOR refuses to sign the route at all (kosmos-relay check_mac_request; tools/test-connector-verbs.sh
+  // records this as the decision that an old connector breaks nothing that works).
+  const oldConnector = stubRemote({ '/v1/mac/federation/invite/withdraw': { ok: false, because: 'mac-request does not sign POST "/v1/mac/federation/invite/withdraw"; it signs only: ...' } });
+  assert.deepStrictEqual((await fedmembers.withdraw(oldConnector, 'lease', id)).body.reason, 'unsupported');
 });
 
 test('#4649: an invites record that cannot be read is never overwritten; the code still works and says it was not recorded', async () => {
