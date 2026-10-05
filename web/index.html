@@ -67684,8 +67684,10 @@ async function fedInviteCopy() {
   const status = document.getElementById('fedinv-status');
   const text = codeEl.value;
   if (!text) return;
+  const seq = FEDINV_SEQ;
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
+  if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered (as Copy the invitation)
   if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
   fedInviteCopyReset();
   btn.textContent = ok ? 'Copied' : 'Press ⌘C to copy';
@@ -67710,14 +67712,16 @@ function fedInviteCopyReset() {
    a first one retired, has an address that is not the account's name. The step words are the page's own labels ("+ Add
    Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
-  const name = (typeof YOU_NAME === 'string' ? YOU_NAME : '').trim();
+  // One line each: a name or project with a newline or a control character must not break the invitation's lines.
+  const line = (v) => String(v || '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+  const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '');
   const fm = FED_MEMBERS;
   const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
-    && /^[a-z0-9-]{3,32}$/.test(fm.body.owner_name)) ? fm.body.owner_name : '';
+    && PLUS_NAME_RULE.test(fm.body.owner_name)) ? fm.body.owner_name : '';
   const addr = handle ? handle + '.kosmosplus.com' : '';
   const who = name && addr ? name + ' (' + addr + ')' : (name || addr || 'Someone');
   const until = fedInviteLongDate(made.expires_at);
-  return who + ' invited you to ' + (made.project ? 'the project "' + made.project + '"' : 'a project') + ' on Kosmos.\n'
+  return who + ' invited you to ' + (line(made.project) ? 'the project "' + line(made.project) + '"' : 'a project') + ' on Kosmos.\n'
     + '\n'
     + '1. Open Kosmos on your computer. If you do not have it yet, get it at installkosmos.com and sign in to Kosmos+.\n'
     + '2. Go to Projects, press + Add Project, then Join an external project.\n'

@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText THIS_COMPUTER_ADDRESS refreshYouName computersFetch pj-new pj-mode-join pj-join-verify
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText refreshYouName pj-new pj-mode-join pj-join-verify
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -152,6 +152,7 @@ function initStub(cfg) {
   window.__withdraw = { status: 200, body: { withdrawn: true } };
   window.__withdraws = [];
   window.__answerDelay = 0;
+  window.__computers = null;    // slice C's C2 plants this computer's address here, to prove it is never printed
   window.__you = null;          // slice C: /api/you's `you` ({ name }); null leaves it to the catch-all (no name)
   window.__unhandled = [];
   window.addEventListener('unhandledrejection', (e) => { window.__unhandled.push(String(e.reason && e.reason.message || e.reason)); });
@@ -180,6 +181,7 @@ function initStub(cfg) {
       return enc(window[key].status, window[key].body);
     }
     if (/\/api\/you(\?|$)/.test(u) && window.__you) return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed, { you: window.__you }));
+    if (u.includes('/api/remote/computers') && window.__computers) return enc(200, window.__computers);   // C2's planted address
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
     return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed));
   };
@@ -1001,6 +1003,16 @@ const closeAll = (page) => page.evaluate(() => {
     v = await variant('Maya Chen', null);
     check('C2 no owner_name: "Maya Chen invited you ...", with no address (control: C1 with owner_name)',
       v.got.ownerName === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
+    /* This computer's own address is NEVER printed, even when the board knows it (a second computer's, or a retired
+       first one's, is not the account's name). Planted here through the page's own loader; control: C1, where the
+       account name (owner_name) is printed. */
+    await page.evaluate(async () => {
+      window.__computers = { ok: true, domain: 'kosmosplus.com', computers: [{ name: 'studio', address: 'maya-studio.kosmosplus.com', this: true, online: true }] };
+      if (typeof computersFetch === 'function') await computersFetch();
+    });
+    v = await variant('Maya Chen', null);
+    check('C2 this computer\'s own address, known to the board, is not printed (control: C1 prints the account name)',
+      !String(v.text).includes('maya-studio') && v.text === invitation('Maya Chen'), JSON.stringify(v));
     v = await variant('Maya Chen', 'Not A Handle!');
     check('C2 an owner_name that is not a Kosmos+ name is not printed', v.text === invitation('Maya Chen'), JSON.stringify(v));
     v = await variant('', null);
