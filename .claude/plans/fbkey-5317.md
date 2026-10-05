@@ -62,6 +62,11 @@ feedback-triage 23, cli.feedback-2037 14, server.feedback-2037 7, windows verbs 
 - NIT fixed: the flush's post refuses redirects under test, as sendNow's does. NIT accepted: an old record with no time
   sends the day before once more (the same one-POST rule already accepted for unknown content).
 
+## Review 4 (sonnet, blind): converged (no BLOCKER, WARNING or CONVENTION)
+- NIT fixed: the flush sends only a day BEFORE the one being sent, so a write that straddles midnight (sending the older
+  day) does not also post the newer day the sweep will send. NIT accepted: an in-flight re-send that then fails inside
+  its minute is not retried (already accepted: a failure in the flush is not retried).
+
 ## Weakest premise
 That one combined record per day is what the team wants, rather than one record per agent. It needs no collector
 change and every report arrives; if per-agent records are wanted later, the sections are already separable.

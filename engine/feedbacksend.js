@@ -544,7 +544,9 @@ function sweepTick(now) {
  */
 function flushChangedDay(st, d, t) {
   try {
-    if (!st || !st.ok || !st.sent || st.sent === d) return;
+    // Only a day BEFORE the one being sent (review 4: a write that straddled midnight sends an older day, and the newer
+    // day it rewinds from is left to the sweep, which sends it once).
+    if (!st || !st.ok || !st.sent || !(st.sent < d)) return;
     // The last attempt may still be in flight (a send times out after 5 s), and its delivered hash is recorded only
     // when it answers: within a minute of it, whatever the record's hash says, nothing is sent again (review 3).
     if (st.sentAt != null && t - st.sentAt >= 0 && t - st.sentAt < RETRY_MIN_MS) return;
