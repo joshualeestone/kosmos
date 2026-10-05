@@ -299,7 +299,7 @@ async function paintRoom(page) {
       chk(guest === '', tag + 'CONTROL: a room row with no number (an outside guest) has no id to copy', JSON.stringify(guest));
       /* Drawn by the page's own renderer (pjRoomRow's external branch), so what the fallback strips is what a real row holds. */
       const c4 = await page.evaluate(() => { const box = document.createElement('div');
-        box.innerHTML = pjRoomRow({ kind: 'external', id: 'x-1b2c', from: 'Ben', fromKind: 'person', at: new Date().toISOString(), text: 'Hi there\nsecond line' }, { id: 'p1', name: 'Kosmos Growth', agents: [] }, false);
+        box.innerHTML = pjRoomRow({ kind: 'external', id: 'x-1b2c', from: 'Roo', fromKind: 'person', at: new Date().toISOString(), text: 'Hi there\nsecond line' }, { id: 'p1', name: 'Kosmos Growth', agents: [] }, false);
         const d = box.firstElementChild; document.getElementById('pj-room').appendChild(d);
         const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }); d.querySelector('.msg-ext-tx').dispatchEvent(ev);
         const m = document.getElementById('msg-menu');
