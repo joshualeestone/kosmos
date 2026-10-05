@@ -104,6 +104,8 @@
  *  C5b on a Windows page the bare Copy's real refusal renders "Press Ctrl+C to copy" and "... press Ctrl C.".
  *  C6  a clipboard that never answers: nothing said while it waits, the bare Copy ignored, the 3 s limit's refusal,
  *      then the late write lands and the line says Copied.
+ *  C7  a held write landing after a newer, successful copy on the other button: the line says what the clipboard
+ *      now holds. Control: C6.
  *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
  *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
@@ -1162,6 +1164,34 @@ const closeAll = (page) => page.evaluate(() => {
         && late.status === 'Invitation copied.' && late.allText === 'Copied' && late.copied.length === 1 && late.copied[0] === invitation('Maya Chen (' + ADDR + ')'),
         JSON.stringify({ waiting: waiting.status, bare: [bareWhileBusy.status, bareWhileBusy.copyText], limit: limit.status, late: [late.status, late.allText, late.copied.length] }));
       await pc.ctx.close();
+    }
+
+    /* C7: the cross-button case. The invitation's clipboard is held past the 3 s limit (refusal shown), then the bare
+       Copy succeeds by select-and-copy ("Code copied."), then the held invitation write lands and replaces the code.
+       The line must say what the clipboard now holds, not leave "Code copied." standing. Control: C6, the same late
+       write with no newer press, says "Invitation copied.". */
+    {
+      const p7 = await newPage(1280, SHOW);
+      await openProjectIn(p7.page, 'tabs');
+      await makeCode(p7.page, 'Dana Ruiz');
+      await p7.page.evaluate(() => {
+        window.__execOk = false;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (txt) => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
+      });
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForTimeout(3300);   // past the limit: the refusal is up and the busy flag is free
+      await p7.page.evaluate(() => { window.__execOk = true; });
+      await p7.page.click('#fedinv-copy');
+      await p7.page.waitForTimeout(100);
+      const newer = await step(p7.page);
+      await p7.page.evaluate(() => window.__releaseClip());
+      await p7.page.waitForTimeout(150);
+      const after = await step(p7.page);
+      check('C7 a held write that lands after a newer copy says the clipboard now holds the invitation (control: C6 without a newer press)',
+        newer.status === 'Code copied.'
+        && after.status === 'An earlier copy finished late, so the clipboard now holds the invitation. Press the button again to copy the other.',
+        JSON.stringify({ newer: newer.status, after: after.status }));
+      await p7.ctx.close();
     }
 
     // C0 with a label that is not a name: they/their, never "my's".
