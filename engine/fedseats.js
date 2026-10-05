@@ -762,10 +762,10 @@ async function memberEdgeCheck(projectId, ask, seat) {
   const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
   if (e && e.status === 'revoked') endRevokedMember(projectId, s, link);
 }
-function sharedEdges(now, notBefore) {
-  // #5285: `notBefore` refuses a cached answer asked before then (it cannot know of a later join).
-  if (macEdges && isFresh(macEdges.askedAt, now) && macEdges.askedAt >= (notBefore || 0)) return macEdges;
-  const ask = { askedAt: now, promise: null };
+function sharedEdges(now, notBeforeMono) {
+  // #5285: `notBeforeMono` refuses a cached answer asked before then (it cannot know of a later join).
+  if (macEdges && isFresh(macEdges.askedAt, now) && (notBeforeMono === undefined || macEdges.mono > notBeforeMono)) return macEdges;
+  const ask = { askedAt: now, mono: mono(), promise: null };
   try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_EDGES, {})); } catch (err) { ask.promise = Promise.reject(err); }
   ask.promise.catch(() => {});   // each caller sees the failure as "not checked"
   macEdges = ask;
@@ -1042,7 +1042,8 @@ async function ensureAll() {
   // linked projects must not set how often this Mac calls Kosmos+.
   let pending = null;
   let pendingAt = 0;
-  const edges = () => pending || (pendingAt = Date.now(), pending = deps.macRequest('POST', MAC_EDGES, {}));
+  let pendingMono = 0n;
+  const edges = () => pending || (pendingAt = Date.now(), pendingMono = mono(), pending = deps.macRequest('POST', MAC_EDGES, {}));
   // A seat whose link is gone (its project removed some other way) stops.
   for (const id of [...seats.keys()]) if (!Object.prototype.hasOwnProperty.call(links, id)) stop(id);
   for (const id of Object.keys(links)) {
@@ -1051,7 +1052,7 @@ async function ensureAll() {
       const st = await ensure(id, () => { askedHere = true; return edges(); });
       // #5285: a check that could not ask is settled here, but only by an answer this pass asked for, and only
       // for posts held before it was asked (a later one may have been joined since).
-      if (st === 'waiting' && askedHere) dropJoinWait(id, seats.get(id), pendingAt);
+      if (st === 'waiting' && askedHere) dropJoinWait(id, seats.get(id), pendingMono);
     } catch { /* one project's seat never blocks another's */ }
   }
   // #3728: a member still waiting for the room key says hello again (a dropped hello is
@@ -1176,7 +1177,7 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
     }
     msg = Object.assign({}, msg, { invites: inv });
   }
-  s.outbox.push({ msg, at: heldAt || Date.now() });
+  s.outbox.push({ msg, at: heldAt || Date.now(), mono: mono() });
   s.reheld = true;   // flushHeld's signal that this post is waiting again (not refused for good)
   if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
@@ -1281,13 +1282,17 @@ function pinnedAny(projectId) {
 /* #5285: an owner's post in the gap between a join and the seat noticing it. */
 const NOBODY_JOINED = 'That message stayed on this computer: nobody outside has joined this shared project yet.';
 const JOIN_CHECK_MS = 10 * 1000;   // at most one check per seat this often, however many posts wait on it
+/** #5285: ordering "held before this answer was asked" on a clock that never steps back (a time sync cannot
+    make a post look older than an ask) and that does not tie within a millisecond. */
+const mono = () => process.hrtime.bigint();
 const hasJoinWait = (s) => !!(s && s.outbox && s.outbox.some((h) => h.msg && h.msg.joinWait));
 /** Ask now, or when the last check's window ends; a check already out asks again when it ends. Never refuses: a
     post that waits is answered by the next check, so a member who joins inside the window still gets it. */
 function scheduleJoinCheck(projectId, s) {
   if (s.joinCheck) { s.joinCheckAgain = true; return; }
   if (s.joinCheckTimer) return;
-  const wait = s.joinCheckAskedAt ? s.joinCheckAskedAt + JOIN_CHECK_MS - Date.now() : 0;
+  // Capped at the window: a clock set back cannot stretch it.
+  const wait = s.joinCheckAskedAt ? Math.min(JOIN_CHECK_MS, s.joinCheckAskedAt + JOIN_CHECK_MS - Date.now()) : 0;
   if (wait <= 0) { kickJoinCheck(projectId, s); return; }
   s.joinCheckTimer = setTimeout(() => {
     s.joinCheckTimer = null;
@@ -1296,33 +1301,41 @@ function scheduleJoinCheck(projectId, s) {
   if (typeof s.joinCheckTimer.unref === 'function') s.joinCheckTimer.unref();
 }
 /** Release only the posts held for a join that did not come, with the sentence a refusal would have had.
-    `askedAt`: when the answer that found nobody was ASKED for; a post held after that is not answered by it. */
-function dropJoinWait(projectId, s, askedAt) {
+    `askedMono`: when the answer that found nobody was ASKED for; a post held after that is not answered by it.
+    `why`: the sentence, when it is not "nobody has joined" (the seat could not be checked at all). */
+function dropJoinWait(projectId, s, askedMono, why) {
   if (!s || !s.outbox) return;
-  const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait && h.at <= askedAt));
+  const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait && (askedMono === Infinity || (h.mono !== undefined && h.mono < askedMono))));
   const n = s.outbox.length - keep.length;
   s.outbox = keep;
-  if (n) say(projectId, n === 1 ? NOBODY_JOINED : n + ' messages stayed on this computer: nobody outside has joined this shared project yet.');
+  if (!n) return;
+  if (why) say(projectId, (n === 1 ? 'That message stayed' : n + ' messages stayed') + ' on this computer: ' + why + '.');
+  else say(projectId, n === 1 ? NOBODY_JOINED : n + ' messages stayed on this computer: nobody outside has joined this shared project yet.');
 }
 function kickJoinCheck(projectId, s) {
   if (s.joinCheck) return;
-  const heldAt = Date.now();
-  s.joinCheckAskedAt = heldAt;   // the window runs from the ask, not from the answer
+  const startedMono = mono();   // every post waiting now was held before this
+  s.joinCheckAskedAt = Date.now();   // the window runs from the ask, not from the answer
   let ask = null;
   s.joinCheck = Promise.resolve()
-    // The Mac's one shared edges request (#5193), but never an answer asked before this post was held.
-    .then(() => ensure(projectId, () => { ask = sharedEdges(Date.now(), heldAt); return ask.promise; }))
+    // The Mac's one shared edges request (#5193), but never an answer asked before this check started.
+    .then(() => ensure(projectId, () => { ask = sharedEdges(Date.now(), startedMono); return ask.promise; }))
     .then((status) => {
-      // An ensure that returned without asking (a start or a pass already under way) answers nothing.
-      if (!ask) return;
-      if (status === 'waiting') dropJoinWait(projectId, s, ask.askedAt);
+      if (status === null || status === undefined) {
+        // Nothing to check (signed out of Kosmos+, the link gone): say so now rather than hold for the hour.
+        dropJoinWait(projectId, s, Infinity, 'the connection to ' + farSide(projectId) + ' is not up right now');
+        return;
+      }
+      // An ensure that returned without asking (a start or a pass already under way) answers nothing: ask again
+      // when the window ends, like a post held while a check was out.
+      if (!ask) { s.joinCheckAgain = true; return; }
+      if (status === 'waiting') dropJoinWait(projectId, s, ask.mono);
       // Anything else: the seat is starting or connected, and its connect flushes what is held.
       else if (s.status === 'connected') flushHeld(projectId, s);
     })
-    .catch(() => { /* could not ask: held; the next pass checks again (ensureAll) */ })
+    .catch(() => { s.joinCheckAgain = true; /* could not ask: ask again when the window ends; the pass also checks */ })
     .then(() => {
       s.joinCheck = null;
-      // Posts held while this check was out (after it asked) get their own answer, not the 60 s pass.
       const again = s.joinCheckAgain;
       s.joinCheckAgain = false;
       if (again && seats.get(projectId) === s && !s.stopped && s.status === 'waiting' && hasJoinWait(s)) scheduleJoinCheck(projectId, s);
@@ -1354,10 +1367,11 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
       /* #5285: no key yet, so nobody was in before. But someone may have JUST joined: the seat only
          learns of a join on the next pass (up to a minute), and a post in that gap used to be refused and
          lost. Hold it and ask now; the check either connects the seat (the connect flushes it) or finds
-         nobody, which releases it with the sentence below. A check that just found nobody is not repeated. */
+         nobody, which releases it with the sentence below. At most one check per seat per JOIN_CHECK_MS; a post
+         inside that window waits for the next check (scheduleJoinCheck), it is never refused at once. */
       if (heldAt === 0 && deps) {
         holdPost(projectId, s, Object.assign({}, msg, { joinWait: true }), 'checking whether someone has just joined', 'once they are connected');
-        scheduleJoinCheck(projectId, s);
+        if (hasJoinWait(s)) scheduleJoinCheck(projectId, s);   // a post holdPost refused (too long, full) waits on nothing
         return false;
       }
       say(projectId, NOBODY_JOINED);
@@ -1465,6 +1479,7 @@ function stopAll() {
   for (const s of seats.values()) {
     s.stopped = true;
     if (s.timer) clearTimeout(s.timer);
+    if (s.joinCheckTimer) clearTimeout(s.joinCheckTimer);   // #5285
     if (s.child) letGo(s.child);
   }
   seats.clear();

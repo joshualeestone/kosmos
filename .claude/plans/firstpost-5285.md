@@ -25,4 +25,17 @@ member who joined meanwhile gets it; two quick posts share one check; a check th
 a pass settles it; sealed room: the post waits for the member's key and leaves only sealed; only posts held
 before a check are released by it; another project's answer is not reused; a re-held post is not released after
 the edge is refused; a follow-up check for a post held while one was out; a stopped seat's check never runs.
-Reasoned, not measured: the pass's own "did not ask" guard (the race cannot be staged here).
+Review 3 settled the design once (one rule for every exit, not one patch per finding):
+- "held before this answer was asked" is ordered on a monotonic clock (process.hrtime), so a time sync cannot
+  make a post look older than an ask, and nothing ties within a millisecond;
+- every check that yields no usable answer (it did not ask, or could not reach Kosmos+) schedules a follow-up at
+  the window's end, so a lone post never falls back to the 60 s pass;
+- a seat with nothing to check (signed out of Kosmos+) releases its posts at once with "the connection ... is not
+  up right now", not after the hour;
+- the window is capped (a clock set back cannot stretch it); a post holdPost refused schedules nothing.
+Decided: one check per owner room per 10 s, triggered only by posting, may mean several requests when several
+rooms are busy; a pass never multiplies it. Rejected: one Mac-wide request for all posting rooms (it would need a
+shared hold time across rooms and gains little at this scale).
+Reasoned, not measured: the 60 s pass's own "did not ask" guard. The staging review 3 sketched does not order
+deterministically: the pass blocks on its first request, and by the time it reaches the room the room's own check
+has resolved and the seat is no longer 'waiting'.

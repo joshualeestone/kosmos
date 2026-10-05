@@ -40,7 +40,7 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     },
     recordExternal: (projectId, msg) => recorded.push({ projectId, ...msg }),
     onStatus: (projectId, status) => statuses.push([projectId, status]),
-    enrolled: () => enrolled,
+    enrolled: () => (typeof enrolled === 'function' ? enrolled() : enrolled),   // a function lets a test sign out midway
     projectExists: (projectId) => exists(projectId),
     externalKeptOn: keptOn,
     projectCreatedAt: (projectId) => createdAt(projectId),
@@ -3503,4 +3503,60 @@ test('#5285: a stopped seat\'s scheduled check never runs', async (t) => {
   t.mock.timers.tick(15000);
   await settle();
   assert.strictEqual(h.asked, asked, 'a stopped seat still asked');
+});
+
+test('#5285: a lone post whose check found a start already under way gets its own follow-up check', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 4_000_000 });
+  federation.recordLink('proj-lone', { role: 'owner', ref: 'ref-lone' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-lone');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const busy = fedseats.ensure('proj-lone');   // a seat check already asking (as a pass would)
+  await tick();
+  fedseats.post('proj-lone', { from: 'Josh', kind: 'person', text: 'alone' });   // its check returns without asking
+  await tick(); await tick();
+  release(); h.gate = null;
+  await busy; await settle();
+  h.edges = [{ id: 'edge-lone', project_ref: 'ref-lone', status: 'active' }];
+  t.mock.timers.tick(10000);   // the follow-up, not the 60 s pass
+  await settle();
+  const seat = h.spawned.find((c) => c.edge === 'edge-lone');
+  assert.ok(seat, 'the lone post got no follow-up check');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /alone/);
+});
+
+test('#5285: signed out of Kosmos+ while waiting, the held post is released at once with why, not held for the hour', async () => {
+  federation.recordLink('proj-out', { role: 'owner', ref: 'ref-out' });
+  let signedIn = true;
+  const h = harness({ edges: [], enrolled: () => signedIn });
+  assert.strictEqual(await fedseats.ensure('proj-out'), 'waiting');
+  signedIn = false;
+  fedseats.post('proj-out', { from: 'Josh', kind: 'person', text: 'hello?' });
+  await settle();
+  const said = h.notes.filter((n) => n.projectId === 'proj-out').map((n) => n.text);
+  assert.match(said[said.length - 1] || '', /stayed on this computer: the connection to .* is not up right now/, JSON.stringify(said));
+  assert.ok(!said.some((x) => /nobody outside has joined/.test(x)), 'it claimed nobody joined: ' + JSON.stringify(said));
+});
+
+test('#5285: a post too long to ever send asks nothing; a clock set back does not stretch the check window', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
+  federation.recordLink('proj-hyg', { role: 'owner', ref: 'ref-hyg' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-hyg');
+  const asked0 = h.asked;
+  fedseats.post('proj-hyg', { from: 'Josh', kind: 'person', text: 'x'.repeat(fedseats.MAX_POST_LINE + 10) });
+  await settle();
+  assert.strictEqual(h.asked, asked0, 'a post that could never go spent a request');
+  fedseats.post('proj-hyg', { from: 'Josh', kind: 'person', text: 'first' });   // asks now
+  await settle();
+  const asked1 = h.asked;
+  t.mock.timers.setTime(5_000_000 - 60_000);   // the clock is set back a minute
+  fedseats.post('proj-hyg', { from: 'Josh', kind: 'person', text: 'second' });   // waits for the window
+  await settle();
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.strictEqual(h.asked, asked1 + 1, 'the window was stretched by the clock step');
 });
