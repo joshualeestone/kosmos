@@ -543,4 +543,17 @@ test('#4581 R9 review 4: a member is measured from its own last part here; the r
     const real = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle };
     assert.equal(v.overviewOf(described, BOARD.agents, real).members.find((m) => m.sessionName === 'ida').summary.state, 'quiet', 'the real store read did not reach busyElsewhere');
   } finally { projects.writeAll(prior); }
+  // A damaged store (readAll throws UNREADABLE) is busy: nobody reads quiet.
+  const storeFile = projects.file();
+  const before = fs.readFileSync(storeFile, 'utf8');
+  try {
+    fs.writeFileSync(storeFile, '{ not json');
+    const real = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle };
+    assert.equal(v.overviewOf(described, BOARD.agents, real).members.find((m) => m.sessionName === 'ida').summary.state, 'stale', 'a damaged project store excused it');
+  } finally { fs.writeFileSync(storeFile, before); }
+  // A legacy task (a who and no parts) is the member's own too (partsOf derives the part).
+  const legacy = { id: 'ql', name: 'Quiet Legacy', folder: '/p/ql', agents: ['ida', 'mark'], tasks: [
+    { number: 1, sentence: 'a', who: 'ida', createdAt: at(6 * DAY), closedAt: at(5 * DAY) },
+    { number: 2, sentence: 'b', who: 'mark', createdAt: at(6 * DAY), closedAt: at(2 * DAY) }] };
+  assert.equal(v.overviewOf(projects.describe(legacy, BOARD.agents, [legacy]), BOARD.agents, { ...o, allProjects: [legacy] }).members.find((m) => m.sessionName === 'ida').summary.quietKind, 'own');
 });

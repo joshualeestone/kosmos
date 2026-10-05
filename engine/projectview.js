@@ -167,7 +167,7 @@ function lastWorkAt(tasks, who) {
   for (const t of Array.isArray(tasks) ? tasks : []) {
     if (!t) continue;
     if (who === undefined) take(t.closedAt);
-    for (const part of Array.isArray(t.parts) ? t.parts : []) {
+    for (const part of require('./tasks').partsOf(t)) {
       if (!part) continue;
       if (who === undefined) take(part.closedAt);
       else if (part.who === who) take(part.closedAt || t.closedAt);
