@@ -67598,6 +67598,8 @@ let FEDINV_SAY = 0;            // slice C: the newest fedInviteSay; a reset or a
 // record: a later refusal then says so honestly rather than claiming an earlier copy still stands. A permission
 // prompt that takes focus also forgets a record that was true; that only costs a "could not copy" line, never a
 // false "copied".
+// Not caught: a clipboard API write elsewhere on the page (it fires no copy event) landing while the sheet is open.
+// fedInviteOpen clears the record, so only a write already in flight when the sheet opened can do that.
 window.addEventListener('blur', () => { FEDINV_CLIP_HOLDS = ''; });
 // So is any copy on this page that fires a copy event (the person's own Command or Ctrl C, select-and-copy controls;
 // a clipboard API write fires none): it fires before the sheet's select-and-copy records its text, so the sheet's

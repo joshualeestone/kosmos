@@ -1315,7 +1315,8 @@ const closeAll = (page) => page.evaluate(() => {
       };
       const a = await run(null), b = await run('blur'), cc = await run('copy');
       // (e) the same as (a) by select-and-copy, whose copy event fires inside the press: the record is set AFTER it,
-      // so the sheet's own copy survives its own event. Recording before the copy (or after an await) fails here.
+      // so the sheet's own copy survives its own event. Recording BEFORE the copy fails here; recording after a later
+      // await would still land after the event, so this arm does not catch that.
       await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
       await setClip(p9.page, 'no');
       await p9.page.evaluate(() => { window.__execOk = true; });
