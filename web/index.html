@@ -3606,6 +3606,8 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
                       background: var(--k-bg); color: var(--k-ink); box-shadow: none; }
   /* The box is a solid SQUARE and the ring is drawn inside it: a round box let the next pill's outline show in its four
      corners, which the fade cannot reach (the chevron's own 44px stays unmasked). */
+  /* On Kosmos+ the page's ground is a fixed gradient, not --k-bg: the chevron paints that same ground, so it is not a square. */
+  body.plus-active #s-nav #s-nav-more { background: var(--plus-ground, var(--k-bg)); }
   #s-nav #s-nav-more::before { content: ""; position: absolute; inset: 0; border-radius: 22px; box-shadow: inset 0 0 0 1px var(--k-rule); pointer-events: none; }
   #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
   #s-nav button[data-dot] { padding-right: 28px; }
@@ -11033,7 +11035,9 @@ body.plus-active {
      gradient here so the tab reads as the on-brand navy blue, not near-black. The
      gradient stops are copied verbatim from first-step.html's .app. `fixed` anchors it
      to the viewport so it stays whole no matter how the pane scrolls. */
-  background: radial-gradient(130% 90% at 62% 8%, #1c2c4f 0%, #132140 42%, #0b1428 100%) fixed;
+  /* #5303: a token, so the Settings row's "More sections" chevron paints the same ground (it must hide the pills under it). */
+  --plus-ground: radial-gradient(130% 90% at 62% 8%, #1c2c4f 0%, #132140 42%, #0b1428 100%) fixed;
+  background: var(--plus-ground);
   /* --k-* system. --k-bg lifted #070c16 -> #132140 (the gradient's mid navy) so any
      solid --k-bg surface reads navy rather than near-black under the gradient. */
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
@@ -17202,8 +17206,8 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos+</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
     <!-- #5303: on a phone the row scrolls sideways; this says there is more and moves it along. No data-go, so the
-         nav's click handler and the Settings menu (pnav-settings) both pass it by. Shown by the script after the nav's click
-         handler and the phone rule in the stylesheet. Pointer-only (tabindex -1, aria-hidden): every pill is already in the
+         nav's click handler and the Settings menu (pnav-settings) both pass it by. Only the phone rule in the stylesheet lets it
+         show at all; within that, the script (after the nav's click handler) shows it while a pill is cut off on the right. Pointer-only (tabindex -1, aria-hidden): every pill is already in the
          keyboard and reading order, and a focusable button that hides itself at the row's end would drop focus to the page.
          The trade-off, made on purpose: switch and voice users get the fade, not this button, and reach every pill directly. -->
     <button type="button" class="snav-more" id="s-nav-more" tabindex="-1" aria-hidden="true" aria-label="More sections" title="More sections" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
