@@ -1294,9 +1294,13 @@ function tasksTabShown() {
    The note tells the adder to close the NEW task, and the reader is usually an agent that will, so a false match costs
    a real task. Hence, on lowercase words (punctuation and a few filler words dropped; a dotted or dashed number such as
    0.7.23 is ONE word):
-   - numbers: when both sides carry numbers, they must be the same numbers ("Release 0.7.23" is not "Release 0.7.22");
+   - numbers: a word with a digit in it (0.7.23, v2, Q3) is a number, and when both sides carry numbers they must be
+     the same numbers in the same order ("Release 0.7.23" is not "Release 0.7.22", "Add v2 page" is not "Add v3 page",
+     "Move 1 to 2" is not "Move 2 to 1");
+   - the very same text, whatever its length or script (a one-word task, or Chinese or Thai with no spaces);
    - the same words, two or more of them ("Fix this" is not "Fix it");
-   - or a word overlap (Jaccard) of 0.6 or more, two or more words each side;
+   - or a word overlap (Jaccard) of 0.75 or more, two or more words each side ("Fix login bug in app" is not
+     "Fix signup bug in app");
    - or every word of the shorter (three or more) in the other, which has at most two more ("Enable dark mode" is not
      "Do not enable dark mode on login").
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
@@ -1305,13 +1309,16 @@ function tasksTabShown() {
 const SIMILAR_FILLER = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'with', 'at', 'by', 'is',
   'it', 'this', 'that', 'be', 'as', 'from', 'our', 'my', 'we', 'i']);
 function similarWords(sentence) {
-  const words = String(sentence == null ? '' : sentence).toLowerCase().match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{N}]+/gu) || [];
+  const words = String(sentence == null ? '' : sentence).toLowerCase().match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{M}\p{N}]+/gu) || [];
   return new Set(words.filter((w) => !SIMILAR_FILLER.has(w)));
 }
 function similarOpen(p, sentence, beforeNumber, { parent = null } = {}) {
   const mine = similarWords(sentence);
   if (mine.size === 0) return [];
-  const numbersOf = (set) => [...set].filter((w) => /^\p{N}/u.test(w)).sort().join(' ');
+  const numbersOf = (set) => [...set].filter((w) => /\p{N}/u.test(w)).join(' ');   // in order: 1 to 2 is not 2 to 1
+  // The very same text: every word, filler included ("Fix this" is not "Fix it"), case and punctuation aside.
+  const plain = (v) => (String(v == null ? '' : v).toLowerCase().match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{M}\p{N}]+/gu) || []).join(' ');
+  const myPlain = plain(sentence);
   const myNumbers = numbersOf(mine);
   const found = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
@@ -1327,9 +1334,9 @@ function similarOpen(p, sentence, beforeNumber, { parent = null } = {}) {
     const union = mine.size + theirs.size - both;
     const small = Math.min(mine.size, theirs.size);
     const big = Math.max(mine.size, theirs.size);
-    const same = both === mine.size && both === theirs.size && both >= 2;
+    const same = (both === mine.size && both === theirs.size && both >= 2) || (myPlain !== '' && plain(t.sentence) === myPlain);
     const ratio = both / union;
-    const overlap = mine.size >= 2 && theirs.size >= 2 && ratio >= 0.6;
+    const overlap = mine.size >= 2 && theirs.size >= 2 && ratio >= 0.75;
     const inside = small >= 3 && both === small && big - small <= 2;
     if (same || overlap || inside) found.push({ number: t.number, sentence: t.sentence, score: same ? 2 : ratio });
   }

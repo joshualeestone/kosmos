@@ -58,3 +58,13 @@ advice.
 - [N] FIXED: a subtask never names its own parent.
 - [N] FIXED: the note also strips C1 controls and direction overrides from the look-alikes' sentences.
 - [N] not changed: the macOS test runs the CLI's own sed line, not the whole command (the repo's pattern).
+
+## Review round 2 (sonnet)
+- [W] FIXED: a word with a digit in it (v2, Q3, p1) was not a number, so "Add v2 login page" matched "Add v3 login
+  page"; and four-word tasks one word apart ("Fix login bug in app" vs "Fix signup bug in app") met the 0.6 overlap.
+  Now any word with a digit is a number for the numbers rule, and the overlap bar is 0.75 (the inside rule still
+  catches a task with one or two words more). Test rows.
+- [N] FIXED: the very same text always matches, whatever its length or script (a one-word task; Chinese or Thai with
+  no spaces), comparing every word, filler included, so "Fix this" is still not "Fix it". Combining marks (\p{M})
+  stay inside a word.
+- [N] FIXED: numbers are compared in order: "Move 1 to 2" is not "Move 2 to 1".

@@ -77,6 +77,17 @@ test('#5319: which open tasks count as similar (pure)', () => {
   assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41).map((t) => t.number), [26, 40], 'the newest copy names the older ones');
   assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 40).map((t) => t.number), [26], 'the older copy never names the newer one');
   assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [40], 'a subtask never names its own parent');
+  // Round 2: pairs, each judged against ONE open task.
+  const pair = (open, added) => tasks.similarOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
+  for (const [open, added, want, why] of [
+    ['Add v2 login page', 'Add v3 login page', false, 'v2 and v3 are numbers, and they differ'],
+    ['Plan Q3 launch event', 'Plan Q4 launch event', false, 'Q3 and Q4 differ'],
+    ['Fix login bug in app', 'Fix signup bug in app', false, 'one word different in four is not the same ask'],
+    ['Move 1 to 2', 'Move 2 to 1', false, 'the numbers in the other order'],
+    ['Deploy', 'Deploy', true, 'the very same one-word task'],
+    ['\u4fee\u590d\u767b\u5f55\u9519\u8bef', '\u4fee\u590d\u767b\u5f55\u9519\u8bef', true, 'the very same Chinese task (no spaces)'],
+    ['Fix this', 'Fix it', false, 'the very same text means every word, filler included'],
+  ]) assert.equal(pair(open, added), want, `${open} | ${added}: ${why}`);
   const ranked = { tasks: [
     { number: 2, sentence: 'deep dive worlds plus notes', closedAt: null },
     { number: 3, sentence: 'deep dive worlds', closedAt: null },
