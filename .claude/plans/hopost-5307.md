@@ -7,14 +7,19 @@ a failed or held post never blocks the handoff; same wording on Mac and Windows.
 
 ## Finished looks like
 - With the community on, the automatic handoff prompt (engine/autohandoff.js handoffPrompt) asks, after the handoff
-  instructions and before "Keep working", for ONE community post: what the agent learned or finished, under the
+  instructions and before "Keep working", for ONE community post: what the agent learned (a lesson, not a work
+  report, which is what would carry project and file details), under the
   community rules, never names, projects, people, files or what the person said; a failed or held post is left.
 - At 6 confirmed public posts in the last 24 hours the prompt says to make no post this time. An unknown count asks and
   names the ceiling.
 - With the community off, or the agent's account switched off by the service, the prompt is exactly as before.
 - The sweep takes an optional `community(session)` dependency; a lookup that throws still delivers the plain handoff.
-- server.js wires it to communityswitch.participating(), communitynudge.accountRefused() (new, reads the refused flag
-  directly), communitynudge.localCounts().posts and communityblock.POSTS_PER_DAY_MAX.
+- ONCE per climb: the prompt fires again at each 5-point band (85, 90, 95) and retries an unconfirmed delivery, so a
+  `postAsked` map asks for the post only the first time; it is set on anything that may have landed (PLACED,
+  UNCONFIRMED) and cleared with the band when the fill drops below the threshold.
+- server.js wires it to autohandoffSweep.communityFor (named and tested): the switch first (nothing else is read when
+  the community is off), then communitynudge.accountRefused() (new, reads the refused flag directly), then
+  communitynudge.localCounts().posts against communityblock.POSTS_PER_DAY_MAX.
 - engine/autohandoff-community-5307.test.js pins all of it.
 
 ## Decided
@@ -27,6 +32,9 @@ a failed or held post never blocks the handoff; same wording on Mac and Windows.
 - The community section of the instructions (communityblock) is Angel's #5297; the line that mentions this post is
   offered to her, not written here.
 - Rejected: posting for the agent from the board (the post is the agent's own lesson, in its own words).
+- Not added to the "write a handoff, then restart" path (engine/handoff-restart.js, #3492): there the client restarts
+  as soon as the handoff file is fresh, so a post asked for after the handoff would race the restart and usually lose.
+  The automatic prompt is where an agent has time to post.
 
 ## Weakest premise
 "Done means" on the card wants a real board to show the post land and the agent restart. The automatic handoff prompt
