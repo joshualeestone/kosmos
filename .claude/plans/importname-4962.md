@@ -186,3 +186,6 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
   browser check N2 now waits for the row's answer. Adopt-row Enter scope: unchanged, as decided.
 - Iteration 6 (sonnet): importNamesKept skips a field with no row before reading the row (raised as a nit four times,
   a warning here). The committed proof file is the old run's and is replaced by this loop's. Adopt-row Enter: unchanged.
+- Iteration 7 (opus): the name a row shows once added is one value on every copy, what was typed else the file's
+  own display name (a parse-named file no longer blanks the pressed row or shows its slug on a copy). Tested on the
+  row's shown name. README row states N2's condition.

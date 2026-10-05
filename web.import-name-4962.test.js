@@ -93,7 +93,10 @@ test('an empty Name field on a file that names nothing asks for a name, creates 
 
 test('an empty Name field on a file the PARSE can name adds it under its own name (one click, as before)', async () => {
   const r = rig({ withField: true, parsed: { ...PARSED_NAMELESS, name: 'scout', displayName: 'Scout' }, created: CREATED });
+  const shown = r.d.create('span'); shown.className = 'fr-importname'; shown.textContent = 'An agent file with no name in it';
+  r.row.insertBefore ? r.row.insertBefore(shown, r.row.children[0] || null) : r.row.appendChild(shown);
   await r.add('/Users/p/Downloads/scout.md', r.btn, r.row);
+  assert.equal(shown.textContent, 'Scout', 'the row shows the file\'s own display name, not a blank');
   assert.equal(r.calls.length, 2, 'parsed, then created');
   assert.equal(r.calls[1].body.name, 'scout');
   assert.equal(r.calls[1].body.label, 'Scout');

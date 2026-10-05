@@ -53314,6 +53314,8 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      invariant here rather than relying on the parser never changing. */
   const label = typed || String(data.displayName || '').trim();
   bodyObj.label = label || name;
+  /* The name the row shows once added, the same on every copy: what was typed, else the file's own display name. */
+  const shownAs = typed || label || name;
   const instr = String(data.instructions || '');
   if (instr.trim()) bodyObj.instructions = instr;
   /* The parsed provider travels only when it is NOT the anthropic default -- the same
@@ -53365,7 +53367,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     /* A newer attempt owns the row now, and a late success paints nothing over it. But when the
        attempt was only DROPPED (stuck over a minute) and nothing replaced it, the agent was made all the same:
        record it, so the row is not offered as "Add to Kosmos" for an agent that exists. */
-    if (!IMPORT_ADDS.has(file)) { IMPORT_ADDS.set(file, { state: 'added', name: typed || name }); importRowsSync(file); }
+    if (!IMPORT_ADDS.has(file)) { IMPORT_ADDS.set(file, { state: 'added', name: shownAs }); importRowsSync(file); }
     return;
   }
   btn.textContent = 'Added to Kosmos';
@@ -53384,11 +53386,11 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      of the row a redraw put on screen meanwhile shows the receipt too. */
   if (field && row) {
     const shown = row.querySelector('.fr-importname');
-    if (shown) shown.textContent = typed;
+    if (shown) shown.textContent = shownAs;
     field.removeAttribute('aria-invalid');
     if (field.classList) field.classList.remove('bad');
   }
-  IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
+  IMPORT_ADDS.set(file, { state: 'added', name: shownAs });
   importRowsSync(file);
   if (viaKey && hadInRow && row && row.parentElement) {
     const rows = Array.from(row.parentElement.children).filter((r) => r && r.className && String(r.className).split(/\s+/).includes('fr-importrow'));
