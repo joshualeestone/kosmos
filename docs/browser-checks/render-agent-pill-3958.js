@@ -216,8 +216,7 @@ async function read(page) {
             target: b ? b.dataset.restartAgent : null };
         });
         chk(!(await linkNote()).shown, `${engineName}: control: no lost-link notice for a running agent with nothing to compare`);
-        /* A real board that has launched agents has a token store; this sandbox has minted nothing yet, and a board with no
-           store at all is never told an agent is lost (it cannot tell). So another agent's token makes the store exist. */
+        /* Her token file must exist for the board to judge (no file reads unknown): a token for another of her runs. */
         sendertoken.mint('beatrix');   // her file exists, holding a run other than the one her session carries
         setState('working', { tokenInstance: 'abcdef123456' });   // this run's token is not in her file
         /* Counted by the page's own poll counter, not by the clock: a fixed wait can hold one poll or two. */

@@ -34,6 +34,10 @@ nothing on the board said so ("a message from the person can sit unanswered inde
   a throttled hidden tab still shows it; a visit long ago never counts.
 
 ## Weakest premise
-That the board's own store is the one the supervisor minted into. If the cause on the reporter's machine was a
-supervisor minting into a DIFFERENT store, this notice would fire for every agent (correctly: none can be matched),
-which is exactly the signal the person needed, but it would not say why.
+- A second board on another data root that shares the tmux server and once minted for the same bare name has a file
+  for that agent without the main board's run, and would show the notice for a healthy agent. A board that never
+  minted for it reads unknown. Accepted: a developer setup, and the notice states a true fact about THAT board.
+- A supervisor minting into a store this board does not read leaves no file here: unknown, silent. The reporter's
+  case (#5333) may have been exactly that; slice 1's CLI hint is what reaches the agent then.
+- Detection relies on retire leaving an empty list (sendertoken.retire, this slice) rather than deleting the file;
+  revoke (remove, rename, recreate) still deletes, and removals are suppressed anyway.
