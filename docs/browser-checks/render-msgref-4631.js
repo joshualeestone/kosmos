@@ -303,9 +303,11 @@ async function paintRoom(page) {
         const d = box.firstElementChild; document.getElementById('pj-room').appendChild(d);
         const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }); d.querySelector('.msg-ext-tx').dispatchEvent(ev);
         const m = document.getElementById('msg-menu');
-        const out = { text: msgCopyText(d), taken: ev.defaultPrevented, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|'), focus: document.activeElement && document.activeElement.id };
+        /* Drawn, not only marked: .msg-menu-i is display:block, and only the page-wide [hidden] !important rule hides it. */
+        const out = { text: msgCopyText(d), taken: ev.defaultPrevented, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|'), focus: document.activeElement && document.activeElement.id,
+          idShown: getComputedStyle(document.getElementById('msg-menu-copy')).display !== 'none' };
         msgMenuClose(false); d.remove(); return out; });
-      chk(c4.text === 'Hi there\nsecond line' && c4.taken && c4.items === 'msg-menu-text' && c4.focus === 'msg-menu-text',
+      chk(c4.text === 'Hi there\nsecond line' && c4.taken && c4.items === 'msg-menu-text' && c4.focus === 'msg-menu-text' && c4.idShown === false,
         tag + 'C4 an outside guest\'s row offers Copy message alone, its words without the name, tag or time', JSON.stringify(c4));
       await page.keyboard.press('Escape');
 
