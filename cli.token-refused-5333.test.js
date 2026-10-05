@@ -27,7 +27,7 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 const WIN = path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js');
 const TOKEN = 'cd'.repeat(32);
 const { NO_MATCH } = require('./engine/sendertoken');
-const HINT = 'Kosmos could not match the agent token this session started with';
+const HINT = 'Kosmos could not match the agent token this session sent';
 const OTHER = 'Kosmos is busy, try again in a moment';
 // The sentence inside another answer (no quote marks: the Mac CLI's own because-extraction stops at one).
 const QUOTED = 'a note that quotes ' + NO_MATCH + ', without being that refusal';
@@ -38,6 +38,9 @@ test('#5333: both CLIs key the hint on the board\'s own sentence, exactly (one s
   const mac = fs.readFileSync(CLI, 'utf8');
   const win = fs.readFileSync(WIN, 'utf8');
   assert.ok(mac.includes(`*'"because":"${NO_MATCH}"'*`), 'install/kosmos token_refused_hint matches the board\'s sentence');
+  /* Every literal copy in the Mac CLI is the board's sentence: its because arm, its error arm and its two plain-text
+     arms, four in all. A fifth (or a reworded one) would be a copy nothing here pins. */
+  assert.equal(mac.split(NO_MATCH).length - 1, 4, 'the Mac CLI holds the sentence exactly four times, all in token_refused_hint');
   assert.ok(win.includes(`const TOKEN_REFUSED = '${NO_MATCH}';`), 'the Windows CLI matches the board\'s sentence');
 });
 
@@ -53,7 +56,8 @@ function makeHome() {
   return home;
 }
 
-function withStub(because, fn) {
+function withStub(because, fn, opts) {
+  const errorShape = !!(opts && opts.errorShape);   // answer msg as { error } (403), the defensive arm
   const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
   const server = http.createServer((req, res) => {
     const route = req.url.split('?')[0];
@@ -61,6 +65,7 @@ function withStub(because, fn) {
     req.resume();
     if (route === '/api/whoami') return json(res, { ok: false, because });
     if (route === '/api/reply') return json(res, { kept: false, because });
+    if (errorShape && route === '/api/msg') { res.writeHead(403, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: because })); }
     if (route === '/api/msg' || route === '/api/post') return json(res, { delivery: { state: 'could_not', because } });
     if (route === '/api/report') return json(res, { recorded: false, because });
     res.writeHead(200, { 'content-type': 'text/html' });
@@ -92,11 +97,13 @@ function envFor(port, home, token) {
 
 /* The recovery's three sentences, the same on both CLIs. */
 function assertRecovery(stderr) {
-  assert.match(stderr, /If your person removed you from Kosmos, that is expected/);
-  assert.match(stderr, /restart you from Kosmos \(your page, Restart; "Write a handoff, then\s+restart" keeps what you were doing\)/);
-  assert.match(stderr, /`kosmos adopt` does not\s+help/);
-  assert.match(stderr, /If you have no page in Kosmos at all, your person can add\s+you from New agent\./);
-  assert.match(stderr, /If it still happens after a restart, tell your person: then it is not this session\./);   // a clash outlives a restart
+  // Each sentence on its own line (never broken mid-phrase), so a search for any of them finds it.
+  assert.ok(stderr.includes('If your person removed you from Kosmos, that is expected.'), 'missing: If your person removed you from Kosmos, ');
+  assert.ok(stderr.includes('If not: a running session cannot pick up a new token by itself.'), 'missing: If not: a running session cannot pick up');
+  assert.ok(stderr.includes('Ask your person to restart you from Kosmos (your page, Restart; \"Write a handoff, then restart\" keeps what you were doing).'), 'missing: Ask your person to restart you from Kosm');
+  assert.ok(stderr.includes('The new session starts with a fresh token. `kosmos adopt` does not help: its token never reaches a running session.'), 'missing: The new session starts with a fresh toke');
+  assert.ok(stderr.includes('If you have no page in Kosmos at all, your person can add you from New agent.'), 'missing: If you have no page in Kosmos at all, yo');
+  assert.ok(stderr.includes('If it still happens after a restart, tell your person: then it is not this session.'), 'missing: If it still happens after a restart, tel');
 }
 const NOT_HEX = 'NOT-A-TOKEN';   // both CLIs send only a bare lowercase-hex token, so this one is never sent
 
@@ -168,3 +175,19 @@ for (const args of VERBS) {
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 }
+
+/* The defensive arm: no route answers an unmatched sender as { error } today, but both CLIs key on it too, so it is
+   driven here (msg answered 403 { error: <sentence> }) rather than left unexercised. */
+test('#5333 both CLIs: a refusal shaped { error: <sentence> } gets the hint too', async () => {
+  const home = makeHome();
+  try {
+    await withStub(NO_MATCH, async (port) => {
+      const mac = await run(CLI, ['msg', 'mara', 'hello'], envFor(port, home, TOKEN));
+      assert.ok(mac.out.includes(NO_MATCH), `the stub answered: ${mac.out}`);
+      assert.ok(mac.stderr.includes(HINT), `Mac: the error arm says the way back: ${mac.out}`);
+      const win = await run(process.execPath, [WIN, 'msg', 'mara', 'hello'], envFor(port, home, TOKEN));
+      assert.ok(win.out.includes(NO_MATCH), `the stub answered: ${win.out}`);
+      assert.ok(win.stderr.includes(HINT), `Windows: the error arm says the way back: ${win.out}`);
+    }, { errorShape: true });
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
