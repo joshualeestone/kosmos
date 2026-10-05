@@ -35,7 +35,7 @@ const ago = (ms) => new Date(NOW - ms).toISOString();
 const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
 /* #5296: every fixture agent worked half an hour ago, after the fixture posts (an hour or more old) and their grace, so
    the pre-#5296 cases still read as they did. The #5296 tests below take this away. */
-const WORKED = () => [{ state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }];
+const WORKED = () => [{ state: 'idle', at: NOW - 30 * H }, { state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }];
 
 function args(over = {}) {
   return {
@@ -407,4 +407,12 @@ test('#5296 review 6: the posting turn runs to the next idle report, and a repor
   // The re-read line was stamped at t, the agent's working report 20 s earlier.
   const t = NOW - 3 * H;
   assert.equal(ct.workedSince([{ state: 'working', at: t - 20e3 }, { state: 'idle', at: t + 2 * MIN }], post, [t]), false);
+});
+
+test('#5296 review 8: a CUT history (bounded tail) that starts after the post is unknown, not "no work"', () => {
+  const post = NOW - 20 * H;
+  const cut = Object.assign([{ state: 'working', at: NOW - 3 * H }, { state: 'idle', at: NOW - 2 * H }], { truncated: true });
+  assert.equal(ct.workedSince(cut, post, []), null);
+  assert.equal(ct.workedSince([...cut], post, []), false, 'CONTROL: the same rows, not cut, read the posting turn as running to that idle');
+  assert.equal(ct.workedSince([{ state: 'idle', at: post + MIN }, { state: 'working', at: NOW - 3 * H }], post, []), true, 'CONTROL: a history reaching back past the post');
 });

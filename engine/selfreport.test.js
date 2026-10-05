@@ -485,4 +485,5 @@ test('#5297 history: every state and time in the tail, oldest first; a bad line 
   assert.deepEqual(h.map((r) => r.state), ['working', 'idle', 'needs_you']);
   assert.ok(h.every((r) => Number.isFinite(r.at)));
   assert.ok(h[0].at <= h[1].at && h[1].at <= h[2].at);
+  assert.equal(h.truncated, false, 'a short record read as cut');
 });
