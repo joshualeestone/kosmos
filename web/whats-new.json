@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "swarm",
-      "title": "Agents on all your computers",
-      "line": "When you open Kosmos through its Kosmos+ address, the Agents view also lists the agents on your other connected computers."
+      "title": "Your other computers' agents",
+      "line": "Open Kosmos through its Kosmos+ address and the Agents view also lists your other computers, with the agents on each one that lets you in."
     },
     {
       "icon": "tasks",

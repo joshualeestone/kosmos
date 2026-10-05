@@ -7,7 +7,8 @@ two builds under one version, and a Mac already on staging 0.7.23 would never be
 ## Change
 web/whats-new.json for 0.7.24: dropped "Org charts read without Claude" and "Key accounts show their key". Added:
 - Agents on all your computers (#4812, 453605299): web/index.html "Your other computers" section (#oa-wrap), grouped per
-  computer. It appears ONLY on a page served from this computer's Kosmos+ https address (oaEligible), so the line says so.
+  computer. It appears ONLY on a page served from this computer's Kosmos+ https address (oaEligible), and a computer's
+  agents show only once it lets that browser in (oaClassify; otherwise "not let in on X yet"), so the line says both.
 - See what a task changed (#5205 / #5153 slice 1): paintTaskReceipt shows the receipt on any closed task, no setting
   (only the undo inside it waits on Settings > Advanced). engine/receipt.js gives Claude, Codex and Gemini CLI agents a
   full receipt; other runners (Grok, Antigravity, Muse) show "not available", which the receipt itself says, so the line
@@ -17,7 +18,7 @@ Kept, unchanged: Name an agent file, Token Usage for every provider, A refused R
 tools/whats-new-check.js 0.7.24: 5 highlights, mac 5, windows 5.
 
 ## Pin
-This branch is 49587aa6a (the 0.7.23 pin) plus this one commit. It reaches main by a MERGE commit, deliberately: release.sh
+This branch is 49587aa6a (the 0.7.23 pin) plus only this branch's What's New commits (the copy and its review fixes). It reaches main by a MERGE commit, deliberately: release.sh
 cuts only an ancestor of origin/main, and a rebase or squash would re-create the commit on main's tip, carrying everything
 merged since the pin (#4649 slice B, #5253, #5277), which Splinter ruled out. The cut pins this branch's head.
 
