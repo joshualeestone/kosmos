@@ -29,7 +29,7 @@ test('the static markup makes no connected-or-not claim; the painter owns all th
   assert.match(fn, /Nothing is connected yet\./, 'the none-arm lost its sentence');
   assert.match(fn, /could not check your accounts/, 'could-not-check collapsed into nothing-connected');
   assert.match(fn, /connected and thinking for your agents/, 'the connected arm lost its sentence');
-  assert.match(fn, /settingsGo\('accounts'\)/, 'the connected arm does not link to the Accounts tab');
+  assert.match(fn, /settingsGo\('accounts'\)/, 'the connected arm does not open the AI Models section (settingsGo(\'accounts\'))');
 });
 
 test('#881/#960: the count is filtered on a real live check, not raw row presence', () => {

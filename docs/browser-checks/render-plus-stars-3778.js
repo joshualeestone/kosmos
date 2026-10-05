@@ -28,6 +28,8 @@ catch { console.log('render-plus-stars-3778: playwright not on NODE_PATH - SKIPP
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 const SHOTS = process.argv[2] || null;
 const fail = [];
+/* kosmos#5189: the distance between two places on a field that wraps with period `span`, the short way round. */
+function wrapDist(a, b, span) { const d = Math.abs(a - b) % span; return Math.min(d, span - d); }
 const chk = (ok, label, extra) => {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
@@ -37,6 +39,13 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
   && Math.abs(m.bufW / m.bufH - m.cssW / m.cssH) / (m.cssW / m.cssH) <= 0.01;
 
 (async () => {
+  /* kosmos#5189 fixture. Places taken from real crossings (1.005 or 1.0057 before; 0.008, or -0.0012 just outside
+     the top edge, after; span 1.007) are a small move.
+     A wide span (a narrow box, 8px of 160) must be used as given: span 1 would read 1.045 -> 0.005 as 0.04. */
+  chk(wrapDist(1.005, 0.008, 1.007) < 0.03, 'wrapDist: a dot crossing the edge is a small move (#5189)', String(wrapDist(1.005, 0.008, 1.007)));
+  chk(wrapDist(1.045, 0.005, 1.05) < 0.03 && wrapDist(1.045, 0.005, 1) >= 0.03, 'wrapDist: the span is the page\'s, not 1 (#5189)', String([wrapDist(1.045, 0.005, 1.05), wrapDist(1.045, 0.005, 1)]));
+  chk(wrapDist(1.0057, -0.0012, 1.007) < 0.03, 'wrapDist: a crossing that lands just outside the top edge is a small move (#5189)', String(wrapDist(1.0057, -0.0012, 1.007)));
+  chk(wrapDist(0.2, 0.7, 1.008) >= 0.03, 'wrapDist: a real jump is still a jump (#5189)', String(wrapDist(0.2, 0.7, 1.008)));
   let browser;
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
   catch (err) {
@@ -80,15 +89,28 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
       /* Review pass 2: the first few dots' places, as fractions of the box, so a re-size that re-seeds
          the field (every dot jumping) is told apart from one that keeps it. */
       const places = () => page.evaluate(() => plusParts.slice(0, 8).map((q) => [q.x / plusSW, q.y / plusSH]));
-      const placesBefore = await places();
+      /* kosmos#5189: the field wraps a dot 4px outside each edge (web/index.html plusStarsDraw), so a dot drifting across
+         an edge reads as a jump of about the whole box though it moved a few px. Plant dot 0 just inside the wrap at a
+         real dot's top speed (0.11px a frame; review 1: a faster plant spent the margin by itself on a slow run), in the
+         same evaluate as the read, so the wrap is exercised on every run, and compare the short way round. It crosses
+         on the first frame drawn after the plant (3.95 + 0.11 is past the +4 wrap); the re-size draws one itself. */
+      const placesBefore = await page.evaluate(() => {
+        const q = plusParts[0]; q.y = plusSH + 3.95; q.vy = 0.11;
+        return plusParts.slice(0, 8).map((d) => [d.x / plusSW, d.y / plusSH]);
+      });
       await page.evaluate(() => { const d = document.createElement('div'); d.dataset.check3778 = 'grow'; d.style.height = '420px'; document.getElementById('s-sec-plus').appendChild(d); });
       await page.waitForTimeout(300);
       const grown = await read();
       chk(same(grown) && grown.cssH > settled.cssH, `${t} after the section grows, the buffer follows (not only on a window resize)`, JSON.stringify({ settled, grown }));
-      /* A dot drifts at most about 0.14px a frame, so in ~20 frames it moves a few px: well under 3% of the
-         box. A re-seed puts it anywhere. Eight dots all within 3% by chance is not a real risk. */
+      /* A dot drifts at most about 0.14px a frame (dot 0, planted above, at 0.11), so between the reads it moves a
+         few px: well under 3% of the box. A re-seed puts it anywhere. Eight dots all within 3% by chance is not a real
+         risk. */
       const placesAfter = await places();
-      const kept = placesBefore.length === 8 && placesBefore.every((p, i) => placesAfter[i] && Math.abs(p[0] - placesAfter[i][0]) < 0.03 && Math.abs(p[1] - placesAfter[i][1]) < 0.03);
+      /* The wrap span as a fraction of the box: (size + 8) / size, read after the re-size. A dot that wrapped before
+         the re-size wrapped on the old box's span; the two differ by 8/old - 8/new, inside the 0.03 margin here. */
+      const span = await page.evaluate(() => [(plusSW + 8) / plusSW, (plusSH + 8) / plusSH]);
+      const kept = placesBefore.length === 8 && placesBefore.every((p, i) => placesAfter[i] && wrapDist(p[0], placesAfter[i][0], span[0]) < 0.03 && wrapDist(p[1], placesAfter[i][1], span[1]) < 0.03);
+      chk(placesBefore[0] && placesAfter[0] && placesBefore[0][1] > 1 && Math.abs(placesAfter[0][1]) < 0.05, `${t} the planted dot crossed the field's edge, so the wrap was exercised (#5189)`, JSON.stringify([placesBefore[0], placesAfter[0]]));
       chk(kept, `${t} a re-size keeps each dot in its place (the field is not re-seeded, no jump)`, JSON.stringify({ placesBefore: placesBefore.slice(0, 2), placesAfter: placesAfter.slice(0, 2) }));
       /* Review pass 1: no blank frame when the buffer re-sizes. An observer made AFTER the page's own
          fires after it in the same frame, before paint; the field it sees must already have dots. */

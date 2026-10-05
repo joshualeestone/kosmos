@@ -102,15 +102,15 @@ test('#671: the plain offline sentence carries the launch model and the honest c
   assert.match(row.because, /starts itself when this computer is on/,
     'the next move is missing: the sentence still ends at the diagnosis (the #671 defect)');
   /* kosmos#1663. This half used to read "this computer is not saying why", and
-     that was FALSE next to a Terminal tab holding the reason: Josh read it,
-     stopped looking, and wiped his Mac while the trust prompt sat one tab over.
+     that was FALSE next to the agent's screen holding the reason (under AI Settings; #5127): Josh read it,
+     stopped looking, and wiped his Mac while the trust prompt sat one section away.
      Asserted as a PROPERTY rather than a new exact string: the sentence must
      still send the person somewhere (#671's intent, which this keeps), and must
      no longer claim that no explanation exists. */
-  assert.match(row.because, /Terminal tab is where to look/,
+  assert.match(row.because, /if it stays off, look under AI Settings on its page/,
     'the where-to-look half is missing: a person whose agent stays off is told nothing');
   assert.doesNotMatch(row.because, /not saying why/,
-    'the sentence still asserts the cause is unknowable, beside the tab that holds it (#1663)');
+    'the sentence still asserts the cause is unknowable, beside the box that holds it (#1663)');
 });
 
 test('#671: a job-less agent gets no self-starting claim, because nothing will start it', () => {

@@ -203,6 +203,7 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.
 export KOSMOS_CATALOGUE_BASE=http://127.0.0.1:9/
@@ -514,7 +515,11 @@ fi
 # The whole-suite guard for the leak class (a test missing its AGENT_WORKFORCE_LAUNCH
 # sandbox). Runs regardless of the test verdict, so a leak is reported even beside a red.
 if [ -n "$_la_guard_before" ]; then
-  if ! _la_leaked="$(launchagent_leak_check "$_la_guard_dir" "$_la_guard_before" 2>&1)"; then
+  # #5092: plists the machine's LIVE Kosmos rewrote for its own agents during the run are skipped, and said.
+  # No notes file means no skip (live root "/"), so a skip is never silent (review 1).
+  _la_live_root=""
+  _la_live_notes="$(mktemp "${TMPDIR:-/tmp}/la-live-notes.XXXXXXXXXX")" || { _la_live_notes=""; _la_live_root="/"; }
+  if ! _la_leaked="$(launchagent_leak_check "$_la_guard_dir" "$_la_guard_before" "$_la_live_notes" "$_la_live_root" 2>&1)"; then
     # #3605: print each leaked plist WITH the sandbox it points into. The check sees the
     # shared folder, not this run, so a concurrent suite from another checkout lands here
     # too; the working dir (usually the writer's test sandbox) is how you tell.
@@ -525,7 +530,8 @@ if [ -n "$_la_guard_before" ]; then
     echo "run-tests: #3011 LEAK -- a real com.kosmos.agent.* plist was created or modified in ~/Library/LaunchAgents while this suite ran (listed above). Move them out (launchctl bootout gui/\$(id -u)/<label> first if loaded). Either a test here is missing 'process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, \"LaunchAgents\")', or ANOTHER checkout that predates #3011/#3605 ran its suite at the same time: this tree's create.js refuses such writes under node --test, so if no test here failed on a #3605 refusal, look for an older worktree. Rerun alone to confirm." >&2
     [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
   fi
-  rm -f "$_la_guard_before"
+  launchagent_live_notes_report "$_la_live_notes"
+  rm -f "$_la_guard_before" "$_la_live_notes"
 fi
 # --- #4273: refuse a launchd job, a process or a new temp family the suite left --
 # Runs regardless of the verdict, like #3011, so a leak is reported beside a red. A

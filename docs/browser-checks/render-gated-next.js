@@ -173,6 +173,7 @@ async function fresh(browser) {
     });
     ok(!(await nextDisabled(page)), 'S3 all-granted enables Next');
     ok(await rowGranted(page, 'sleep') && await rowGranted(page, 'tmux'), 'both S3 rows (sleep + app AX) are green');
+    ok(await page.evaluate(() => { const h = document.querySelector('.s3-unsure-hint'); return !h || h.offsetParent === null; }), '#2559: the "press Next" line stays hidden once the grant is read');
     await ctx.close();
   }
   {
@@ -186,6 +187,28 @@ async function fresh(browser) {
     });
     ok(!(await nextDisabled(page)), 'S3 uncheckable accessibility never blocks (fail-safe -- the #2912 un-trap preserved)');
     ok(!(await rowGranted(page, 'tmux')), 'and the uncheckable row is not false-green');
+    await ctx.close();
+  }
+  {
+    // #2559 (day-one, 2026-10-03): still uncheckable after the grace period (a fresh Mac with no Full Disk Access),
+    // the Kosmos row offers Turn On, in Mona Lisa's neutral "Not confirmed" pill, never the red "Not activated", and
+    // still never blocks Next.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: true },
+      tmux: { checkable: false },
+    });
+    await page.waitForTimeout(5500);
+    const seen = await page.evaluate(() => {
+      const row = document.querySelector('.s3-gate-row[data-gate="tmux"]');
+      const vis = (sel) => { const e = row && row.querySelector(sel); return !!e && e.offsetParent !== null && getComputedStyle(e).display !== 'none'; };
+      const hint = document.querySelector('.s3-unsure-hint'); const hintShown = !!hint && hint.offsetParent !== null && getComputedStyle(hint).display !== 'none';
+      return { unsure: vis('.s3-pill-unsure'), red: vis('.s3-pill-req'), turnOn: vis('.s3-on'), checking: vis('.s3-checking'), hint: hintShown };
+    });
+    ok(seen.turnOn && !seen.checking, '#2559: after the grace period the uncheckable Kosmos row shows Turn On, not Checking ' + JSON.stringify(seen));
+    ok(seen.unsure && !seen.red, '#2559: and its pill reads the neutral "Not confirmed", not the red "Not activated" ' + JSON.stringify(seen));
+    ok(!(await nextDisabled(page)), '#2559: and Next is still not blocked by it');
+    ok(seen.hint, '#2559 (Mona Lisa): and the quiet "press Next" line shows under it ' + JSON.stringify(seen));
     await ctx.close();
   }
 

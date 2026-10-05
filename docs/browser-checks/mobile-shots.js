@@ -175,10 +175,20 @@ const consAgentsStill = (want) => async (page) => {
 /* #4637: two waiting requests for the connect screens, and an Allow that answers. */
 async function connectPending(page) {
   let devices = [
-    { device_id: 'd-sample-pc', name: 'windowsbox', code: 'X3-P2', first_seen: Math.floor(Date.now() / 1000) - 30, denied_at: 0, joining_computer: 'windowsbox' },
+    { device_id: 'd-sample-pc', name: 'windowsbox', code: '482 915', first_seen: Math.floor(Date.now() / 1000) - 30, denied_at: 0, joining_computer: 'windowsbox' },
     { device_id: 'd-sample-ph', name: 'iPhone', code: 'K7-4M', first_seen: Math.floor(Date.now() / 1000) - 90, denied_at: 0, joining_computer: null }];
   await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ email: 'owner@example.com', snapshot: true, devices }) }));
   await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+}
+/* #4794: the computer WAITING to be allowed (Settings > Kosmos+), with the pairing code worked out. */
+async function joinWaiting(page) {
+  const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
+  await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
+  /* The devices list reads its own answer; unfaked, the throwaway board says on:false and the shot showed "Plus is off"
+     beside a switch that is on. A computer waiting to be allowed has its switch on and no devices yet. */
+  await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
+  await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
 }
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
@@ -334,6 +344,17 @@ const SCREENS = [
   { name: 'connect-sheet', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Your computer "windowsbox" wants to join/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
+  /* #4794: a joining computer whose code is not worked out yet: the quiet line in the code's place, Allow disabled. */
+  { name: 'connect-wait', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ email: 'owner@example.com', snapshot: true,
+      devices: [{ device_id: 'd-sample-wait', name: 'laptop', code: '', first_seen: Math.floor(Date.now() / 1000) - 20, denied_at: 0, joining_computer: 'laptop', code_wait: null }] }) }));
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /Working out the code with laptop/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
+  /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
+  { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+  } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
@@ -347,6 +368,12 @@ const SCREENS = [
   { name: 'settings', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings');
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5206: Settings > Advanced, where every row is an on/off switch whose 44px target is a ::after past its 42x24
+     box: the tap audit must count it as the finger reaches it. */
+  { name: 'settings-advanced', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#look-toggle', { state: 'visible', timeout: 8000 });
   } },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
@@ -1065,7 +1092,11 @@ async function overflowOf(page) {
    px either way is Apple's floor. A checkbox or radio is judged by its label
    when it has one, since that is what the finger lands on. A link inside a
    sentence is exempt (WCAG 2.5.8's inline exception). A typing field under
-   16px makes iOS Safari zoom the page on focus. */
+   16px makes iOS Safari zoom the page on focus.
+   #5206: a control whose BOX is under 44 can still be a 44 target, the standard way: a ::after (or ::before) laid
+   past it, or padding taken back by a negative margin. What counts is where a finger lands, so a small box is probed:
+   scrolled into view, each edge of a 44x44 square centred on it must hit the control (document.elementFromPoint).
+   Only a control every probe reaches passes; a probe that hits something else, or an off-screen point, fails it. */
 const MIN_TAP_PX = 44;
 const MIN_FIELD_FONT_PX = 16;
 async function fitOf(page) {
@@ -1084,6 +1115,28 @@ async function fitOf(page) {
     };
     const taps = [];
     const seen = new Set();
+    const sx = window.scrollX, sy = window.scrollY;
+    // scrollIntoView moves every scrollable ancestor, not only the window: each one's place is kept and put back, so
+    // nothing after the audit (a screen's verify, its after-step) sees a moved page.
+    const moved = new Map();
+    const remember = (el) => { for (let a = el.parentElement; a; a = a.parentElement) if (!moved.has(a) && (a.scrollTop || a.scrollLeft || a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth)) moved.set(a, [a.scrollLeft, a.scrollTop]); };
+    /* Probes sit on the four edge midpoints of the 44x44 square, half a pixel in. Corners are not probed: a rounded
+       hit area (border-radius clips hit-testing) would fail a corner a finger never needs. The far edges are
+       half-open, so a 43px reach fails rather than passes. */
+    const reaches = (target) => {
+      remember(target);
+      target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const r = target.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, h = minTap / 2 - 0.5;
+      const pts = [];
+      if (r.height < minTap - 0.5) pts.push([cx, cy - h], [cx, cy + h]);
+      if (r.width < minTap - 0.5) pts.push([cx - h, cy], [cx + h, cy]);
+      return pts.every(([x, y]) => {
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        const hit = document.elementFromPoint(x, y);
+        return !!hit && (hit === target || target.contains(hit));
+      });
+    };
     for (const el of document.querySelectorAll('button, a[href], select, summary, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea')) {
       if (el.disabled || !shown(el) || inSentence(el)) continue;
       let target = el;
@@ -1092,15 +1145,96 @@ async function fitOf(page) {
       seen.add(target);
       const r = target.getBoundingClientRect();
       if (!onPage(r)) continue;
-      if (r.width < minTap - 0.5 || r.height < minTap - 0.5) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+      if ((r.width < minTap - 0.5 || r.height < minTap - 0.5) && !reaches(target)) taps.push(name(target) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
     }
+    /* A hit area that reaches past its control (a ::after, padding taken back) paints above its neighbours, so it
+       can take taps meant for them. That is the risk the reach probe above rewards, so it is measured too: inside
+       every control's own box (every 3px, its edges included), a tap must land on that control. A point
+       answered by ANOTHER control is a cover; a non-control ancestor (the row a button sits in) is not. */
+    const covers = [];
+    // The nearest ANCESTOR in its own layer: positioned out of the flow (fixed, absolute, sticky) or an
+    // open dialog / popover. Two controls answer each other's points as STACKING only when they sit in different
+    // layers (a menu over the page); two in the same layer overlapping is a hit area, however positioned (round 3).
+    const layerOf = (n) => {
+      if (n && n.nodeType === 1 && getComputedStyle(n).position === 'fixed') return n;   // a fixed control escapes its parent: its own layer (round 4)
+      for (n = n && n.parentElement; n && n.nodeType === 1; n = n.parentElement) {   // otherwise ancestors only: an absolute control is in its container's layer
+        const pos = getComputedStyle(n).position;
+        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') return n;
+        try { if (n.matches('dialog[open]') || n.matches(':popover-open')) return n; } catch { /* an engine without :popover-open */ }
+      }
+      return null;
+    };
+    const layered = (top, under) => layerOf(top) !== layerOf(under);
+    // label too: a label row takes a tap for its control, so it can be covered (Angel, #5218 review).
+    const SEL = 'button, a[href], select, summary, label, [role="button"], [role="tab"], [role="link"], input:not([type="hidden"]), textarea';
+    const controlOf = (n) => (n && n.closest ? n.closest(SEL) : null);
+    for (const el of document.querySelectorAll(SEL)) {
+      if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
+      remember(el);
+      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
+      // Every 3px across the box (capped at 4000 points), half a pixel in from each edge: a neighbour's hit area
+      // usually takes a thin strip along one edge, which a handful of sample points misses (a 15-point grid passed
+      // the room's header at 44px where render-room-msgbox-2806's pixel scan found 64px taken; measured).
+      const pts = [];
+      const step = Math.max(3, Math.sqrt((r.width * r.height) / 4000));
+      for (let x = r.left + 0.5; x < r.right - 0.5; x += step) for (let y = r.top + 0.5; y < r.bottom - 0.5; y += step) pts.push([x, y]);
+      for (const x of [r.left + 0.5, r.right - 0.5]) for (let y = r.top + 0.5; y < r.bottom; y += step) pts.push([x, y]);
+      for (const y of [r.top + 0.5, r.bottom - 0.5]) for (let x = r.left + 0.5; x < r.right; x += step) pts.push([x, y]);
+      // Only the part of the box a finger can see: an ancestor that clips (overflow other than visible) hides the rest,
+      // and a point there answers whatever is beyond the clip (round 4: a false red).
+      // Only ancestors that really clip it: a fixed control escapes all of them; an absolute one escapes those between
+      // it and its containing block (the nearest positioned ancestor). Round 5: clipping by every ancestor skipped an
+      // escaped control entirely, a false green.
+      let clip = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+      // transform, filter, perspective, will-change of those, and contain paint/layout/strict/content also make an
+      // ancestor the containing block, for fixed descendants too (round 6). body's overflow belongs to the viewport and
+      // clips nothing, so it is skipped (round 6).
+      const containsAll = (cs) => cs.transform !== 'none' || cs.filter !== 'none' || cs.perspective !== 'none'
+        || /transform|filter|perspective/.test(cs.willChange || '') || /paint|layout|strict|content/.test(cs.contain || '');
+      let pos = getComputedStyle(el).position;
+      for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        const cb = containsAll(cs);
+        if (pos === 'fixed' && !cb) continue;                             // a fixed control escapes this ancestor
+        if (pos === 'absolute' && cs.position === 'static' && !cb) continue;   // neither its containing block nor a clip for it
+        if (a === document.body) { pos = cb ? 'static' : pos; continue; }
+        // contain paint/strict/content clips to the box like overflow does (round 6, T6).
+        if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible' || /paint|strict|content/.test(cs.contain || '')) { const b = a.getBoundingClientRect(); clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) }; }
+        pos = (cs.position === 'fixed' || cs.position === 'absolute') ? cs.position : 'static';
+      }
+      for (const [x, y] of pts) {
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+        if (x < clip.left || x >= clip.right || y < clip.top || y >= clip.bottom) continue;
+        const hit = document.elementFromPoint(x, y);
+        const other = controlOf(hit);
+        // An ANCESTOR answering inside this control is skipped (this control is part of it). A DESCENDANT is not: a
+        // child's hit area reaching over its own card is a cover like any other (Angel, #5218 review).
+        if (!other || other === el || other.contains(el)) continue;
+        // A control and its own label answer for each other (a custom checkbox: an invisible input over its label).
+        if ((other.labels && [...other.labels].includes(el)) || (el.labels && [...el.labels].includes(other))) continue;
+        // A point OUTSIDE the other control's drawn box is a hit area reaching past it (a ::after). A point INSIDE
+        // it is either a box grown over its neighbour (padding taken back by a negative margin: a hit area too) or a
+        // control drawn on top in another layer (an open menu, a dialog): only the second is stacking, so it is told
+        // apart by layer, not by geometry (review round 2: padding hit areas read clean before).
+        const o = other.getBoundingClientRect();
+        const inBox = x >= o.left - 1 && x < o.right + 1 && y >= o.top - 1 && y < o.bottom + 1;   // 1px: a snapped shared edge
+        if (inBox && el.contains(other)) continue;   // a control inside this one, drawn where it is (a label's own input)
+        if (inBox && layered(other, el)) continue;
+        if (inBox && Math.abs(x - o.left) <= 1.5 || inBox && Math.abs(x - o.right) <= 1.5 || inBox && Math.abs(y - o.top) <= 1.5 || inBox && Math.abs(y - o.bottom) <= 1.5) continue;   // the shared edge itself
+        covers.push(name(el) + ' covered by ' + name(other)); break;
+      }
+    }
+    for (const [a, [l, t]] of moved) a.scrollTo({ left: l, top: t, behavior: 'instant' });   // instant: a smooth box would still be moving
+    window.scrollTo({ left: sx, top: sy, behavior: 'instant' });
     const fields = [];
     for (const el of document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="color"]), textarea, select, [contenteditable="true"], [contenteditable=""]')) {
       if (el.disabled || !shown(el) || !onPage(el.getBoundingClientRect())) continue;
       const fontPx = parseFloat(getComputedStyle(el).fontSize);
       if (fontPx < minFont - 0.01) fields.push(name(el) + ' ' + fontPx + 'px');
     }
-    return { taps, fields };
+    return { taps, fields, covers };
   }, { minTap: MIN_TAP_PX, minFont: MIN_FIELD_FONT_PX });
 }
 
@@ -1179,7 +1313,7 @@ async function run() {
               page.on('pageerror', (e) => pageErrors.push(String(e)));
               const file = `${sc.name}--${sz}--${theme}--${en}.png`;
               let note = '';
-              let fit = { taps: [], fields: [] };
+              let fit = { taps: [], fields: [], covers: [] };
               let audited = false;   // true only once the phone audits have actually run on this screen
               try {
                 await page.goto(board.base + '/', { waitUntil: 'load' });
@@ -1247,10 +1381,10 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
+              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, covers: fit.covers || [], audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
-                  : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
+                  : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}  covers: ${(fit.covers || []).length}`));
               await ctx.close();
             }
           }
@@ -1278,8 +1412,8 @@ async function run() {
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
     `Shots: ${rows.filter((r) => r.file).length}${rows.some((r) => !r.file) ? ` (plus ${rows.filter((r) => !r.file).length} deleted by its verify)` : ''}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
     `Skipped (phone-only at the desktop size, desktop-only at a phone size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
-    `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
+    `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px | covers |`, '|---|---|---|---|---|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} | ${r.audited ? (r.covers || []).length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');

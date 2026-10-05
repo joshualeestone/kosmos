@@ -66,7 +66,7 @@ test('#1903: POST /api/agents REFUSES a create on a dead-sign-in account, names 
     const r = await post({ name: 'deadborn', role: 'pm' });
     assert.equal(r.status, 400, 'a create on a dead account was not refused: ' + JSON.stringify(r.json));
     assert.match(r.json.error || '', /sign-in is not working/);
-    assert.match(r.json.error || '', /Re-authenticate/);
+    assert.match(r.json.error || '', /sign that account in again from Settings, AI Models/i);   // #5114
     /* 🔑 AND createAgent WAS NEVER REACHED. `create.plistPath` existence is
        vacuous here (DRY_RUN writes no plist either way), so this keys on the
        birth log instead: createAgent records a birth for EVERY create it runs

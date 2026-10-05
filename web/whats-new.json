@@ -1,25 +1,32 @@
 {
-  "version": "0.7.20",
+  "version": "0.7.22",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "A sign-in notice you can close",
-      "line": "The warning that your agents' sign-in is ending now floats over the page instead of pushing it down, names the account, and has an X."
-    },
-    {
       "icon": "shield",
-      "title": "Gemini sign-in asks about your data",
-      "line": "On a Mac, signing Gemini in with a Google subscription shows Antigravity's terms in Kosmos, and you choose if Google may use your data."
+      "title": "Agents that keep stopping",
+      "line": "On a Mac, an agent that keeps stopping soon after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told.",
+      "platforms": ["mac"]
     },
     {
-      "icon": "list",
-      "title": "Settings stays clickable",
-      "line": "On a long Settings section, the section buttons stay below the top bar instead of sliding under it."
+      "icon": "chat",
+      "title": "An honest sign-in warning",
+      "line": "On a Mac, when a Claude sign-in ends but its agents can still work a while, the sign-in warning says when they stop, not that they have.",
+      "platforms": ["mac"]
     },
     {
-      "icon": "spark",
-      "title": "A running agent's files stay safe",
-      "line": "Deleting a removed agent's files no longer touches a running agent whose name differs from it only in capitals."
+      "icon": "tasks",
+      "title": "Work you can check off",
+      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing agents are offered the change."
+    },
+    {
+      "icon": "phone",
+      "title": "Files come to your device",
+      "line": "Over Kosmos+, clicking a file now downloads it to the device you are using, instead of opening it on the computer running Kosmos."
+    },
+    {
+      "icon": "phone",
+      "title": "New agent stays in reach",
+      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
     }
   ]
 }

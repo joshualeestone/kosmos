@@ -85,6 +85,7 @@ export KOSMOS_AGENT_BROWSER=off
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }
@@ -777,6 +778,9 @@ boot_thread_server() {
 
 wait_up() {
   local port="$1" logf="$2" i
+  # kosmos#5231: which log belongs to the board on which port, so a check that later finds that board gone
+  # (ECONNREFUSED) can print what its server said before cleanup removes the sandbox (board_log_tail).
+  [ -n "${RUN_DIR:-}" ] && printf '%s\t%s\n' "$port" "$logf" >> "$RUN_DIR/board-logs.tsv" 2>/dev/null
   # KOSMOS_BC_WAIT_TRIES only exists so the #1073 test can exercise the timeout
   # arm without waiting the real 30s (60 * 0.5s). Unset in every real run.
   for i in $(seq 1 "${KOSMOS_BC_WAIT_TRIES:-60}"); do
@@ -812,6 +816,30 @@ wait_up() {
   done
   log "server on :$port never answered; log tail:"; tail -5 "$logf" 2>/dev/null
   return 1
+}
+
+# kosmos#5231: board_log_tail <capture>: when a failed attempt's output shows a board refusing connections
+# (node's ECONNREFUSED, or Playwright's net::ERR_CONNECTION_REFUSED, at 127.0.0.1:<port>), print the tail of THAT board's server.log, found through the port->log map
+# wait_up keeps. The sandbox is removed at cleanup, so this is the only moment its server's last words exist
+# (#5231: an org board died between a check's two attempts on a loaded Mortals run, and nobody saw why). It also
+# says whether the server is still answering. Prints nothing when no refused board is named or none is known.
+board_log_tail() {
+  local cap="$1" port logf
+  [ -f "$cap" ] && [ -n "${RUN_DIR:-}" ] && [ -f "$RUN_DIR/board-logs.tsv" ] || return 0
+  for port in $(grep -oE '(ECONNREFUSED|ERR_CONNECTION_REFUSED)[^0-9]*127\.0\.0\.1:[0-9]+' "$cap" | grep -oE '[0-9]+$' | sort -u); do
+    logf="$(awk -F '\t' -v p="$port" '$1 == p { f = $2 } END { print f }' "$RUN_DIR/board-logs.tsv")"
+    if [ -n "$logf" ] && [ -f "$logf" ]; then
+      if curl -s -m 2 "http://127.0.0.1:$port/api/status" >/dev/null 2>&1; then
+        log "the board on :$port refused a connection but answers now; the last 20 lines of its server log:"
+      else
+        log "the board on :$port is GONE (refuses connections); the last 20 lines of its server log ($logf):"
+      fi
+      tail -20 "$logf" 2>/dev/null | cut -c1-300 | sed 's/^/    | /'   # review: one huge line (a heap dump) stays readable
+    else
+      log "port :$port refused connections; it is not a board this run booted, so there is no server log to show"
+    fi
+  done
+  return 0
 }
 
 # run_one <label> <cmd...>: run a check headless, retry ONCE on failure, and say
@@ -884,6 +912,7 @@ run_one() {
     rm -f "$cap"
     return 1
   fi
+  board_log_tail "$cap"   # kosmos#5231: a board that died says why, before the retry overwrites this attempt
   log "⚠️  $label failed once, retrying (flaky-timeout guard). A retried pass is reported, not hidden."
   RETRIED+=("$label")
   if HEADED=0 NODE_PATH="$PW_NODE_PATH" "$@" 2>&1 | tee "$cap"; [ "${PIPESTATUS[0]}" -eq 0 ]; then
@@ -891,6 +920,7 @@ run_one() {
     rm -f "$cap"
     return 0
   fi
+  board_log_tail "$cap"   # kosmos#5231
   log "FAIL  $label (failed twice)"
   FAILED+=("$label")
   local why; why="$(grep -E '^\s*(FAIL|✖)|Error|Timeout|REFUS|refus' "$cap" | grep -vE '^\s*at ' | head -3 | cut -c1-200 | sed 's/^/           /')"
@@ -1074,12 +1104,22 @@ run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/
 # an address planted in an agent's role by the page scan ("this screen shows
 # real data"). Exit 3 alone is not enough: the preflight firing first would
 # pass the page arm without the page scan ever running.
+# kosmos#5135: when an arm passes, the one FAIL line its guard was planted to
+# produce prints as "CONTROL (expected): ", so a person scanning the cut log for
+# reds is not sent after it. Any other FAIL line, and all output of an arm that
+# does not pass, prints untouched. The cover arms below do the same for their
+# single summary line. tools.control-arms-expected-5135.test.js runs these bodies.
 for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
   run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
-      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      3:*"$2"*) echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
+      3:*"$2"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: LEAK GUARD: "*"$2"*) printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
+        echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
@@ -1095,10 +1135,15 @@ done
 for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
-      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      2:*"$3"*) echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
+      2:*"$3"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: "[0-9]*" shot(s) could not be taken; see the ERROR lines above") printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
+        echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
     esac
+    printf "%s\n" "$out"
     echo "FAIL  control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_rest%%:*}" "${_rest#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done

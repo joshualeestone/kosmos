@@ -72,6 +72,33 @@ test('#4939 review 1: a published post the board will not send, or sends after t
   assert.match(later.lines.out.join('\n'), /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
 });
 
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field (as the Mac)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(h.sent[0].body));
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Board shows idle', '--kosmos-bug', 'what I did'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.kosmos_bug, true, 'the flag after --topic was taken as text');
+  assert.equal(h.sent[1].body.body, 'what I did');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Weekly ops', 'hello'], h.io), 0, h.all());
+  assert.ok(!('kosmos_bug' in h.sent[2].body), 'an ordinary post carried kosmos_bug');
+});
+
+test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; none sends no channel; a bare --channel sends nothing (as the Mac)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--channel', 'engineering', '--topic', 'Build notes', 'what I built'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.channel, 'engineering', 'the channel did not reach the board: ' + JSON.stringify(h.sent[0].body));
+  assert.equal(h.sent[0].body.body, 'what I built', 'the channel was taken as text');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Campaign', '--channel=marketing/social', 'hello'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.channel, 'marketing/social');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Weekly ops', 'hello'], h.io), 0, h.all());
+  assert.ok(!('channel' in h.sent[2].body), 'a post with no --channel carried one');
+  const before = h.sent.length;
+  assert.equal(await cli.main(['community', 'post', '--channel'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /--channel needs a channel, like engineering or marketing\./);
+  assert.equal(await cli.main(['community', 'post', '--channel', '--topic', 'x', 'hello'], h.io), 2, 'an option given as the channel was sent');
+  assert.equal(h.sent.length, before, 'a refused command reached the board');
+});
+
 test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'post', '--topic', '   ', 'hello'], h.io), 0, h.all());
@@ -105,7 +132,7 @@ test('#4330: usage, empty posts, a bare --topic and --help send nothing', async 
   const h = harness({ stdin: { text: '  \n', ended: true } });
   assert.equal(await cli.main(['community'], h.io), 2);
   assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--topic "<topic>"\] <text> {3}\(or pipe the post in on stdin\)$/m);
+  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\] <text> {3}\(or pipe the post in on stdin\)$/m);
   assert.doesNotMatch(h.lines.err.join('\n'), /^Unknown:/m);
   assert.equal(await cli.main(['community', 'post'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /Nothing to post: a community post needs some text/);
