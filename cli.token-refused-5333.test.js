@@ -29,13 +29,15 @@ const TOKEN = 'cd'.repeat(32);
 const { NO_MATCH } = require('./engine/sendertoken');
 const HINT = 'Kosmos could not match the agent token this session started with';
 const OTHER = 'Kosmos is busy, try again in a moment';
+// The sentence inside another answer (no quote marks: the Mac CLI's own because-extraction stops at one).
+const QUOTED = 'a note that quotes ' + NO_MATCH + ', without being that refusal';
 
 test('#5333: both CLIs key the hint on the board\'s own sentence, exactly (one source, sendertoken NO_MATCH)', () => {
   assert.equal(typeof NO_MATCH, 'string');
   assert.ok(NO_MATCH.length > 20);
   const mac = fs.readFileSync(CLI, 'utf8');
   const win = fs.readFileSync(WIN, 'utf8');
-  assert.ok(mac.includes(`*'${NO_MATCH}'*)`), 'install/kosmos token_refused_hint matches the board\'s sentence');
+  assert.ok(mac.includes(`*'"because":"${NO_MATCH}"'*`), 'install/kosmos token_refused_hint matches the board\'s sentence');
   assert.ok(win.includes(`const TOKEN_REFUSED = '${NO_MATCH}';`), 'the Windows CLI matches the board\'s sentence');
 });
 
@@ -116,11 +118,13 @@ for (const args of VERBS) {
         assert.ok(got.out.includes(NO_MATCH), `the stub answered: ${got.out}`);
         assert.ok(!got.out.includes(HINT), 'no token was sent, so there is no token to have been refused');
       });
-      await withStub(OTHER, async (port) => {
-        const got = await run(CLI, args, envFor(port, home, TOKEN));
-        assert.ok(got.out.includes(OTHER), `the stub's refusal reached the output: ${got.out}`);
-        assert.ok(!got.out.includes(HINT), 'a different refusal is not a token refusal');
-      });
+      for (const other of [OTHER, QUOTED]) {
+        await withStub(other, async (port) => {
+          const got = await run(CLI, args, envFor(port, home, TOKEN));
+          assert.ok(got.out.includes(other.slice(0, 20)), `the stub's refusal reached the output: ${got.out}`);
+          assert.ok(!got.out.includes(HINT), 'another refusal, or the sentence quoted inside one, is not a token refusal');
+        });
+      }
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 }
@@ -140,11 +144,13 @@ for (const args of VERBS) {
         assert.ok(none.out.includes(NO_MATCH), `CONTROL: the stub answered without a token: ${none.out}`);
         assert.ok(!none.out.includes(HINT), 'CONTROL: no token sent, no hint');
       });
-      await withStub(OTHER, async (port) => {
-        const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN));
-        assert.ok(got.out.includes(OTHER), `CONTROL: the stub's refusal reached the output: ${got.out}`);
-        assert.ok(!got.out.includes(HINT), 'CONTROL: a different refusal is not a token refusal');
-      });
+      for (const other of [OTHER, QUOTED]) {
+        await withStub(other, async (port) => {
+          const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN));
+          assert.ok(got.out.includes(other.slice(0, 20)), `CONTROL: the stub's refusal reached the output: ${got.out}`);
+          assert.ok(!got.out.includes(HINT), 'CONTROL: another refusal, or the sentence quoted inside one, is not a token refusal');
+        });
+      }
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 }
