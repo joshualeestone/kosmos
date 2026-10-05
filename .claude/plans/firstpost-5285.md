@@ -8,14 +8,21 @@ sendPost refused an owner's post while the seat was 'waiting' with no key ("nobo
 seat only noticed a join on the next ensureAll pass (60 s). A post in that gap was lost.
 
 ## Change (engine/fedseats.js)
-- Owner, seat 'waiting', no key: hold the post (#5192's bounded outbox, marked joinWait) and kick one immediate
-  ensure (one edges request; one at a time; a check that found nobody answers the next posts for 10 s without asking).
-- The kick connects the seat (its connect flushes the held post) or finds nobody: then only the joinWait posts are
-  released with the old sentence. A kick that cannot ask leaves them held; the next ensureAll pass that finds
-  nobody releases them the same way.
+- Owner, seat 'waiting', no key: hold the post (#5192's bounded outbox, marked joinWait). Never refused at once.
+- scheduleJoinCheck: ask now, or when the last check's 10 s window ends (one timer per seat); a check already
+  out asks again when it ends, for posts held after it asked. At most one check per seat per 10 s.
+- The check uses the Mac's shared edges request (sharedEdges, #5193) with notBefore = the hold time, so an older
+  answer (another project's) is never reused. An ensure that returned without asking answers nothing.
+- Only an answer ASKED at or after a post was held may release it ("nobody outside has joined"); the 60 s pass
+  releases only on an answer it asked for itself.
+- A connect clears joinWait (someone joined): a post re-held for the key waits as any held post (key, hour).
 - A key present (someone was in before) keeps the immediate "nobody else is in now" (#5194).
+- stop() clears the timer (tidiness; the timer's callback already refuses a stopped or replaced seat).
 
-## Tests (engine/fedseats.test.js)
-gap post held and sent once the seat connects; nobody joined still says so after one check, and a second post in
-the window does not ask again; two quick posts share one check and go in order; a check that cannot ask keeps the
-post until a pass settles it. The two first fail on the unchanged code.
+## Tests (engine/fedseats.test.js), each red without its guard (mutants, scratch copy)
+gap post held and sent on connect; nobody joined says so after one check; inside the window a post waits and a
+member who joined meanwhile gets it; two quick posts share one check; a check that cannot ask keeps the post until
+a pass settles it; sealed room: the post waits for the member's key and leaves only sealed; only posts held
+before a check are released by it; another project's answer is not reused; a re-held post is not released after
+the edge is refused; a follow-up check for a post held while one was out; a stopped seat's check never runs.
+Reasoned, not measured: the pass's own "did not ask" guard (the race cannot be staged here).

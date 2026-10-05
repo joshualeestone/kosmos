@@ -376,11 +376,34 @@ test('while an owner waits for someone to join, a post says exactly that (#5285:
   assert.strictEqual(h.asked, askedBefore + 1, 'the post did not ask whether someone had just joined');
   const said = h.notes.filter((n) => n.projectId === 'proj-wait').map((n) => n.text);
   assert.match(said[said.length - 1], /nobody outside has joined/, JSON.stringify(said));
-  // A check that just found nobody answers the next post at once, without asking again.
-  assert.strictEqual(fedseats.post('proj-wait', { from: 'Josh', kind: 'person', text: 'still nobody?' }), false);
-  await tick();
-  assert.strictEqual(h.asked, askedBefore + 1, 'a second post within the check window asked again');
-  assert.match(h.notes[h.notes.length - 1].text, /nobody outside has joined/);
+});
+
+test('#5285: within a check\'s window a post waits for the next check (never refused at once), and a member who joined meanwhile gets it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  federation.recordLink('proj-win', { role: 'owner', ref: 'ref-win' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-win');
+  fedseats.post('proj-win', { from: 'Josh', kind: 'person', text: 'anyone?' });
+  await settle();
+  const askedAfterFirst = h.asked;
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-win').map((n) => n.text);
+  assert.match(said()[said().length - 1], /nobody outside has joined/, 'CONTROL: the first check found nobody');
+  // A member joins three seconds later; the owner posts inside the 10 s window.
+  t.mock.timers.tick(3000);
+  h.edges = [{ id: 'edge-win', project_ref: 'ref-win', status: 'active' }];
+  fedseats.post('proj-win', { from: 'Josh', kind: 'person', text: 'there you are' });
+  await settle();
+  assert.strictEqual(h.asked, askedAfterFirst, 'a post inside the window asked at once');
+  assert.strictEqual(said().filter((x) => /nobody outside has joined/.test(x)).length, 1, 'the post inside the window was refused: ' + JSON.stringify(said()));
+  // The window ends: one check, which finds the member and brings the seat up.
+  t.mock.timers.tick(7000);
+  await settle();
+  assert.strictEqual(h.asked, askedAfterFirst + 1, 'no check when the window ended');
+  const seat = h.spawned.find((c) => c.edge === 'edge-win');
+  assert.ok(seat, 'the seat did not come up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /there you are/, 'the post made inside the window was not sent');
 });
 
 test('#5285: an owner\'s post right after someone joins, before the seat noticed, is held and sent once the seat connects', async () => {
@@ -3373,9 +3396,12 @@ test('#5285: a post whose check could not ask (a pass already under way) stays h
   h.edges = [{ id: 'edge-gap4', project_ref: 'ref-gap4', status: 'active' }];
   release(); h.gate = null;
   await passDone; await settle();
-  say(h.spawned[0], { event: 'connected', room: 'r', expires_at: 9 });
+  // Found by its edge: a pass also seats other tests' projects.
+  const seat = h.spawned.find((c) => c.edge === 'edge-gap4');
+  assert.ok(seat, 'the seat did not come up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
   await settle();
-  const out = h.spawned[0].written.join('');
+  const out = seat.written.join('');
   assert.ok(/first/.test(out) && /second/.test(out), 'not both sent once the seat connected: ' + out);
 });
 
@@ -3415,9 +3441,11 @@ test('#5285: a check releases only posts held before it asked; a post made after
   // The member is there by the next pass: the later post goes.
   h.edges = [{ id: 'edge-gap5', project_ref: 'ref-gap5', status: 'active' }];
   await fedseats.ensureAll(); await settle();
-  say(h.spawned[h.spawned.length - 1], { event: 'connected', room: 'r', expires_at: 9 });
+  const seat5 = h.spawned.find((c) => c.edge === 'edge-gap5');
+  assert.ok(seat5, 'the seat did not come up');
+  say(seat5, { event: 'connected', room: 'r', expires_at: 9 });
   await settle();
-  const out = h.spawned[h.spawned.length - 1].written.join('');
+  const out = seat5.written.join('');
   assert.ok(/after/.test(out) && !/before/.test(out), 'expected only the later post to be sent: ' + out);
 });
 
@@ -3436,4 +3464,43 @@ test('#5285: another project\'s fresh "nobody" answer is not reused for a post m
   assert.ok(!h.notes.some((n) => n.projectId === 'proj-gapB' && /nobody outside has joined/.test(n.text)), 'B reused A\'s older answer: ' + JSON.stringify(h.notes.map((n) => n.text)));
   const seatB = h.spawned.find((c) => c.edge === 'edge-gapB');
   assert.ok(seatB, 'B\'s seat did not come up');
+});
+
+test('#5285: a post held while a check is out gets its own follow-up check, not the 60 s pass', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 2_000_000 });
+  federation.recordLink('proj-fu', { role: 'owner', ref: 'ref-fu' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-fu');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  fedseats.post('proj-fu', { from: 'Josh', kind: 'person', text: 'early' });   // its check asks now
+  await tick();
+  t.mock.timers.tick(5);
+  fedseats.post('proj-fu', { from: 'Josh', kind: 'person', text: 'later' });   // held while that check is out
+  release(); h.gate = null;
+  await settle();
+  h.edges = [{ id: 'edge-fu', project_ref: 'ref-fu', status: 'active' }];   // the member is there now
+  t.mock.timers.tick(10000);   // the window ends: the follow-up check runs (no ensureAll here)
+  await settle();
+  const seat = h.spawned.find((c) => c.edge === 'edge-fu');
+  assert.ok(seat, 'no follow-up check brought the seat up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /later/);
+});
+
+test('#5285: a stopped seat\'s scheduled check never runs', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 3_000_000 });
+  federation.recordLink('proj-stp', { role: 'owner', ref: 'ref-stp' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-stp');
+  fedseats.post('proj-stp', { from: 'Josh', kind: 'person', text: 'one' });
+  await settle();
+  fedseats.post('proj-stp', { from: 'Josh', kind: 'person', text: 'two' });   // inside the window: a check is scheduled
+  await settle();
+  const asked = h.asked;
+  fedseats.stop('proj-stp');
+  t.mock.timers.tick(15000);
+  await settle();
+  assert.strictEqual(h.asked, asked, 'a stopped seat still asked');
 });
