@@ -6,6 +6,7 @@
  * covers withFileLock's OWN parameterized surface — the opts messages and the
  * waitMs/env override — which the wrappers pin to fixed values. */
 
+require('../test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

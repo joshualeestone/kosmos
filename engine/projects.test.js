@@ -10,6 +10,7 @@
  * instruction files — which is not littering, it is taking working agents off
  * the air by rewriting what they boot from.
  */
+require('../test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
