@@ -12,7 +12,8 @@
  *  - #3757: View All shows at the right of the "Files" header and opens the Files screen, which lists
  *    them all with Open in Finder on a computer; #4088 hides that computer-side action on a phone;
  *    #3994: View All shows with ANY file, even one (Una), not only when there are more than the list shows (10),
- *  - clicking a row reaches the opener with that file (the opener is stubbed, nothing opens),
+ *  - a plain click on a PDF row opens the full-page preview and does not reach the opener (#4997), and a
+ *    Cmd-click on the same row reaches the opener with that file (the opener is stubbed, nothing opens),
  *  - "Open in Finder" makes the folder on first use and reaches the opener with it,
  *  - #3757: the nav's labels are the agent title's size (#d-meta), and its boxes are shorter,
  *    with the icons and the two-across grid unchanged.
@@ -179,10 +180,19 @@ function chk(ok, label, extra) {
         // Before #3757, measured on main: Direct Message 84px, the others 73px; labels 17px and 14px.
         chk(nav.dmH <= 66 && nav.packH <= 58, `${tag} #3757: the nav boxes are shorter (Direct Message at most 66px, the others at most 58px)`, JSON.stringify(nav));
         chk(JSON.stringify(nav.icons) === JSON.stringify([24, 20, 20]) && nav.cols === 2 && !nav.wrapped, `${tag} #3757: icons unchanged (24 and 20), the grid stays two across, no label is cut`, JSON.stringify(nav));
-        const before = opened.length;
+        // #4997: a plain click on a PDF (or a picture) opens the full-page preview, not the computer's own app.
+        let before = opened.length;
         await page.click('#d-files-list .pj-doc[data-doc="report.pdf"]');
         await page.waitForTimeout(500);
-        chk(opened.length === before + 1 && /report\.pdf$/.test(opened[opened.length - 1] || ''), `${tag} clicking a row reaches the opener with that file`, JSON.stringify(opened.slice(before)));
+        const pv = await page.evaluate(() => { const b = document.getElementById('pv-preview'); return { open: !!b, name: b ? (b.querySelector('#pv-name') || {}).textContent : null }; });
+        chk(pv.open && /report\.pdf$/.test(pv.name || '') && opened.length === before, `${tag} #4997: a plain click on a PDF row opens the preview, not the opener`, JSON.stringify({ pv, opened: opened.slice(before) }));
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+        // The opener is still a modifier-click away (the preview leaves modified clicks to the row).
+        before = opened.length;
+        await page.click('#d-files-list .pj-doc[data-doc="report.pdf"]', { modifiers: ['Meta'] });
+        await page.waitForTimeout(500);
+        chk(opened.length === before + 1 && /report\.pdf$/.test(opened[opened.length - 1] || ''), `${tag} a Cmd-click on a row reaches the opener with that file`, JSON.stringify(opened.slice(before)));
       }
       await page.close();
 
