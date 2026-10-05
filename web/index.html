@@ -67594,8 +67594,9 @@ let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is kno
 // Anything copied in another app replaces the clipboard without this page knowing, so leaving the window forgets the
 // record: a later refusal then says so honestly rather than claiming an earlier copy still stands.
 window.addEventListener('blur', () => { FEDINV_CLIP_HOLDS = ''; });
-// So is any copy on this page (the person following the refusal's own advice, another copy control): a copy event
-// fires before the sheet's select-and-copy records its text, so the sheet's own copies are still recorded.
+// So is any copy on this page that fires a copy event (the person's own Command or Ctrl C, select-and-copy controls;
+// a clipboard API write fires none): it fires before the sheet's select-and-copy records its text, so the sheet's
+// own copies are still recorded.
 document.addEventListener('copy', () => { FEDINV_CLIP_HOLDS = ''; });
 let FEDINV_COPY_TOKEN = 0;     // slice C: counts copy presses, so a late write from an earlier press is known as stale
 let FEDINV_COPY_BUSY = false;  // slice C: either copy (the code, or the invitation) is waiting on the clipboard
@@ -67709,7 +67710,7 @@ async function fedCopyText(text, btn, onLate, what) {
   const token = ++FEDINV_COPY_TOKEN;   // this press; a newer press makes a late write from this one stale
   FEDINV_COPY_TEXT = text;              // what the newest press asked for
   if (copyTextViaExec(text, btn)) { FEDINV_CLIP_HOLDS = text; return true; }
-  if (!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function')) return false;
+  if (!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function')) return FEDINV_CLIP_HOLDS === text;
   FEDINV_COPY_BUSY = true;
   let limit = null;
   const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
@@ -67765,8 +67766,8 @@ async function fedInviteCopy() {
   }
   // Cleared, then said 30 ms later, so a second Copied is spoken again by the live region (plusCopyAddress's way).
   const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Code copied.'; }, 30); FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
-  // A late write from the newest press did copy it: say so, whatever the line shows now (the token proves no newer
-  // press has spoken since).
+  // A late write did copy it: say so, whatever the line shows now. fedCopyText calls this only for the newest press,
+  // or for an earlier press of the SAME text (then a newer press may have spoken, but the clipboard is right).
   const ok = await fedCopyText(text, btn, said, 'the code alone');
   if (ok === null) return;
   if (ok) { said(); return; }
