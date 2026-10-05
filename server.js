@@ -9798,7 +9798,15 @@ const server = http.createServer(async (req, res) => {
             connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
               ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
               ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
-              ...(loginGreen ? { observedFrom: 'login' } : {}) },
+              ...(loginGreen ? { observedFrom: 'login' } : {}),
+              /* #5168: the login has ended but its agents still work on the access token they hold, until this time.
+                 Not over a rejection or a sign-out, which say more than this does. worksUntil reads ONLY the cache that
+                 validUntilWithin (loginUntil, above) filled earlier in this same request; it does no read of its own, so
+                 a row whose read has not answered yet carries no stop time this poll and gets it on the next (Angel). */
+              ...((() => {
+                const stops = (v.badge === 'rejected' || v.badge === 'signed_out') ? null : claudeloginlive.worksUntil(a, nowMs);
+                return stops ? { loginStopsAt: stops } : {};
+              })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
