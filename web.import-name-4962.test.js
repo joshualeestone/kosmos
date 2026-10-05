@@ -73,7 +73,7 @@ function rig({ withField, parsed, created }) {
     return { ok: answer.httpOk !== false, json: async () => answer };
   };
   // eslint-disable-next-line no-new-func
-  const add = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+  const add = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
     + slice('addImportedInPlace') + '\nreturn addImportedInPlace;')(t.document, fetchImpl);
   return { add, row, btn, field, said, calls, d: t };
 }
@@ -189,7 +189,7 @@ test('a typed name and the cursor survive a redraw of the list', () => {
     return f;
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
+  const api = new Function('document', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
   const f1 = build(); f1.value = 'Claude Pip'; f1.focus();
   const kept = api.importNamesKept(box);
   const f2 = build();
@@ -233,7 +233,7 @@ test('review 2: a redraw during an add shows the new row as adding, then added, 
     return { ok: true, json: async () => CREATED };
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
     + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\n' + slice('addImportedInPlace')
     + '\nreturn { addImportedInPlace, importNamesKept, importNamesRestore };')(t.document, fetchImpl);
   const first = mk();
@@ -286,7 +286,7 @@ test('review 3: a refusal during a redraw shows its reason on the row on screen,
     return { ok: false, json: async () => ({ outcome: 'refused', field: 'name', because: 'an agent called pip is already here' }) };
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importAddsNewVisit') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importAddsNewVisit') + '\n' + slice('importRowsSync') + '\n'
     + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\n' + slice('addImportedInPlace')
     + '\nreturn { addImportedInPlace, importNamesKept, importNamesRestore };')(t.document, fetchImpl);
   const first = mk();
@@ -436,7 +436,7 @@ test('review 6: a refusal shown just before a redraw is still shown, and still m
     return { f, said };
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
+  const api = new Function('document', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
   const a = build(); a.said.textContent = 'Give this agent a name first.'; a.f.setAttribute('aria-invalid', 'true'); a.f.focus();
   const kept = api.importNamesKept(box);
   const b = build();
@@ -496,7 +496,7 @@ test('review 8: a refusal about the name focuses ONE copy, never one in a hidden
   const a = copy(found);
   const b = copy(fleet);
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\nreturn { importRowsSync };')(t.document);
+  const api = new Function('document', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\nreturn { importRowsSync };')(t.document);
   api.importRowsSync('/p/pip.md', 'That name is taken.', true);
   assert.equal(t.focused(), a.f, 'the first visible copy takes focus');
   assert.equal(a.f.getAttribute('aria-invalid'), 'true');
@@ -565,7 +565,7 @@ test('review 11: a stale attempt that fails late does not undo a newer attempt o
     return new Promise((resolve) => held.push(resolve));
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
     + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
   const a = api.add('/p/pip.md', btn, row);
   await new Promise((r) => setTimeout(r, 0));
@@ -587,7 +587,7 @@ test('review 11: a stale attempt that fails late does not undo a newer attempt o
 
 test('a stuck add is dropped on either list; a receipt is forgotten only by a new visit to the create screen', () => {
   // eslint-disable-next-line no-new-func
-  const api = new Function('const IMPORT_ADDS = new Map();\n' + slice('importAddsDropStuck') + '\n' + slice('importAddsNewVisit')
+  const api = new Function('const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importAddsDropStuck') + '\n' + slice('importAddsNewVisit')
     + '\nreturn { drop: importAddsDropStuck, visit: importAddsNewVisit, map: IMPORT_ADDS };')();
   const fill = () => {
     api.map.clear();
@@ -619,7 +619,7 @@ test('a stuck attempt that FAILS late, with nothing newer in flight, frees its r
     return new Promise((resolve) => held.push(resolve));
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
     + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
   const a = api.add('/p/pip.md', btn, row);
   await new Promise((r) => setTimeout(r, 0));
@@ -650,7 +650,7 @@ test('a stuck attempt that SUCCEEDS late, with nothing newer in flight, records 
     return new Promise((resolve) => held.push(resolve));
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
     + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
   const a = api.add('/p/pip.md', btn, row);
   await new Promise((r) => setTimeout(r, 0));
@@ -677,7 +677,7 @@ test('review 12: a stale attempt that SUCCEEDS late paints nothing while a newer
     return new Promise((resolve) => held.push(resolve));
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
     + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
   const a = api.add('/p/pip.md', btn, row);
   await new Promise((r) => setTimeout(r, 0));

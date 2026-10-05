@@ -53085,6 +53085,7 @@ function importNamesRestore(box, kept) {
    finishes applies it to whichever copy of the row is on screen now, so a receipt is never lost and a row
    is never offered again one keypress from a duplicate. */
 const IMPORT_ADDS = new Map();   // file -> { state: 'adding' | 'added', name }
+let IMPORT_ATTEMPT_LAST = 0;     // the last attempt's token: its start time, strictly increasing
 function importRowApply(row) {
   if (!row || !row.querySelector) return;
   const st = IMPORT_ADDS.get(row.getAttribute('data-import-file'));
@@ -53273,7 +53274,8 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     if (!late && !(aboutName && field) && hadInRow && typeof had.focus === 'function') had.focus();
     importRowsSync(file, msg, late ? false : aboutName, row);
   };
-  attemptAt = Date.now();
+  attemptAt = Math.max(Date.now(), IMPORT_ATTEMPT_LAST + 1);   // two attempts in one millisecond still differ
+  IMPORT_ATTEMPT_LAST = attemptAt;
   IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: attemptAt });
   // Review 10: a new attempt starts unflagged (a retry after a refusal must not stay red while it is adding).
   if (field) { field.disabled = true; field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
