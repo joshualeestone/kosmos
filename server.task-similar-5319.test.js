@@ -47,6 +47,10 @@ const P = {
     { number: 5, sentence: 'Write release notes', closedAt: null },
     { number: 7, sentence: 'Deep dive: Worlds', closedAt: '2026-10-01T00:00:00Z' },
     { number: 8, sentence: 'Fix the login bug', closedAt: null },
+    { number: 9, sentence: 'Release 0.7.22', closedAt: null },
+    { number: 10, sentence: 'Fix it', closedAt: null },
+    { number: 11, sentence: 'Do not enable dark mode on login', closedAt: null },
+    { number: 40, sentence: 'Deep dive: Worlds', closedAt: null },
   ],
 };
 
@@ -60,11 +64,24 @@ test('#5319: which open tasks count as similar (pure)', () => {
     ['Update the website', [], 'nothing in common'],
     ['Health check', [], 'a single shared word is not enough'],
     ['', [], 'no words'],
+    // Round 1: the note tells the adder to close the new task, so a false match costs a real task.
+    ['Release 0.7.23', [], 'a different version is a different ask (0.7.23 is one word, and the numbers differ)'],
+    ['Fix this', [], 'one word in common is never the same words'],
+    ['Enable dark mode', [], 'inside a much longer task (Do not enable dark mode on login) is not the same ask'],
   ];
   for (const [sentence, want, why] of rows) {
-    assert.deepEqual(tasks.similarOpen(P, sentence, 99).map((t) => t.number), want, `${JSON.stringify(sentence)}: ${why}`);
+    assert.deepEqual(tasks.similarOpen(P, sentence, 31).map((t) => t.number), want, `${JSON.stringify(sentence)}: ${why}`);
   }
   assert.deepEqual(tasks.similarOpen(P, 'Verify Theo AI and Enzo Health', 1), [], 'a task is never similar to itself');
+  // Round 1: two agents add the same ask at once (#40 and #41): only the OLDER copy is named, so never both close.
+  assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41).map((t) => t.number), [26, 40], 'the newest copy names the older ones');
+  assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 40).map((t) => t.number), [26], 'the older copy never names the newer one');
+  assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [40], 'a subtask never names its own parent');
+  const ranked = { tasks: [
+    { number: 2, sentence: 'deep dive worlds plus notes', closedAt: null },
+    { number: 3, sentence: 'deep dive worlds', closedAt: null },
+  ] };
+  assert.deepEqual(tasks.similarOpen(ranked, 'Deep dive: Worlds', 9).map((t) => t.number), [3, 2], 'closest first: the exact copy before the loose one');
   const many = { tasks: [2, 3, 4, 5].map((n) => ({ number: n, sentence: 'deep dive worlds', closedAt: null })) };
   assert.equal(tasks.similarOpen(many, 'deep dive worlds', 99).length, 3, 'at most three are named');
 });
