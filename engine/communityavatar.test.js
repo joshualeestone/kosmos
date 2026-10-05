@@ -607,14 +607,31 @@ test('#5302 pictureToFit names the agents whose picture is too big or the wrong 
   assert.match(readKeys()[key].avatarSkipLogged, /^type:/);
 });
 
-test('#5302 keepAvatarOriginal copies the picture aside once (the first is kept), outside what the lookup reads', () => {
+test('#5302 saveRefitAvatar: a stale version writes nothing; otherwise the original (per version) is kept, then the fit saved', () => {
   store.saveAvatar('kos', 'image/gif', GIF);
-  const kept = store.keepAvatarOriginal('kos');
-  assert.ok(fs.readFileSync(kept).equals(GIF));
-  store.saveAvatar('kos', 'image/png', png(4));
-  assert.equal(store.keepAvatarOriginal('kos'), kept, 'a second keep replaced the first original');
-  assert.ok(fs.readFileSync(kept).equals(GIF), 'the kept original changed');
-  assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(png(4)), 'the lookup read the kept original');
+  const v1 = store.avatarVersion('kos');
+  assert.throws(() => store.saveRefitAvatar('kos', 'image/png', png(4), v1 + 1), (e) => e.code === 'CHANGED');
+  assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(GIF), 'a stale refit changed the picture');
+  store.saveRefitAvatar('kos', 'image/png', png(4), v1);
+  assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(png(4)));
+  const dir = path.join(path.dirname(path.dirname(store.avatarPath('kos'))), 'avatar-originals');
+  const kept = fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.'));
+  assert.equal(kept.length, 1);
+  assert.ok(fs.readFileSync(path.join(dir, kept[0])).equals(GIF), 'the original was not kept');
+  // A later over-size picture keeps its own original too (its file time set apart: the version is the mtime).
+  const bump = (sec) => { const t = new Date(Date.now() + sec * 1000); fs.utimesSync(store.avatarPath('kos'), t, t); };
+  store.saveAvatar('kos', 'image/gif', GIF); bump(10);
+  store.saveRefitAvatar('kos', 'image/png', png(5), store.avatarVersion('kos'));
+  assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.')).length, 2);
+  // A keep that fails writes nothing.
+  store.saveAvatar('kos', 'image/gif', GIF); bump(20);
+  const real = fs.copyFileSync;
+  fs.copyFileSync = () => { throw new Error('disk full'); };
+  try { assert.throws(() => store.saveRefitAvatar('kos', 'image/png', png(6), store.avatarVersion('kos')), /disk full/); }
+  finally { fs.copyFileSync = real; }
+  assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(GIF), 'a failed keep still overwrote the picture');
+  assert.ok(!fs.readdirSync(dir).some((f) => f.endsWith('.tmp')), 'a failed copy left a temporary file');
+  // Removing the picture takes its originals.
   store.removeAvatar('kos');
-  assert.throws(() => store.keepAvatarOriginal('kos'), /no picture/);
+  assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.')).length, 0);
 });

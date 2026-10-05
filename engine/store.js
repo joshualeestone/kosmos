@@ -319,6 +319,29 @@ function avatarLookup(name) {
   return { file: f ? path.join(avatarsDir(), f) : null };
 }
 
+/* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
+   the avatars folder (never a name the avatar lookup reads), one per version (`<key>.<version><ext>`), so a fitted copy
+   never costs the person a picture. Copied to a temporary name and renamed, so a copy that dies part way never stands
+   as an original. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
+function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-originals'); }
+function keepAvatarOriginal(name) {
+  const file = avatarPath(name);
+  if (!file) throw new Error('there is no picture to keep');
+  ensure(originalsDir());
+  const dest = path.join(originalsDir(), safeKey(name) + '.' + avatarVersion(name) + path.extname(file).toLowerCase());
+  if (fs.existsSync(dest)) return dest;
+  const tmp = path.join(originalsDir(), '.' + safeKey(name) + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
+  try { fs.copyFileSync(file, tmp); fs.renameSync(tmp, dest); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
+  return dest;
+}
+/* kosmos#5302: the page's refit of an older picture. Refused (code CHANGED) when the picture is not the version the page
+   read; otherwise the original is kept first and only then the fitted picture saved. */
+function saveRefitAvatar(name, contentType, buffer, version) {
+  if (String(avatarVersion(name)) !== String(version)) { const e = new Error('that picture changed since it was read'); e.code = 'CHANGED'; throw e; }
+  keepAvatarOriginal(name);
+  return saveAvatar(name, contentType, buffer);
+}
+
 /**
  * A version that CHANGES whenever this agent's stored avatar changes (#2698).
  *
@@ -337,23 +360,6 @@ function avatarLookup(name) {
  * Returns 0 when there is no avatar or the file cannot be stat'd, which is a
  * stable, harmless `?v=0` for the no-picture (initials) case.
  */
-/* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
-   the avatars folder (never a name the avatar lookup reads), so the fitted copy never costs the person their only one.
-   An original already kept is not replaced: the first one is the person's own. Returns the kept path; throws when it
-   cannot be kept, and the caller then does not overwrite. */
-function keepAvatarOriginal(name) {
-  const file = avatarPath(name);
-  if (!file) throw new Error('there is no picture to keep');
-  const dir = path.join(path.dirname(avatarsDir()), 'avatar-originals');
-  ensure(dir);
-  const key = safeKey(name);
-  const kept = fs.readdirSync(dir).find((f) => f.startsWith(key + '.'));
-  if (kept) return path.join(dir, kept);
-  const dest = path.join(dir, key + path.extname(file).toLowerCase());
-  fs.copyFileSync(file, dest, fs.constants.COPYFILE_EXCL);
-  return dest;
-}
-
 function avatarVersion(name) {
   const file = avatarPath(name);
   if (!file) return 0;
@@ -461,6 +467,8 @@ function saveAvatar(name, contentType, buffer) {
 function removeAvatar(name) {
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
+  // kosmos#5302: a removed picture takes the originals kept for it too.
+  try { const key = safeKey(name); for (const f of fs.readdirSync(originalsDir())) if (f.startsWith(key + '.')) fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* none kept */ }
   return Boolean(existing);
 }
 
@@ -631,7 +639,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
