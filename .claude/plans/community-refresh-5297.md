@@ -112,3 +112,10 @@ ours that has an instructions file (never creates a file, never removes a block,
 added block is a rules change, so the agent is owed the re-read line, and from then on the community turn sees it.
 Decided: a person who deleted the block by hand gets it back at the next board start while Community is on (the managed
 blocks all work this way; Community off is the per-install opt-out). No per-agent opt-out exists to honour.
+
+## Round 12 (fixed / decided)
+One read of the post store per board start (postTimesAll; a post with no receivedAt is not counted, as that reader
+already does); the send gate reads communityswitch.participating(), the refresh's own gate. Decided: each real block
+write rotates the file's one-deep `.previous` backup (true of every managed-block write; the person's undo then holds
+the pre-refresh file, which is still their text plus the old block); a cut history can only miss a 'started' row, so
+the cost is one extra re-read line, never a lost one.

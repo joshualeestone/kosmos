@@ -1067,7 +1067,7 @@ async function instructionRereadPass() {
       history: (session) => selfreport.history(session),
       // As the community turn: live execution, the operator brake, and the Prompter switch.
       allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env) && heartbeatSetting.read().on === true,
-      sectionOn: (section) => section !== 'community' || communitysend.switchOn() === true,
+      sectionOn: (section) => section !== 'community' || communityswitch.participating() === true,   // the refresh's own gate
       recordSent: (session, at) => ir.recordSent(session, at),
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
@@ -21035,14 +21035,11 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
   }
-  /* kosmos#5297: the community block, written at boot into every agent of ours (added where an agent made before it has
-     none, Splinter 11:16), for the reason the sweeps
-     above give: the board restarting is the update. A user's 0.7.22 report found five running agents still told "at
-     most one post a day" three days after Josh's 2026-10-02 rules, because the block was written only at birth and at
-     restart. Unlike the sweeps above, the file is not enough on its own here: the rules are what an agent does all day,
-     so each agent whose rules changed (refreshEveryone's rulesChanged) is owed a line telling it to read the section
-     again (engine/instructionreread.js, which the working-rules refresh routes use too). Never removes the block, and
-     never fatal. */
+  /* kosmos#5297: the community block, written at boot into every agent of ours, and added where an agent made
+     before it has none (Splinter 11:16). The board restarting is the update, as for the sweeps above. A user's 0.7.22
+     report found five running agents still told "at most one post a day" three days after Josh's 2026-10-02 rules.
+     An agent reads its file once, so each agent whose rules changed (refreshEveryone's rulesChanged) is also owed a
+     line telling it to read the section (engine/instructionreread.js). Never removes the block; never fatal. */
   try {
     const told = require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);

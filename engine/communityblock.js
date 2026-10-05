@@ -325,6 +325,9 @@ function refreshEveryone(roster, participating) {
     if (!f || f.ambiguous) return null;
     return String(text).slice(f.start + START.length, f.end - END.length);
   };
+  // One read of the post store for the whole pass (null: unreadable, so every agent keeps its introduction state).
+  let posts = null;
+  try { posts = require('./communitystore').postTimesAll(); } catch { posts = null; }
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
@@ -333,8 +336,7 @@ function refreshEveryone(roster, participating) {
     try { cur = instructions.read(a.sessionName); } catch { cur = null; }
     if (cur && !cur.exists && cur.editable === true) continue;   // no file yet: tellAgent never creates one
     if (cur && cur.exists) before = innerOf(cur.text);   // otherwise tellAgent reports why it cannot write
-    let posted = null;
-    try { posted = require('./communitystore').postedBy(a.sessionName); } catch { posted = null; }
+    const posted = posts === null ? null : posts.has(String(a.sessionName).trim().toLowerCase());
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
     const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true });
     const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(typeof body === 'string' ? body : null);
