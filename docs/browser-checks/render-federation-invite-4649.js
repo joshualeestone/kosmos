@@ -496,8 +496,16 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate((d) => { PJ_CURRENT = 'elsewhere'; fedGateStamp(d); }, SHOW);
     const openAfter = await page.evaluate(() => !document.getElementById('pj-addmenu').hidden);
     await page.evaluate(() => { PJ_CURRENT = 'k'; });
-    check('A10 after a forced close mid-Make the reopened sheet closes on Escape; a switched project closes the menu (control: open before)',
-      closed === true && openBefore === true && openAfter === false, JSON.stringify({ closed, openBefore, openAfter }));
+    // The sheet's asking step, opened on k, then its project switched: the next stamp closes it.
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    const sheetBefore = await page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    await page.evaluate((d) => { PJ_CURRENT = 'elsewhere'; fedGateStamp(d); }, SHOW);
+    const sheetAfter = await page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    await page.evaluate(() => { PJ_CURRENT = 'k'; });
+    check('A10 after a forced close mid-Make the reopened sheet closes on Escape; a switched project closes the menu and the asking sheet (controls: open before)',
+      closed === true && openBefore === true && openAfter === false && sheetBefore === true && sheetAfter === false,
+      JSON.stringify({ closed, openBefore, openAfter, sheetBefore, sheetAfter }));
     await ctx.close();
   }
 

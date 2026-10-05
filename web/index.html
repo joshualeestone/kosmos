@@ -67451,6 +67451,12 @@ function pjAddMenuSync() {
   // stamp rather than coming back stale for another project.
   const m = document.getElementById('pj-addmenu');
   if (m && !m.hidden && (PJ_ADDMENU_PROJECT !== PJ_CURRENT || !PJ_ADDMENU_OPENER || !PJ_ADDMENU_OPENER.getClientRects().length)) pjAddMenuCloseKeepFocus();
+  // The sheet's asking step belongs to the project it was opened on: after a switch it closes (a code already on
+  // screen stays: it cannot be shown again). Make also refuses a changed project. FEDINV_PROJECT is declared further
+  // down; it is read only once the sheet is open (the !inv.hidden test short-circuits first), so never in its TDZ.
+  const inv = document.getElementById('fedinv-modal');
+  const ask = document.getElementById('fedinv-ask');
+  if (inv && !inv.hidden && ask && !ask.hidden && FEDINV_PROJECT !== PJ_CURRENT && typeof fedInviteClose === 'function') fedInviteClose();
   const on = fedShow() && !!PJ_CURRENT;   // with no project open the + opens the add-agent dialog, not a menu
   const grouped = AGENTS_GROUPED === true;   // declared near the top (a typeof guard would not shield a TDZ read anyway)
   for (const [id, opensMenu] of [['pj-add-member', on], ['rail-agents-new', on && grouped]]) {
@@ -67573,6 +67579,10 @@ let FEDINV_MAKE_LIMIT_MS = 60000;   // above the board's worst case for one invi
 // An unseen code is harmless: it stops working on its own when it lapses (a pending-codes list could also be named here).
 const FEDINV_TIMED_OUT = 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.';
 async function fedInviteMake() {
+  if (FEDINV_PROJECT !== PJ_CURRENT) {   // the open project changed under the sheet: do not invite into the old one
+    document.getElementById('fedinv-msg').textContent = 'The project changed. Close this and open the invite from the project you want.';
+    return;
+  }
   if (!fedShow()) {   // a passing signup reading keeps the asking step open, but no new code is made under it
     document.getElementById('fedinv-msg').textContent = 'Inviting is not available just now. Try again in a moment.';
     return;
