@@ -20,8 +20,8 @@ itself. A picture that cannot be fitted is left as it is and the warning keeps t
 ## Decided
 - In the page, not the engine (Node has no image codec, no image dependency; #4885 rejected engine resizing).
 - Overwrite the stored picture (what choosing it again does), but KEEP THE ORIGINAL first (review 1: otherwise the
-  person's only copy is lost at page load with no click): store.keepAvatarOriginal copies it to avatar-originals/ (the
-  first one kept, never replaced), and the PUT carries the version it read, refused (409) if the picture changed since.
+  person's only copy is lost at page load with no click): store.keepAvatarOriginal copies it to avatar-originals/ (one per version and
+  size, see Review 2/3), and the PUT carries the version it read, refused (409) if the picture changed since.
 - Not the community's own refusals (avatarRefused): fitting would not change those.
 - No new browser check: the canvas work is fitPicture (render-picture-fit-4885.js); the flow is node-tested with
   stand-ins. Override trailer on the branch; the full browser-checks run is still required before merge.
@@ -46,3 +46,9 @@ The gate lives in store.saveRefitAvatar (version check, keep the original, then 
 failed keep write nothing). One original per version (`<key>.<mtime><ext>`), copied to a temp name and renamed; removeAvatar
 clears an agent's originals. Weakest premise: the version is the rounded mtime, so two saves in one millisecond share it
 (the keep then finds that version already kept, which held the same bytes when it was kept).
+
+## Review 3 (fixed / decided)
+Nothing is fitted while Community is off (pictureToFit returns []); a version-0 refit is refused; originals are named by
+version AND size; one unreadable name no longer blanks the whole list. Decided: the refit route itself has no HTTP test
+(its gate is store.saveRefitAvatar, runtime-tested; a request test needs a running agent card, the route is pinned by
+source); originals of a picture later replaced through the chooser stay until the agent's picture is removed.

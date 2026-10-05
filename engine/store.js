@@ -320,7 +320,7 @@ function avatarLookup(name) {
 }
 
 /* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
-   the avatars folder (never a name the avatar lookup reads), one per version (`<key>.<version><ext>`), so a fitted copy
+   the avatars folder (never a name the avatar lookup reads), one per version and size (`<key>.<version>-<size><ext>`), so a fitted copy
    never costs the person a picture. Copied to a temporary name and renamed, so a copy that dies part way never stands
    as an original. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
 function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-originals'); }
@@ -328,7 +328,8 @@ function keepAvatarOriginal(name) {
   const file = avatarPath(name);
   if (!file) throw new Error('there is no picture to keep');
   ensure(originalsDir());
-  const dest = path.join(originalsDir(), safeKey(name) + '.' + avatarVersion(name) + path.extname(file).toLowerCase());
+  const size = fs.statSync(file).size;
+  const dest = path.join(originalsDir(), safeKey(name) + '.' + avatarVersion(name) + '-' + size + path.extname(file).toLowerCase());
   if (fs.existsSync(dest)) return dest;
   const tmp = path.join(originalsDir(), '.' + safeKey(name) + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
   try { fs.copyFileSync(file, tmp); fs.renameSync(tmp, dest); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
@@ -337,7 +338,9 @@ function keepAvatarOriginal(name) {
 /* kosmos#5302: the page's refit of an older picture. Refused (code CHANGED) when the picture is not the version the page
    read; otherwise the original is kept first and only then the fitted picture saved. */
 function saveRefitAvatar(name, contentType, buffer, version) {
-  if (String(avatarVersion(name)) !== String(version)) { const e = new Error('that picture changed since it was read'); e.code = 'CHANGED'; throw e; }
+  const now = avatarVersion(name);
+  // Version 0 is "no picture, or one that could not be read": never fitted over.
+  if (!now || String(now) !== String(version)) { const e = new Error('that picture changed since it was read'); e.code = 'CHANGED'; throw e; }
   keepAvatarOriginal(name);
   return saveAvatar(name, contentType, buffer);
 }
