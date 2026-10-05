@@ -3591,7 +3591,9 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
                            mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
   #s-nav[data-edge=""] { -webkit-mask-image: none; mask-image: none; }
-  #s-nav .snav-more { position: sticky; right: 0; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -12px;
+  /* right: -32px cancels the row's 32px end padding: a sticky box is held inside the padding, which left it 32px short
+     of the edge with pills showing on both sides of it. */
+  #s-nav .snav-more { position: sticky; right: -32px; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -12px;
                       display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
                       background: var(--k-bg); color: var(--k-ink); box-shadow: 0 0 0 1px var(--k-rule); }
   #s-nav:not([data-edge="r"]):not([data-edge="lr"]) .snav-more { display: none; }
