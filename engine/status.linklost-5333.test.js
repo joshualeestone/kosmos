@@ -33,7 +33,7 @@ test('#5333: instanceState answers held, gone, or unknown, and never reads an un
   assert.equal(minted.ok, true);
   assert.equal(sendertoken.instanceState('ivy', minted.instance), 'held');
   assert.equal(sendertoken.instanceState('ivy', 'abcdef123456'), 'gone', 'a run whose token is not on file');
-  assert.equal(sendertoken.instanceState('nobody-here', minted.instance), 'gone', 'no file at all: the store lost every token');
+  assert.equal(sendertoken.instanceState('nobody-here', minted.instance), 'unknown', 'no file for this agent (another board\'s store, a revoke): not ours to call lost');
   assert.equal(sendertoken.instanceState('ivy', ''), 'unknown', 'no instance to compare');
   const DIR = sendertoken.DIR; const aside = DIR + '.aside';
   fs.renameSync(DIR, aside);
@@ -49,26 +49,30 @@ test('#5333: a running agent whose run token is held is not lost; once it is ret
   const board = fleet.install([fleet.agent('ava', { state: 'idle', tokenInstance: minted.instance })]);
   try {
     assert.equal(cardOf(board, 'ava').linkLost, false, 'its token is on file');
+    sendertoken.mint('ava');   // another run's token, so the file outlives this run's retire (as a relaunch's sweep leaves it)
     sendertoken.retire('ava', minted.instance);
     const after = board.snapshot();
     assert.equal(after.find((a) => a.sessionName === 'ava').linkLost, true, 'the run is live and its token is gone');
   } finally { board.restore(); }
 });
 
-test('#5333: a wiped token store reads as lost for a running agent', () => {
+test('#5333: a missing token file (revoked, or another board\'s store) is never read as lost; a replaced run is', () => {
   const minted = sendertoken.mint('bo');
   const board = fleet.install([fleet.agent('bo', { state: 'idle', tokenInstance: minted.instance })]);
   try {
     fs.rmSync(path.join(sendertoken.DIR, 'bo.json'));
-    assert.equal(board.snapshot().find((a) => a.sessionName === 'bo').linkLost, true);
+    assert.equal(board.snapshot().find((a) => a.sessionName === 'bo').linkLost, false, 'no file: unknown, not lost');
+    sendertoken.mint('bo');   // the file is back, holding another run's token only: this run's is gone
+    assert.equal(board.snapshot().find((a) => a.sessionName === 'bo').linkLost, true, 'CONTROL: the file without this run\'s token is lost');
   } finally { board.restore(); }
 });
 
 test('#5333 CONTROLS: no instance on the session, an unreadable store, or a session Kosmos did not launch is never "lost"', () => {
   const minted = sendertoken.mint('cy');
+  sendertoken.mint('di');   // di's file exists, holding a run other than the one its session carries
   const board = fleet.install([
     fleet.agent('cy', { state: 'idle' }),                                         // predates the instance: nothing to compare
-    fleet.agent('di', { state: 'idle', tokenInstance: 'abcdef123456' }),          // its token is not on file: lost
+    fleet.agent('di', { state: 'idle', tokenInstance: 'abcdef123456' }),          // its file holds another run only: lost
     fleet.agent('ed', { state: 'idle', tokenInstance: minted.instance, ours: false }),    // not ours by name
   ]);
   try {

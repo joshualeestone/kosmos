@@ -6,15 +6,17 @@ nothing on the board said so ("a message from the person can sit unanswered inde
 
 ## Finished looks like
 - Each agent card carries `linkLost`: true only for a session Kosmos launched (ours by name) that carries its run's
-  token instance (@kosmos_token_instance, stamped by the supervisor) whose token the store this board reads no longer
-  holds. Whatever removed it (a retire, a revoke, a wiped store), this sees it. Paneless cards answer false.
-- sendertoken.instanceState(name, instance): 'held', 'gone' (readable and absent, or no file at all), or 'unknown'
-  (unreadable or unparseable, or no instance); only 'gone' is lost. An unreadable store never reads as lost.
+  token instance (@kosmos_token_instance, stamped by the supervisor) and this board's token file for the agent is there
+  without that run's token (a retire, or the run replaced). A missing file (a revoke, a wiped store, or another board's
+  store) is 'unknown' and never flagged: a second board would otherwise call every healthy agent lost. Paneless false.
+- sendertoken.instanceState(name, instance): 'held', 'gone' (its file readable, the run's token absent), or 'unknown'
+  (no file, unreadable, unparseable, old shape, or no instance); only 'gone' is lost.
 - The agent's page shows, under its state, once linkLost has been true on two polls in a row (past a restart's
-  moment): "<Name> has lost its link to Kosmos, so it cannot answer you. Restart it to fix this: "Write a handoff,
+  moment): "<Name> has lost its link to Kosmos, so it cannot answer you in Kosmos. Restart it to fix this: "Write a handoff,
   then restart" keeps what it was doing." with a Restart button that opens the shared restart confirm for that agent.
   ("Answer", not "read": a message still reaches it, typed into its window; what fails is everything it sends back.)
-  Not for an agent being removed (its token is revoked on purpose), and not beside "Start this agent" when stopped.
+  Not for an agent being removed (its token is revoked on purpose), and not beside "Start this agent" (stopped) or
+  "Sign in again" (auth_failed). "In Kosmos": a -discord agent still answers through its own bridge.
   Gone again once the token is on file.
 - engine/status.linklost-5333.test.js (instanceState, the card field, a wiped store, controls) and an arm in
   render-agent-pill-3958.js (Chromium and WebKit: the notice, its Restart, and the control both ways).

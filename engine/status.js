@@ -6874,9 +6874,10 @@ function paneRoster() {
 
 /**
  * #5333: has this RUNNING agent lost its link to Kosmos? True only when Kosmos launched the session (it is ours by
- * name, and carries the run's token instance) and the token store, read by this board, no longer holds that run's
+ * name, and carries the run's token instance) and this board's token file for the agent is there without that run's
  * token: every whoami, inbox, reply, msg, post and report the agent runs is then refused, and nothing else would say
- * so. An unreadable store ('unknown') is never read as lost. Whatever removed the token, this sees it.
+ * so. A missing or unreadable file ('unknown') is never read as lost: a revoke or a wiped store goes unflagged rather
+ * than a second board's store flagging every healthy agent.
  */
 function linkLostFor(pane) {
   if (!pane || !pane.tokenInstance || !isNamedOurs(pane)) return false;

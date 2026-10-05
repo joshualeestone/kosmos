@@ -37886,7 +37886,7 @@ function paintDetailState(card) {
     /* A reading counts once per POLL, never per paint: each poll brings new card objects, and a repaint of the same
        card (opening the page paints the cached one) adds nothing. And only if the last lost reading was recent, so a
        count left from an earlier visit cannot carry over. */
-    const seen = card.linkLost === true && a.state !== 'stopped';
+    const seen = card.linkLost === true && a.state !== 'stopped' && a.state !== 'auth_failed';   // each of those has its own remedy on the page
     const prev = LINK_LOST_SEEN.get(a.sessionName);
     let n = 0;
     if (seen) {
@@ -37899,7 +37899,7 @@ function paintDetailState(card) {
     if (on) {
       /* "Answer", not "read": a message still reaches it (the board types it into its window, no token involved);
          what fails is everything it sends back through Kosmos. */
-      const words = a.name + ' has lost its link to Kosmos, so it cannot answer you. Restart it to fix'
+      const words = a.name + ' has lost its link to Kosmos, so it cannot answer you in Kosmos. Restart it to fix'
         + ' this: \u201cWrite a handoff, then restart\u201d keeps what it was doing.';
       const t = document.getElementById('d-linklost-text');
       if (t && t.textContent !== words) t.textContent = words;

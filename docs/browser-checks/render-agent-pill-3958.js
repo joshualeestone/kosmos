@@ -218,15 +218,15 @@ async function read(page) {
         chk(!(await linkNote()).shown, `${engineName}: control: no lost-link notice for a running agent with nothing to compare`);
         /* A real board that has launched agents has a token store; this sandbox has minted nothing yet, and a board with no
            store at all is never told an agent is lost (it cannot tell). So another agent's token makes the store exist. */
-        sendertoken.mint('someone-else');
-        setState('working', { tokenInstance: 'abcdef123456' });   // a run whose token is not on file
+        sendertoken.mint('beatrix');   // her file exists, holding a run other than the one her session carries
+        setState('working', { tokenInstance: 'abcdef123456' });   // this run's token is not in her file
         /* Counted by the page's own poll counter, not by the clock: a fixed wait can hold one poll or two. */
         const seenN = () => page.evaluate(() => { const e = LINK_LOST_SEEN.get('beatrix'); return e ? e.n : 0; });
         await page.waitForFunction(() => { const e = LINK_LOST_SEEN.get('beatrix'); return !!e && e.n === 1; }, null, { timeout: 15000 });
         chk(!(await linkNote()).shown, `${engineName} -> link lost on ONE poll: no notice yet (it waits for a second, past a restart's moment)`, 'n=' + (await seenN()));
         await page.waitForFunction(() => { const e = LINK_LOST_SEEN.get('beatrix'); return !!e && e.n >= 2; }, null, { timeout: 15000 });
         const lost = await linkNote();
-        chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot answer you\./.test(lost.text) && lost.target === 'beatrix',
+        chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot answer you in Kosmos\./.test(lost.text) && lost.target === 'beatrix',
           `${engineName} -> link lost: the notice names the agent and its Restart is for that agent`, JSON.stringify(lost));
         await page.click('#d-linklost-restart');
         await page.waitForTimeout(300);
