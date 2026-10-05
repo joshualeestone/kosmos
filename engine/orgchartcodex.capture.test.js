@@ -47,12 +47,13 @@ function captureServer() {
 }
 
 /* One Codex run against the capture server; resolves the captured bodies. `args` is the full argv. */
-async function capture(argsFor) {
+async function capture(argsFor, plant = {}) {
   const cap = await captureServer();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5346-cap-'));
   const home = path.join(root, 'codex-home');
   const work = path.join(root, 'work');
   fs.mkdirSync(home); fs.mkdirSync(work);
+  for (const [f, text] of Object.entries(plant)) fs.writeFileSync(path.join(home, f), text);
   fs.copyFileSync(cache, path.join(home, 'models_cache.json'));
   const catalog = path.join(root, 'catalog.json');
   fs.writeFileSync(catalog, JSON.stringify(c.deriveCatalog(home)));
@@ -62,7 +63,8 @@ async function capture(argsFor) {
   fs.copyFileSync(path.join(__dirname, '..', 'test-support', 'orgchart-4559', 'chart.png'), image);
   const base = 'openai_base_url="http://127.0.0.1:' + cap.port + '/v1"';
   const args = argsFor({ dir: work, catalog, schema, image, base });
-  const env = { PATH: process.env.PATH, HOME: root, CODEX_HOME: home, CODEX_API_KEY: 'sk-capture-5346', OPENAI_API_KEY: 'sk-capture-5346' };
+  // The reader's own environment (childEnv), plus the fake key this capture signs in with.
+  const env = { ...c.childEnv(process.env, home), HOME: root, CODEX_API_KEY: 'sk-capture-5346' };
   await new Promise((resolve) => {
     const child = spawn(bin, args, { cwd: work, env, stdio: ['ignore', 'ignore', 'ignore'] });
     const t = setTimeout(() => child.kill('SIGKILL'), 90000);
@@ -98,4 +100,16 @@ test('#5346 (a) CONTROL: with Codex\'s default tools, the same capture sees the 
   assert.ok(bodies.length >= 1, 'Codex sent no model request to the capture server');
   const tools = c.offeredTools(bodies[0]);
   assert.ok(tools.some((t) => !c.ALLOWED_TOOLS.includes(t)), 'the control saw only the allowed tools: ' + JSON.stringify(tools));
+});
+
+/* WHY orgchartcodex refuses an account with its own instructions file: under the reader's flags Codex still sends it
+   (AGENTS.override.md if there is one, else AGENTS.md). If a future Codex stops sending them, this fails, and the
+   refusal in pickWithWhy can be reconsidered rather than outliving its reason. */
+test('#5346 premise: under the reader\'s flags Codex still sends the account\'s AGENTS.md and AGENTS.override.md', { skip: why || false, timeout: 120000 }, async () => {
+  const args = ({ dir, catalog, schema, image, base }) => c.codexArgs({ dir, catalog, schema, image, prompt: 'Read this org chart.', extra: [base] });
+  let bodies = await capture(args, { 'AGENTS.md': 'MARKER-AGENTS-5346' });
+  assert.ok(bodies.length >= 1 && JSON.stringify(bodies).includes('MARKER-AGENTS-5346'), 'AGENTS.md was not sent');
+  bodies = await capture(args, { 'AGENTS.override.md': 'MARKER-OVERRIDE-5346' });
+  assert.ok(bodies.length >= 1 && JSON.stringify(bodies).includes('MARKER-OVERRIDE-5346'), 'AGENTS.override.md was not sent');
+  assert.deepEqual([...c.INSTRUCTION_FILES].sort(), ['AGENTS.md', 'AGENTS.override.md']);
 });

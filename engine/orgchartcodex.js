@@ -20,8 +20,9 @@
  *
  * The picture goes in the request (`-i`, sent as base64), the answer is schema JSON (`--output-schema`), nothing is
  * saved (`--ephemeral`, measured: no session or thread file, the prompt in no file under the account's folder), and
- * the person's own config, rules, skills, hooks, memories and apps do not load. A PDF is not read here: `-i` takes
- * pictures.
+ * the person's own config file, rules, hooks, memories and apps are switched off by the flags. Their own instructions
+ * file is NOT (no flag stops Codex sending it), so an account that has one is not used at all: see personalInstructions.
+ * A PDF is not read here: `-i` takes pictures.
  */
 
 const fs = require('node:fs');
@@ -103,15 +104,55 @@ const realBin = () => { try { const r = require('./runners').resolveBin('openai'
 let binFn = realBin;
 /** Tests only: the Codex binary to use (a function returning a path or null); null restores the real one. */
 function setBin(fn) { binFn = typeof fn === 'function' ? fn : realBin; }
-function pick() {
-  if (!binFn()) return null;
+/* The Codex version Kosmos pins (engine/runners.js), the only one these flags were measured on. A newer Codex can add a
+   tool that is on by default, so any other version is not used for this read: it fails closed, not open. */
+const pinnedVersion = () => { try { return require('./runners').MANIFEST.openai.version || null; } catch { return null; } };
+const versionCache = new Map();   // bin + mtime -> version, so --version runs once per binary, not per page load
+let versionFn = (bin) => {
+  let key = bin;
+  try { key = bin + '\u0000' + fs.statSync(bin).mtimeMs; } catch { /* the run below reports it */ }
+  if (versionCache.has(key)) return versionCache.get(key);
+  let v = null;
+  try {
+    const out = require('node:child_process').execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: childEnv(process.env, os.tmpdir()) });
+    const m = /(\d+\.\d+\.\d+)/.exec(String(out));
+    v = m ? m[1] : null;
+  } catch { v = null; }
+  versionCache.set(key, v);
+  return v;
+};
+const versionFnReal = versionFn;
+/** Tests only: the version lookup (bin -> version or null); null restores the real one. */
+function setVersion(fn) { versionFn = typeof fn === 'function' ? fn : versionFnReal; }
+
+/* The person's own instructions, which Codex sends with every request from the account's folder and which no flag
+   switches off (measured in review: AGENTS.override.md, else AGENTS.md, reached the request under every flag,
+   model_instructions_file included). They are private and could steer the read, so an account that has either is
+   not used for this read. The same two files engine/personalinstr.js reports for a Codex agent. */
+const INSTRUCTION_FILES = ['AGENTS.override.md', 'AGENTS.md'];
+function personalInstructions(dir) {
+  return INSTRUCTION_FILES.some((f) => { try { fs.lstatSync(path.join(dir, f)); return true; } catch { return false; } });
+}
+const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. A CSV or Excel export works with any provider, and so does typing the list.';
+const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. A CSV or Excel export works with any provider, and so does typing the list.';
+
+/* The reader and, when a ChatGPT account is here but cannot be used, why, from one look. */
+function pickWithWhy() {
+  const bin = binFn();
+  if (!bin) return { reader: null, offWhy: null };
   let rows = [];
   try { rows = accountsFn() || []; } catch { rows = []; }
   const subs = rows.filter((r) => r && r.authMode === 'chatgpt' && r.dir)
     .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
   const r = subs[0];
-  return r ? { kind: 'codex', provider: 'openai', dir: r.dir, account: r.email || r.name || null } : null;
+  if (!r) return { reader: null, offWhy: null };
+  const want = pinnedVersion();
+  const have = versionFn(bin);
+  if (!want || have !== want) return { reader: null, offWhy: whyVersion(have, want || 'unknown') };
+  if (personalInstructions(r.dir)) return { reader: null, offWhy: WHY_INSTRUCTIONS };
+  return { reader: { kind: 'codex', provider: 'openai', dir: r.dir, account: r.email || r.name || null }, offWhy: null };
 }
+function pick() { return pickWithWhy().reader; }
 
 /* The consent line's words: the provider and the account, as #4559 names Claude's. */
 function label(reader) {
@@ -141,7 +182,7 @@ const QUIET_ITEMS = new Set(['agent_message', 'reasoning', 'todo_list', 'error']
    "using your plan") never reaches it. Kept: what a program needs to run, and the person's own proxy and CA settings,
    without which a computer on a company network cannot reach OpenAI at all. Compared without case, as Windows names
    are. CODEX_HOME is the account the consent named. */
-const ENV_KEEP = new Set(['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'LC_CTYPE', 'USER', 'LOGNAME', 'SHELL',
+const ENV_KEEP = new Set(['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'LC_CTYPE', 'USER', 'LOGNAME',
   'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'PROGRAMDATA',
   'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS']);
 function childEnv(from, accountDir) {
@@ -168,6 +209,8 @@ function read(reader, prompt, media, buf, signal) {
   const bin = binFn();
   if (!bin) return Promise.resolve({ ok: false, unavailable: true, because: 'no ChatGPT connection on this computer' });
   if (!READS[media]) return Promise.resolve({ ok: false, because: cannotRead(media) });
+  // Asked again at the moment of the read: a file made while the consent box was open must not ride along.
+  if (personalInstructions(reader.dir)) return Promise.resolve({ ok: false, because: WHY_INSTRUCTIONS });
   const catalog = deriveCatalog(reader.dir);
   if (!catalog) return Promise.resolve({ ok: false, because: 'Codex has not finished setting up this ChatGPT account. Start an OpenAI agent once, then try again' });
   let dir;
@@ -257,4 +300,4 @@ function read(reader, prompt, media, buf, signal) {
   });
 }
 
-module.exports = { childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

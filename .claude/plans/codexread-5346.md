@@ -58,7 +58,18 @@ stay off (measured reasons on the card).
   `write_stdin` offered. Also captured once with the REAL ChatGPT login (still to a local server): same two tools.
 - Unit tests 10/10; existing org-chart tests 138/138; engine sweep tests 128/128.
 
+- **Two fail-closed gates before the reader is offered** (and the first again at the read):
+  1. **The account has its own instructions file** (`AGENTS.override.md` or `AGENTS.md` in its Codex folder): not
+     used, with a sentence saying why. Measured in review: Codex sends that file with every request under every flag,
+     `model_instructions_file` included, so it would carry the person's private instructions to OpenAI and could
+     steer the read. Kosmos does not write these files (engine/personalinstr.js). A capture test pins the premise.
+  2. **The Codex binary is not the version Kosmos pins** (runners MANIFEST, 0.149.1): not used. The flags and the
+     catalog clearing were measured on that version only; a newer one could add a tool that is on by default.
+
 ## Rejected
+
+- **A separate Codex home per read without the instructions file.** A ChatGPT token refreshed into the copy could
+  invalidate the person's real sign-in, and their agents with it.
 
 - **A forwarding proxy that inspects every real request before it leaves.** Strongest check, but the board would
   hold the person's ChatGPT token in flight and re-implement Codex's transport. Apps off is measured, and the

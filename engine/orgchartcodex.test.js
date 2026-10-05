@@ -78,8 +78,10 @@ const answer = (obj) => events({ type: 'thread.started' }, { type: 'turn.started
 const SUB = { dir: acct, authMode: 'chatgpt', isDefault: true, email: 'ceo@example.test' };
 c.setBin(() => fake);
 c.setAccounts(() => [SUB]);
+const PINNED = require('./runners').MANIFEST.openai.version;
+c.setVersion(() => PINNED);
 keys.setAccounts(() => []);
-test.after(() => { c.setBin(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
+test.after(() => { c.setBin(null); c.setVersion(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
 
 test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', () => {
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey', isDefault: true }, { dir: '/b', authMode: 'chatgpt', email: 'b@x.test' }, { ...SUB, isDefault: true }]);
@@ -196,8 +198,10 @@ test('a hung Codex ends at the timeout; a stopped read ends at once', async () =
 test('an answer that is not JSON, and no answer at all, are refusals', async () => {
   events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: 'Here is your chart!' } });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /not the list asked for/);
+  await grandchildGone();
   events({ type: 'turn.failed', error: { message: 'Not logged in' } });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /sign-in on this computer has ended/);
+  await grandchildGone();
 });
 
 test('offeredTools finds tools nested in a developer message, by name or built-in type', () => {
@@ -205,4 +209,37 @@ test('offeredTools finds tools nested in a developer message, by name or built-i
     { type: 'function', name: 'update_plan' }, { type: 'function', name: 'request_user_input' }] }] },
   { role: 'user', content: [{ type: 'input_text', text: 'exec_command is only named here' }] }], tools: [{ type: 'web_search' }] };
   assert.deepEqual(c.offeredTools(body), ['update_plan', 'request_user_input', 'web_search']);
+});
+
+test('a Codex that is not the version Kosmos pins is not used, and the person is told why', () => {
+  c.setVersion(() => '9.9.9');
+  try {
+    assert.equal(o.currentReader(), null);
+    assert.match(o.whyNoReader(), /Codex on this computer \(version 9\.9\.9\): Kosmos has checked only version /);
+    c.setVersion(() => null);
+    assert.equal(o.currentReader(), null, 'a version that cannot be read is not used either');
+  } finally { c.setVersion(() => PINNED); }
+  assert.equal(o.currentReader().kind, 'codex', 'CONTROL: the pinned version reads');
+});
+
+test('an account with its own instructions file (AGENTS.md or AGENTS.override.md) is not used: Codex would send it', async () => {
+  for (const f of c.INSTRUCTION_FILES) {
+    fs.writeFileSync(path.join(acct, f), 'private instructions');
+    try {
+      assert.equal(o.currentReader(), null, f);
+      assert.equal(o.whyNoReader(), c.WHY_INSTRUCTIONS, f);
+    } finally { fs.rmSync(path.join(acct, f)); }
+  }
+  assert.equal(o.currentReader().kind, 'codex', 'CONTROL: without the file it reads');
+});
+
+test('a file made after the consent is caught at the read: Codex is never started', async () => {
+  const r = o.currentReader();
+  fs.writeFileSync(path.join(acct, 'AGENTS.md'), 'private instructions');
+  fs.rmSync(record, { force: true });
+  try {
+    const got = await c.read(r, 'p', 'image/png', PNG, null);
+    assert.deepEqual(got, { ok: false, because: c.WHY_INSTRUCTIONS });
+    assert.equal(fs.existsSync(record), false);
+  } finally { fs.rmSync(path.join(acct, 'AGENTS.md')); }
 });
