@@ -499,3 +499,14 @@ test('#4581 R9 review 2 CONTROL: a member that is not running is never marked qu
   const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(30) }), allProjects: [raw] };
   assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
 });
+
+test('#4581 R9 review 3: the project store is not read when no member needs the cross-project check', () => {
+  let reads = 0;
+  const raw = { id: 'qr', name: 'Quiet Reads', folder: '/p/qr', agents: ['mark'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const fresh = agentFolder('mark-reads', [['2026-09-29-16.md', 30]]);
+  const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => null };
+  Object.defineProperty(o, 'allProjects', { get() { reads += 1; return []; }, enumerable: true });
+  v.overviewOf(described, BOARD.agents, o);
+  assert.equal(reads, 0, 'the project store was read for a member with a current summary');
+});

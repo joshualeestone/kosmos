@@ -197,7 +197,7 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(endedAt) || !Number.isFinite(wroteAt)) return summary;
   if (endedAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
-  if (busyElsewhere(allProjects, member.sessionName, wroteAt)) return summary;
+  if (busyElsewhere(typeof allProjects === 'function' ? allProjects() : allProjects, member.sessionName, wroteAt)) return summary;
   return { ...summary, state: 'quiet', quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
@@ -216,8 +216,16 @@ function overviewOf(p, roster, o) {
   const readReport = opts.readReport || ((name) => { try { return require('./selfreport').read(name); } catch { return null; } });
   const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
   const readBrief = opts.readBrief || require('./brief').readBrief;
-  let allProjects = opts.allProjects;
-  if (allProjects === undefined) { try { allProjects = require('./projects').readAll(); } catch { allProjects = null; } }
+  // Read once, and only when a member reaches busyElsewhere (review 3).
+  let allRead = false; let all = null;
+  const allProjects = () => {
+    if (!allRead) {
+      allRead = true;
+      if (opts.allProjects !== undefined) all = opts.allProjects;
+      else { try { all = require('./projects').readAll(); } catch { all = null; } }
+    }
+    return all;
+  };
   const cards = Array.isArray(roster) ? roster : [];
   const brief = readBrief(p.folder) || { goal: null, done: null, found: false };
   const members = (p.agents || []).map((m) => {
