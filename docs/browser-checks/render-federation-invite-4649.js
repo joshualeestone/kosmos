@@ -26,6 +26,7 @@
  *      a scroll keeps the menu, Tab returns to its +; a code survives a passing signup reading, closes on off.
  *  A8  the sheet's ways out (backdrop and Escape on each step) and its Tab trap.
  *  A9  the sheet does not close while Make is answered, and shows the minted code.
+ *  A11 a Make past its limit (shortened by the arm) says a code may still have been made; Make is live again.
  *  A10 a forced close mid-Make (federation off) does not leave the reopened sheet refusing to close; the menu
  *      closes when its project is switched.
  *
@@ -83,7 +84,14 @@ function initStub(cfg) {
       let body = null;
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window.__posts.push({ url: u, method, body });
-      if (window.__inviteDelay) await new Promise((r) => setTimeout(r, window.__inviteDelay));   // A7a holds one in flight
+      // A7a holds one in flight; like a real fetch, an aborted signal rejects it with an AbortError (A11).
+      if (window.__inviteDelay) {
+        await new Promise((r, no) => {
+          const t = setTimeout(r, window.__inviteDelay);
+          const sig = opts && opts.signal;
+          if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
+        });
+      }
       return enc(window.__invite.status, window.__invite.body);
     }
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
@@ -479,6 +487,25 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { PJ_CURRENT = 'k'; });
     check('A10 after a forced close mid-Make the reopened sheet closes on Escape; a switched project closes the menu (control: open before)',
       closed === true && openBefore === true && openAfter === false, JSON.stringify({ closed, openBefore, openAfter }));
+    await ctx.close();
+  }
+
+  /* ---------------- A11: Make's limit (shortened here) and its message ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteDelay = 2000; });
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(700);
+    const timed = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, make: !document.getElementById('fedinv-make').disabled,
+      focus: document.activeElement && document.activeElement.id }));
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteDelay = 0; });
+    check('A11 a Make past its limit says a code may still have been made, Make is live again and focus is on the label (control: A4 answers in time)',
+      timed.msg === 'Kosmos did not hear back in time. A code may still have been made: check Members before making another.'
+      && timed.make && timed.focus === 'fedinv-label', JSON.stringify(timed));
     await ctx.close();
   }
 

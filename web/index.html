@@ -67559,9 +67559,13 @@ function fedInviteLongDate(sec) {
   if (typeof sec !== 'number' || !Number.isFinite(sec) || sec <= 0) return '';
   try { return new Date(sec * 1000).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); } catch { return ''; }
 }
-const FEDINV_MAKE_LIMIT_MS = 60000;   // above the board's worst case for one invite (see fedInviteMake)
+let FEDINV_MAKE_LIMIT_MS = 60000;   // above the board's worst case for one invite (see fedInviteMake); a let so a check can shorten it
+const FEDINV_TIMED_OUT = 'Kosmos did not hear back in time. A code may still have been made: check Members before making another.';
 async function fedInviteMake() {
-  if (!fedShow()) return;   // a passing signup reading keeps the asking step open, but no new code is made under it
+  if (!fedShow()) {   // a passing signup reading keeps the asking step open, but no new code is made under it
+    document.getElementById('fedinv-msg').textContent = 'Inviting is not available just now. Try again in a moment.';
+    return;
+  }
   const msg = document.getElementById('fedinv-msg');
   const make = document.getElementById('fedinv-make');
   const label = document.getElementById('fedinv-label').value.trim();
@@ -67587,6 +67591,8 @@ async function fedInviteMake() {
       });
       body = await res.json().catch(() => null);
     } finally { if (timer) clearTimeout(timer); }
+    // An abort that lands while the body is read is swallowed by that catch: the signal still says it timed out.
+    if (ctl && ctl.signal.aborted) { const e = new Error('timed out'); e.name = 'AbortError'; throw e; }
     if (seq !== FEDINV_SEQ) return;
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
@@ -67605,9 +67611,8 @@ async function fedInviteMake() {
     document.getElementById('fedinv-copy').focus();
   } catch (err) {
     if (seq === FEDINV_SEQ) {
-      msg.textContent = err && err.name === 'AbortError'
-        ? 'Kosmos did not hear back in time. A code may still have been made: check Members before making another.'
-        : 'Kosmos could not reach the connection service. Try again in a moment.';
+      msg.textContent = err && err.name === 'AbortError' ? FEDINV_TIMED_OUT : 'Kosmos could not reach the connection service. Try again in a moment.';
+      document.getElementById('fedinv-label').focus();   // Make is disabled until finally: keep focus in the sheet
     }
   } finally {
     if (seq === FEDINV_SEQ) { make.disabled = false; FEDINV_INFLIGHT = false; }
