@@ -434,7 +434,7 @@ test('#4581 R9: on a project with no open task, a summary current when its work 
   const done = [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }];
   const quiet = show(done, recentIdle);
   assert.equal(quiet.m.summary.state, 'quiet', JSON.stringify(quiet.m.summary));
-  assert.match(quiet.text, /summary: current when work on the project's tasks ended \(summaries\/2026-09-24-15\.md, 5 days ago; that was 5 days ago\)$/m);
+  assert.match(quiet.text, /summary: current when work on the project's tasks ended \(summaries\/2026-09-24-15\.md, 5 days ago; work ended 5 days ago\)$/m);
   assert.doesNotMatch(quiet.text, /older than the 4-hour rhythm/);
   // A task finished by its parts counts as the end too (a part's closedAt, no task closedAt).
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(5 * DAY) }] }], recentIdle).m.summary.state, 'quiet');
@@ -509,4 +509,38 @@ test('#4581 R9 review 3: the project store is not read when no member needs the 
   Object.defineProperty(o, 'allProjects', { get() { reads += 1; return []; }, enumerable: true });
   v.overviewOf(described, BOARD.agents, o);
   assert.equal(reads, 0, 'the project store was read for a member with a current summary');
+});
+
+test('#4581 R9 review 4: a member is measured from its own last part here; the real store path reads quiet', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('ida-own', [['2026-09-24-15.md', 5 * DAY + 60]]);
+  const recentIdle = { found: true, state: 'idle', at: at(30) };
+  // ida finished her part 5 days ago (an hour after her summary); a teammate closed the last part 2 days ago.
+  const tasks = [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(5 * DAY) }, { id: 2, who: 'mark', closedAt: at(2 * DAY) }] }];
+  const raw = { id: 'qo', name: 'Quiet Own', folder: '/p/qo', agents: ['ida', 'mark'], tasks };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle, allProjects: [raw] };
+  const view = v.overviewOf(described, BOARD.agents, o);
+  const ida = view.members.find((m) => m.sessionName === 'ida');
+  assert.equal(ida.summary.state, 'quiet', JSON.stringify(ida.summary));
+  assert.equal(ida.summary.quietKind, 'own');
+  assert.match(v.renderShow({ project: view }).join('\n'), /summary: current when its own tasks here ended \(summaries\/2026-09-24-15\.md, 5 days ago; work ended 5 days ago\)$/m);
+  // CONTROL: measured from the project's end (the teammate's part), the same summary is stale.
+  const noParts = { id: 'qp', name: 'Quiet Project', folder: '/p/qp', agents: ['ida', 'mark'], tasks: [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'mark', closedAt: at(2 * DAY) }] }] };
+  const d2 = projects.describe(noParts, BOARD.agents, [noParts]);
+  assert.equal(v.overviewOf(d2, BOARD.agents, { ...o, allProjects: [noParts] }).members.find((m) => m.sessionName === 'ida').summary.state, 'stale');
+  // ida's task closed as a whole 5 days ago with her part left open: that close is her end, not the teammate's later one.
+  const closedWhole = { id: 'qw2', name: 'Quiet Whole', folder: '/p/qw2', agents: ['ida', 'mark'], tasks: [
+    { number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY), parts: [{ id: 1, who: 'ida', closedAt: null }] },
+    { number: 2, sentence: 'b', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'mark', closedAt: at(2 * DAY) }] }] };
+  const d3 = projects.describe(closedWhole, BOARD.agents, [closedWhole]);
+  assert.equal(v.overviewOf(d3, BOARD.agents, { ...o, allProjects: [closedWhole] }).members.find((m) => m.sessionName === 'ida').summary.state, 'quiet');
+  // The real store path: the project written through the store, no allProjects passed.
+  const prior = projects.readAll();
+  try {
+    projects.writeAll([raw]);
+    const real = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle };
+    assert.equal(v.overviewOf(described, BOARD.agents, real).members.find((m) => m.sessionName === 'ida').summary.state, 'quiet', 'the real store read did not reach busyElsewhere');
+  } finally { projects.writeAll(prior); }
 });

@@ -158,14 +158,20 @@ function idleExcused(summary, member, readReport, nowMs) {
    closed or had a part closed. A stale summary of an idle member written no earlier than the rhythm
    before that reads 'quiet', with quietSince. A project that has never had a task has no such time and is left as it
    was, and so is one with any open task: there is work to summarise. Weakest premise: work done outside any task
-   (a member asked in a room or a DM to do something) leaves no task time, so it is not counted here. */
-function lastWorkAt(tasks) {
+   (a member asked in a room or a DM to do something) leaves no task time, so it is not counted here.
+   Review 4 (Opus): a member that held parts here is measured from ITS last part's end (quietKind 'own'), so one that
+   finished early is not held to a teammate's later work; one that held none, from the project's ('project'). */
+function lastWorkAt(tasks, who) {
   let at = NaN;
   const take = (v) => { const t = Date.parse(v); if (Number.isFinite(t) && !(t <= at)) at = t; };
   for (const t of Array.isArray(tasks) ? tasks : []) {
     if (!t) continue;
-    take(t.closedAt);
-    for (const part of Array.isArray(t.parts) ? t.parts : []) if (part) take(part.closedAt);
+    if (who === undefined) take(t.closedAt);
+    for (const part of Array.isArray(t.parts) ? t.parts : []) {
+      if (!part) continue;
+      if (who === undefined) take(part.closedAt);
+      else if (part.who === who) take(part.closedAt || t.closedAt);
+    }
   }
   return at;
 }
@@ -192,13 +198,15 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
   if (openTasks(tasks).open !== 0) return summary;
-  const endedAt = lastWorkAt(tasks);
+  const own = lastWorkAt(tasks, member.sessionName);
+  const quietKind = Number.isFinite(own) ? 'own' : 'project';
+  const endedAt = quietKind === 'own' ? own : lastWorkAt(tasks);
   const wroteAt = Date.parse(summary.at);
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(endedAt) || !Number.isFinite(wroteAt)) return summary;
   if (endedAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
   if (busyElsewhere(typeof allProjects === 'function' ? allProjects() : allProjects, member.sessionName, wroteAt)) return summary;
-  return { ...summary, state: 'quiet', quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
+  return { ...summary, state: 'quiet', quietKind, quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
 /**
@@ -206,10 +214,13 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
  * @param {object} p      one element of projects.list(roster)
  * @param {Array} roster  the cards the list was described against (for each member's model)
  * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object,
- *   readReport?: (sessionName: string) => object }} [o]
+ *   readReport?: (sessionName: string) => object, allProjects?: Array|null }} [o]
+ *   allProjects: every stored project, for the cross-project check (busyElsewhere); null means the store could not be
+ *   read (no member reads quiet); omitted, the store is read when a member first needs it.
  * Each member's `summary` is summaryFreshness's answer, or (#4581 N10, idleExcused) a stale one marked
  * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped, or
- * (#4581 R9, quietExcused) { state: 'quiet', quietSince, quietMinutes } when it was current as the project's tasks ended.
+ * (#4581 R9, quietExcused) { state: 'quiet', quietKind: 'own'|'project', quietSince, quietMinutes } when it was current
+ * as its own tasks here, or the project's, ended.
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
@@ -360,7 +371,8 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
-  quiet: (s) => 'current when work on the project\'s tasks ended (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; that was ' + ago(s.quietMinutes) + ')',
+  quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
+    + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',
