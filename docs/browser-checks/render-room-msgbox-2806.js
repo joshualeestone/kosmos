@@ -1080,7 +1080,7 @@ function tapProbe4663(skip) {
       await phonePage.waitForTimeout(100);
       // #4409: every phone arm counts the bar's SHOWN buttons (want), so without read aloud they would all pass on the
       // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it. Seven since
-      // #4631 added Copy reference: it, the three quick emoji, the picker, read aloud and Reply.
+      // #4631 added Copy reference (on a touchscreen #5312's Copy takes its place): it, the three quick emoji, the picker, read aloud and Reply.
       chk(!inPlaceHits.error && inPlaceHits.want === 7,
         `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the seven-button bar`, JSON.stringify(inPlaceHits));
       chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === inPlaceHits.want && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
@@ -1260,7 +1260,7 @@ function tapProbe4663(skip) {
       // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
       // touch target in it, and the reaction pill, is at least the room's --room-tap (#3811), which
       // is itself at least 36px (the size decided for these small repeated targets). Six buttons since
-      // #4631: Copy reference, the three quick emoji, the picker, and Reply (five since #3745).
+      // #4631: Copy reference (#5312: Copy, on a touchscreen), the three quick emoji, the picker, and Reply (five since #3745).
       const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
       await own.tap();
       await phonePage.waitForTimeout(300);

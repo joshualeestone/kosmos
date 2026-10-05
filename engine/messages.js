@@ -2722,7 +2722,7 @@ function reactionsFor(of, rows, youReactor) {
 
 /* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
    Kosmos, so the number alone names the message. A person copies "message 530 in Kosmos Growth" (the page's
-   Copy message reference) and pastes it to an agent, or types "530"; each input point runs its value
+   Copy message reference, #5312: Copy message id) and pastes it to an agent, or types "530"; each input point runs its value
    through here, so all of them come out as 'm530'. The words after "in" are a courtesy for the reader and are
    not checked here: each caller still checks the id is in the room it expects. Anything that is not one of these
    shapes comes back trimmed and otherwise unchanged, so the caller's own refusal still names what was wrong.

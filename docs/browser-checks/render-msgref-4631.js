@@ -346,6 +346,12 @@ async function paintRoom(page) {
         const c5d = await page.evaluate(() => { const row = document.querySelector('#pj-room .msg[data-mid="m530"]'); const clone = row.cloneNode(true);
           DM_ROWS = new Map([['x', { id: 'm530', at: 'x', text: 'A DIFFERENT MESSAGE' }]]); const out = msgCopyText(clone); DM_ROWS = new Map(); return out; });
         chk(c5d === 'The AtlasGrid deck is ready for review.', tag + 'C5 a detached room row copies its own words, not a DM record with the same id', JSON.stringify(c5d));
+        /* The screen fallback drops a link's preview card (its site, title and description are not the message). */
+        const c5p = await page.evaluate(() => { const box = document.createElement('div');
+          box.innerHTML = pjRoomRow({ kind: 'post', id: 'm599', from: 'april', to: [], project: 'p1', at: new Date().toISOString(), text: 'See https://example.com/a',
+            preview: { url: 'https://example.com/a', site: 'PREVIEWSITE', title: 'PREVIEWTITLE', description: 'PREVIEWDESC' } }, { id: 'p1', name: 'Kosmos Growth', agents: [{ sessionName: 'april', name: 'April' }] }, false);
+          const row = box.firstElementChild; return { hasCard: !!row.querySelector('.lpv'), text: msgCopyText(row) }; });
+        chk(c5p.hasCard && /^See /.test(c5p.text) && !/PREVIEW/.test(c5p.text), tag + 'C5 a row copied from the screen leaves out a link\'s preview card', JSON.stringify(c5p));
         const dmTaken = await page.evaluate(() => { const row = document.querySelector('#d-dmthread .msg.you .msg-bd'); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }); row.dispatchEvent(ev); return ev.defaultPrevented; });
         chk(dmTaken === true, tag + "R6 right-click works on the person's own DM row too (it has no hover bar)", String(dmTaken));
         await page.keyboard.press('Escape');

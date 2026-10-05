@@ -21,6 +21,8 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   "April:" the screen drops (#4873) is kept, and nothing is cut. A row with no kept record (an outside guest) copies
   what the row shows, without its name, tag, time and buttons.
 - The copy icon (two sheets) moved to Copy message; Copy message id wears a # with its faint number.
+- "Copy message id" is Josh's label, kept exactly. On a direct-conversation row with no number it copies #4631's
+  reference sentence ("April's message to me at 2:33 PM on Sep 29"), as it always has; the toast shows the words.
 - A failed copy's toast never shows the words (a message can be long); it says to select and copy instead.
 - On a touchscreen Copy opens the menu (Copy message, Copy message id) and Copy message id is not in the bar. Tried
   first: eight buttons with the gap at 2px (308px, one line in a 375px thread), but the DM's open bar then covered the
