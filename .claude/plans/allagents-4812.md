@@ -193,3 +193,11 @@ Fix complete (showTab toggles body.consolidated before placeAgentsPanel/boardApp
 still shows #grid in the consolidated Agents view; org hides it and the section with it). LEFT NIT: rename oaGridShown.
 
 ## Rebase onto main (18:01): EXPECTED_SITES 233 (main: #4930 + #4885) -> 234 with this branch's site.
+
+## Weakest premises (stated after the post-#5106 review, round 2)
+- A read that REJECTS with no answer, from a computer the board's probe last called online, is shown as "its agents
+  cannot be read from here yet; it may need the latest Kosmos". The probe can be a minute old, and a rejection cannot
+  tell a missing CORS header (an older connector, the case this is for) from a reset, a TLS error or a computer that
+  just went offline. The words say "may" for that reason; a flaky network can read as "update".
+- Status words: 401 and 403 (and a 2xx that is not an agents list) are the gate, "not let in". Any other 3xx or 4xx
+  is 'blocked' (keeps the last list), since signing in cannot fix a missing route.

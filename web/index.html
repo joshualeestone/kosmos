@@ -27808,11 +27808,14 @@ function oaOthers(data) {
   return data.computers.filter((c) => c && c.this !== true && typeof c.name === 'string' && c.name
     && computerAddressOk(c.address, data.domain));
 }
-/* An answer: 200 with an agents list is that computer's agents; any other answer short of a server error is its
-   gate (this browser is not let in there). No answer, or a server error, is "not reachable". */
+/* An answer: 200 with an agents list is that computer's agents. Its gate (this browser is not let in there) is a 401
+   or 403, or a 2xx that is not an agents list (a sign-in page). Any other 3xx or 4xx is an answer signing in cannot
+   fix (a connector without this route): 'blocked', which keeps the last list. No answer, or a server error, is "not
+   reachable". */
 function oaClassify(status, body) {
   if (status === 200 && body && Array.isArray(body.agents)) return 'ok';
-  if (typeof status === 'number' && status >= 200 && status < 500) return 'notin';
+  if (status === 401 || status === 403 || (typeof status === 'number' && status >= 200 && status < 300)) return 'notin';
+  if (typeof status === 'number' && status >= 300 && status < 500) return 'blocked';
   return 'out';
 }
 /* What to keep. Unreachable keeps the last list this page read, to be shown greyed; not let in keeps nothing. */
