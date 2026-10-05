@@ -374,3 +374,52 @@ test('#3939 3c-3a: the caller\'s stop ends a running turn: Muse is stopped and t
     assert.doesNotThrow(() => stop(), 'a second stop after the turn ended must do nothing');
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
+
+/* #4603 (10-05 user diagnostic R7): the model is named while the turn runs, not only when it ends. */
+test('#4603 R7: modelWatcher names the model from whole lines, across chunk and UTF-8 splits, and never throws', () => {
+  const seen = [];
+  const w = run.modelWatcher((m) => seen.push(m));
+  const line = TURN.split('\n')[1] + '\n';   // the run.model.configured event
+  const buf = Buffer.from('{"payload_type":"run.output.delta","payload":{"text":"café"}}\n' + line);
+  // One byte at a time: the model line and a two-byte character are split everywhere they can be.
+  for (let i = 0; i < buf.length; i++) w(buf.subarray(i, i + 1));
+  assert.deepEqual(seen, ['muse-spark-1.3-contributor']);
+  // A line that is not JSON, or names no model, is not a model; a throwing callback does not escape.
+  w(Buffer.from('run.model.configured but not json\n{"payload_type":"run.model.configured","payload":{}}\n'));
+  assert.deepEqual(seen, ['muse-spark-1.3-contributor'], 'a line with no model_id was read as one');
+  assert.doesNotThrow(() => run.modelWatcher(() => { throw new Error('boom'); })(Buffer.from(line)));
+  // A model event split by no newline yet is not read until its line ends.
+  const w2seen = []; const w2 = run.modelWatcher((m) => w2seen.push(m));
+  w2(Buffer.from(line.slice(0, -1)));
+  assert.deepEqual(w2seen, [], 'a line was read before it ended');
+  w2(Buffer.from('\n'));
+  assert.deepEqual(w2seen, ['muse-spark-1.3-contributor']);
+});
+
+test('#4603 R7: a line longer than the cap is dropped whole, and the next line is still read', () => {
+  const seen = [];
+  const w = run.modelWatcher((m) => seen.push(m));
+  // A model event that is only read if the whole over-long line was held: the cap is what keeps it out.
+  const big = '{"payload_type":"run.model.configured","payload":{"model_id":"held-too-long","pad":"' + 'x'.repeat(70 * 1024) + '"}}';
+  for (let i = 0; i < big.length; i += 4096) w(Buffer.from(big.slice(i, i + 4096)));
+  w(Buffer.from('\n' + TURN.split('\n')[1] + '\n'));
+  assert.deepEqual(seen, ['muse-spark-1.3-contributor'], 'the line after an over-long one was lost, or the long one was read');
+});
+
+test('#4603 R7: runTurn tells onModel while Muse still runs, and a stopped turn still carries the model', { timeout: 10000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  gate.allowLiveExecution();
+  run.setForTests({ turnTimeoutMs: 8000, hardCapMs: 9000 });
+  try {
+    fakeMuse("echo '" + TURN.split('\n')[1] + "'\nexec sleep 7");
+    let stopIt = null;
+    let named = null;
+    const gotModel = new Promise((ok) => { named = ok; });
+    const p = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi', onStop: (f) => { stopIt = f; }, onModel: (m) => named(m) });
+    const m = await Promise.race([gotModel, new Promise((_, no) => setTimeout(() => no(new Error('onModel did not fire while the turn ran')), 4000).unref())]);
+    assert.equal(m, 'muse-spark-1.3-contributor');
+    stopIt();
+    const r = await p;
+    assert.equal(r.because, run.STOPPED);
+    assert.equal(r.model, 'muse-spark-1.3-contributor', 'a stopped turn dropped the model its stream named');
+  } finally { gate.resetForTests(); run.resetForTests(); }
+});

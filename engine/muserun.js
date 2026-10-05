@@ -23,6 +23,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { StringDecoder } = require('node:string_decoder');
 const musestatus = require('./musestatus');
 
 /* A coding turn can take minutes (Homer's measured turns: 25 to 47 s). Past this, Kosmos stops it. */
@@ -103,6 +104,33 @@ function parseEvents(jsonl) {
   return out;
 }
 
+/* #4603 (10-05 user diagnostic R7): the model as soon as the stream names it, not when the turn ends. The front forgets
+   the model when it starts, so a model kept only at a turn's end left the first turn of every life with none, and an
+   agent that runs `kosmos whoami` in that turn could not name its model. Fed raw stdout chunks; calls onModel(id) for
+   each `run.model.configured` line, whole lines only. A line past LINE_MAX is dropped rather than held, so a huge delta
+   cannot grow this buffer. Never throws. */
+const LINE_MAX = 64 * 1024;
+function modelWatcher(onModel) {
+  const dec = new StringDecoder('utf8');
+  let pending = ''; let dropping = false;
+  const line = (l) => {
+    if (l.indexOf('run.model.configured') === -1) return;
+    let ev; try { ev = JSON.parse(l); } catch { return; }
+    const p = ev && ev.payload && typeof ev.payload === 'object' ? ev.payload : null;
+    if (ev && ev.payload_type === 'run.model.configured' && p && typeof p.model_id === 'string') {
+      try { onModel(p.model_id); } catch { /* the caller's trouble never ends the turn */ }
+    }
+  };
+  return (buf) => {
+    try {
+      const parts = (pending + dec.write(buf)).split('\n');
+      pending = parts.pop();
+      for (const l of parts) { if (dropping) { dropping = false; continue; } line(l); }
+      if (pending.length > LINE_MAX) { pending = ''; dropping = true; }
+    } catch { /* never throws */ }
+  };
+}
+
 let runMuse = (bin, args, opts, done) => {
   const gate = require('./live-execution');
   // The prompt is the person's words: never in a log line (round 1).
@@ -130,6 +158,7 @@ let runMuse = (bin, args, opts, done) => {
     if (over) return;
     bytes += buf.length;
     (which === 'out' ? outChunks : errChunks).push(buf);
+    if (which === 'out' && opts.onOut) opts.onOut(buf);   // #4603: modelWatcher, which never throws
     if (bytes > maxBytes) { over = true; killGroup(); }
   };
   child.stdout.on('data', take('out')); child.stderr.on('data', take('err'));
@@ -156,7 +185,13 @@ function runTurn(input) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r) => { if (settled) return; settled = true; clearTimeout(cap); resolve(r); };
-    const fail = (because) => finish({ ok: false, exitCode: null, sessionId: null, model: null, text: '', done: false, because });
+    /* #4603: a turn stopped or timed out still says the model its stream named, so the front keeps it. */
+    let seenModel = null;
+    const fail = (because) => finish({ ok: false, exitCode: null, sessionId: null, model: seenModel, text: '', done: false, because });
+    const onModel = (m) => {
+      seenModel = m;
+      if (input && typeof input.onModel === 'function') { try { input.onModel(m); } catch { /* never ends the turn */ } }
+    };
     let stop = null;
     const cap = setTimeout(() => { if (stop) { try { stop(); } catch { /* best effort */ } } fail(TIMED_OUT); }, hardCapMs);
     if (cap.unref) cap.unref();
@@ -176,7 +211,7 @@ function runTurn(input) {
       // #3939 3c-1: when this turn began, so a refusal does not undo a sign-in made while it ran.
       const startedAt = Date.now();
       const atStart = musestatus.fileAtStart();   // the credential this turn begins with (round 5)
-      stop = runMuse(inst.bin, t.args, { cwd: t.workspace }, (err, stdout, stderr) => {
+      stop = runMuse(inst.bin, t.args, { cwd: t.workspace, onOut: modelWatcher(onModel) }, (err, stdout, stderr) => {
         const parsed = parseEvents(stdout);
         const exitCode = err ? (typeof err.code === 'number' ? err.code : null) : 0;
         let because = null;
@@ -218,4 +253,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };

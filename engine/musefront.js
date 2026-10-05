@@ -299,7 +299,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         const startedAt = takeReceived(prompt) || new Date().toISOString();
         try {
           for (let tries = 0; ; tries++) {
-            r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
+            // #4603 (10-05 R7): kept when the stream names it, so whoami can name it during this turn too.
+            r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; }, onModel: (m) => keepModel(workspace, m) });
             stopTurn = null;   // that turn is over: nothing is running during the wait (review round 6)
             if (!(isNote && stopNoteRunning && r && !r.ok && r.because === MUSE_BUSY && tries < BUSY_RETRIES)) break;
             await new Promise((ok) => setTimeout(ok, busyRetryMs));
