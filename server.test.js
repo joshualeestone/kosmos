@@ -3687,7 +3687,7 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   assert.ok(from > -1 && mid > from && end > mid,
     'the runs-on composition fell outside the extracted slice');
   /* #2225: the parenthetical was lifted into the pure helper `acctParenthetical`
-     (chosen name -> email -> slug), which the sliced composition now calls, so
+     (chosen name -> email -> API key -> slug), which the sliced composition now calls, so
      the eval scope must carry it or the slice throws ReferenceError. */
   const helperFrom = script.indexOf('function acctParenthetical(');
   assert.ok(helperFrom > -1, 'acctParenthetical is gone from the page');
@@ -15362,8 +15362,8 @@ test('#2811: a NAMED Codex account is called by its name, not "an account we can
    * the .codex account", and `sentenceForWhoami`'s fallback chain went
    * email -> label -> "an account we cannot identify (<dir>)" with NO `name` rung --
    * while `accountForAgent` computes `name: openaiAccounts.readName(dir)` on BOTH
-   * its branches and every other surface leads with it (`acctParenthetical` is
-   * `acct.name || acct.email || acct.label`).
+   * its branches and every other surface leads with it (`acctParenthetical` leads
+   * with `acct.name`, then email, then key and slug since #5150).
    *
    * So a person who had NAMED their OpenAI account read "Work" on the detail panel
    * and "an account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`,

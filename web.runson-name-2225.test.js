@@ -65,7 +65,7 @@ test('#5150: a Gemini or Grok key account (no name, email or label) is named by 
   assert.equal(acctParenthetical(a), 'API key ending 4f2a');
 });
 
-test('#5150: the key comes after a name and an email but BEFORE the folder slug (as the Move dropdown and whoami)', () => {
+test('#5150: the key comes after a name and an email but BEFORE the folder slug (as the Move dropdown; whoami differs)', () => {
   assert.equal(acctParenthetical({ account: { name: 'Research', keyTail: '4f2a' } }), 'Research');
   assert.equal(acctParenthetical({ account: { email: 'g@example.com', keyTail: '4f2a' } }), 'g@example.com');
   assert.equal(acctParenthetical({ account: { label: 'gemini-b', keyTail: '4f2a' } }), 'API key ending 4f2a');
