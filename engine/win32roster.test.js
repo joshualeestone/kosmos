@@ -283,3 +283,22 @@ test('#2811: the LIVE LIST gates the roster, not the record - a recorded codex s
   assert.ok(row, 'CONTROL: the same record DOES emit a row once the live list names the session');
   assert.equal(row.runner, 'codex', 'CONTROL: and that row carries the recorded codex runner');
 });
+
+/* #5333: a column added to PANE_COLUMNS (tokenInstance, before `title`) shifted every hand-typed Windows row: the
+   name landed in the new column and the title came back empty, and a hex-looking name (`cafe`) then read as a run
+   instance whose token was gone. The row is built by key now; these pin the shape and that every column is known. */
+test('#5333: a Windows row has every PANE_COLUMNS field, its title is the name, and it carries no token instance', () => {
+  for (const name of ['cafe', 'raph-9a']) {   // `cafe` is all hex: the name that read as an instance before
+    const src = providerWith([{ ...OURS, name }], { 'aaaa-1111': { name, runner: '' } });
+    const line = src().split('\n')[0];
+    assert.equal(line.split('\t').length, status.PANE_COLUMNS.length, 'one field per declared column');
+    const p = status.parsePanes(src())[0];
+    assert.equal(p.title, name, 'the title is the name, not shifted away');
+    assert.equal(p.tokenInstance, '', 'a Windows run carries no token instance');
+  }
+});
+
+test('#5333: the Windows row knows every PANE_COLUMNS key (a new column must be taught here, not left empty by accident)', () => {
+  const unknown = status.PANE_COLUMNS.map((c) => c.key).filter((k) => !win32roster.WIN32_ROW_KEYS.includes(k));
+  assert.deepEqual(unknown, []);
+});

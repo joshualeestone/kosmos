@@ -216,10 +216,15 @@ async function read(page) {
             target: b ? b.dataset.restartAgent : null };
         });
         chk(!(await linkNote()).shown, `${engineName}: control: no lost-link notice for a running agent with nothing to compare`);
+        /* A real board that has launched agents has a token store; this sandbox has minted nothing yet, and a board with no
+           store at all is never told an agent is lost (it cannot tell). So another agent's token makes the store exist. */
+        sendertoken.mint('someone-else');
         setState('working', { tokenInstance: 'abcdef123456' });   // a run whose token is not on file
-        await page.waitForTimeout(6500);
-        chk(!(await linkNote()).shown, `${engineName} -> link lost on ONE poll: no notice yet (it waits for a second, past a restart's moment)`);
-        await page.waitForTimeout(5500);
+        /* Counted by the page's own poll counter, not by the clock: a fixed wait can hold one poll or two. */
+        const seenN = () => page.evaluate(() => { const e = LINK_LOST_SEEN.get('beatrix'); return e ? e.n : 0; });
+        await page.waitForFunction(() => { const e = LINK_LOST_SEEN.get('beatrix'); return !!e && e.n === 1; }, null, { timeout: 15000 });
+        chk(!(await linkNote()).shown, `${engineName} -> link lost on ONE poll: no notice yet (it waits for a second, past a restart's moment)`, 'n=' + (await seenN()));
+        await page.waitForFunction(() => { const e = LINK_LOST_SEEN.get('beatrix'); return !!e && e.n >= 2; }, null, { timeout: 15000 });
         const lost = await linkNote();
         chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot answer you\./.test(lost.text) && lost.target === 'beatrix',
           `${engineName} -> link lost: the notice names the agent and its Restart is for that agent`, JSON.stringify(lost));
@@ -237,7 +242,7 @@ async function read(page) {
         fs.rmSync(REMOVED_FILE, { force: true });
         chk(!removing.shown, `${engineName} -> removed but still running: no Restart notice for an agent being removed`, JSON.stringify(removing));
         await page.waitForTimeout(6500);
-        await page.waitForTimeout(5500);   // two polls in a row again
+        await page.waitForFunction(() => { const e = LINK_LOST_SEEN.get('beatrix'); return !!e && e.n >= 2; }, null, { timeout: 15000 }).catch(() => {});   // two polls in a row again
         chk((await linkNote()).shown, `${engineName} -> removal record gone, token still gone: the notice is back (the guard, not the poll, hid it)`);
         const minted = sendertoken.mint('beatrix');
         setState('working', { tokenInstance: minted.instance });   // its run's token is on file

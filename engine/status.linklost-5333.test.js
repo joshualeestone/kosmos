@@ -35,6 +35,10 @@ test('#5333: instanceState answers held, gone, or unknown, and never reads an un
   assert.equal(sendertoken.instanceState('ivy', 'abcdef123456'), 'gone', 'a run whose token is not on file');
   assert.equal(sendertoken.instanceState('nobody-here', minted.instance), 'gone', 'no file at all: the store lost every token');
   assert.equal(sendertoken.instanceState('ivy', ''), 'unknown', 'no instance to compare');
+  const DIR = sendertoken.DIR; const aside = DIR + '.aside';
+  fs.renameSync(DIR, aside);
+  try { assert.equal(sendertoken.instanceState('ivy', minted.instance), 'unknown', 'no token store at all: this board never minted, nothing was removed'); }
+  finally { fs.renameSync(aside, DIR); }
   assert.equal(sendertoken.instanceState('ivy', 'NOT-HEX'), 'unknown');
   fs.writeFileSync(path.join(sendertoken.DIR, 'ivy.json'), '{not json');
   assert.equal(sendertoken.instanceState('ivy', minted.instance), 'unknown', 'a store file that cannot be read says nothing');

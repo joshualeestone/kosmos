@@ -252,12 +252,15 @@ function make(opts) {
       // two call sites -- symmetric with the id gate, not a duplicated regex.
       if (!win32sessions.validName(name)) continue;
       const runner = flat(rec.runner || '');
-      // PANE_COLUMNS order: session \t pane \t command \t inMode \t claim \t runner \t title
       // pane "0.0" (one synthetic pane per session); inMode "0" (never copy-mode
       // -> typeable); command WIN32_COMMAND (agent, not process-arm-ours); claim
       // = name (ownership); title = name (state comes from the capture seam, not
-      // the roster).
-      lines.push([name, '0.0', WIN32_COMMAND, '0', name, runner, name].join('\t'));
+      // the roster); tokenInstance empty (#5333: a Windows run's token is not stamped on a session).
+      // #5333: built BY KEY from PANE_COLUMNS, not hand-typed in order: a column added before `title` (tokenInstance)
+      // shifted every Windows row, putting the name in the new column and dropping the title. A column this does not
+      // know is left empty (win32roster.test.js asserts every column is known here).
+      const value = { session: name, pane: '0.0', command: WIN32_COMMAND, inMode: '0', claim: name, runner, tokenInstance: '', title: name };
+      lines.push(require('./status').PANE_COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t'));
     }
     // Trailing newline so the last row parses like every other (matches tmux's
     // own output shape); an empty roster is a valid, readable answer (no agents),
@@ -266,4 +269,7 @@ function make(opts) {
   };
 }
 
-module.exports = { make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, WIN32_COMMAND, isWin32Pane, flat };
+/* #5333: the keys a Windows row fills, so a test can assert it knows every PANE_COLUMNS column. */
+const WIN32_ROW_KEYS = ['session', 'pane', 'command', 'inMode', 'claim', 'runner', 'tokenInstance', 'title'];
+
+module.exports = { WIN32_ROW_KEYS, make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, WIN32_COMMAND, isWin32Pane, flat };
