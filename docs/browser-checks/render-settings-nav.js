@@ -314,7 +314,7 @@ function chk(ok, label, extra) {
       /* On Kosmos+ the page's ground is a navy radial gradient: a --k-bg chevron showed as a square. Its colour must be the
          gradient's own where it sits, worked out here from the body's computed gradient (its ellipse, centre and first two
          stops), and solid, not the gradient (iOS draws a fixed background as scroll, squeezing the gradient into the box). */
-      const plusBg = await page.evaluate(() => { document.body.classList.add('plus-active');
+      const plusProbe = () => { document.body.classList.add('plus-active');
         const c = document.getElementById('s-nav-more'); const cs = getComputedStyle(c); const r = c.getBoundingClientRect();
         const g = getComputedStyle(document.body).backgroundImage;
         const m = /radial-gradient\((\d+)% (\d+)% at (\d+)% (\d+)%/.exec(g); const stops = [...g.matchAll(/rgb\((\d+), (\d+), (\d+)\) (\d+)%/g)].map((x) => [+x[1], +x[2], +x[3], +x[4] / 100]);
@@ -328,7 +328,15 @@ function chk(ok, label, extra) {
           const got = (/rgb\((\d+), (\d+), (\d+)\)/.exec(cs.backgroundColor) || []).slice(1).map(Number);
           out.got = got; out.off = got.length === 3 ? Math.max(...got.map((v, i) => Math.abs(v - out.want[i]))) : 99;
         }
-        document.body.classList.remove('plus-active'); return out; });
+        document.body.classList.remove('plus-active'); return out; };
+      const plusBg = await page.evaluate(plusProbe);
+      /* The colour is one value for every phone: the same check at the narrow and wide ends, then back to 375. */
+      for (const w of [360, 430]) {
+        await page.setViewportSize({ width: w, height: 900 }); await page.waitForTimeout(250);
+        const at = await page.evaluate(plusProbe);
+        chk(at.image === 'none' && at.off <= 4, `[${theme}] at ${w}px on Kosmos+ the chevron's colour is still the gradient's own where it sits (#5303)`, JSON.stringify({ want: at.want, got: at.got, off: at.off }));
+      }
+      await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(250);
       chk(plusBg.image === 'none' && plusBg.off <= 4, `[${theme}] at 375px on Kosmos+ the chevron is solid in the gradient's own colour where it sits (#5303)`, JSON.stringify(plusBg));
       /* A real press at the chevron (not el.click()), so the press's focus is what is measured: it must not take focus,
          or focus drops to the page when it hides itself at the row's end. Polled, not a fixed wait: the scroll is smooth. */
