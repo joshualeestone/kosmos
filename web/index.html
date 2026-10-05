@@ -68976,7 +68976,7 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
       : reached >= total ? (PJ_READ_FAILED ? head + ' Kosmos and this project\'s agents now use the new location.' : 'Done. Kosmos and this project\'s agents now use the new location.')
         : head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project; the others will see it when they next start.';   // Mona Lisa's wording
     /* Review 3: an agent whose instructions could not be updated will NOT see it at its next start: said, never promised. */
-    if (notUpdated > 0) said.textContent += ' Kosmos could not update the instructions of ' + notUpdated + ' of them; open that agent\'s page to see why.';
+    if (notUpdated > 0) said.textContent += ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';   // Mona Lisa's wording
     // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
     if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
   } catch (e) {
