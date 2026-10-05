@@ -406,7 +406,7 @@ const closeAll = (page) => page.evaluate(() => {
     s = await read(page);
     check('A7c a code on screen survives a passing signup reading, and closes when federation turns off (control)',
       keptOnSignup && s.invBox === null, JSON.stringify({ keptOnSignup, inv: s.invBox }));
-    // A7c control: the ASKING step does close on a signup reading.
+    // A7c: the ASKING step also stays open on a signup reading (a label being typed is not lost); Make refuses there.
     await page.evaluate((d) => fedGateStamp(d), SHOW);
     await page.click('#pj-add-member');
     await page.click('#pj-addmenu-outside');
