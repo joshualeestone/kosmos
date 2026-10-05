@@ -50,6 +50,14 @@ saves and the warning goes, and the project reads its new folder.
 - Noted, then changed: members were told one after another; now in parallel as project create does, each tmux call
   bounded at 5 s, so the answer waits for the slowest pane. Mona Lisa's "Told N of M agents" wording applied.
 
+## Review 3 (opus, blind): no BLOCKER; one WARNING
+- W fixed: a member whose instructions could not be updated (syncAgent could_not, or a throw) was still promised the
+  new place "when they next start", and the line typed to it claimed "your instructions say so too". Now the route
+  counts notUpdated and the page says so; the typed line makes no claim about the file. Test: a member whose folder is
+  read-only is counted (control: its file really was not updated); never counting reds it.
+- NITs fixed: chat.DELIVERY from the module-level import; a refusal puts the keyboard back in the path box; the README
+  row says self-hosted, headless-fine, Chromium only, and what reds it.
+
 ## Weakest premise
 That a person knows where they moved the folder. If not, "Show me where it is" (beside it) cannot help, since the old
 place is gone; the form's sentence is the honest limit.

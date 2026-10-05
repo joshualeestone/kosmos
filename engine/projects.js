@@ -3479,7 +3479,7 @@ function membershipLine(project, kind) {
   }
   /* #5340: the person pointed the project at its folder's new place. */
   if (kind === 'moved') {
-    return 'The project "' + name + '" now uses its folder at `' + oneLine(String((project && project.folder) || '')) + '`. Work there from now on; your instructions say so too.';
+    return 'The project "' + name + '" now uses its folder at `' + oneLine(String((project && project.folder) || '')) + '`. Work there from now on.';   // review 3: no claim about its file, which may not have been updated
   }
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';

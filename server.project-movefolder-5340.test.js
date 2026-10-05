@@ -112,3 +112,24 @@ test('#5340 review 1: every member\'s instructions name the new folder, and the 
   assert.ok(file.includes(now), 'the member\'s instructions do not name the new folder');
   assert.ok(!file.includes(old), 'the member\'s instructions still name the old folder');
 });
+
+test('#5340 review 3: a member whose instructions cannot be updated is counted, never promised the new place', async (t) => {
+  const b = fleet.install([fleet.agent('pax', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const WORKERS = process.env.AGENT_WORKFORCE_WORKERS;
+  const dir = path.join(WORKERS, 'pax');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'CLAUDE.md');
+  fs.writeFileSync(file, 'You are pax, the operations agent. You keep the schedules and the vendors straight.\n');
+  const old = folder('Ops Room Old');
+  const p = projects.create({ name: 'Ops Room', folder: old, agents: ['pax'] });
+  fs.renameSync(old, path.join(KEEP, 'Ops Room New'));
+  fs.chmodSync(dir, 0o500);   // its folder cannot be written: the instructions cannot be updated
+  t.after(() => { try { fs.chmodSync(dir, 0o700); } catch { /* best effort */ } });
+  const r = await put(p.id, { folder: path.join(KEEP, 'Ops Room New') }, SCREEN);
+  const j = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(j));
+  assert.equal(j.members, 1);
+  assert.equal(j.notUpdated, 1, 'a member whose instructions could not be written was not counted: ' + JSON.stringify(j));
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('Ops Room New'), 'CONTROL: the file really was not updated');
+});
