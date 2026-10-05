@@ -3591,11 +3591,15 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
                            mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
   #s-nav[data-edge=""] { -webkit-mask-image: none; mask-image: none; }
+  /* A focused or snapped pill clears the left fade and the chevron with its fade (44px + 40px), so it is never under them. */
+  #s-nav[data-edge="r"], #s-nav[data-edge="lr"] { scroll-padding-inline: 32px 88px; }
   /* right: -32px cancels the row's 32px end padding: a sticky box is held inside the padding, which left it 32px short
      of the edge with pills showing on both sides of it. */
   /* Two ids: the new look's `#s-nav button { background: none }` (:root[data-look="new"] ...) outranks one id and a
      class, and left the chevron see-through over the pills. */
-  #s-nav #s-nav-more { position: sticky; right: -32px; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -12px;
+  /* margin-left: -50px (its 44px plus the row's 6px gap) keeps it out of the scroll range, so showing or hiding it never
+     changes how far the row scrolls (with it in the flow, the row jumped about 37px at the end). */
+  #s-nav #s-nav-more { position: sticky; right: -32px; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -50px; scroll-snap-align: none;
                       display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
                       background: var(--k-bg); color: var(--k-ink); box-shadow: 0 0 0 1px var(--k-rule); }
   #s-nav:not([data-edge="r"]):not([data-edge="lr"]) #s-nav-more { display: none; }   /* two ids, to outrank the rule above */
@@ -17194,8 +17198,10 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos+</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
     <!-- #5303: on a phone the row scrolls sideways; this says there is more and moves it along. No data-go, so the
-         nav's click handler and the Settings menu (pnav-settings) both pass it by. Shown only by the phone rule below. -->
-    <button type="button" class="snav-more" id="s-nav-more" aria-label="More sections" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+         nav's click handler and the Settings menu (pnav-settings) both pass it by. Shown by the script after the nav's click
+         handler and the phone rule in the stylesheet. Pointer-only (tabindex -1, aria-hidden): every pill is already in the
+         keyboard and reading order, and a focusable button that hides itself at the row's end would drop focus to the page. -->
+    <button type="button" class="snav-more" id="s-nav-more" tabindex="-1" aria-hidden="true" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
   </nav>
   <div class="dsecs">
   <section class="dsec" id="s-sec-you" data-sec="you" tabindex="-1" aria-label="Your Profile">
@@ -39395,8 +39401,10 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
     const room = nav.scrollWidth - nav.clientWidth;
     const left = room > 2 && nav.scrollLeft > 2;
     const right = room > 2 && nav.scrollLeft < room - 2;
-    nav.dataset.edge = (left ? 'l' : '') + (right ? 'r' : '');
-    more.hidden = !right;
+    const edge = (left ? 'l' : '') + (right ? 'r' : '');
+    // Written only when changed: the observer below watches `hidden`, so an unconditional write would wake it again.
+    if (nav.dataset.edge !== edge) nav.dataset.edge = edge;
+    if (more.hidden === right) more.hidden = !right;
   };
   more.addEventListener('click', () => {
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -39405,6 +39413,8 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   nav.addEventListener('scroll', mark, { passive: true });
   window.addEventListener('resize', mark);
   if (window.ResizeObserver) new ResizeObserver(mark).observe(nav);
+  // The row's content can change width without the nav resizing (Kosmos+ gains or loses its needs-you dot, a pill is hidden).
+  if (window.MutationObserver) new MutationObserver(mark).observe(nav, { attributes: true, subtree: true, attributeFilter: ['data-dot', 'hidden'] });
   mark();
 })();
 
