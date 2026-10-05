@@ -563,7 +563,16 @@ async function listLook(page) {
   const rest = await read();
   let hover = null, hoverGround = null;
   if (rest.found) {
-    await page.hover('#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)'); await page.waitForTimeout(150);
+    /* The board can redraw the list between the hover and the read; the new row is not :hover until the pointer moves,
+       so it reads the resting border (#5298). Wait for the row itself to be under the pointer, re-hovering if it was
+       replaced, and only then read. The wait is on :hover, not on the border, so a missing hover rule still reads red. */
+    const PLAIN = '#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)';
+    for (let i = 0; i < 3; i++) {
+      await page.mouse.move(1, 1); await page.hover(PLAIN);
+      const on = await page.waitForFunction((s) => { const r = document.querySelector(s); return !!r && r.matches(':hover'); }, PLAIN, { timeout: 1000 })
+        .then(() => true, () => false);
+      if (on) break;
+    }
     const h = await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
   }
   /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
