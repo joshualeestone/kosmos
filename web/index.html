@@ -68941,11 +68941,11 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const box = document.getElementById('pjs-move-path');
-  const msg = document.getElementById('pjs-move-msg');
+  const said = document.getElementById('pjs-move-said');
   const btn = document.getElementById('pjs-move-btn');
   const want = box.value.trim();
-  msg.textContent = '';
-  if (!want) { msg.textContent = 'Paste the folder\'s full path first.'; box.focus(); return; }
+  said.textContent = '';
+  if (!want) { said.textContent = 'Paste the folder\'s full path first.'; box.focus(); return; }
   btn.disabled = true;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
@@ -68957,12 +68957,12 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     if (!res.ok) throw new Error(body.error || 'we could not move it');
     box.value = '';
     if (!(await loadProjects())) await loadProjects();
-    msg.textContent = PJ_READ_FAILED
+    said.textContent = PJ_READ_FAILED
       ? 'Moved, but we could not re-read your projects just then.'
       : 'Moved. The agents on this project were told where it is now.';
   } catch (e) {
     const t = String((e && e.message) || 'we could not move it');
-    msg.textContent = 'Not moved: ' + t + '.';
+    said.textContent = 'Not moved: ' + t + '.';
   } finally {
     btn.disabled = false;
   }
