@@ -3594,7 +3594,7 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   /* A focused or snapped pill clears the left fade and the chevron with its fade (44px + 40px), so it is never under them.
      ALWAYS on, never per data-edge: padding that changed with the edge re-snapped the row, the scroll re-marked the edge, and
      the row oscillated (a click waiting for a stable pill timed out). */
-  #s-nav { scroll-padding-inline: 32px 88px; }
+  #s-nav { scroll-padding-inline: 88px; }   /* symmetric: uneven padding moved #718's centred pill 28px off centre */
   /* right: -32px cancels the row's 32px end padding: a sticky box is held inside the padding, which left it 32px short
      of the edge with pills showing on both sides of it. */
   /* Two ids: the new look's `#s-nav button { background: none }` (:root[data-look="new"] ...) outranks one id and a
