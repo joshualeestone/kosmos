@@ -1346,6 +1346,12 @@ function allowSelfQuietly() {
     .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
   return true;
 }
+/* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
+   plus was_a_computer). Anything else is dropped rather than shown. */
+const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
+/* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
+   crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
+const JOIN_CODE = /^\d{3} \d{3}$/;
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -1371,11 +1377,14 @@ function pendingDevices() {
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
       // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
-      // 🛑 It softens the page's prompt ("Allow it if you just signed it in"), so the coordinator must set it from its OWN
+      // 🛑 It softens the page's prompt ("Allow it if <name> shows this same code"), so the coordinator must set it from its OWN
       // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
       joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
       denied_at: Number(settings.denied[String(d.device_id)]) || 0,
+      /* kosmos#4794: why a joining computer's code is still "" (the tunnel's wait_reason, or was_a_computer), from a
+         fixed list so the page words each one; null while the code is shown or being worked out. */
+      code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
     }));
   return { devices, snapshot: raw !== null, email: settings.email || '' };
 }
@@ -1441,13 +1450,25 @@ async function devicesList() {
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow
     stands. `name` is the kind the phone gave, recorded for the list. */
-async function deviceAllow(id, name) {
+async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  return parseSaid(await tracked(setupRun(args, null, retireTimeoutMs())));
+  /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
+     refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
+  if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
+  const r = await tracked(setupRun(args, null, retireTimeoutMs()));
+  /* kosmos#4794: the tunnel's pairing refusals start with a fixed tag (pairing.rs allow_joining). The page words two
+     of them; any other failure keeps the tunnel's own reason, as before. */
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_mismatch: more than one computer/.test(said)) return { ok: false, because: 'code_many' };
+    if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
+    if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
+  }
+  return parseSaid(r);
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
@@ -1493,6 +1514,63 @@ async function deviceRemove(id) {
 function removeAnswer(r) {
   if (!r.ok && r.timedOut) return { ok: true, because: null, data: { timed_out: true } };
   return parseSaid(r);
+}
+
+/* ---- kosmos#4794 slice 1: this computer is JOINING, waiting for one of the person's computers to allow it. Both
+   screens show a six-digit code worked out from the two computers' keys; the person checks they match, presses Allow
+   on the other computer and "The codes match" here. Only then does this computer trust the other's key. */
+/* A computer name as the coordinator gives it, by the same rule as pendingDevices' joining_computer. */
+const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().toLowerCase()) ? v.trim().toLowerCase() : null);
+/* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
+function joinUnsupported(r) {
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  return !r.ok && r.code === 2 && /unrecognized subcommand '?join'?/.test(said);
+}
+/** One pairing round, then what the page may show: held, the code (or ""), whom it was asked of, and the
+    failed / confirmed / confirm_expired states. Not enrolled means not joining, without asking the binary. */
+async function joinStatus() {
+  /* A pairing round signs with this computer's key and writes pairing state, so it is a tracked signed call (#3827): a
+     Forget or a register in flight waits for it, and it does not start during one. */
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: true, because: null, data: { supported: true, held: false } };
+  const r = await tracked(setupRun(['join', 'status', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) return { ok: true, because: null, data: { supported: false, held: false } };
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  const d = got.data || {};
+  const names = (v) => (Array.isArray(v) ? v : []).map(computerName).filter(Boolean).slice(0, 10);
+  return { ok: true, because: null, data: {
+    supported: true,
+    held: d.held === true,
+    join_code: typeof d.join_code === 'string' && JOIN_CODE.test(d.join_code) ? d.join_code : '',
+    /* The computer this one pairs with, once its code is worked out (the tunnel lists at most one). */
+    on: (Array.isArray(d.join_codes) ? d.join_codes : []).map((c) => (c ? computerName(c.on) : null)).find(Boolean) || null,
+    asked_of: names(d.asked_of),
+    failed: d.failed === true,
+    confirmed: d.confirmed === true,
+    confirm_expired: d.confirm_expired === true,
+  } };
+}
+/** "The codes match": the person says the code on this screen is the one on the other computer. Local only; the
+    tunnel refuses a code it did not show (or one past its time). Answers the other computer's name. */
+async function joinConfirm(code) {
+  { const b = busy(); if (b) return b; }
+  if (typeof code !== 'string' || !JOIN_CODE.test(code)) return { ok: false, because: 'that is not the code on this screen' };
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'confirm', '--state-dir', STATE_DIR(), '--code', code], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) return { ok: false, because: 'this version of Kosmos cannot pair computers yet' };
+  /* The tunnel's refusals (pairing.rs confirm_joining), tagged for the page to word: the code ran out, or it is not the
+     code this computer shows now. */
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_expired' };
+    if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  const d = got.data || {};
+  if (d.confirmed !== true) return { ok: false, because: 'the code was not confirmed' };
+  return { ok: true, because: null, data: { confirmed: true, with: computerName(d.with) } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -2257,6 +2335,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   pendingDevices,
   devicesList,
   deviceAllow,
+  joinStatus,
+  joinConfirm,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment
