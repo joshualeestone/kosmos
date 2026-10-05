@@ -22,6 +22,15 @@
  *      set). Errors: a 409 not-owner shows pjFedMessage's sentence, a 502 shows the board's sentence as
  *      given, and the label is kept. Main: no sheet.
  *  A6  393 wide (a phone): the menu and both states of the sheet fit, with no sideways scroll.
+ *  A7  the review's guards: Enter while a Make is answered sends nothing more, Enter while composing sends nothing;
+ *      a scroll keeps the menu, Tab returns to its +; a passing signup reading closes nothing (the code step stays,
+ *      the asking step stays and Make refuses there); federation off closes the sheet.
+ *  A8  the sheet's ways out (backdrop and Escape on each step) and its Tab trap.
+ *  A9  the sheet does not close while Make is answered, and shows the minted code.
+ *  A12 the abort landing during the body read (headers in, body stalled) gives the same message.
+ *  A11 a Make past its limit (shortened by the arm) says a code may still have been made; Make is live again.
+ *  A10 a forced close mid-Make (federation off) does not leave the reopened sheet refusing to close; the menu
+ *      closes when its project is switched.
  *
  * kosmos#4649 slice B: the owner's "From outside" section in Members (Mona's shots 07, 09, 10), Remove and
  * Withdraw, against Kitty's GET /api/federation/members, POST /api/federation/remove { project, edge_id } and
@@ -46,21 +55,34 @@
  *  B5  checked_at null: the one plain line "Kosmos could not check who has joined just now. This list may be out
  *      of date.", rows kept with no Withdraw and no Make a new code (the board then reports a joined person as
  *      pending or expired, and sends no joined rows). Control: B1 (a number) has no such line and offers both.
- *      A 404 draws nothing at all. The GET failing (500):
- *      no outside rows, the same line, and the project's own agents still listed.
+ *      A 404 draws nothing at all. A failed REFRESH (500) keeps the last rows with the same line; a failed FIRST
+ *      load (no answer kept) shows the line and no outside rows, the project's own agents still listed. With
+ *      shared:true an unchecked answer with no rows still says the line.
  *  B6  the outside disc is dashed and untinted (computed border-top-style dashed, transparent background), in
  *      light AND dark, including the row labelled "Ada", the name of a local agent (#3851). Control: the local
  *      Ada's own disc in the same Members card IS tinted, so the page does tint that name where it should.
+ *  B7b a reply that lands after the sheet was force-closed still has the list asked again (the new row shows).
+ *  B7c a Make given up on (the time limit) asks the list again too, since a code may still have been made.
  *  B7  an expired row's "Make a new code" opens the invite sheet with its label and kind filled in and focus on
  *      "Make an invite code"; making it asks the list again, and the expired row goes once a pending one has
  *      the same label. Control: before the new code, the expired row is listed (B1).
  *  B8  gate not "show": the members route is never asked and the section draws nothing. Control: B1.
  *  B10a a label that is not a name ("my sister") gets the they/their body, never "my's computer". Control: Dana's
  *       body says "Dana's computer".
- *  B10b another project opened while a Remove is asked: the dialog closes, nothing is said, and the old
- *       project's list is not asked again. Control: B2, where the same 200 does ask again.
+ *  B10b the open project changed (PJ_CURRENT set directly) while a Remove is asked: the dialog closes, nothing is
+ *       said, and the old project's list is not asked again. Control: B2. The real openProject path is B18g.
+ *  B11c a passing signup reading leaves an open outside Remove open, and Remove pressed under it sends nothing.
  *  B11a consolidated layout: Withdraw pressed in the RAIL asks the board and says its 409 unsupported sentence
  *       there. Control: B4, the same answer in the tab layout.
+ *  B15 focus across a tab rebuild (a) and a rail rebuild (b); focus on the "+" after a Remove (c); a Remove that a
+ *      Cancel did not stop says it went through (d); a Withdraw nobody answers is given up on (e); the rows at 390 (f);
+ *      Remove pressed in the rail (g); a late answer never pulls focus out of another dialog (h); a Remove nobody
+ *      answers is given up on (i); a rail "Make a new code" cancelled after a rebuild returns focus to its row (j).
+ *  B18 a first members load the network drops (a), Remove 403 (b), Remove not-owner (c), Withdraw unreachable (d),
+ *      an older members reply after a newer one (e), a Remove answered after leaving and reopening the project (f),
+ *      the same through the back chevron and reopening the SAME project (g), a not-owner refusal whose reload hides
+ *      the section still shows its sentence (h).
+ *  B16 owner:false and self_shared draw no From outside section. Control: the same invites as owner draw rows.
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
  *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
@@ -70,7 +92,7 @@
  *       minus opens it with no danger look, no stale message and a live button. Control: the 502 state just before.
  *  B14  after a Withdraw refusal, focus is on that row's Withdraw (not <body>) and the sentence is in #fed-live.
  *       Control: #fed-live is empty or absent before the action.
- *  B15  consolidated layout on a board with NO agents of its own: the rail still lists the project's people from
+ *  B17  consolidated layout on a board with NO agents of its own: the rail still lists the project's people from
  *       outside (the Members card is hidden there). Control: B9, the same rows with agents on the board.
  *  B10c an unchecked answer (checked_at null, with rows) is asked again after 30 s, not before. Control: a
  *       checked answer is not asked again after the same 30 s.
@@ -161,6 +183,8 @@ function initStub(cfg) {
   window.setInterval = () => 0;   // no background poll repaints under an arm
   window.__fed = cfg.fed;
   window.__posts = [];
+  window.__inviteDelay = 0;
+  window.__inviteBodyStall = false;
   window.__copied = [];
   window.__invite = { status: 200, body: { code: cfg.code, expires_at: cfg.expires, invite_id: 'inv-1' } };
   window.__project = { id: 'k', name: 'Spring launch', parent: null, archived: false, description: '',
@@ -201,10 +225,31 @@ function initStub(cfg) {
       let body = null;
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window.__posts.push({ url: u, method, body });
+      // A7a holds one in flight; like a real fetch, an aborted signal rejects it with an AbortError (A11).
+      if (window.__inviteDelay) {
+        await new Promise((r, no) => {
+          const t = setTimeout(r, window.__inviteDelay);
+          const sig = opts && opts.signal;
+          if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
+        });
+      }
+      // A12: the headers arrive, the body stalls, and (like a real fetch) the abort errors the body stream.
+      if (window.__inviteBodyStall) {
+        const sig = opts && opts.signal;
+        const stream = new ReadableStream({ start(c) { if (sig) sig.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; c.error(e); }); } });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       return enc(window.__invite.status, window.__invite.body);
     }
     if (u.includes('/api/federation/members')) {
       window.__memberUrls.push(u);
+      // B18: 'throw' fails like a dropped connection; a queued { answer, delay } answers late (sequencing).
+      if (Array.isArray(window.__membersQueue) && window.__membersQueue.length) {
+        const q = window.__membersQueue.shift();
+        await new Promise((r) => setTimeout(r, q.delay || 0));
+        return enc(q.answer.status, q.answer.body);
+      }
+      if (window.__members === 'throw') throw new TypeError('Failed to fetch');
       return enc(window.__members.status, window.__members.body);
     }
     for (const [route, log, key] of [['/api/federation/remove', '__removes', '__remove'], ['/api/federation/withdraw', '__withdraws', '__withdraw']]) {
@@ -212,7 +257,15 @@ function initStub(cfg) {
       let body = null;
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window[log].push({ method, body });
-      if (window.__answerDelay) await new Promise((r) => setTimeout(r, window.__answerDelay));   // B10b holds one in flight
+      // B10b holds one in flight; like a real fetch, an aborted signal rejects it with an AbortError (B15e).
+      if (window.__answerDelay) {
+        await new Promise((r, no) => {
+          const t = setTimeout(r, window.__answerDelay);
+          const sig = opts && opts.signal;
+          if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
+        });
+      }
+      if (window[key] === 'throw') throw new TypeError('Failed to fetch');   // B18: a dropped connection
       return enc(window[key].status, window[key].body);
     }
     if (/\/api\/you(\?|$)/.test(u) && window.__you) return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed, { you: window.__you }));
@@ -436,6 +489,13 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#rail-agents-new');
     let s = await read(page);
     check('A2 consolidated: the rail "+" opens the same menu', s.menuBox !== null && s.amBox === null && !!s.items && s.items.length === 2, JSON.stringify({ menu: s.menuBox, items: s.items }));
+    const railGeo = await page.evaluate(() => {
+      const r = (el) => { const b = el.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right) }; };
+      return { rail: r(document.getElementById('rail-agents')), plus: r(document.getElementById('rail-agents-new')) };
+    });
+    check('A2 consolidated: the menu sits inside the rail with its right edge on the rail "+" (Q-M4)',
+      !!s.menuBox && Math.abs(s.menuBox.r - railGeo.plus.r) <= 2 && s.menuBox.l >= railGeo.rail.l - 1 && s.menuBox.r <= railGeo.rail.r + 1,
+      JSON.stringify({ menu: s.menuBox, railGeo }));
     await page.click('#pj-addmenu-agent');
     s = await read(page);
     check('A2 consolidated: "Add one of your agents" opens #am-modal with a real box', !!s.amBox && s.amBox.w > 200 && s.amBox.h > 80, JSON.stringify({ am: s.amBox }));
@@ -455,6 +515,10 @@ const closeAll = (page) => page.evaluate(() => {
     let s = await read(page);
     check('A6 393 wide: the menu opens inside the window', !!s.menuBox && s.menuBox.l >= 0 && s.menuBox.r <= s.vw && s.overflowX <= 0,
       JSON.stringify({ menu: s.menuBox, vw: s.vw, overflowX: s.overflowX }));
+    const pcard = await page.$eval('.pjcard-members', (c) => { const b = c.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right) }; });
+    check('A6 393 wide: the menu takes the card\'s full width under its head (Q-M4 phone rule; 16 px gutters)',
+      !!s.menuBox && Math.abs(s.menuBox.l - Math.max(16, pcard.l)) <= 1 && Math.abs(s.menuBox.r - Math.min(s.vw - 16, pcard.r)) <= 1,
+      JSON.stringify({ menu: s.menuBox, card: pcard, vw: s.vw }));
     await page.click('#pj-addmenu-outside');
     s = await read(page);
     check('A6 393 wide: the asking step fits, no sideways scroll', !!s.invBox && s.invBox.l >= 0 && s.invBox.r <= s.vw && s.overflowX <= 0,
@@ -466,6 +530,188 @@ const closeAll = (page) => page.evaluate(() => {
     const code = await page.$eval('#fedinv-code', (i) => { const r = i.getBoundingClientRect(); return { r: Math.round(r.right), value: i.value }; });
     check('A6 393 wide: the code step fits (the long code is cut, not the page)', !!s.invBox && s.invBox.r <= s.vw && s.overflowX <= 0
       && code.value === CODE && code.r <= s.invBox.r, JSON.stringify({ inv: s.invBox, code, vw: s.vw, overflowX: s.overflowX }));
+    await ctx.close();
+  }
+
+  /* ---------------- A7: the review round's guards (Enter, IME, scroll, Tab, a passing gate) ---------------- */
+  {
+    const SIGNUP = { sourceChannel: 'prod', federationLive: true, kosmos_plus: false };
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    // A7d: a scroll re-places the open menu instead of closing it; Tab closes it back to its "+".
+    await page.click('#pj-add-member');
+    await page.evaluate(() => document.dispatchEvent(new Event('scroll')));
+    let s = await read(page);
+    const afterScroll = s.menuBox !== null;
+    await page.keyboard.press('Tab');
+    s = await read(page);
+    check('A7d a scroll keeps the menu open (control: Tab then closes it) and Tab returns focus to the "+"',
+      afterScroll && s.menuBox === null && s.focus === 'pj-add-member', JSON.stringify({ afterScroll, menu: s.menuBox, focus: s.focus }));
+    // A7a/b: Enter while a request is in flight sends nothing more; Enter while composing sends nothing.
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => {
+      window.__posts.length = 0;
+      document.getElementById('fedinv-label').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
+    });
+    const composing = await page.evaluate(() => window.__posts.length);
+    await page.evaluate(() => { window.__inviteDelay = 400; });
+    await page.focus('#fedinv-label');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    const sent = await page.evaluate(() => window.__posts.length);
+    await page.evaluate(() => { window.__inviteDelay = 0; });
+    check('A7a/b Enter three times while one request is asked sends ONE invite; Enter while composing sends none (control: the first Enter sends)',
+      composing === 0 && sent === 1, JSON.stringify({ composing, sent }));
+    // A7c: a passing "signup" reading keeps a code already on screen; federation turning off closes it.
+    await page.evaluate((d) => fedGateStamp(d), SIGNUP);
+    await page.waitForTimeout(100);
+    s = await read(page);
+    const keptOnSignup = s.invBox !== null;
+    await page.evaluate((d) => fedGateStamp(d), OFF);
+    await page.waitForTimeout(100);
+    s = await read(page);
+    check('A7c a code on screen survives a passing signup reading, and closes when federation turns off (control)',
+      keptOnSignup && s.invBox === null, JSON.stringify({ keptOnSignup, inv: s.invBox }));
+    // A7c: the ASKING step also stays open on a signup reading (a label being typed is not lost); Make refuses there.
+    await page.evaluate((d) => fedGateStamp(d), SHOW);
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.evaluate((d) => fedGateStamp(d), SIGNUP);
+    await page.waitForTimeout(100);
+    s = await read(page);
+    const askMsg = await page.evaluate(() => { fedInviteMake(); return document.getElementById('fedinv-msg').textContent; });
+    check('A7c a signup reading keeps the asking step open (a label being typed is not lost) and Make refuses there',
+      s.invBox !== null && askMsg === 'Inviting is not available just now. Try again in a moment.', JSON.stringify({ inv: s.invBox, askMsg }));
+    await ctx.close();
+  }
+
+  /* ---------------- A8: the sheet's ways out and its Tab trap ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    const openSheet = async () => { await page.click('#pj-add-member'); await page.click('#pj-addmenu-outside'); };
+    const sheet = () => page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    // Asking step: the backdrop and Escape both close it.
+    await openSheet();
+    await page.mouse.click(5, 5);
+    const askBackdrop = await sheet();
+    await openSheet();
+    await page.keyboard.press('Escape');
+    const askEscape = await sheet();
+    // Tab stays inside the sheet (aria-modal): ten presses each way, focus never leaves it.
+    await openSheet();
+    const trapped = [];
+    for (const key of ['Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+      await page.keyboard.press(key);
+      trapped.push(await page.evaluate(() => document.getElementById('fedinv-modal').contains(document.activeElement)));
+    }
+    // Code step: the backdrop keeps it (a code cannot be shown again); Escape, deliberate, closes it.
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.click('#fedinv-make');
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    await page.mouse.click(5, 5);
+    const codeBackdrop = await sheet();
+    await page.keyboard.press('Escape');
+    const codeEscape = await sheet();
+    check('A8 asking step: backdrop and Escape close it; code step: the backdrop keeps it, Escape closes it',
+      askBackdrop === false && askEscape === false && codeBackdrop === true && codeEscape === false,
+      JSON.stringify({ askBackdrop, askEscape, codeBackdrop, codeEscape }));
+    check('A8 Tab and Shift+Tab stay inside the sheet (aria-modal)', trapped.length === 10 && trapped.every(Boolean), JSON.stringify(trapped));
+    await ctx.close();
+  }
+
+  /* ---------------- A9: the sheet does not close while Make is being answered ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { window.__inviteDelay = 500; });
+    await page.click('#fedinv-make');
+    await page.keyboard.press('Escape');
+    const during = await page.evaluate(() => ({ open: !document.getElementById('fedinv-modal').hidden,
+      cancelOff: document.getElementById('fedinv-cancel').disabled, said: document.getElementById('fedinv-msg').textContent }));
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    const shown = await page.evaluate(() => ({ open: !document.getElementById('fedinv-modal').hidden, code: document.getElementById('fedinv-code').value }));
+    await page.evaluate(() => { window.__inviteDelay = 0; });
+    check('A9 while Make is answered: Escape is refused out loud, Cancel is disabled, the sheet stays, and the minted code is shown (control: A8, Escape closes an idle asking step)',
+      during.open && during.cancelOff && during.said === 'One moment: Kosmos is making the code.' && shown.open && shown.code === CODE, JSON.stringify({ during, shown }));
+    await ctx.close();
+  }
+
+  /* ---------------- A10: a forced close mid-Make, and a stale menu after a project switch ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { window.__inviteDelay = 500; });
+    await page.click('#fedinv-make');
+    await page.evaluate((d) => fedGateStamp(d), OFF);   // forced close while the Make is answered
+    await page.waitForTimeout(700);
+    await page.evaluate((d) => { window.__inviteDelay = 0; fedGateStamp(d); }, SHOW);
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.keyboard.press('Escape');
+    const closed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
+    // The menu, opened, then its project switched: the next stamp closes it.
+    await page.click('#pj-add-member');
+    const openBefore = await page.evaluate(() => !document.getElementById('pj-addmenu').hidden);
+    await page.evaluate((d) => { PJ_CURRENT = 'elsewhere'; fedGateStamp(d); }, SHOW);
+    const openAfter = await page.evaluate(() => !document.getElementById('pj-addmenu').hidden);
+    await page.evaluate(() => { PJ_CURRENT = 'k'; });
+    // The sheet's asking step, opened on k, then its project switched: the next stamp closes it.
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    const sheetBefore = await page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    await page.evaluate((d) => { PJ_CURRENT = 'elsewhere'; fedGateStamp(d); }, SHOW);
+    const sheetAfter = await page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    await page.evaluate(() => { PJ_CURRENT = 'k'; });
+    check('A10 after a forced close mid-Make the reopened sheet closes on Escape; a switched project closes the menu and the asking sheet (controls: open before)',
+      closed === true && openBefore === true && openAfter === false && sheetBefore === true && sheetAfter === false,
+      JSON.stringify({ closed, openBefore, openAfter, sheetBefore, sheetAfter }));
+    await ctx.close();
+  }
+
+  /* ---------------- A11: Make's limit (shortened here) and its message ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteDelay = 2000; });
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(700);
+    const timed = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, make: !document.getElementById('fedinv-make').disabled,
+      focus: document.activeElement && document.activeElement.id }));
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteDelay = 0; });
+    check('A11 a Make past its limit says a code may still have been made, Make is live again and focus is on the label (control: A4 answers in time)',
+      timed.msg === 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.'
+      && timed.make && timed.focus === 'fedinv-label', JSON.stringify(timed));
+    await ctx.close();
+  }
+
+  /* ---------------- A12: an abort while the body is being read (res.json() swallows it; the signal does not) ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteBodyStall = true; });
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(700);
+    const msg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteBodyStall = false; });
+    check('A12 an abort during the body read still says a code may have been made (control: A11, an abort before the headers)',
+      msg === 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.', msg);
     await ctx.close();
   }
 
@@ -509,7 +755,7 @@ const closeAll = (page) => page.evaluate(() => {
       rows: [...box.querySelectorAll('.fedout-row')].map((r) => {
         const act = r.querySelector('.fedout-act');
         return { key: r.dataset.fedKey, disc: r.querySelector('.msg-av').textContent, name: r.querySelector('.fedout-nm').textContent,
-          sub: r.querySelector('.fedout-sub').textContent, act: act ? act.textContent : '', actOn: !!act && !act.disabled };
+          sub: r.querySelector('.fedout-sub').textContent, act: act ? act.textContent : '', actOn: !!act && !act.disabled && act.getAttribute('aria-disabled') !== 'true' };
       }),
       msgs: [...box.querySelectorAll('.fmsg')].map((m) => m.textContent).filter(Boolean),
       text: box.textContent,
@@ -549,7 +795,9 @@ const closeAll = (page) => page.evaluate(() => {
     const oneLine = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-outside .fedout-row')].map((r) => {
       const lh = (el) => parseFloat(getComputedStyle(el).lineHeight) || 16;
       const nm = r.querySelector('.fedout-nm'); const sub = r.querySelector('.fedout-sub');
-      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5, sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 };
+      // One line AND not cut short: an ellipsis would also pass the height test (Mona asked for the whole name and date).
+      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5 && nm.scrollWidth <= nm.clientWidth + 1,
+        sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 && sub.scrollWidth <= sub.clientWidth + 1 };
     }));
     check('B1 at 1280 every name and sub-line is on one line (Mona: "Expired Oct / 1" split)',
       oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub), JSON.stringify(oneLine));
@@ -603,6 +851,8 @@ const closeAll = (page) => page.evaluate(() => {
     m = await modal(page);
     let f = await readFed(page, '#pj-fed-outside');
     check('B3 remove 502: the dialog stays open with the board\'s sentence', m.open && m.msg === 'The connection service refused just now.', JSON.stringify(m));
+    const refusedFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check('B3 remove 502: focus is on Cancel, the harmless answer (it moved there before Remove was disabled)', refusedFocus === 'mem-keep', 'focus=' + refusedFocus);
     check('B3 remove 502: Dana\'s row stays', f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify(f.rows.map((r) => r.key)));
 
     // B2: the 200. The next members answer has Dana removed.
@@ -813,6 +1063,33 @@ const closeAll = (page) => page.evaluate(() => {
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',
       (await gets(page)) > before && f.rows.some((r) => r.key === 'i:inv-new' && r.sub === 'Invited · until Oct 11') && !f.rows.some((r) => r.key === 'i:inv-old'),
       JSON.stringify(f.rows.map((r) => r.key + ' ' + r.sub)));
+    // B7b: a reply that lands after the sheet was force-closed (the gate leaving "show" and coming back) still has the
+    // list asked again, so the code it made shows. Control: the count is read after the gate's own asks settle.
+    await page.evaluate(() => fedInviteOpen(null, { label: 'Kim Lo', kind: 'person' }));
+    await setMembers(page, answer([row({ invite_id: 'inv-kim', label: 'Kim Lo', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    await page.evaluate(() => { window.__inviteDelay = 600; });
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(50);
+    await page.evaluate(([off, on]) => { fedGateStamp(off); fedGateStamp(on); }, [OFF, SHOW]);
+    await page.waitForTimeout(150);
+    const lateClosed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
+    const lateBefore = await gets(page);
+    await page.waitForTimeout(700);
+    const lateRows = (await readFed(page, '#pj-fed-outside')).rows;
+    check('B7b a reply landing after a forced close still has the list asked again, and the new pending row shows (control: closed, counted after the gate settled)',
+      lateClosed && (await gets(page)) > lateBefore && lateRows.some((r) => r.key === 'i:inv-kim'), JSON.stringify({ lateClosed, keys: lateRows.map((r) => r.key) }));
+    // B7c: a Make given up on (the time limit) asks again too, since a code may still have been made.
+    await page.evaluate(() => { window.__inviteDelay = 2000; FEDINV_MAKE_LIMIT_MS = 200; fedInviteOpen(null, { label: 'Ray Oh', kind: 'person' }); });
+    await setMembers(page, answer([row({ invite_id: 'inv-ray', label: 'Ray Oh', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    const toBefore = await gets(page);
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(600);
+    const toMsg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
+    const toRows = (await readFed(page, '#pj-fed-outside')).rows;
+    const toAsked = (await gets(page)) - toBefore;
+    await page.evaluate(() => { window.__inviteDelay = 0; FEDINV_MAKE_LIMIT_MS = 60000; });
+    check('B7c a Make given up on asks the list again and shows the code it may have made (control: the timed-out message)',
+      toMsg.startsWith('Kosmos did not hear back in time.') && toAsked >= 1 && toRows.some((r) => r.key === 'i:inv-ray'), JSON.stringify({ toMsg, toAsked, keys: toRows.map((r) => r.key) }));
     await ctx.close();
   }
 
@@ -848,13 +1125,13 @@ const closeAll = (page) => page.evaluate(() => {
     await ctx.close();
   }
 
-  /* B15: consolidated, a board with no agents of its own. */
+  /* B17: consolidated, a board with no agents of its own. */
   {
     const { ctx, page } = await newPage(1280, SHOW);
     await page.evaluate((a) => { window.__members = a; window.__agents = []; }, answer([DANA, LEE]));
     await openProjectIn(page, 'consolidated');
     const f = await readFed(page, '#alist-fed-outside');
-    check('B15 no agents on the board: the rail still lists the people from outside (control: B9 with agents)',
+    check('B17 no agents on the board: the rail still lists the people from outside (control: B9 with agents)',
       f.exists && f.rows.length === 2 && f.rows.some((r) => r.act === 'Remove') && f.rows.some((r) => r.act === 'Withdraw'), JSON.stringify(f));
     await ctx.close();
   }
@@ -870,6 +1147,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(200);
     const left = await modal(page);
     await page.click('#mem-keep');
+    // Dirty the dialog by hand (Cancel already cleaned it), so only openMemModal's own reset can clean it again.
+    await page.evaluate(() => { document.getElementById('mem-go').classList.add('danger-btn'); document.getElementById('mem-msg').textContent = 'stale'; document.getElementById('mem-go').disabled = true; });
     await page.click('#pj-one-agents .pj-minus[data-drop="ada"]');
     await page.waitForTimeout(100);
     const local = await modal(page);
@@ -937,6 +1216,278 @@ const closeAll = (page) => page.evaluate(() => {
     const openAfter = (await modal(page)).open;
     check('B11b the gate leaving "show" closes an open outside Remove (control: open just before)', openBefore === true && openAfter === false,
       JSON.stringify({ openBefore, openAfter }));
+    // B11c: a passing "signup" reading leaves an open outside Remove open (control: B11b, "hidden" closes it).
+    await page.evaluate((d) => { fedGateStamp(d); paintAgentList(); }, SHOW);   // the poll's own rail paint
+    await page.waitForTimeout(150);
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
+    await page.waitForTimeout(100);
+    const sBefore = (await modal(page)).open;
+    await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: true, kosmos_plus: false }));
+    await page.waitForTimeout(100);
+    const sAfter = (await modal(page)).open;
+    // Remove pressed under that reading sends nothing and says so in the dialog (slice A's sheet makes no code then).
+    await page.evaluate(() => { window.__removes.length = 0; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(100);
+    const sMsg = (await modal(page)).msg;
+    const sSent = await page.evaluate(() => window.__removes.length);
+    await page.click('#mem-keep');
+    check('B11c Remove pressed under a signup reading sends nothing and says it is not available', sSent === 0 && sMsg === 'Removing is not available just now. Try again in a moment.',
+      JSON.stringify({ sSent, sMsg }));
+    check('B11c a passing signup reading leaves an open outside Remove open (control: B11b, hidden closes it)', sBefore === true && sAfter === true,
+      JSON.stringify({ sBefore, sAfter }));
+    await ctx.close();
+  }
+
+  /* B15: focus across rebuilds, the end of a Remove, a Cancel that does not stop one, the action time limit, the
+     rail's Remove, and the rows at phone width. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const focusedKey = () => page.evaluate(() => { const a = document.activeElement; return a && a.dataset ? a.dataset.fedKey || a.id || a.tagName : null; });
+    // B15a: a background refetch that changes the markup keeps focus on the same row's action.
+    await page.focus('#pj-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
+    await page.evaluate(() => { document.activeElement.__mark = 1; });
+    await setMembers(page, answer([row({ invite_id: 'inv-zed', label: 'Zed Ng', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const a15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey : null, rebuilt: !(a && a.__mark),
+      zed: !!document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-zed"]') }; });
+    check('B15a the tab list rebuilt under a focused Withdraw keeps focus on that row\'s Withdraw (control: the button was replaced, a new row shows)',
+      a15.key === 'i:inv-lee' && a15.rebuilt && a15.zed, JSON.stringify(a15));
+    // B15d: Cancel while a Remove is asked; it goes through anyway, and the list says so.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__answerDelay = 300; window.__remove = { status: 200, body: { removed: true } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(50);
+    await page.click('#mem-keep');
+    await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
+    await page.waitForTimeout(500);
+    let f = await readFed(page, '#pj-fed-outside');
+    check('B15d Cancel does not stop an asked Remove: when it goes through, the list says so (control: the row is gone)',
+      f.msgs.includes('Dana Ruiz was removed from this project.') && !f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify({ msgs: f.msgs, keys: f.rows.map((r) => r.key) }));
+    // B15c: a Remove that goes through with the dialog open lands focus on the Members "+".
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.click('#mem-go');
+    await page.waitForTimeout(250);
+    const c15 = { open: (await modal(page)).open, focus: await focusedKey() };
+    check('B15c a Remove that goes through closes the dialog and focus lands on the Members "+"', !c15.open && c15.focus === 'pj-add-member', JSON.stringify(c15));
+    // B15e: a Withdraw nobody answers is given up on: it says so, the row's Withdraw is live again, the list is asked.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; window.__answerDelay = 3000; window.__withdraw = { status: 200, body: { withdrawn: true } }; });
+    const g0 = await gets(page);
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(80);
+    const busyFocus = await focusedKey();   // the busy, rebuilt Withdraw keeps focus (aria-disabled, not disabled)
+    await page.waitForTimeout(520);
+    f = await readFed(page, '#pj-fed-outside');
+    const g1 = (await gets(page)) - g0;
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
+    const lee = f.rows.find((r) => r.key === 'i:inv-lee');
+    check('B15e a Withdraw nobody answers is given up on: the sentence, the Withdraw live again, the list asked (control: the row still shows)',
+      f.msgs.some((m) => m.startsWith('Kosmos did not hear back in time.')) && lee && lee.actOn && g1 >= 1, JSON.stringify({ msgs: f.msgs, lee, g1 }));
+    check('B15e while it is asked, the rebuilt busy Withdraw keeps focus', busyFocus === 'i:inv-lee', 'focus=' + busyFocus);
+    // B15h: a Remove cancelled in flight answers while ANOTHER dialog (a local minus) is open: focus stays in it.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__answerDelay = 400; window.__remove = { status: 502, body: { error: 'The connection service refused just now.' } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(50);
+    await page.click('#mem-keep');
+    await page.click('#pj-one-agents .pj-minus[data-drop="ada"]');
+    await page.waitForTimeout(100);
+    const hFirst = await focusedKey();
+    await page.waitForTimeout(500);
+    const h = { open: (await modal(page)).open, first: hFirst, after: await focusedKey() };
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    await page.click('#mem-keep');
+    check('B15h a late Remove answer never pulls focus out of another open dialog (control: focus was in it before the answer)',
+      h.open && h.first === 'mem-keep' && h.after === 'mem-keep', JSON.stringify(h));
+    // B15i: a Remove nobody answers is given up on: the dialog closes, the sentence is said beside the list, which is
+    // asked again, and focus is not left on <body>.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; window.__answerDelay = 3000; window.__remove = { status: 200, body: { removed: true } }; });
+    const i0 = await gets(page);
+    await page.click('#mem-go');
+    await page.waitForTimeout(60);
+    const iBusyFocus = await focusedKey();   // in flight: on Cancel, not <body> (Remove is disabled while asked)
+    await page.waitForTimeout(540);
+    const iModal = (await modal(page)).open;
+    const iF = await readFed(page, '#pj-fed-outside');
+    const iFocus = await focusedKey();
+    const iAsked = (await gets(page)) - i0;
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
+    check('B15i while a Remove is asked, focus is on the dialog\'s Cancel (not <body>)', iBusyFocus === 'mem-keep', 'focus=' + iBusyFocus);
+    check('B15i a Remove nobody answers: the dialog closes, the sentence beside the list, the list asked, focus placed (control: B15e for Withdraw)',
+      !iModal && iF.msgs.some((m) => m.startsWith('Kosmos did not hear back in time.')) && iAsked >= 1 && iFocus && iFocus !== 'BODY',
+      JSON.stringify({ iModal, msgs: iF.msgs, iAsked, iFocus }));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'consolidated');
+    // B15b: the rail is rebuilt on every status poll; a focused rail action is found again by its key.
+    await page.focus('#alist-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
+    await page.evaluate(() => { document.activeElement.__mark = 1; paintAgentList(); });
+    const b15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey : null, rebuilt: !(a && a.__mark),
+      inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });
+    check('B15b a rail rebuild keeps focus on the same row\'s action (control: the button was replaced)', b15.key === 'i:inv-lee' && b15.rebuilt && b15.inRail, JSON.stringify(b15));
+    // B15j: "Make a new code" in the rail, the rail rebuilt while the sheet is open, then Cancel: focus goes back to
+    // that row's (new) button, not to the "+". Control: the opener was detached by the rebuild.
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="i:inv-old"] .fedout-act');
+    await page.evaluate(() => paintAgentList());
+    const detached = await page.evaluate(() => !!FEDINV_OPENER && !FEDINV_OPENER.isConnected);
+    await page.click('#fedinv-cancel');
+    const j15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey || a.id : null, inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });
+    check('B15j a rail "Make a new code" cancelled after a rebuild returns focus to that row (control: its opener was detached)',
+      detached && j15.key === 'i:inv-old' && j15.inRail, JSON.stringify({ detached, j15 }));
+    // B15g: Remove pressed in the rail asks the board for that connection, and the row goes.
+    await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
+    await page.click('#mem-go');
+    await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
+    await page.waitForTimeout(300);
+    const sent = await page.evaluate(() => window.__removes.slice());
+    const rf = await readFed(page, '#alist-fed-outside');
+    check('B15g rail: Remove asks the board for Dana\'s connection and her row goes (control: B11a\'s rail Withdraw)',
+      sent.length === 1 && sent[0].body && sent[0].body.edge_id === 'edge-dana' && !rf.rows.some((r) => r.key === 'e:edge-dana') && rf.rows.length > 0,
+      JSON.stringify({ sent, keys: rf.rows.map((r) => r.key) }));
+    await ctx.close();
+  }
+  {
+    // B18: outcomes with no other arm: a first members load the network drops (a), Remove 403 (b), Remove not-owner
+    // end to end (c), Withdraw unreachable (d), an older members reply landing after a newer one (e), and a Remove
+    // answered after the project was left and reopened (f).
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate(() => { window.__members = 'throw'; });
+    await openProjectIn(page, 'tabs');
+    let f = await readFed(page, '#pj-fed-outside');
+    check('B18a a first members load the network drops shows the could-not-check line and no rows', f.notes.includes(NOTE) && f.rows.length === 0, JSON.stringify(f.notes));
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__remove = { status: 403, body: { error: 'forbidden' } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(200);
+    const m403 = await modal(page);
+    check('B18b Remove 403: the dialog stays with the plain fallback, not the board text', m403.open && m403.msg === 'Kosmos could not remove them just now. Try again in a moment.', JSON.stringify(m403));
+    await page.evaluate(() => { window.__remove = { status: 409, body: { reason: 'not-owner', error: 'not the owner' } }; });
+    const c0 = await gets(page);
+    await page.click('#mem-go');
+    await page.waitForTimeout(250);
+    const mNo = await modal(page);
+    f = await readFed(page, '#pj-fed-outside');
+    // B18h: the same refusal when the list asked again says this board is not the owner: no section, but the
+    // sentence still shows, alone (it does not vanish with the section).
+    await setMembers(page, answer(ALL, { owner: false }));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const fh = await readFed(page, '#pj-fed-outside');
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    check('B18h a not-owner refusal whose reload hides the section still shows its sentence, alone (control: no heading, no rows)',
+      fh.heads.length === 0 && fh.rows.length === 0 && fh.msgs.includes('Only the owner of this project can change who is in it.'), JSON.stringify(fh));
+    check('B18c Remove not-owner: the dialog closes, the owner-list sentence beside the list, the list asked again',
+      !mNo.open && f.msgs.includes('Only the owner of this project can change who is in it.') && (await gets(page)) > c0, JSON.stringify({ open: mNo.open, msgs: f.msgs }));
+    await page.evaluate(() => { window.__withdraw = 'throw'; });
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(200);
+    f = await readFed(page, '#pj-fed-outside');
+    const leeD = f.rows.find((r) => r.key === 'i:inv-lee');
+    check('B18d Withdraw the network drops: the could-not-reach sentence, and the Withdraw is live again',
+      f.msgs.includes('Kosmos could not reach the connection service. Try again in a moment.') && leeD && leeD.actOn, JSON.stringify({ msgs: f.msgs, leeD }));
+    // B18e: an older ask answers AFTER a newer one: the newer answer stands.
+    await page.evaluate((args) => {
+      const [older, newer] = args;
+      window.__membersQueue = [{ answer: older, delay: 300 }, { answer: newer, delay: 0 }];
+      fedMembersLoad('k'); fedMembersLoad('k');
+    }, [answer([LEE]), answer(ALL)]);
+    await page.waitForTimeout(500);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B18e an older members reply landing after a newer one is dropped (control: the newer list, more than one row)',
+      f.rows.length > 1 && f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify(f.rows.map((r) => r.key)));
+    // B18f: a Remove asked, the project left and reopened (A, B, A) before it answers: its late answer says nothing.
+    await page.evaluate(() => { window.__withdraw = { status: 200, body: { withdrawn: true } }; window.__remove = { status: 502, body: { error: 'refused' } }; window.__answerDelay = 300; });
+    await act(page, 'e:edge-dana');
+    await page.click('#mem-go');
+    await page.waitForTimeout(30);
+    await page.evaluate(async () => { PJ_CURRENT = 'elsewhere'; await fedMembersLoad('elsewhere'); PJ_CURRENT = 'k'; await fedMembersLoad('k'); });
+    await page.waitForTimeout(500);
+    const loose = await page.evaluate(() => Object.values(FED_MSGS));
+    const mF = await modal(page);
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    // With the dialog still open a 502 would only write #mem-msg, so that is what is asserted: the dropped answer
+    // closes the dialog and writes nothing (control: B3, the same 502 when the project stays, says it there).
+    check('B18f a Remove answered after the project was left and reopened: the dialog closes, nothing is said (control: B3)',
+      !mF.open && mF.msg === '' && loose.length === 0, JSON.stringify({ open: mF.open, msg: mF.msg, loose }));
+    // B18g: the same through the real path: Cancel, the back chevron to the projects list, then the SAME project
+    // reopened before the Remove answers. Its late answer says nothing in the reopened project.
+    await page.evaluate(() => { window.__answerDelay = 400; });
+    await act(page, 'e:edge-dana');
+    await page.click('#mem-go');
+    await page.waitForTimeout(30);
+    await page.click('#mem-keep');
+    await page.click('#pj-back');
+    await page.evaluate(() => openProject('k'));
+    await page.waitForTimeout(600);
+    const looseG = await page.evaluate(() => Object.values(FED_MSGS));
+    const backOpen = await page.evaluate(() => PJ_CURRENT);
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    check('B18g a Remove answered after Cancel, back to the list and the same project reopened leaves no sentence (control: reopened)',
+      backOpen === 'k' && looseG.length === 0, JSON.stringify({ backOpen, looseG }));
+    await ctx.close();
+  }
+  {
+    // B16: a project this board joined (owner:false) and one shared with this account's own computers
+    // (self_shared) draw nothing, even with invites in the answer. Control: the same invites as owner draw rows.
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL, { owner: false }));
+    await openProjectIn(page, 'tabs');
+    const notOwner = await readFed(page, '#pj-fed-outside');
+    await setMembers(page, answer(ALL, { self_shared: true }));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const selfShared = await readFed(page, '#pj-fed-outside');
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const owner = await readFed(page, '#pj-fed-outside');
+    check('B16 owner:false and self_shared draw no From outside section (control: the same invites as owner draw rows)',
+      notOwner.rows.length === 0 && notOwner.heads.length === 0 && selfShared.rows.length === 0 && selfShared.heads.length === 0 && owner.rows.length > 0,
+      JSON.stringify({ notOwner: notOwner.heads, selfShared: selfShared.heads, owner: owner.rows.length }));
+    await ctx.close();
+  }
+  {
+    // B15f: shot 07 at phone width: every name and sub-line on one line, as B1 at 1280.
+    const { ctx, page } = await newPage(390, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const oneLine = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-outside .fedout-row')].map((r) => {
+      const lh = (el) => parseFloat(getComputedStyle(el).lineHeight) || 16;
+      const nm = r.querySelector('.fedout-nm'); const sub = r.querySelector('.fedout-sub');
+      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5 && nm.scrollWidth <= nm.clientWidth + 1,
+        sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 && sub.scrollWidth <= sub.clientWidth + 1, seen: r.getClientRects().length > 0 };
+    }));
+    check('B15f at 390 every name and sub-line is on one line (control: the rows are on screen, as many as at 1280)',
+      oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub && o.seen), JSON.stringify(oneLine));
     await ctx.close();
   }
 

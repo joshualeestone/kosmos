@@ -87,13 +87,17 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   assert.match(s.pjFedMessage({ reason: 'not-owner' }), /Only the owner of this project can invite people to it\./, 'kosmos#4649: the invite sheet\'s 409 not-owner');
   // kosmos#4649 slice B: Withdraw's two 409s. `joined` is the board's sentence; `unsupported` is shown as the
   // board wrote it, with the lapse date the screen adds (Kitty's Q-K2), and as given when there is no date.
-  assert.equal(s.pjFedMessage({ reason: 'joined', error: 'The board said so.' }), 'The board said so.', 'kosmos#4649: Withdraw\'s 409 joined shows the board\'s sentence as given');
-  assert.equal(s.pjFedMessage({ reason: 'joined' }), 'Someone already joined with this code. Remove them instead.', 'kosmos#4649: Withdraw\'s 409 joined with no sentence falls back to the page\'s');
-  assert.equal(s.pjFedMessage({ reason: 'unsupported', error: 'Withdraw is not available on this coordinator.' }, 'fb', { lapses: 'Oct 11' }),
+  assert.equal(s.pjFedMessage({ reason: 'joined', error: 'The board said so.' }, 'fb', { change: true }), 'The board said so.', 'kosmos#4649: Withdraw\'s 409 joined shows the board\'s sentence as given');
+  assert.equal(s.pjFedMessage({ reason: 'joined' }, 'fb', { change: true }), 'Someone already joined with this code. Remove them instead.', 'kosmos#4649: Withdraw\'s 409 joined with no sentence falls back to the page\'s');
+  assert.equal(s.pjFedMessage({ reason: 'unsupported', error: 'Withdraw is not available on this coordinator.' }, 'fb', { lapses: 'Oct 11', change: true }),
     'Withdraw is not available on this coordinator.', 'kosmos#4649: an unsupported sentence that does not end "lapses." is shown as given, with no date glued on');
   const unsupported = { reason: 'unsupported', error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.' };
-  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK', { lapses: 'Oct 11' }), 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses on Oct 11.', 'kosmos#4649: Withdraw\'s 409 unsupported carries the lapse date');
-  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK'), unsupported.error, 'kosmos#4649: with no date the board\'s sentence is shown as given');
+  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK', { lapses: 'Oct 11', change: true }), 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses on Oct 11.', 'kosmos#4649: Withdraw\'s 409 unsupported carries the lapse date');
+  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK', { change: true }), unsupported.error, 'kosmos#4649: with no date the board\'s sentence is shown as given');
+  // Control: any other caller (no opts.change) keeps the contract, an unknown reason gets its own fallback.
+  assert.equal(s.pjFedMessage(unsupported, 'FALLBACK'), 'FALLBACK', 'kosmos#4649: outside Remove/Withdraw, unsupported is not shown raw');
+  assert.equal(s.pjFedMessage({ reason: 'joined', error: 'The board said so.' }, 'FALLBACK'), 'FALLBACK', 'kosmos#4649: outside Remove/Withdraw, joined gets the caller\'s own fallback');
+  assert.equal(s.pjFedMessage({ reason: 'joined' }, 'FALLBACK'), 'FALLBACK', 'kosmos#4649: a joiner never reads the owner\'s "Remove them instead."');
   assert.equal(s.pjFedMessage({ reason: 'weird-internal-thing' }, 'FALLBACK'), 'FALLBACK', 'an unknown reason leaks through instead of the safe fallback');
   assert.equal(s.pjFedMessage(null, 'FALLBACK'), 'FALLBACK');
 });
@@ -298,4 +302,56 @@ test('#4649 copy keys: no hard-coded copy keys outside copyKeysWord/copyKeysGlyp
   const ONE = new RegExp(KEYS.source, 'i');
   const lines = rest.split('\n').filter((l) => ONE.test(l) && !/^\s*(\/\/|\/\*|\*)/.test(l));
   assert.deepEqual(lines, [], 'hard-coded copy keys outside the helpers');
+});
+
+// kosmos#4649 slice B: the From outside rows, from the page's own functions (no browser). Which rows show, their
+// keys, and what each offers (none of Withdraw or Make a new code when the board could not check who joined).
+function buildRows() {
+  const src = [lift('esc'), lift('fedRowKey'), lift('fedOutsideRows'), lift('fedShortDate'), lift('fedDiscLetters'), lift('fedOutsideRowHtml')].join('\n');
+  // eslint-disable-next-line no-new-func
+  return new Function('FED_BUSY', 'FED_MSGS', src + '\nreturn { fedRowKey, fedOutsideRows, fedOutsideRowHtml };')(new Set(), {});
+}
+test('#4649 slice B: which outside rows show, and their keys', () => {
+  const { fedOutsideRows, fedRowKey } = buildRows();
+  const rows = fedOutsideRows({ invites: [
+    { invite_id: 'a', label: 'Dana', state: 'joined', edge_id: 'e1' },
+    { invite_id: 'b', label: 'Lee', state: 'pending' },
+    { invite_id: 'c', label: 'Lee', state: 'expired' },     // a newer code for Lee is pending: the expired one goes
+    { invite_id: 'd', label: 'Old', state: 'expired' },     // nothing newer: it stays, to be made again
+    { invite_id: 'e', label: 'Gone', state: 'withdrawn' },
+    { invite_id: 'f', label: 'Out', state: 'removed', edge_id: 'e2' },
+    null, 'junk',
+  ] });
+  assert.deepEqual(rows.map(fedRowKey), ['e:e1', 'i:b', 'i:d']);
+  // "Newer": an older joined Dana does not hide a later Dana code that lapsed; a newer pending one does.
+  const dana = (extra) => fedOutsideRows({ invites: [
+    { invite_id: 'j', label: 'Dana', state: 'joined', edge_id: 'e9', made_at: 100 },
+    { invite_id: 'x', label: 'Dana', state: 'expired', made_at: 300 }].concat(extra || []) }).map(fedRowKey);
+  assert.deepEqual(dana(), ['e:e9', 'i:x']);
+  assert.deepEqual(dana([{ invite_id: 'p', label: 'Dana', state: 'pending', made_at: 400 }]), ['e:e9', 'i:p']);
+  // The boundary: a code made in the SAME second as the expired one counts as newer ("made at or after it").
+  assert.deepEqual(dana([{ invite_id: 'q', label: 'Dana', state: 'pending', made_at: 300 }]), ['e:e9', 'i:q']);
+  assert.deepEqual(fedOutsideRows({}), []);
+  assert.deepEqual(fedOutsideRows(null), []);
+});
+test('#4649 slice B: each row offers its action, and none of Withdraw or Make a new code when unchecked', () => {
+  const { fedOutsideRowHtml } = buildRows();
+  const joined = { invite_id: 'a', label: 'Dana Ruiz', state: 'joined', edge_id: 'e1', kind: 'person' };
+  const pending = { invite_id: 'b', label: 'Lee <b>Park</b>', state: 'pending', kind: 'person' };
+  const expired = { invite_id: 'c', label: 'Old Friend', state: 'expired', kind: 'agent' };
+  assert.match(fedOutsideRowHtml(joined, false), /data-fed-act="remove"[^>]*aria-label="Remove Dana Ruiz"/);
+  assert.match(fedOutsideRowHtml(pending, false), /data-fed-act="withdraw"[^>]*aria-label="Withdraw the code for Lee &lt;b&gt;Park&lt;\/b&gt;"/);
+  assert.match(fedOutsideRowHtml(expired, false), /data-fed-act="renew"[^>]*aria-label="Make a new code for Old Friend"/);
+  assert.ok(!/<b>Park<\/b>/.test(fedOutsideRowHtml(pending, false)), 'a label is escaped');
+  // Unchecked: Remove stays (the person did join); Withdraw and Make a new code go.
+  assert.match(fedOutsideRowHtml(joined, true), /data-fed-act="remove"/);
+  assert.ok(!/fedout-act/.test(fedOutsideRowHtml(pending, true)) && !/fedout-act/.test(fedOutsideRowHtml(expired, true)));
+});
+test('#4649 slice B: Remove and Withdraw get the owner-list sentences, not the invite sheet\'s or the joiner\'s', () => {
+  const s = build();
+  assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x', { change: true }), 'Only the owner of this project can change who is in it.');
+  // Control: without the flag, the invite sheet and the joiner keep their own sentences.
+  assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x'), 'Only the owner of this project can invite people to it.');
+  assert.equal(s.pjFedMessage({ reason: 'self-shared' }, 'x', { change: true }), 'This project is shared with your other computers, so its outside members cannot be changed here.');
+  assert.match(s.pjFedMessage({ reason: 'self-shared' }, 'x'), /cannot be shared with other people yet/);
 });
