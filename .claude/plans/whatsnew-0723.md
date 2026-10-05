@@ -7,7 +7,7 @@ is the hotfix opt-out only). Five lines, each checked against what is merged on 
 |---|---|---|
 | Name an agent file as you add it | #4962 (#5274, de29d517d) | the Name field on a nameless found-file row; empty field on a file that names itself still adds in one click |
 | Token Usage for every provider | #5158 slices 1 and 3 (#5163 c11ea424c, #5180 344f3bba9) | engine/usageproviders.js scans Codex (OpenAI), Gemini CLI and Antigravity (Gemini, key and Google subscription) and Grok; usage.js mergeProviders feeds per model and By agent. Named by the providers the screens use (OpenAI, Gemini, Grok), not the terminal tools |
-| Org charts read with an OpenAI or Grok key | #4560 (#5255, 0d40d617b) | engine/orgchartkeys.js: ENABLED_DEFAULT { openai: true, google: false, xai: true } (Gemini OFF in v1: Google's free-key terms); a Grok key reads a PNG or JPG picture only (OFF_WHY, cannotRead). The first draft said Gemini and Grok PDFs: false, caught in review |
+| Org charts read without Claude | #4560 (#5255, 0d40d617b) | engine/orgchartfile.js currentReader: Claude first whenever claudeHere(); a key reader only otherwise. engine/orgchartkeys.js: ENABLED_DEFAULT { openai: true, google: false, xai: true } (Gemini OFF in v1: Google's free-key terms); a Grok key reads a PNG or JPG picture only (OFF_WHY, cannotRead). The first draft said Gemini and Grok PDFs: false, caught in review |
 | Key accounts get a name | #5150 (#5280, 462eb8be0) | web/index.html acctParenthetical: name, else email, else 'API key ending ' + keyTail, on the agent page's Right now line (so only a key account with no name) |
 | A refused Restore says why | #4976 (#5081, 328b3ab99) | web/index.html: btn.textContent = 'Not restored' and the engine's reason in #removed-msg; the place is "Show removed agents", so the line says "your removed agents" |
 
@@ -24,3 +24,6 @@ Weakest premise: the word "Gemini" in the Token Usage line covers both the Gemin
 subscription); a person who knows only one of them may not expect the other to count. Lesson from review 1: the first
 draft's org chart line was false (Gemini is off for org charts, Grok reads pictures only); every line is now
 checked against the engine file that decides it, not the PR title.
+Review 2: the key readers are a fallback (currentReader uses Claude whenever the computer can run it), so the org chart
+line says "Without Claude set up". The Codex, Gemini and Grok session scans use os.homedir() with no platform branch;
+not run on a Windows box here.
