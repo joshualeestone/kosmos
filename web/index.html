@@ -61569,6 +61569,7 @@ function pjMarkOpen(id) {
   paintAgentList();
 }
 function openProject(id) {
+  const fedEntering = PJ_CURRENT !== id;   // kosmos#4649 slice B: from the list or another project (not a re-render)
   // ⚠️ Only opens a project we actually HAVE. `paintOneProject` bails back to
   // the list when the id is not in `PROJECTS`, and showing the panel
   // unconditionally afterwards put an entirely blank detail screen on top of
@@ -61693,6 +61694,9 @@ function openProject(id) {
   pjCloseConfirm();
   paintOneProject();
   // kosmos#4649 slice B: ask who is in this project from outside (only while the federation gate is "show").
+  // Entering it (even the same project again, after the list): the From outside list starts over, so a Remove or
+  // Withdraw still being answered from the last visit is dropped rather than applied to this one.
+  if (fedEntering && typeof fedMembersReset === 'function') fedMembersReset();
   if (typeof fedMembersLoad === 'function') fedMembersLoad(id);
   pjView('one');   // #2922: pjView('one') re-engages the live-mention mirror for the restored draft
   refreshEngMode();
@@ -67957,9 +67961,10 @@ function fedOutsidePaint(tabOnly) {
   if ((AGENTS_GROUPED || PJ_CURRENT) && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
     && fedOutsidePaint.rail !== html) { fedOutsidePaint.rail = html; paintAgentList(); }
 }
+function fedMembersReset() { FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++; }
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;
-  if (!FED_MEMBERS || FED_MEMBERS.project !== project) { FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++; }
+  if (!FED_MEMBERS || FED_MEMBERS.project !== project) fedMembersReset();
   const seq = ++FED_MEMBERS_SEQ;
   FED_MEMBERS_ASKING = project;
   let entry;
@@ -68114,7 +68119,7 @@ async function fedRemoveGo() {
     fedOutsidePaint(false);
     // Focus after the list is asked again (it may take the row away), as Withdraw does.
     await fedMembersLoad(f.project);
-    if (PJ_CURRENT === f.project) fedRefocus(f.key);
+    if (PJ_CURRENT === f.project && gen === FED_GEN) fedRefocus(f.key);
     return;
   }
   if (!said && res.ok) {
@@ -68143,7 +68148,7 @@ async function fedRemoveGo() {
     FED_MSGS[f.key] = said; fedSay(said);
     fedOutsidePaint(false);
     await fedMembersLoad(f.project);
-    if (PJ_CURRENT === f.project && !still) fedRefocus(f.key);
+    if (PJ_CURRENT === f.project && gen === FED_GEN && !still) fedRefocus(f.key);
     return;
   }
   // Repaint (the row's Remove is live again) and put focus back on Remove, which was disabled while it was asked,
@@ -68154,7 +68159,7 @@ async function fedRemoveGo() {
   FED_MSGS[f.key] = said; fedSay(said);
   if (res && res.status === 404) {
     if (still) { fedRemoveDone(); fedMembersLoad(f.project); }
-    else { await fedMembersLoad(f.project); if (PJ_CURRENT === f.project) fedRefocus(f.key); }   // after the row goes
+    else { await fedMembersLoad(f.project); if (PJ_CURRENT === f.project && gen === FED_GEN) fedRefocus(f.key); }   // after the row goes
   } else {
     fedOutsidePaint(false);
     fedRefocus(f.key);   // the dialog was closed meanwhile: back to the row's Remove, live again
@@ -68190,7 +68195,7 @@ async function fedWithdraw(r) {
     }
     fedOutsidePaint(false);
     await fedMembersLoad(project);
-    if (PJ_CURRENT === project) fedRefocus(key);
+    if (PJ_CURRENT === project && gen === FED_GEN) fedRefocus(key);
     return;
   }
   if (!said) {

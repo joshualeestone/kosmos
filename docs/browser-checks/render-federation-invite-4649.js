@@ -77,7 +77,8 @@
  *      Remove pressed in the rail (g); a late answer never pulls focus out of another dialog (h); a Remove nobody
  *      answers is given up on (i); a rail "Make a new code" cancelled after a rebuild returns focus to its row (j).
  *  B18 a first members load the network drops (a), Remove 403 (b), Remove not-owner (c), Withdraw unreachable (d),
- *      an older members reply after a newer one (e), a Remove answered after leaving and reopening the project (f).
+ *      an older members reply after a newer one (e), a Remove answered after leaving and reopening the project (f),
+ *      the same through the back chevron and reopening the SAME project (g).
  *  B16 owner:false and self_shared draw no From outside section. Control: the same invites as owner draw rows.
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
@@ -1330,6 +1331,21 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__answerDelay = 0; });
     check('B18f a Remove answered after the project was left and reopened leaves no sentence (control: B3 says the 502 when it stays)',
       loose.length === 0, JSON.stringify(loose));
+    // B18g: the same through the real path: Cancel, the back chevron to the projects list, then the SAME project
+    // reopened before the Remove answers. Its late answer says nothing in the reopened project.
+    await page.evaluate(() => { window.__answerDelay = 400; });
+    await act(page, 'e:edge-dana');
+    await page.click('#mem-go');
+    await page.waitForTimeout(30);
+    await page.click('#mem-keep');
+    await page.click('#pj-back');
+    await page.evaluate(() => openProject('k'));
+    await page.waitForTimeout(600);
+    const looseG = await page.evaluate(() => Object.values(FED_MSGS));
+    const backOpen = await page.evaluate(() => PJ_CURRENT);
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    check('B18g a Remove answered after Cancel, back to the list and the same project reopened leaves no sentence (control: reopened)',
+      backOpen === 'k' && looseG.length === 0, JSON.stringify({ backOpen, looseG }));
     await ctx.close();
   }
   {
