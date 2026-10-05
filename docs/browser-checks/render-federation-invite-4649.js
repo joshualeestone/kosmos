@@ -243,9 +243,11 @@ const closeAll = (page) => page.evaluate(() => {
       && s.items[1].head === 'Invite someone outside' && s.items[1].sub === 'A person, or their agent, on their own Kosmos',
       JSON.stringify(s.items));
     check('A1 the "+" says it opens a menu and that it is open', plus.haspopup === 'menu' && plus.expanded === 'true', JSON.stringify(plus));
-    check('A1 the menu sits below the "+", right edges aligned, inside the window',
-      !!s.menuBox && Math.abs(s.menuBox.r - plus.r) <= 2 && s.menuBox.t >= plus.b && s.menuBox.l >= 0 && s.menuBox.r <= s.vw,
-      JSON.stringify({ menu: s.menuBox, plus }));
+    const card = await page.$eval('.pjcard-members', (c) => { const r = c.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right) }; });
+    check('A1 the menu sits below the "+", right edges aligned, inside the Members card and the window',
+      !!s.menuBox && Math.abs(s.menuBox.r - plus.r) <= 2 && s.menuBox.t >= plus.b && s.menuBox.l >= card.l - 1 && s.menuBox.r <= card.r + 1
+      && s.menuBox.l >= 0 && s.menuBox.r <= s.vw,
+      JSON.stringify({ menu: s.menuBox, plus, card }));
     check('A1 focus moves into the menu (its first item)', s.focus === 'pj-addmenu-agent', 'focus=' + s.focus);
     await page.keyboard.press('ArrowDown');
     const down = await page.evaluate(() => document.activeElement && document.activeElement.id);

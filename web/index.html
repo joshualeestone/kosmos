@@ -67480,7 +67480,9 @@ function pjAddMenuPlace() {
   let left, width;
   if (vw <= 600) { left = lo; width = Math.max(0, hi - lo); }
   else {
-    width = Math.min(250, vw - 2 * gutter);
+    // Right edge ON the "+" AND inside the card: a card narrower than 250 px (the tab view's Members column
+    // is ~246) narrows the menu to the room between the card's left edge and the "+" (Mona's review, 20:0x).
+    width = Math.min(250, vw - 2 * gutter, Math.max(0, r.right - lo));
     left = Math.max(lo, r.right - width);
     if (left + width > vw - gutter) left = vw - gutter - width;
   }
