@@ -249,8 +249,10 @@ function chk(ok, label, extra) {
       chk(band.navWidth > 0 && band.navRight <= band.secLeft + 1, `[${theme}] at 920px the nav sits beside the section`, JSON.stringify(band));
       chk(band.secWidth > 544 + 1, `[${theme}] at 920px the section is fluid, wider than the 34rem pair`, JSON.stringify(band));
       chk(!band.overflow, `[${theme}] at 920px the page does not scroll sideways`);
-      const noChev = await page.evaluate(() => getComputedStyle(document.getElementById('s-nav-more')).display);
-      chk(noChev === 'none', `[${theme}] control: at 920px the nav is a column and has no More sections chevron (#5303)`, noChev);
+      /* With `hidden` lifted, so this reads the 920px stylesheet rule itself and not the script's hidden attribute. */
+      const noChev = await page.evaluate(() => { const b = document.getElementById('s-nav-more'); const was = b.hidden; b.hidden = false;
+        const d = getComputedStyle(b).display; b.hidden = was; return d; });
+      chk(noChev === 'none', `[${theme}] control: at 920px the nav is a column and has no More sections chevron, even unhidden (#5303)`, noChev);
 
       // Narrow: the nav becomes a row above the content, and nothing overflows.
       await page.setViewportSize({ width: 420, height: 900 });
@@ -309,10 +311,23 @@ function chk(ok, label, extra) {
       const nlBg = await page.evaluate(() => { const root = document.documentElement; const was = root.dataset.look; root.dataset.look = 'new';
         const bg = getComputedStyle(document.getElementById('s-nav-more')).backgroundColor; if (was === undefined) delete root.dataset.look; else root.dataset.look = was; return bg; });
       chk(!/rgba\(0, 0, 0, 0\)|transparent/.test(nlBg), `[${theme}] at 375px the chevron stays solid in the new look too (#5303)`, nlBg);
-      await page.evaluate(() => document.getElementById('s-nav-more').click());
-      await page.waitForTimeout(700);
-      const moved = await page.evaluate(() => { const n = document.getElementById('s-nav'); return { scrollLeft: n.scrollLeft, edge: n.dataset.edge, mask: getComputedStyle(n).maskImage || getComputedStyle(n).webkitMaskImage }; });
+      /* A real press at the chevron (not el.click()), so the press's focus is what is measured: it must not take focus,
+         or focus drops to the page when it hides itself at the row's end. Polled, not a fixed wait: the scroll is smooth. */
+      const cb = await page.evaluate(() => { const r = document.getElementById('s-nav-more').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.click(cb.x, cb.y);
+      await page.waitForFunction(() => { const n = document.getElementById('s-nav'); return n.dataset.edge === 'lr' && n.scrollLeft > 100; }, null, { timeout: 5000 }).catch(() => {});
+      const moved = await page.evaluate(() => { const n = document.getElementById('s-nav'); return { scrollLeft: n.scrollLeft, edge: n.dataset.edge,
+        focusOnChevron: document.activeElement === document.getElementById('s-nav-more'), mask: getComputedStyle(n).maskImage || getComputedStyle(n).webkitMaskImage }; });
       chk(moved.scrollLeft > 100 && moved.edge === 'lr', `[${theme}] at 375px a tap on the chevron moves the row along and both edges then have more (#5303)`, JSON.stringify(moved));
+      chk(!moved.focusOnChevron, `[${theme}] at 375px a press on the chevron does not focus it (it hides itself at the end) (#5303)`, JSON.stringify(moved.focusOnChevron));
+      /* Reduced motion: the row jumps at once (behavior auto), so it has moved by the next frame. */
+      await page.evaluate(() => { document.getElementById('s-nav').scrollLeft = 0; });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.waitForFunction(() => document.getElementById('s-nav').dataset.edge === 'r', null, { timeout: 3000 }).catch(() => {});
+      const jumped = await page.evaluate(() => new Promise((res) => { const n = document.getElementById('s-nav'); document.getElementById('s-nav-more').click();
+        requestAnimationFrame(() => res(n.scrollLeft)); }));
+      await page.emulateMedia({ reducedMotion: null });
+      chk(jumped > 100, `[${theme}] at 375px under reduced motion the chevron moves the row at once, with no smooth scroll (#5303)`, String(jumped));
       await page.evaluate(() => { document.getElementById('s-nav').scrollLeft = 0; });
       await page.waitForTimeout(200);
 
@@ -335,6 +350,15 @@ function chk(ok, label, extra) {
       /* #5303: at the end of the row the chevron goes and the fade moves to the left edge (nothing more to the right). */
       const atEnd = await page.evaluate(() => { const n = document.getElementById('s-nav'); return { display: getComputedStyle(document.getElementById('s-nav-more')).display, edge: n.dataset.edge, mask: getComputedStyle(n).maskImage || getComputedStyle(n).webkitMaskImage }; });
       chk(atEnd.display === 'none' && atEnd.edge === 'l', `[${theme}] at 375px at the end of the row the chevron is gone and only the left edge fades (#5303)`, JSON.stringify(atEnd));
+      /* A class change that widens a pill without the row scrolling (the new look's chosen pill turns bold) re-marks the row. */
+      const widened = await page.evaluate(() => new Promise((res) => {
+        const st = document.createElement('style'); st.textContent = '#s-nav button.wide5303 { padding-right: 240px !important; }'; document.head.appendChild(st);
+        const pill = document.querySelector('#s-nav button[data-go="you"]'); pill.classList.add('wide5303');
+        setTimeout(() => { const n = document.getElementById('s-nav'); const out = { edge: n.dataset.edge, hidden: document.getElementById('s-nav-more').hidden };
+          pill.classList.remove('wide5303'); st.remove(); res(out); }, 100);
+      }));
+      chk(widened.edge === 'lr' && widened.hidden === false, `[${theme}] at 375px a pill widened by a class change re-marks the row: more on the right again (#5303)`, JSON.stringify(widened));
+      await page.waitForTimeout(100);
       /* The fades themselves, not only the state names: each state draws its own gradient (none is "none"). */
       const masks = [chev.mask, moved.mask, atEnd.mask];
       chk(masks.every((m) => /gradient/.test(String(m))) && new Set(masks).size === 3,

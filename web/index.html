@@ -3604,7 +3604,6 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   #s-nav #s-nav-more { position: sticky; right: -32px; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -50px; scroll-snap-align: none;
                       display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
                       background: var(--k-bg); color: var(--k-ink); box-shadow: 0 0 0 1px var(--k-rule); }
-  #s-nav:not([data-edge="r"]):not([data-edge="lr"]) #s-nav-more { display: none; }   /* two ids, to outrank the rule above */
   #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
   #s-nav button[data-dot] { padding-right: 28px; }
   #panel-settings input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
@@ -17166,7 +17165,7 @@ window.kosmosMeasureScrollbarWidth();
          handler and the phone rule in the stylesheet. Pointer-only (tabindex -1, aria-hidden): every pill is already in the
          keyboard and reading order, and a focusable button that hides itself at the row's end would drop focus to the page.
          The trade-off, made on purpose: switch and voice users get the fade, not this button, and reach every pill directly. -->
-    <button type="button" class="snav-more" id="s-nav-more" tabindex="-1" aria-hidden="true" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+    <button type="button" class="snav-more" id="s-nav-more" tabindex="-1" aria-hidden="true" aria-label="More sections" title="More sections" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
   </nav>
   <div class="dsecs">
   <section class="dsec" id="s-sec-you" data-sec="you" tabindex="-1" aria-label="Your Profile">
@@ -39336,6 +39335,8 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
     if (nav.dataset.edge !== edge) nav.dataset.edge = edge;
     if (more.hidden === right) more.hidden = !right;
   };
+  /* A press must not focus it: it hides itself at the row's end, and a focused element that hides drops focus to the page. */
+  more.addEventListener('mousedown', (e) => e.preventDefault());
   more.addEventListener('click', () => {
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     nav.scrollBy({ left: Math.round(nav.clientWidth * 0.7), behavior: smooth ? 'smooth' : 'auto' });
@@ -39343,8 +39344,9 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   nav.addEventListener('scroll', mark, { passive: true });
   window.addEventListener('resize', mark);
   if (window.ResizeObserver) new ResizeObserver(mark).observe(nav);
-  // The row's content can change width without the nav resizing (Kosmos+ gains or loses its needs-you dot, a pill is hidden).
-  if (window.MutationObserver) new MutationObserver(mark).observe(nav, { attributes: true, subtree: true, attributeFilter: ['data-dot', 'hidden'] });
+  /* The row's content can change width without the nav resizing (Kosmos+ gains or loses its needs-you dot, a pill is hidden,
+     or the new look's chosen pill, .on, turns bold without the row scrolling). */
+  if (window.MutationObserver) new MutationObserver(mark).observe(nav, { attributes: true, subtree: true, attributeFilter: ['data-dot', 'hidden', 'class'] });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(mark);   // a web font that lands late widens the pills
   mark();
 })();
