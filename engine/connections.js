@@ -133,13 +133,14 @@ function blockBody() {
        agent reads its OWN provider home, which is a separate folder for every non-default account and can be
        pinned elsewhere even on the default one (agent-supervisor.sh, EFFECTIVE_CCD). Knowledge only: where to
        look, never what is there. */
-    '## A plugin the person installed in their own app',
+    '## A plugin the person installed in their own app (Claude and Codex agents)',
     '',
     'Kosmos does not install provider plugins or claude.ai connectors (a CRM, a calendar',
     'and so on; different from the Connections tab below). A person adds those',
     'in their own Claude or Codex app. When they say one is connected and you',
-    'cannot use it, look before you answer (this is about Claude and Codex',
-    'agents). Read-only commands answer for you, from your own setup: for',
+    'cannot use it, look before you answer. If you are not a Claude or Codex',
+    'agent, none of the below applies to you: say you do not know yet rather',
+    'than reasoning from it. Read-only commands show what your own setup has: for',
     'Claude Code, `claude plugin list` (installed plugins), `claude mcp list`',
     '(servers) and `claude auth status` (your account); for Codex, `codex mcp',
     'list`. Then these explain what you find:',
