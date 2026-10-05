@@ -7312,7 +7312,7 @@ const server = http.createServer(async (req, res) => {
         const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' ? orgchartfile.readerId(reader) : null);
         if (!reader || handed !== orgchartfile.readerId(reader)) {
           // An old page (no reader id) meeting a key reader: nothing changed, the page is simply older than the board.
-          const oldPage = !q.has('reader') && reader && reader.kind === 'key';
+          const oldPage = !q.has('reader') && reader && reader.kind !== 'claude';
           sendJson(res, 409, { error: oldPage
             ? 'This page is older than Kosmos. Reload the New Agent screen and choose the file again.'
             : 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
