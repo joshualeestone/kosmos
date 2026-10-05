@@ -503,6 +503,7 @@ function sendDailyOnce(date, now) {
     // DELIVERED is kept for the same day (a failed re-send must not erase it),
     // and dropped on a new day (it described another day's report).
     const keep = st.sent === d ? st.sentHash : null;
+    flushChangedDay(st, d, t);   // #5317 review 2: before the record leaves the day it names
     if (!markSent(d, keep, t).ok) return;
     maybeSend(d, () => {
       // After the collector accepted it: record what was delivered, but only if
@@ -531,6 +532,23 @@ function sweepTick(now) {
     }
     sendDailyOnce(feedback.dateKey(n), t);
   } catch { /* nothing here may reach the caller */ }
+}
+
+/**
+ * kosmos#5317 review 2: the send record names ONE day. Before it moves to a new day, the day it names is sent once more
+ * if that report changed since its last delivery (a second agent wrote after the first agent's report went, or the
+ * last send failed). Without this, the record moving on was the only thing that remembered the change, and it was
+ * lost. At most once per change of day, so it cannot flood the collector; a failure here is not retried.
+ */
+function flushChangedDay(st, d, t) {
+  try {
+    if (!st || !st.ok || !st.sent || st.sent === d) return;
+    // No delivery recorded yet: the last attempt may still be in flight (a send times out after 5 s), so only an
+    // attempt at least a minute old counts as failed and is sent again here.
+    if (st.sentHash == null && st.sentAt != null && t - st.sentAt >= 0 && t - st.sentAt < RETRY_MIN_MS) return;
+    const body = feedback.readBody(st.sent);
+    if (body != null && bodyHash(body) !== st.sentHash) maybeSend(st.sent);
+  } catch { /* best effort */ }
 }
 
 function markSent(date, hash, at) {
@@ -605,6 +623,7 @@ function sendNow(date, now) {
       const data = payload(d);
       if (!data) return done('none');
       const keep = st.sent === d ? st.sentHash : null;
+      flushChangedDay(st, d, t);   // #5317 review 2: before the record leaves the day it names
       if (!markSent(d, keep, t).ok) return done('unsent');
       const post = sender || ((url, init) => fetch(url, init));
       const ctl = new AbortController();

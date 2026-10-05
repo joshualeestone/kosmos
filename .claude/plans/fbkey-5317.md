@@ -40,6 +40,18 @@ feedback-triage 23, cli.feedback-2037 14, server.feedback-2037 7, windows verbs 
   by rename (one waiter wins). NITs accepted: a lock held by a crashed writer delays writes up to 30 s; a CRLF re-save
   stops the frontmatter parse (true before this change too).
 
+## Review 2 (sonnet, blind)
+- W fixed (the substantive one): the send record names ONE day, so once TODAY was sent (by the sweep or by an agent's
+  write just after midnight) a change to yesterday that the 3 h floor had held was never sent. flushChangedDay sends
+  the day the record names once more, before the record moves on, if its report changed since its last delivery (or its
+  last attempt failed over a minute ago; under a minute it may still be in flight). Once per change of day, so it cannot
+  flood. Test: 22:00 send, 22:30 second agent, 00:30 the next day's report: both of the first day's versions and the
+  new day go, and nothing repeats. Mutation: no flush reds it. This also covers the lost delivered-hash of a send of the
+  day before (the record has moved on; that day is done).
+- W accepted, stated in the code: the stale-lock takeover by rename is not fully exclusive (a slow waiter can rename the
+  fresh lock); it needs a crashed writer and two writes within 50 ms. NITs accepted: a whitespace-only legacy body and a
+  re-spelled agent name each cost one identical re-send; a store file copied by hand into `triage --dir` shows markers.
+
 ## Weakest premise
 That one combined record per day is what the team wants, rather than one record per agent. It needs no collector
 change and every report arrives; if per-agent records are wanted later, the sections are already separable.

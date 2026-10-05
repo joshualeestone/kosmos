@@ -132,8 +132,10 @@ function withLock(dest, fn) {
     try { fs.mkdirSync(lock); break; } catch (err) {
       if (!err || err.code !== 'EEXIST') throw err;
       if (Date.now() > until) throw new Error('feedback: another write of this report is still running');
-      /* review 1: a stale lock (a writer that crashed) is taken over by RENAMING it first, which only one waiter can
-         win, so two waiters cannot both remove it and both write. */
+      /* review 1: a stale lock (a writer that crashed) is taken over by renaming it first, so two waiters cannot both
+         remove the SAME stale lock. Review 2: not fully exclusive: a slow waiter can rename the fresh lock the first
+         one just made, and then both write (last writer wins, one section lost). It needs a crashed writer AND two
+         writes in the same 50 ms, so it is accepted rather than built out. */
       try {
         if (Date.now() - fs.statSync(lock).mtimeMs > 30000) {
           const gone = lock + '.stale-' + process.pid + '-' + Date.now();

@@ -993,3 +993,19 @@ test('#5317 CONTROL: an UNCHANGED yesterday is not sent again by the sweep', asy
   feedbacksend.sweepTick(at('2026-10-10T03:00:00')); await settle();
   assert.deepEqual(sent, ['2026-10-09']);
 });
+
+test('#5317 review 2: a changed yesterday is sent before TODAY\'s send moves the record on (the floor had held it)', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { const p = JSON.parse(init.body); sent.push(p.date + ':' + (/Report 2/.test(p.body) ? 2 : 1)); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  const settle = () => new Promise((r) => setImmediate(r));
+  feedback.write('the first report', { date: '2026-10-11', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-10-11T22:00:00')); await settle();
+  feedback.write('the second report', { date: '2026-10-11', from: 'mara' });
+  feedback.write('a report for the new day', { date: '2026-10-12', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-10-12T00:30:00')); await settle();   // 2.5 h: under the floor for 10-11
+  assert.deepEqual(sent, ['2026-10-11:1', '2026-10-11:2', '2026-10-12:1'], 'the late second report was lost when the new day was sent');
+  feedbacksend.sweepTick(at('2026-10-12T04:30:00')); await settle();
+  assert.equal(sent.length, 3, 'something was sent again with nothing changed');
+});
