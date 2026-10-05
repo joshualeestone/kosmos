@@ -2,13 +2,29 @@
 pre_challenge: true
 method: challenge-loop
 branch: filespreview-4997
-diff_hash: c2d9f5e41eb14d14c24c6c36e4deb156982a7274ae01db10e7a2d7c51d1fa953
-validation: passed (focused at 84abdae5e: 2400 tests, 2313 pass, 0 fail, 87 skipped; the full suite is queued after this proof)
+diff_hash: 8e7845aee0b62d84afde89be23a8e0f7f100fd84e0ab65c6c609ebec4934d16a
+validation: passed (focused at cbe6e72fc after the rebase onto main: 728 related tests 0 fail, 121 repo audit files 3623 tests 0 fail, the reviewer's 1180 tests 0 fail; the full suite and FULL browser checks are queued after this proof)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-04T15:07:09Z
-iterations: 9
+timestamp: 2026-10-05T00:42:15Z
+iterations: 10
 converged: true
 ---
+
+## [CHALLENGE-LOOP] Summary: the rebase onto main (2026-10-04 evening)
+
+**Iterations:** 10 (iteration 10 is a blind opus review of the rebase onto main: 137 main commits, 0ef8b4094 -> cbe6e72fc).
+**Converged:** Yes. Iteration 10 found no BLOCKER or WARNING.
+**Conflict:** one, in browser-checks-reason-grep.test.js. Main replaced the hand-kept totals with per-check SITE_COUNTS lines; resolved to main's side plus `'render-files-preview-4997.js': [1, 1]`, measured by the file's own count test (sorted, and the measured-count test passes).
+
+### Per-Iteration Breakdown
+- [NIT] iteration 10: the check is launched by its own run_one line rather than a line in docs/browser-checks/gated.txt, a likely future conflict spot --> DEFERRED (not caused by the rebase; moving it changes the runner's wiring, out of scope for a rebase)
+
+### Final Ledger
+| # | Iter | Cat | File | Origin | Description | Status |
+|---|---|---|---|---|---|---|
+| 1 | 10 | N | tools/browser-checks.sh | BRANCH | run_one line, not gated.txt | DEFERRED |
+
+Overlap (iteration 10): main's server.js hunks add no route and touch none of this PR's routes, refuseDownload, sendFileDownload or fileInFolder; of the web/index.html hunks only #5218 touches `.pj-doc`, its size only; engine/projects.js gained changedFileTimes, which calls none of this PR's functions; tools/browser-checks.sh's #5231 hunks are compatible.
 
 ## [CHALLENGE-LOOP] Summary: the rebase onto #5165 (2026-10-04)
 
