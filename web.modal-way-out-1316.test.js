@@ -96,7 +96,7 @@ const ESCAPES_VIA = {
   'plus-lost-modal': /plus-lost-modal'\)\.hidden\) plusLostClose/,
   /* kosmos#4649: the invite sheet ("Invite someone outside your Kosmos"). A document-level Escape guarded on
      hidden, closing through fedInviteClose, which returns focus to the "+" that opened it. */
-  'fedinv-modal':    /fedinv-modal'\)\.hidden\) return;\n\s*fedInviteClose\(\);/,
+  'fedinv-modal':    /fedinv-modal'\)\.hidden\) return;\n\s*e\.stopPropagation\(\);[^\n]*\n\s*fedInviteClose\(\);/,
   /* #4930: the full-page file preview. Its Escape is a capture-phase document keydown that finds it by id and closes it
      (its backdrop id sits in PV_HTML so this sweep can name it). */
   'pv-preview':      /getElementById\('pv-preview'\);\n\s*if \(!back \|\| pvCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
