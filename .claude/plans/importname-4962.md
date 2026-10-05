@@ -178,4 +178,3 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
 - Iteration 3 (opus): a stuck add that FAILS late with nothing newer now frees its row (iteration 2 made this
   reachable from #import-found while first run's list repaints); it moves no focus that late. Tested.
 - The test counts quoted above (36/36) are history too; the file has grown with each fix.
-\n
