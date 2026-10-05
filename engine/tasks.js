@@ -1291,22 +1291,23 @@ function tasksTabShown() {
 /* #5319: a task added with the same text as an OPEN task is still added (no silent dedup: the adder knows whether it
    is the same ask), but the answer names the open copies so the adder can close the new one. Seen on 0.7.22: one ask
    added as #1 and #11, another as #26, #27 and #29 -- both EXACT copies.
-   🔑 ONLY THE SAME TEXT, by design (review rounds 1 to 3). The note tells the adder to close the NEW task, and the
+   🔑 ONLY THE SAME TEXT, by design (review rounds 1 to 5). The note tells the adder to close the NEW task, and the
    reader is usually an agent that will, so a false match costs a real task while a miss costs only today's behaviour.
    Three rounds of fuzzy rules (word overlap, contained words) each still matched different asks: another person
    ("Email Alice" / "Email Bob"), the opposite verb (approve / reject), a negation ("Do not enable" / "Enable"), swapped
    places (Dallas to Austin / Austin to Dallas). The same text, with case, spacing and Unicode form aside
-   (NFKC), has none of those, and catches both real cases. Every other character counts (review 4: punctuation and
+   (NFC), has none of those, and catches both real cases. Every other character counts (review 4: punctuation and
    symbols carry meaning, "-5" is not "5", "x > 5" is not "x < 5"), so the same words with other punctuation are a
    miss, which costs only today's behaviour.
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
    told to close, never both. Never the task's own parent (a subtask may repeat it). At most three, oldest first. */
 function sameTaskText(sentence) {
-  // Review 4: EVERY character counts but case, runs of whitespace and Unicode form. Dropping punctuation and symbols
+  // Review 4: EVERY character counts but case, runs of whitespace and Unicode form (NFC: one character written two
+  // ways; review 5: never NFKC, which folds x² into x2 and ① into 1). Dropping punctuation and symbols
   // made opposite asks equal ("-5" / "5", "x > 5" / "x < 5", a check mark / a cross, "C++" / "C").
-  return String(sentence == null ? '' : sentence).normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
+  return String(sentence == null ? '' : sentence).normalize('NFC').toLowerCase().replace(/\s+/gu, ' ').trim();
 }
-function similarOpen(p, sentence, beforeNumber, { parent = null } = {}) {
+function sameTextOpen(p, sentence, beforeNumber, { parent = null } = {}) {
   const mine = sameTaskText(sentence);
   if (!mine) return [];
   const out = [];
@@ -1324,4 +1325,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, similarOpen };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen };

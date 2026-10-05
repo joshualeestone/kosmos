@@ -37,7 +37,7 @@ advice.
 **What would change my mind:** a report of notes on unrelated tasks. The fix then is to raise the 0.6 threshold.
 
 ## Tests
-- server.task-similar-5319.test.js:
+- server.task-same-text-5319.test.js:
   - pure rows (the report's cases, near misses, closed tasks, self, the cap of three);
   - the real route with a real project record: the task is added and stored, the note names #1 with the close
     command; control: an unrelated task gets no note; quotes and backslashes are stripped from the note;
@@ -99,3 +99,10 @@ with the strip removed, the row goes red.
 - [N] not changed: a zero-width character between letters makes a miss (harmless under the asymmetry), and shown()
   leaves line separators and zero-width characters in the note (mostly harmless on a terminal; bidi and C0/C1 controls,
   the ones that matter, are stripped).
+
+## Review round 5 (opus)
+- [W] FIXED: NFKC folded meaning away (x² and x2, ① and 1, Ⅳ and iv): the same class as review 4. Now NFC, which only
+  joins one character written two ways (é composed or decomposed). Full-width letters are now a miss. Test rows for
+  the superscript and the circled number.
+- [N] FIXED: the names say what it does: sameTextOpen (was similarOpen), this test file renamed, no "look-alike" left.
+- [N] FIXED (comment): the close command in the note needs no stripping, because idFor makes project ids of [a-z0-9_-].
