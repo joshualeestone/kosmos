@@ -153,6 +153,16 @@ function initStub(cfg) {
   window.__withdraws = [];
   window.__answerDelay = 0;
   window.__computers = null;    // slice C's C2 plants this computer's address here, to prove it is never printed
+  /* Slice C's Copy the invitation tries select-and-copy FIRST. A real execCommand would copy past the stubbed
+     clipboard, so it is stubbed too: it records what it would copy and fails unless an arm sets __execOk. */
+  window.__execOk = false;
+  window.__execTexts = [];
+  document.execCommand = (cmd) => {
+    if (cmd !== 'copy') return false;
+    const a = document.activeElement;
+    window.__execTexts.push(a && typeof a.value === 'string' ? a.value : null);
+    return window.__execOk === true;
+  };
   window.__you = null;          // slice C: /api/you's `you` ({ name }); null leaves it to the catch-all (no name)
   window.__unhandled = [];
   window.addEventListener('unhandledrejection', (e) => { window.__unhandled.push(String(e.reason && e.reason.message || e.reason)); });
@@ -963,6 +973,8 @@ const closeAll = (page) => page.evaluate(() => {
     check('C0 "Copy the invitation" is the primary button, after Done, and the bare Copy stays',
       st.allText === 'Copy the invitation' && st.allPrime && st.allShown && st.acts.join(',') === 'fedinv-ok,fedinv-copy-all' && st.copyText === 'Copy',
       JSON.stringify({ allText: st.allText, prime: st.allPrime, shown: st.allShown, acts: st.acts, copy: st.copyText }));
+    const c0focus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check('C0 the code step puts focus on Copy the invitation, the primary', c0focus === 'fedinv-copy-all', 'focus=' + c0focus);
 
     // C1: the control first, on the same screen: the bare Copy writes only the code.
     await page.evaluate(() => { window.__copied.length = 0; });
@@ -1006,13 +1018,14 @@ const closeAll = (page) => page.evaluate(() => {
     /* This computer's own address is NEVER printed, even when the board knows it (a second computer's, or a retired
        first one's, is not the account's name). Planted here through the page's own loader; control: C1, where the
        account name (owner_name) is printed. */
-    await page.evaluate(async () => {
+    const planted = await page.evaluate(async () => {
       window.__computers = { ok: true, domain: 'kosmosplus.com', computers: [{ name: 'studio', address: 'maya-studio.kosmosplus.com', this: true, online: true }] };
-      if (typeof computersFetch === 'function') await computersFetch();
+      await computersFetch();   // the page's own loader; no typeof guard, so a rename fails here
+      return THIS_COMPUTER_NAME;
     });
     v = await variant('Maya Chen', null);
-    check('C2 this computer\'s own address, known to the board, is not printed (control: C1 prints the account name)',
-      !String(v.text).includes('maya-studio') && v.text === invitation('Maya Chen'), JSON.stringify(v));
+    check('C2 this computer\'s own address, which the page has read, is not printed (control: C1 prints the account name)',
+      planted === 'studio' && !String(v.text).includes('maya-studio') && v.text === invitation('Maya Chen'), JSON.stringify({ planted, v }));
     v = await variant('Maya Chen', 'Not A Handle!');
     check('C2 an owner_name that is not a Kosmos+ name is not printed', v.text === invitation('Maya Chen'), JSON.stringify(v));
     v = await variant('', null);
@@ -1023,30 +1036,27 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => {
       window.__copied.length = 0;
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Write permission denied.'); } } });
-      window.__realExec = document.execCommand.bind(document);
-      document.execCommand = () => false;
+      window.__execOk = false;   // the select-and-copy fails too
     });
     await copyAll(page);
     st = await step(page);
     check('C4 a refused clipboard says so in the message line, keeps the button\'s words and the sheet, and throws nothing (control: C1 said Copied)',
-      st.status === 'Kosmos could not copy the invitation. Press Copy to copy the code alone, and paste it into your message.'
+      st.status === 'Kosmos could not copy the invitation. Select the code above and press Command C, then paste it into your message.'
       && st.allText === 'Copy the invitation' && st.open && st.copied.length === 0 && st.unhandled.length === 0,
       JSON.stringify({ status: st.status, all: st.allText, open: st.open, unhandled: st.unhandled }));
     await page.waitForTimeout(2300);
     st = await step(page);
     check('C4 the refusal stays on screen (no revert timer clears it)', st.status.startsWith('Kosmos could not copy the invitation.'), st.status);
     // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
-    await page.evaluate(() => {
-      window.__execText = null;
-      document.execCommand = (cmd) => { if (cmd !== 'copy') return false; const a = document.activeElement; window.__execText = a && a.value; return true; };
-    });
+    await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
     await copyAll(page);
     st = await step(page);
-    const execText = await page.evaluate(() => window.__execText);
-    check('C4b a refused clipboard falls back to select-and-copy: the exact invitation, and Copied (control: C4, fallback failing)',
-      execText === invitation('Maya Chen (' + ADDR + ')') && st.allText === 'Copied' && st.status === 'Invitation copied.',
-      JSON.stringify({ execText, all: st.allText, status: st.status }));
-    await page.evaluate(() => { document.execCommand = window.__realExec; });
+    const exec = await page.evaluate(() => ({ texts: window.__execTexts.slice(), focus: document.activeElement && document.activeElement.id }));
+    check('C4b select-and-copy (tried first) copies the exact invitation, says Copied, and focus is back on the button (control: C4, failing)',
+      exec.texts.length === 1 && exec.texts[0] === invitation('Maya Chen (' + ADDR + ')') && st.allText === 'Copied'
+      && st.status === 'Invitation copied.' && exec.focus === 'fedinv-copy-all',
+      JSON.stringify({ exec, all: st.allText, status: st.status }));
+    await page.evaluate(() => { window.__execOk = false; });
     await page.click('#fedinv-ok');
 
     // C3 continued: walk the page's own path to the join step, finding each word as a visible label.

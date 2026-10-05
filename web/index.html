@@ -67713,7 +67713,8 @@ function fedInviteCopyReset() {
    Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
   // One line each: a name or project with a newline or a control character must not break the invitation's lines.
-  const line = (v) => String(v || '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+  // Bidi controls are dropped too, so a name cannot visually reorder the pasted text.
+  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069]/g, '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
   const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '');
   const fm = FED_MEMBERS;
   const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
@@ -67731,30 +67732,35 @@ function fedInviteText(made) {
     + '\n'
     + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
 }
-// The clipboard first, then the page's select-and-copy on an off-screen textarea (plusCopyViaExec's pattern) where
-// the clipboard is missing or refuses; a refusal of both says what to do instead and never throws.
+// plusCopyViaExec's order: select-and-copy on an off-screen textarea FIRST, synchronously inside the press (no await
+// before it, so a web view that needs the press's activation still has it), then the clipboard as the second try,
+// given 3 s (a permission prompt nobody answers must not leave the button silent). A refusal of both says what to
+// do instead and never throws.
 async function fedInviteCopyAll() {
   const made = FEDINV_MADE;
   if (!made) return;
   const seq = FEDINV_SEQ;
   const btn = document.getElementById('fedinv-copy-all');
   const status = document.getElementById('fedinv-status');
+  const text = fedInviteText(made);
   let ok = false;
-  try {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(fedInviteText(made)); ok = true; }
-  } catch { ok = false; }
-  if (!ok) {
-    const t = document.createElement('textarea'); t.value = fedInviteText(made); t.setAttribute('readonly', '');
-    t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
-    try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
+  const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', '');
+  t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
+  try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
+  catch { ok = false; }
+  finally { t.remove(); if (btn && btn.isConnected) btn.focus(); }
+  if (!ok && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    let limit = null;
+    const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
+    try { await Promise.race([navigator.clipboard.writeText(text), late]); ok = true; }
     catch { ok = false; }
-    finally { t.remove(); if (btn && btn.isConnected) btn.focus(); }
+    finally { if (limit) clearTimeout(limit); }
+    if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
   }
-  if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
   fedInviteCopyReset();
   if (!ok) {
     // Kept on screen (no revert timer): a refusal that vanished after two seconds could be missed.
-    status.textContent = 'Kosmos could not copy the invitation. Press Copy to copy the code alone, and paste it into your message.';
+    status.textContent = 'Kosmos could not copy the invitation. Select the code above and press Command C, then paste it into your message.';
     return;
   }
   btn.textContent = 'Copied';
