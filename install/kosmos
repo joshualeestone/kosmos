@@ -3937,7 +3937,11 @@ cmd_task() {
           case "$body" in '{"task":{"number":'[1-9]*) _num="${body#\{\"task\":\{\"number\":}"; _num="${_num%%[!0-9]*}"
             # only a whole number: the digits must end the value (1.5 or 12e3 would otherwise read as 1 or 12)
             case "${body#\{\"task\":\{\"number\":$_num}" in ,*|\}*) ;; *) _num="" ;; esac ;; esac
-          say "Task${_num:+ $_num} added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}" ;;
+          say "Task${_num:+ $_num} added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}"
+          # #5319: open tasks with similar text, named by the board (server.js; the note holds no double quote or
+          # backslash, and it is the answer's last key, so the greedy match is the board's own note).
+          local _note; _note=$(printf '%s' "$body" | sed -n 's/.*"note":"\([^"]*\)".*/\1/p')
+          if [ -n "$_note" ]; then say "$_note"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that task: ${because:-it did not say why}."; exit 1 ;;

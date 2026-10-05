@@ -771,7 +771,9 @@ async function taskAdd(ctx, args) {
     const forWho = typeof r.json.task.who === 'string' && r.json.task.who ? ', for ' + r.json.task.who : '';
     /* #5175: the new task's number, from the board's answer; a missing or odd one keeps the sentence without it. */
     const num = Number.isInteger(r.json.task.number) && r.json.task.number > 0 ? ' ' + r.json.task.number : '';
-    ctx.out('Task' + num + ' added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project); return 0;
+    ctx.out('Task' + num + ' added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project);
+    if (typeof r.json.note === 'string' && r.json.note) ctx.out(r.json.note);   // #5319: open tasks with similar text
+    return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when adding that task.');

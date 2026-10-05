@@ -1288,8 +1288,41 @@ function tasksTabShown() {
   return shown;
 }
 
+/* #5319: a task added with the same ask as an OPEN task is still added (no silent dedup: two asks can look alike and
+   be different, and the agent or person adding it knows), but the answer names the open look-alikes so the adder can
+   close one. Seen on 0.7.22: one ask added as #1 and #11, another as #26, #27 and #29.
+   Similar means, on lowercase words with punctuation and a few filler words dropped: the same words; a word-overlap
+   (Jaccard) of 0.6 or more with at least two words each side; or every word of the shorter (three or more) in the
+   other. Open tasks only, at most three, never the task itself. A pure function of the project record. */
+const SIMILAR_FILLER = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'with', 'at', 'by', 'is',
+  'it', 'this', 'that', 'be', 'as', 'from', 'our', 'my', 'we', 'i']);
+function similarWords(sentence) {
+  return new Set(String(sentence == null ? '' : sentence).toLowerCase().split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w && !SIMILAR_FILLER.has(w)));
+}
+function similarOpen(p, sentence, exceptNumber) {
+  const mine = similarWords(sentence);
+  if (mine.size === 0) return [];
+  const out = [];
+  for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
+    if (!t || t.closedAt || t.number === exceptNumber) continue;
+    const theirs = similarWords(t.sentence);
+    if (theirs.size === 0) continue;
+    let both = 0;
+    for (const w of mine) if (theirs.has(w)) both += 1;
+    const union = mine.size + theirs.size - both;
+    const small = Math.min(mine.size, theirs.size);
+    const same = both === mine.size && both === theirs.size;
+    const overlap = mine.size >= 2 && theirs.size >= 2 && both / union >= 0.6;
+    const inside = small >= 3 && both === small;
+    if (same || overlap || inside) out.push({ number: t.number, sentence: t.sentence });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, similarOpen };
