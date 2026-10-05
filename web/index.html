@@ -3585,11 +3585,11 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
      a whole 44px target, while there is more; a tap moves the row along. */
   /* While the chevron shows, the pills fade out just BEFORE its 44px and the chevron itself stays solid (it is inside
      the masked row, so a plain right-edge fade would fade it too). */
-  #s-nav[data-edge="r"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
-                          mask-image: linear-gradient(to right, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
+  #s-nav[data-edge="r"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 84px), transparent calc(100% - 44px), #000 calc(100% - 44px));
+                          mask-image: linear-gradient(to right, #000 calc(100% - 84px), transparent calc(100% - 44px), #000 calc(100% - 44px)); }
   #s-nav[data-edge="l"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
-  #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
-                           mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
+  #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 44px), #000 calc(100% - 44px));
+                           mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 44px), #000 calc(100% - 44px)); }
   #s-nav[data-edge=""] { -webkit-mask-image: none; mask-image: none; }
   /* A focused or snapped pill clears the left fade and the chevron with its fade (44px + 40px), so it is never under them.
      ALWAYS on, never per data-edge: padding that changed with the edge re-snapped the row, the scroll re-marked the edge, and
@@ -17202,7 +17202,8 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #5303: on a phone the row scrolls sideways; this says there is more and moves it along. No data-go, so the
          nav's click handler and the Settings menu (pnav-settings) both pass it by. Shown by the script after the nav's click
          handler and the phone rule in the stylesheet. Pointer-only (tabindex -1, aria-hidden): every pill is already in the
-         keyboard and reading order, and a focusable button that hides itself at the row's end would drop focus to the page. -->
+         keyboard and reading order, and a focusable button that hides itself at the row's end would drop focus to the page.
+         The trade-off, made on purpose: switch and voice users get the fade, not this button, and reach every pill directly. -->
     <button type="button" class="snav-more" id="s-nav-more" tabindex="-1" aria-hidden="true" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
   </nav>
   <div class="dsecs">
@@ -39393,7 +39394,8 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   settingsOpen(b.dataset.go);
 });
 /* #5303: which edges of the Settings row have more beyond them, for the phone rule's fade and its "More sections"
-   chevron. Recomputed on scroll and resize; a row that does not scroll (desktop) has no edge, so nothing shows. */
+   chevron. Recomputed on scroll, on a resize of the window or the nav, when a pill's dot or visibility changes, and once
+   the fonts have loaded; a row that does not scroll (desktop) has no edge, so nothing shows. */
 (function snavEdges() {
   const nav = document.getElementById('s-nav');
   const more = document.getElementById('s-nav-more');
@@ -39401,8 +39403,11 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   if (!nav || !more || typeof nav.scrollWidth !== 'number') return;
   const mark = () => {
     const room = nav.scrollWidth - nav.clientWidth;
+    /* "More on the right" means a pill is still cut off: the last 32px of the scroll range is the row's end padding (#718),
+       so once inside it every pill is on screen and the chevron would only sit on the last one. */
+    const end = room - (parseFloat(getComputedStyle(nav).paddingRight) || 0);
     const left = room > 2 && nav.scrollLeft > 2;
-    const right = room > 2 && nav.scrollLeft < room - 2;
+    const right = room > 2 && nav.scrollLeft < end - 2;
     const edge = (left ? 'l' : '') + (right ? 'r' : '');
     // Written only when changed: the observer below watches `hidden`, so an unconditional write would wake it again.
     if (nav.dataset.edge !== edge) nav.dataset.edge = edge;
@@ -39417,6 +39422,7 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   if (window.ResizeObserver) new ResizeObserver(mark).observe(nav);
   // The row's content can change width without the nav resizing (Kosmos+ gains or loses its needs-you dot, a pill is hidden).
   if (window.MutationObserver) new MutationObserver(mark).observe(nav, { attributes: true, subtree: true, attributeFilter: ['data-dot', 'hidden'] });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(mark);   // a web font that lands late widens the pills
   mark();
 })();
 
