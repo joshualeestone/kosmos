@@ -12,7 +12,8 @@
  * chat drops a line it cannot place (the shared-quota hold, a busy or unreachable pane), so the debt is kept on disk
  * until a line lands (see settle: PLACED, or UNCONFIRMED, which may have been typed and is never typed twice; if it was
  * not, the agent reads the file at its next start) and the board retries it. { session: { at, last, n, sections: [...] } }: `at` is when the
- * debt began (for GIVE_UP_MS), `last` when it was last owed (a session start after `last` read every section owed), and `n`
+ * debt began, `last` when it was last owed (a session start after `last` read every section owed; GIVE_UP_MS counts from
+ * it, so a section owed late is never given up with an older one), and `n`
  * counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
  * Atomic tmp + rename; an unreadable or odd file reads as empty. A debt ends without a line when the agent has started a
  * session since it was last owed (startedSince: it read the new file at that start), when the agent is missing from the
@@ -27,6 +28,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
+const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
   rules: 'the working rules (Kosmos added or updated them with your person\'s OK)',
@@ -122,7 +124,7 @@ function settle(owed, session, verdict, DELIVERY, now = Date.now()) {
   const state = verdict && verdict.state;
   const landed = Boolean(DELIVERY) && (state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED)
     && !(verdict && (verdict.held === true || verdict.busy === true));
-  if (landed || !next[session] || now - next[session].at > GIVE_UP_MS) delete next[session];
+  if (landed || !next[session] || now - lastOf(next[session]) > GIVE_UP_MS) delete next[session];
   return next;
 }
 
@@ -197,7 +199,7 @@ async function passOnce(o) {
     const ours = new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
     for (const session of Object.keys(owed)) {
       const debt = owed[session];
-      if (now - debt.at > GIVE_UP_MS) { end(session, 'expired'); continue; }
+      if (now - lastOf(debt) > GIVE_UP_MS) { end(session, 'expired'); continue; }
       if (!ours.has(session)) {
         /* Gone only when it was missing at the previous pass too (a caller without the set: at once), so one partial
            roster cannot end a real debt. */
@@ -220,7 +222,6 @@ async function passOnce(o) {
       try { ok = o.allowed() === true; } catch { ok = false; }
       if (!ok) break;
       const line = lineFor(on);
-      if (!line) { end(session, 'expired'); continue; }
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
       let fresh = null;

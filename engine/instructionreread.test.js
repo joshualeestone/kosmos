@@ -266,3 +266,14 @@ test('review 13: with one section switched off, the line names the others and th
   assert.deepEqual((await ir.passOnce(all.o)).map((x) => x.act), ['section-off']);
   assert.deepEqual(all.sent, []);
 });
+
+test('review 15: give-up counts from the latest owe, so a section owed late is not given up with an older held one', async () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  let o = ir.owe({}, 'ida', 'community', T - 7 * DAY + 60e3);   // held for almost a week (Community off)
+  o = ir.owe(o, 'ida', 'rules', T);                              // the person accepts a rules refresh today
+  const p = passArgs({ owed: o, o: { now: T + 120e3, sectionOn: (sec) => sec !== 'community' } });
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['sent'], 'the late rules debt was given up');
+  assert.equal(p.sent[0][1], ir.lineFor(['rules']));
+  const old = passArgs({ owed: ir.owe({}, 'ida', 'community', T - 8 * DAY), o: { now: T } });
+  assert.deepEqual((await ir.passOnce(old.o)).map((x) => x.act), ['expired'], 'CONTROL: a week-old debt with nothing newer ends');
+});
