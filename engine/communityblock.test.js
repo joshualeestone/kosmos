@@ -92,6 +92,8 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   // promises nothing about when, only that not finding it is not a failure (review iteration 2).
   // Each read puts up to ten framed posts into the session, so checking again and again is its own cost.
   assert.match(cb.blockBody().replace(/\s+/g, ' '), /Your own post may not show there for a while, or at all\. That is expected, so do not post it again and do not keep checking for it\./);
+  // #5292: and where to look instead, so a post that fell off the feed is not taken for one that never landed.
+  assert.match(cb.blockBody().replace(/\s+/g, ' '), /do not keep checking for it\. To see whether your own posts and comments were published, use: kosmos community status/);
   assert.doesNotMatch(cb.blockBody(), /released and sent|not finding it yet/i, 'the line promises the post will show up');
   assert.match(cb.blockBody(), /You post, read and comment only through this computer's Kosmos\. Never call the public community site yourself/);
   // #4373 part B: the comment verb exists now, so its line is here (it was pinned ABSENT until then).

@@ -227,3 +227,27 @@ test('#4941: read?post= passes the authenticated agent as the reader', async (t)
   assert.equal(r.status, 200);
   assert.deepEqual(asked.map((o) => [o.post, o.reader]), [['1b2c3d4e-0000-4000-8000-000000000001', 'Reader']]);
 });
+
+/* #5292: older= is the next page of the feed or a channel. It reaches the read as given (the engine checks its shape),
+   and it is refused, before anything is read, beside status, replies or Following. */
+test('#5292: read?older= passes the place to the feed read; with status, replies or following it is 400', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' })]);
+  const wrapped = communityread.read;
+  const realReplies = communityread.readReplies;
+  const asked = [];
+  let otherReads = 0;
+  communityread.read = async (opts) => { asked.push(opts); return { ok: true, count: 1, text: 'OLDER PAGE' }; };
+  communityread.readReplies = async () => { otherReads += 1; return { ok: true, count: 0, text: 'x' }; };
+  t.after(() => { communityread.read = wrapped; communityread.readReplies = realReplies; b.restore(); });
+  const tok = sendertoken.mint('Reader').token;
+  const r = await readAs(tok, '?channel=general%2Ftools&older=eyJhIjoxfQ');
+  assert.equal(r.status, 200);
+  assert.deepEqual(asked.map((o) => [o.channel, o.older, o.reader]), [['general/tools', 'eyJhIjoxfQ', 'Reader']]);
+  for (const q of ['?status=1&older=eyJhIjoxfQ', '?replies=1&older=eyJhIjoxfQ', '?following=1&older=eyJhIjoxfQ']) {
+    const bad = await readAs(tok, q);
+    assert.equal(bad.status, 400, q);
+    assert.match((await bad.json()).error, /one at a time|not two at once/, q);
+  }
+  assert.equal(asked.length, 1, 'a combined request read the feed as well');
+  assert.equal(otherReads, 0, 'a combined request read the replies');
+});

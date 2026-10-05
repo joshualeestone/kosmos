@@ -8620,27 +8620,27 @@ const server = http.createServer(async (req, res) => {
     /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
        (no service call), keyed on the authenticated session like replies. */
     if (q.get('status') === '1') {
-      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
       let r;
       try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
       sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
       return;
     }
     if (q.get('replies') === '1') {
-      if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('older')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
       communityread.readReplies(reader.card.sessionName)
         .then((r) => sendJson(res, r.ok ? 200 : (r.busy ? 409 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
         .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
       return;
     }
     if (q.get('following') === '1') {
-      if (q.get('channel') || q.get('post')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('older')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
       communityfollow.readFollowing(reader.card.sessionName)
         .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
         .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
       return;
     }
-    communityread.read({ channel: q.get('channel'), post: q.get('post'), reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent
+    communityread.read({ channel: q.get('channel'), post: q.get('post'), older: q.get('older'), reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent; #5292: older, the next page
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))

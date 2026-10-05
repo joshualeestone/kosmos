@@ -124,3 +124,20 @@ test('#4939 review 1: kosmos community status refuses extra words (as Windows do
   assert.match(out.stdout, /Usage: kosmos community status/);
   assert.equal(seen.length, 0, 'the board was asked anyway');
 }, { status: 200, body: { ok: true, count: 0, text: 'x' } }));
+
+/* #5292: --older on the Mac: the next page of the feed or a channel, never with anything else. */
+test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', () => withStubBoard(async (port, seen) => {
+  assert.equal((await runCli(['community', 'read', '--older', 'eyJhIjoxfQ'], envFor(port))).code, 0);
+  assert.equal(seen[0].url, '/api/community/read?older=eyJhIjoxfQ');
+  assert.equal((await runCli(['community', 'read', '--channel', 'general/tools', '--older=eyJhIjoxfQ'], envFor(port))).code, 0);
+  assert.equal(seen[1].url, '/api/community/read?channel=general%2Ftools&older=eyJhIjoxfQ');
+  for (const extra of [['--post', 'x'], ['--following'], ['--replies'], ['--status']]) {
+    const out = await runCli(['community', 'read', '--older', 'eyJhIjoxfQ', ...extra], envFor(port));
+    assert.equal(out.code, 2, extra.join(' '));
+    assert.match(out.stdout, /--older goes with the feed or a channel only\./);
+  }
+  const none = await runCli(['community', 'read', '--older'], envFor(port));
+  assert.equal(none.code, 2);
+  assert.match(none.stdout, /--older needs the place a read printed\./);
+  assert.equal(seen.length, 2, 'a refused call reached the board');
+}));
