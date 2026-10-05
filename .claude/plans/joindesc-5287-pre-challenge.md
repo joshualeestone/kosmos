@@ -33,3 +33,4 @@ description (the brief its agents get) stays empty, as the join route has always
 
 ## Weakest premise
 That 10.5em with scroll is the right cap for the owner's description in a header; Mona Lisa can change it.
+- Surface gate #2518: the new rule names #pj-one-view (render-shell-noscroll-4872.js watches it). It only gives the hidden-unless-joined #pj-one-shared block a full-width header row; measured no horizontal scroll at 390/1280 in default and consolidated. Per-check trailer on the commit.
