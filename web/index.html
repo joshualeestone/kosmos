@@ -7005,13 +7005,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 /* #4631: Copy message reference, first in the hover bar, drawn like Reply. The number is faint: it is there so a
-   person sees what they copy, not to be read as part of the message. */
-.rxn-ref { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
+   person sees what they copy, not to be read as part of the message. #5312: Copy message (the whole text) comes first,
+   drawn the same, and the reference became "Copy message id". */
+.rxn-ref, .rxn-copy { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
            display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .rxn-ref-ico { flex: none; display: block; }
 .rxn-ref-n { opacity: .7; font-variant-numeric: tabular-nums; }
-.rxn-ref:hover, .rxn-ref:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
-.rxn-ref:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.rxn-ref:hover, .rxn-ref:focus-visible, .rxn-copy:hover, .rxn-copy:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+.rxn-ref:focus-visible, .rxn-copy:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
             background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
 .msg-menu[hidden] { display: none; }
@@ -7102,7 +7103,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      room's tap handler adds .rxn-below and it opens under the message instead.
      The bar is wider than a short bubble: pinned right on a short agent bubble it would cross the
      thread's left edge and be clipped, so an agent's bar starts at the bubble's left. */
-  #pj-room .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); }
+  /* #5312: 2px between buttons, not 4: with Copy message the bar is eight 36px buttons, and at 4px it no longer fit one
+     line in a 375px or 390px phone's thread (it wrapped to two rows over the message above). Each button keeps its 36px. */
+  #pj-room .rxn-quick { gap: 2px; top: auto; bottom: calc(100% + 4px); }
   #pj-room .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
   /* Every row's .msg-b is its own stacking context (isolation), painted in order, so a bar that
      opens BELOW its post sat under the next message and lost every tap to it. The open row is
@@ -7112,7 +7115,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg.rxn-still .rxn-quick { transition: none; }
   /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
   #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
-    border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+    border-radius: 100px; padding: 2px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   /* #4409: at its natural width, and it wraps only when pjRxnFitWidth caps it at a thread narrower
      than the bar (without max-content an absolute bar would shrink to its short bubble and wrap there). */
@@ -7141,7 +7144,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak, #pj-room .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4409: read-aloud; #4631: Copy reference too */
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak, #pj-room .rxn-ref, #pj-room .rxn-copy { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4409: read-aloud; #4631: Copy reference too; #5312 Copy message */
   /* #4631: on a touchscreen Copy reference is the icon alone. The number is for a pointer resting on a post; a
      thumb's bar is short of width on a phone, and the button's label and the toast still name the number. */
   #pj-room .rxn-ref-n, #d-dmthread .rxn-ref-n { display: none; }
@@ -7149,9 +7152,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      Seven buttons with the word were 331px, and the open bar, which sits over the message above its own, then
      covered that message's whole width: a tap meant to close the bar on the visible corner of a person's message
      hit Reply. With the arrow alone, and without the pointer bar's extra 4px beside Copy reference and Reply (the
-     touch bar's 4px gap already spaces every button), it is 290px, about the six-button bar's 287 on either parent. */
+     touch bar's 4px gap already spaces every button), it is 290px, about the six-button bar's 287 on either parent.
+     #5312: Copy message makes eight buttons; with the gap down to 2px the bar is about 308px, still one line in a 375px
+     phone's thread (render-msgref-4631.js C6 measures it). */
   #pj-room .rxn-reply-t, #d-dmthread .rxn-reply-t { display: none; }
-  #pj-room .rxn-quick .rxn-ref, #pj-room .rxn-quick .rxn-reply, #d-dmthread .rxn-quick .rxn-ref, #d-dmthread .rxn-quick .rxn-reply { margin: 0; }
+  #pj-room .rxn-quick .rxn-ref, #pj-room .rxn-quick .rxn-copy, #pj-room .rxn-quick .rxn-reply, #pj-room .rxn-quick .rxn-speak, #d-dmthread .rxn-quick .rxn-ref, #d-dmthread .rxn-quick .rxn-copy, #d-dmthread .rxn-quick .rxn-reply, #d-dmthread .rxn-quick .rxn-speak { margin: 0; }   /* #5312: read-aloud's 4px too */
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -7164,15 +7169,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #d-dmthread .msg:hover:not(.rxn-show) .rxn-quick:not(:focus-within) { opacity: 0; pointer-events: none; }
   #d-dmthread .msg:hover:not(.rxn-show) .msg-bd,
   #d-dmthread .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
-  #d-dmthread .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); right: auto; left: 0; }
+  #d-dmthread .rxn-quick { gap: 2px; top: auto; bottom: calc(100% + 4px); right: auto; left: 0; }   /* 2px: #5312, as the room's */
   #d-dmthread .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
   #d-dmthread .msg.rxn-show .msg-b, #d-dmthread .msg.rxn-below .msg-b { z-index: 1; }
   #d-dmthread .msg.rxn-still .rxn-quick { transition: none; }
   #d-dmthread .msg.rxn-show .rxn-quick, #d-dmthread .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
-    border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+    border-radius: 100px; padding: 2px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-speak, #d-dmthread .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too; #4409 read-aloud and #4631 Copy reference also */
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-speak, #d-dmthread .rxn-ref, #d-dmthread .rxn-copy { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too; #4409 read-aloud, #4631 Copy reference and #5312 Copy message also */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -62564,6 +62569,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
+  if (e.target.closest('.rxn-copy')) { rxnCloseAllPickers(); msgTextCopy(box.closest('.msg')); return; }   // #5312
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
@@ -62668,6 +62674,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
   }
   if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
   if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
+  if (e.target.closest('.rxn-copy')) { rxnCloseAllPickers(); msgTextCopy(box.closest('.msg')); return; }   // #5312
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
@@ -62901,7 +62908,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref, .rxn-copy')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -63646,12 +63653,20 @@ function msgRefNumber(mid) {
   const hit = /^m(\d+)$/.exec(String(mid || ''));
   return hit ? hit[1] : '';
 }
+/* #5312 (Josh, 2026-10-05 11:02): "two buttons instead for a 'copy message' and 'copy message id' so you could copy
+   the whole message text". The id keeps #4631's words and its faint number, under a # mark; the copy mark is now the
+   whole message's. */
 function msgRefButton(mid) {
   const n = msgRefNumber(mid);
-  return '<button class="rxn-ref" type="button" title="Copy message reference" aria-label="'
-    + (n ? 'Copy a reference to message ' + n : 'Copy a reference to this message') + '">'
-    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
+  return '<button class="rxn-ref" type="button" title="Copy message id" aria-label="'
+    + (n ? 'Copy message id ' + n : 'Copy message id') + '">'
+    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>'
     + (n ? '<span class="rxn-ref-n">' + n + '</span>' : '')
+    + '</button>';
+}
+function msgCopyButton() {
+  return '<button class="rxn-copy" type="button" title="Copy message" aria-label="Copy message">'
+    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
     + '</button>';
 }
 function msgRefWhen(at) {
@@ -63703,9 +63718,42 @@ function msgToast(text) {
   clearTimeout(msgToast.timer);
   msgToast.timer = setTimeout(() => { t.hidden = true; }, 2600);
 }
-async function msgRefCopy(row) {
-  const text = msgRefText(row);
-  if (!text) return;
+/* #5312: the whole message as plain text, as it was written (not cut, not tidied for the screen), then each attached
+   file by its name on a line of its own. PURE. A post with no words carries its file names as its text (pjWords), so
+   the names are not said twice. */
+function msgCopyWords(m) {
+  const text = m && typeof m.text === 'string' ? m.text.replace(/\s+$/, '') : '';
+  const names = (typeof pjFiles === 'function' ? pjFiles(m) : []).map((a) => (typeof a.name === 'string' ? a.name.trim() : '')).filter(Boolean);
+  if (names.length && text.trim() === names.join(', ')) return names.join('\n');
+  return [text.trim() ? text : ''].concat(names).filter(Boolean).join('\n');
+}
+/* The record a row was drawn from: a room's posts by id, a direct conversation's rows by `at` (or by id, which a DM
+   row's data-mid carries when it has a number). */
+function msgRecordOf(row) {
+  const mid = row && row.getAttribute ? row.getAttribute('data-mid') || '' : '';
+  if (!mid) return null;
+  if (row.closest && row.closest('#pj-room')) return (typeof PJ_ROOM_POSTS !== 'undefined' && PJ_ROOM_POSTS.get(mid)) || null;
+  if (typeof DM_ROWS === 'undefined') return null;
+  if (DM_ROWS.has(mid)) return DM_ROWS.get(mid);
+  for (const r of DM_ROWS.values()) if (r && r.id === mid) return r;
+  return null;
+}
+/* The words to copy for a row: from its record, or, for a row drawn from no kept record (an outside guest's), from what
+   the row shows, without its name, time, reply header or buttons. */
+function msgCopyText(row) {
+  const m = msgRecordOf(row);
+  if (m) return msgCopyWords(m);
+  const bd = row && row.querySelector ? row.querySelector('.msg-bd') : null;
+  if (!bd) return '';
+  const c = bd.cloneNode(true);
+  const names = [...c.querySelectorAll('.att-name')].map((n) => n.textContent.trim()).filter(Boolean);
+  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .msg-ext-tag, .vh, .rxns, button, .att-pic, .att-meta, .att-txt').forEach((n) => n.remove());
+  c.querySelectorAll('br').forEach((n) => n.replaceWith(document.createTextNode('\n')));
+  c.querySelectorAll('p, li, div, pre').forEach((n) => n.after(document.createTextNode('\n')));
+  const text = c.textContent.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return [text].concat(names).filter(Boolean).join('\n');
+}
+async function msgClipboard(text) {
   let ok = false;
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; }
@@ -63719,10 +63767,23 @@ async function msgRefCopy(row) {
     try { ok = document.execCommand('copy'); } catch { ok = false; }
     ta.remove();
   }
+  return ok;
+}
+async function msgRefCopy(row) {
+  const text = msgRefText(row);
+  if (!text) return;
+  const ok = await msgClipboard(text);
   msgToast(ok ? 'Copied "' + text + '". Paste it to any agent.' : 'Could not copy. The reference is: ' + text);
 }
-/* The small menu right-click and ctrl-click open on a message. One item today; a menu (not an instant copy) so
-   the click says what it will do before it does it. */
+async function msgTextCopy(row) {
+  const text = msgCopyText(row);
+  if (!text) return;
+  const ok = await msgClipboard(text);
+  /* Never the words in the toast: a message can be long. On a failure the browser's own Copy still works on a selection. */
+  msgToast(ok ? 'Copied the message.' : 'Could not copy. Select the message and copy it instead.');
+}
+/* The small menu right-click and ctrl-click open on a message: Copy message, then Copy message id (#5312, in that
+   order). A menu (not an instant copy) so the click says what it will do before it does it. */
 function msgMenuClose(restoreFocus) {
   const m = document.getElementById('msg-menu');
   if (!m || m.hidden) return;
@@ -63744,13 +63805,25 @@ function msgMenuOpen(row, x, y) {
   if (!m) {
     m = document.createElement('div');
     m.id = 'msg-menu'; m.className = 'msg-menu'; m.setAttribute('role', 'menu'); m.hidden = true;
-    m.innerHTML = '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-copy">Copy message reference</button>';
+    m.innerHTML = '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-text">Copy message</button>'
+      + '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-copy">Copy message id</button>';
     document.body.appendChild(m);
     m.addEventListener('click', (e) => {
-      if (!e.target.closest('#msg-menu-copy')) return;
-      const r = msgMenuRow(m.msgRef); msgMenuClose(true); msgRefCopy(r);
+      const item = e.target.closest('#msg-menu-copy, #msg-menu-text');
+      if (!item) return;
+      const r = msgMenuRow(m.msgRef); msgMenuClose(true);
+      if (item.id === 'msg-menu-text') msgTextCopy(r); else msgRefCopy(r);
     });
-    m.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } msgMenuClose(e.key === 'Escape'); } });
+    m.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } msgMenuClose(e.key === 'Escape'); return; }
+      /* A menu's arrow keys move between its items (and wrap). */
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const items = [...m.querySelectorAll('.msg-menu-i:not([hidden])')];
+      const i = items.indexOf(document.activeElement);
+      const next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+      if (next) next.focus();
+    });
     m.addEventListener('focusout', (e) => { if (!m.contains(e.relatedTarget)) msgMenuClose(false); });
     /* WebKit (Safari, the Mac app) does not focus a clicked button: pressing it moves focus to nothing, the
        focusout above closes the menu, and the click never lands. Keeping the press from taking focus away
@@ -63759,6 +63832,9 @@ function msgMenuOpen(row, x, y) {
   }
   const host = row.closest('#pj-room') ? 'pj-room' : 'd-dmthread';
   m.msgRef = { row, host, mid: row.getAttribute('data-mid') || '' };
+  /* Each item only where it has something to copy: an outside guest's row has words but no id. */
+  document.getElementById('msg-menu-text').hidden = !msgCopyText(row);
+  document.getElementById('msg-menu-copy').hidden = !msgRefText(row);
   m.msgBack = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
   m.hidden = false;
   /* A keyboard's menu key reports no pointer position (0, 0): open it at the message instead of the corner. */
@@ -63766,7 +63842,8 @@ function msgMenuOpen(row, x, y) {
   const w = m.offsetWidth, h = m.offsetHeight;
   m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
   m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
-  document.getElementById('msg-menu-copy').focus();
+  const first = m.querySelector('.msg-menu-i:not([hidden])');
+  if (first) first.focus();
 }
 /* Which clicks open it. Not on a link, a button, a field or a picture (their own menus stay), and not while
    text is selected (the browser's Copy is what a person wants then). */
@@ -63777,7 +63854,7 @@ function msgMenuRowFor(e) {
   /* [data-open-agent]: a name or picture that opens the agent's page; a ctrl-click there already navigated. */
   if (!row || t.closest('a, button, input, textarea, select, img, video, [contenteditable], [data-open-agent]')) return null;
   if (msgSelectedAtPress(e)) return null;
-  return msgRefText(row) ? row : null;
+  return (msgRefText(row) || msgCopyText(row)) ? row : null;
 }
 /* Whether text was selected when the person pressed. WebKit (Safari, the Mac app) selects the word under the
    pointer BEFORE it fires contextmenu, so the live selection at that moment says "text is selected" for every
@@ -63858,7 +63935,8 @@ function rxnsInner(list, withReply, withSpeak, mid) {
   return pills
     /* #4631: Copy message reference goes FIRST, so the emoji stay together and Reply stays last (#4358); the
        faint number at the front reads as the message's own label. Guarded: tests lift rxnsInner alone. */
-    + '<span class="rxn-quick">' + (typeof msgRefButton === 'function' ? msgRefButton(mid) : '') + quicks
+    + '<span class="rxn-quick">' + (typeof msgCopyButton === 'function' ? msgCopyButton() : '')   // #5312: Copy message, then Copy message id
+    + (typeof msgRefButton === 'function' ? msgRefButton(mid) : '') + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
     + speak + reply   // #4358 keeps Reply LAST, so read-aloud sits between the smiley and Reply

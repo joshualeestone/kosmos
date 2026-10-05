@@ -117,14 +117,14 @@ function chk(ok, label, extra) {
     // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
     const bar = await p.evaluate(() => {
       const q = document.querySelector('#pj-room .rxns .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-copy') ? 'copy' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
       const you = !!(q && q.closest('.msg') && q.closest('.msg').classList.contains('you'));   // #4409: read-aloud is on an agent's post only
       const r = q && q.querySelector('.rxn-reply');
       const ico = r && r.firstElementChild;
       return { you, kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
         word: r ? r.textContent.trim() : null };
     });
-    chk(bar.kids === (bar.you ? 'ref,pick,pick,pick,more,reply' : 'ref,pick,pick,pick,more,speak,reply'), 'the hover bar reads Copy reference (#4631), the three quick emoji, the smiley, (on an agent\'s post, read-aloud, #4409), then Reply last', JSON.stringify({ you: bar.you, kids: bar.kids }));
+    chk(bar.kids === (bar.you ? 'copy,ref,pick,pick,pick,more,reply' : 'copy,ref,pick,pick,pick,more,speak,reply'), 'the hover bar reads Copy message and Copy message id (#5312), the three quick emoji, the smiley, (on an agent\'s post, read-aloud, #4409), then Reply last', JSON.stringify({ you: bar.you, kids: bar.kids }));
     chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
     const rests = {};
     for (const scheme of ['light', 'dark']) {
