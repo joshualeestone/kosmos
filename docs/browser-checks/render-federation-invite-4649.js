@@ -113,6 +113,8 @@
  *  C1  with the name and the address: Copy the invitation writes EXACTLY shot 04's text, "Maya Chen
  *      (maya.kosmosplus.com) invited you ...", and says Copied, then reverts. Control: the bare Copy, pressed
  *      first on the same screen, writes only the code.
+ *  C1b only the owner's members answer names the address: a member's (owner: false) keeps the name alone. Control:
+ *      owner: true prints it.
  *  C2  with no "You" name the text starts "maya.kosmosplus.com invited you" (and is otherwise the same); with a
  *      name but no owner_name (or one that is not a Kosmos+ name), "Maya Chen invited you"; with neither,
  *      "Someone invited you". Control: C1 with both.
@@ -1572,6 +1574,21 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(2300);
     st = await step(page);
     check('C1 the button reverts to "Copy the invitation"', st.allText === 'Copy the invitation' && st.status === '', JSON.stringify({ all: st.allText, status: st.status }));
+
+    /* C1b (merged-C review): only the OWNER's members answer names the address. A member's answer (owner: false)
+       carries another account's owner_name, so the invitation keeps the name alone. Control: the same answer with
+       owner: true prints the address. Called through the page's own fedInviteText on this project's code. */
+    const asOwner = (isOwner) => page.evaluate((own) => {
+      const saved = FED_MEMBERS;
+      FED_MEMBERS = Object.assign({}, saved, { body: Object.assign({}, saved.body, { owner: own, owner_name: 'maya' }) });
+      try { return fedInviteText({ code: 'X', expires_at: saved.body.checked_at + 86400, project: 'P', projectId: saved.project }); }
+      finally { FED_MEMBERS = saved; }
+    }, isOwner);
+    const notOwner = await asOwner(false);
+    const yesOwner = await asOwner(true);
+    check('C1b a member\'s answer (owner: false) never names its owner_name as this invitation\'s address',
+      /^Maya Chen invited you/.test(notOwner) && !/kosmosplus\.com/.test(notOwner.split('\n')[0]), notOwner.split('\n')[0]);
+    check('C1b control: the owner\'s answer (owner: true) names the address', yesOwner.startsWith('Maya Chen (' + ADDR + ')'), yesOwner.split('\n')[0]);
 
     // C3: the step words, read out of the invitation that was just copied.
     const m2 = /^2\. Go to Projects, press (.+), then (.+)\.$/m.exec(c1 || '');

@@ -69418,7 +69418,8 @@ function fedInviteCopyReset() {
    brackets, the address alone with no name, the name alone with no address, and "Someone" with neither. The
    address is the one the invitee's Verify shows, the ACCOUNT's name (coordinator fed.rs owner_handle). The board
    learns it only from the owner's members answer (`owner_name`, Ice Cream Kitty's follow-up on #4649); until that
-   field arrives the name stands alone. It is never taken from this computer's own address: a second computer, or
+   field arrives the name stands alone. Only an OWNER's answer counts (`owner: true`): a member's answer carries the
+   owner_name of the project it joined, another account's. It is never taken from this computer's own address: a second computer, or
    a first one retired, has an address that is not the account's name. The step words are the page's own labels
    ("+ Add Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
@@ -69431,7 +69432,7 @@ function fedInviteText(made) {
   // No brackets in the name: "Maya (fake.kosmosplus.com)" must not pass for the vouched address the line prints.
   const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
   const fm = FED_MEMBERS;
-  const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
+  const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && fm.body.owner === true && typeof fm.body.owner_name === 'string'
     && PLUS_NAME_RULE.test(fm.body.owner_name)) ? fm.body.owner_name : '';
   const addr = handle ? handle + '.kosmosplus.com' : '';
   const who = name && addr ? name + ' (' + addr + ')' : (name || addr || 'Someone');
