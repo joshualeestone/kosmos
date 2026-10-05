@@ -9666,7 +9666,7 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedout-act { flex: none; margin-left: auto; font: inherit; font-size: .75rem; color: var(--label-2); background: none; border: 0; padding: 4px 0;
               text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .fedout-act:hover { color: var(--label); }
-.fedout-act:disabled { opacity: .55; cursor: default; }
+.fedout-act:disabled,.fedout-act[aria-disabled="true"] { opacity: .55; cursor: default; }
 .fedout .fhint { margin: 2px 0 4px; }
 .fedout .fmsg { margin-top: 2px; }
 .fedout .fmsg:empty { display: none; }
@@ -67882,8 +67882,11 @@ function fedOutsideRowHtml(r, unchecked) {
   const wait = r.state === 'joined' ? '' : ' fedout-wait';
   const btn = act
     ? '<button class="fedout-act" type="button" data-fed-act="' + act + '" data-fed-key="' + esc(key) + '"'
-      + ' aria-label="' + esc(act === 'remove' ? 'Remove ' + name : act === 'withdraw' ? 'Withdraw the code for ' + name : 'Make a new code for ' + name) + '"'
-      + (FED_BUSY.has(key) ? ' disabled' : '') + '>' + label + '</button>'
+      + ' aria-label="' + esc(!r.label ? (act === 'remove' ? 'Remove this person' : act === 'withdraw' ? 'Withdraw this code' : 'Make a new code')
+        : act === 'remove' ? 'Remove ' + r.label : act === 'withdraw' ? 'Withdraw the code for ' + r.label : 'Make a new code for ' + r.label) + '"'
+      // Busy: aria-disabled, not disabled, so the rebuilt button can keep focus while it is asked (a disabled one
+      // drops focus to <body> for up to the time limit); the click handler ignores it.
+      + (FED_BUSY.has(key) ? ' aria-disabled="true"' : '') + '>' + label + '</button>'
     : '';
   const said = FED_MSGS[key];
   return '<div class="fedout-row" data-fed-key="' + esc(key) + '" data-fed-state="' + esc(r.state) + '">'
@@ -68045,7 +68048,7 @@ function fedClearLoose() {
 // disabled until the page reloads); the list is then asked again, so it shows what the board did. A let, so the
 // browser check can shorten it.
 let FED_ACT_LIMIT_MS = 60000;
-const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. The list below is asked again, so it shows whether it went through.';
+const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. The list is asked again, so it shows whether it went through.';
 async function fedActPost(url, payload) {
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), FED_ACT_LIMIT_MS) : 0;
@@ -68079,7 +68082,6 @@ async function fedRemoveGo() {
     said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
   }
   FED_BUSY.delete(f.key);
-  if (timedOut && PJ_CURRENT === f.project) fedMembersLoad(f.project);
   // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
   if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) memConfirmClose(); return; }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
@@ -68090,7 +68092,9 @@ async function fedRemoveGo() {
     if (still) fedRemoveDone();
     FED_MSGS[f.key] = said; fedSay(said);
     fedOutsidePaint(false);
-    fedRefocus(f.key);
+    // Focus after the list is asked again (it may take the row away), as Withdraw does.
+    await fedMembersLoad(f.project);
+    if (PJ_CURRENT === f.project) fedRefocus(f.key);
     return;
   }
   if (!said && res.ok) {
@@ -68115,8 +68119,8 @@ async function fedRemoveGo() {
   // dialog was closed meanwhile, so the refusal is said on the row instead.
   FED_MSGS[f.key] = said; fedSay(said);
   if (res && res.status === 404) {
-    if (still) fedRemoveDone(); else fedRefocus(f.key);
-    fedMembersLoad(f.project);
+    if (still) { fedRemoveDone(); fedMembersLoad(f.project); }
+    else { await fedMembersLoad(f.project); if (PJ_CURRENT === f.project) fedRefocus(f.key); }   // after the row goes
   } else {
     fedOutsidePaint(false);
     fedRefocus(f.key);   // the dialog was closed meanwhile: back to the row's Remove, live again
@@ -68162,11 +68166,17 @@ async function fedWithdraw(r) {
   fedOutsidePaint(false);
   // 409 joined: someone used the code meanwhile, so the row is now a joined one; 404: the code is not known any
   // more. Both ask again, and focus is placed after that repaint (the row's key changes or the row goes).
+  let at = key;
   if (timedOut || (res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)) {
     await fedMembersLoad(project);
     if (PJ_CURRENT !== project) return;
+    // Joined meanwhile: the row is now keyed by its connection, so the sentence moves under it (it points to that
+    // row's Remove) and focus follows.
+    const fm = FED_MEMBERS;
+    const now = fm && fm.ok ? fedOutsideRows(fm.body).find((x) => x.invite_id === r.invite_id) : null;
+    if (now && fedRowKey(now) !== key && FED_MSGS[key]) { FED_MSGS[fedRowKey(now)] = FED_MSGS[key]; delete FED_MSGS[key]; at = fedRowKey(now); fedOutsidePaint(false); }
   }
-  fedRefocus(key);
+  fedRefocus(at);
 }
 // A refusal is drawn inside markup that every paint replaces, where a live region is not reliably announced,
 // so it is also said once in a region that is never replaced (made on first use, visually hidden).
@@ -68176,7 +68186,7 @@ function fedSay(text) {
     el = document.createElement('p');
     el.id = 'fed-live';
     el.setAttribute('aria-live', 'polite');
-    el.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
+    el.className = 'vh';   // the page's one visually-hidden rule
     document.body.appendChild(el);
   }
   el.textContent = '';
@@ -68190,12 +68200,15 @@ else fedSay('');
 // Members "+" (as fedRemoveDone does), never to <body>.
 function fedRefocus(key) {
   // A disabled button cannot take focus (its row is still being asked), so it is skipped for the "+".
-  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent && !x.disabled);
+  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent && !x.disabled);   // (busy rows use aria-disabled and stay focusable)
   const plus = [document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((x) => x && x.offsetParent);
   const to = b || plus;
   // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section or in
   // the Remove dialog that is closing (focus leaves a hidden dialog later, not at once).
   const at = document.activeElement;
+  // An open dialog (another Remove, a local minus) owns focus: a late answer never pulls it out from behind it.
+  const dlg = document.getElementById('mem-modal');
+  if (dlg && !dlg.hidden) return;
   // Focus on ANOTHER row's action (the person moved on while this was asked) stays where it is.
   if (at && at.isConnected && at.dataset && at.dataset.fedKey && at.dataset.fedKey !== key && at.closest && at.closest('.fedout')) return;
   if (to && (!at || at === document.body || (at.closest && at.closest('.fedout, #mem-modal')))) to.focus();
@@ -68203,7 +68216,7 @@ function fedRefocus(key) {
 // The rows' actions, delegated: both lists are rebuilt from markup on every paint.
 document.addEventListener('click', (e) => {
   const btn = e.target && e.target.closest ? e.target.closest('.fedout .fedout-act[data-fed-key]') : null;
-  if (!btn || btn.disabled || !fedShow()) return;
+  if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true' || !fedShow()) return;
   const r = fedRowByKey(btn.dataset.fedKey);
   if (!r) return;
   const act = btn.dataset.fedAct;

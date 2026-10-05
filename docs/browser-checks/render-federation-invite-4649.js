@@ -671,7 +671,7 @@ const closeAll = (page) => page.evaluate(() => {
       rows: [...box.querySelectorAll('.fedout-row')].map((r) => {
         const act = r.querySelector('.fedout-act');
         return { key: r.dataset.fedKey, disc: r.querySelector('.msg-av').textContent, name: r.querySelector('.fedout-nm').textContent,
-          sub: r.querySelector('.fedout-sub').textContent, act: act ? act.textContent : '', actOn: !!act && !act.disabled };
+          sub: r.querySelector('.fedout-sub').textContent, act: act ? act.textContent : '', actOn: !!act && !act.disabled && act.getAttribute('aria-disabled') !== 'true' };
       }),
       msgs: [...box.querySelectorAll('.fmsg')].map((m) => m.textContent).filter(Boolean),
       text: box.textContent,
@@ -711,7 +711,9 @@ const closeAll = (page) => page.evaluate(() => {
     const oneLine = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-outside .fedout-row')].map((r) => {
       const lh = (el) => parseFloat(getComputedStyle(el).lineHeight) || 16;
       const nm = r.querySelector('.fedout-nm'); const sub = r.querySelector('.fedout-sub');
-      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5, sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 };
+      // One line AND not cut short: an ellipsis would also pass the height test (Mona asked for the whole name and date).
+      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5 && nm.scrollWidth <= nm.clientWidth + 1,
+        sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 && sub.scrollWidth <= sub.clientWidth + 1 };
     }));
     check('B1 at 1280 every name and sub-line is on one line (Mona: "Expired Oct / 1" split)',
       oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub), JSON.stringify(oneLine));
@@ -1177,13 +1179,34 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; window.__answerDelay = 3000; window.__withdraw = { status: 200, body: { withdrawn: true } }; });
     const g0 = await gets(page);
     await act(page, 'i:inv-lee');
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(80);
+    const busyFocus = await focusedKey();   // the busy, rebuilt Withdraw keeps focus (aria-disabled, not disabled)
+    await page.waitForTimeout(520);
     f = await readFed(page, '#pj-fed-outside');
     const g1 = (await gets(page)) - g0;
     await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
     const lee = f.rows.find((r) => r.key === 'i:inv-lee');
     check('B15e a Withdraw nobody answers is given up on: the sentence, the Withdraw live again, the list asked (control: the row still shows)',
       f.msgs.some((m) => m.startsWith('Kosmos did not hear back in time.')) && lee && lee.actOn && g1 >= 1, JSON.stringify({ msgs: f.msgs, lee, g1 }));
+    check('B15e while it is asked, the rebuilt busy Withdraw keeps focus', busyFocus === 'i:inv-lee', 'focus=' + busyFocus);
+    // B15h: a Remove cancelled in flight answers while ANOTHER dialog (a local minus) is open: focus stays in it.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__answerDelay = 400; window.__remove = { status: 502, body: { error: 'The connection service refused just now.' } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(50);
+    await page.click('#mem-keep');
+    await page.click('#pj-one-agents .pj-minus[data-drop="ada"]');
+    await page.waitForTimeout(100);
+    const hFirst = await focusedKey();
+    await page.waitForTimeout(500);
+    const h = { open: (await modal(page)).open, first: hFirst, after: await focusedKey() };
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    await page.click('#mem-keep');
+    check('B15h a late Remove answer never pulls focus out of another open dialog (control: focus was in it before the answer)',
+      h.open && h.first === 'mem-keep' && h.after === 'mem-keep', JSON.stringify(h));
     await ctx.close();
   }
   {
@@ -1217,8 +1240,8 @@ const closeAll = (page) => page.evaluate(() => {
     const oneLine = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-outside .fedout-row')].map((r) => {
       const lh = (el) => parseFloat(getComputedStyle(el).lineHeight) || 16;
       const nm = r.querySelector('.fedout-nm'); const sub = r.querySelector('.fedout-sub');
-      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5, sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5,
-        seen: r.getClientRects().length > 0 };
+      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5 && nm.scrollWidth <= nm.clientWidth + 1,
+        sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 && sub.scrollWidth <= sub.clientWidth + 1, seen: r.getClientRects().length > 0 };
     }));
     check('B15f at 390 every name and sub-line is on one line (control: the rows are on screen, as many as at 1280)',
       oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub && o.seen), JSON.stringify(oneLine));
