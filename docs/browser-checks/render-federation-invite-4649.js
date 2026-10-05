@@ -105,7 +105,7 @@
  *  C6  a clipboard that never answers: nothing said while it waits, the bare Copy ignored, the 3 s limit's refusal,
  *      then the late write lands and the line says Copied.
  *  C7  a held write landing after a newer, successful copy on the other button: the line says what the clipboard
- *      now holds. Control: C6.
+ *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
  *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
  *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
@@ -1116,7 +1116,8 @@ const closeAll = (page) => page.evaluate(() => {
         words.Win32.word === 'Ctrl C' && words.Win32.glyph === 'Ctrl+C' && words.MacIntel.word === 'Command C' && words.MacIntel.glyph === '\u2318C',
         JSON.stringify(words));
       // C5b: on a Windows page, the bare Copy's real refusal (clipboard and select-and-copy both failing) renders
-      // Windows keys in its button and line, so a site that went back to a hard-coded Command C fails here.
+      // Windows keys in its button and line, so the sheet's bare Copy going back to a hard-coded Command C fails here.
+      // (pjCopyInvite and pjsOwnCopy use the same helper; C5 pins the helper, no arm renders their refusals.)
       const pw = await newPage(1280, SHOW, 'Win32');
       await openProjectIn(pw.page, 'tabs');
       await makeCode(pw.page, 'Dana Ruiz');
@@ -1152,14 +1153,14 @@ const closeAll = (page) => page.evaluate(() => {
       await pc.page.click('#fedinv-copy');   // ignored while Copy the invitation waits
       await pc.page.waitForTimeout(100);
       const bareWhileBusy = await step(pc.page);
-      await pc.page.waitForTimeout(3000);
+      await pc.page.waitForTimeout(3200);   // ~600 ms past the 3 s limit, for a loaded runner
       const limit = await step(pc.page);
       await pc.page.evaluate(() => window.__releaseClip());
       await pc.page.waitForTimeout(150);
       const late = await step(pc.page);
       check('C6 a held clipboard: nothing said while it waits, the bare Copy ignored, the 3 s limit says it could not copy, a late write says Copied',
         waiting.status === '' && waiting.allText === 'Copy the invitation'
-        && bareWhileBusy.status === '' && bareWhileBusy.copyText === 'Copy'
+        && bareWhileBusy.status === 'One moment: Kosmos is still copying. Press Copy again in a few seconds.' && bareWhileBusy.copyText === 'Copy'
         && limit.status.startsWith('Kosmos could not copy the invitation.')
         && late.status === 'Invitation copied.' && late.allText === 'Copied' && late.copied.length === 1 && late.copied[0] === invitation('Maya Chen (' + ADDR + ')'),
         JSON.stringify({ waiting: waiting.status, bare: [bareWhileBusy.status, bareWhileBusy.copyText], limit: limit.status, late: [late.status, late.allText, late.copied.length] }));
@@ -1179,7 +1180,7 @@ const closeAll = (page) => page.evaluate(() => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (txt) => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
       });
       await p7.page.click('#fedinv-copy-all');
-      await p7.page.waitForTimeout(3300);   // past the limit: the refusal is up and the busy flag is free
+      await p7.page.waitForTimeout(3600);   // ~600 ms past the limit: the refusal is up and the busy flag is free
       await p7.page.evaluate(() => { window.__execOk = true; });
       await p7.page.click('#fedinv-copy');
       await p7.page.waitForTimeout(100);
@@ -1191,6 +1192,23 @@ const closeAll = (page) => page.evaluate(() => {
         newer.status === 'Code copied.'
         && after.status === 'An earlier copy finished late, so the clipboard now holds the invitation. Press the button again to copy the other.',
         JSON.stringify({ newer: newer.status, after: after.status }));
+      // C7b: the same button twice (same text): the stale write changes nothing, so the newer "Copied" stands.
+      await p7.page.evaluate(() => {
+        window.__execOk = false;
+        window.__holds = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__holds.push(ok); }) } });
+      });
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForTimeout(3600);
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForTimeout(100);
+      await p7.page.evaluate(() => window.__holds[1]());   // the newer press lands first
+      await p7.page.waitForTimeout(150);
+      await p7.page.evaluate(() => window.__holds[0]());   // then the stale one, same text
+      await p7.page.waitForTimeout(150);
+      const same = await step(p7.page);
+      check('C7b a stale write of the same text leaves the newer "Invitation copied." standing (control: C7 with the other button)',
+        same.status === 'Invitation copied.', JSON.stringify({ status: same.status }));
       await p7.ctx.close();
     }
 
