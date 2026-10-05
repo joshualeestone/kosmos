@@ -111,4 +111,18 @@ function plantSubscribedClaude() {
   return own;
 }
 
+/* Splinter 2026-10-05 (homepage counts): a check run DIRECTLY (node docs/browser-checks/x.js, not through
+   tools/browser-checks.sh, which points these at a dead port) booted a board that registered a brand-new install on
+   installkosmos.com every run: 53 of launch day's 105 new silent installs were these boards (matched by id on Agent1s
+   and Mortals). Every check that boots or spawns a board IN ITS OWN PROCESS requires this file, so it points the
+   install beacon, the feedback sender and the community at the same dead loopback port tools/browser-checks.sh uses,
+   unless the caller already chose a LOOPBACK address (a check that stubs the collector). Review 1: NOT covered, and
+   said so: a board a person starts in another shell from a check's header recipe (node server.js &) never sees this
+   process's env; give that shell the same three variables, as the runner's are set. */
+const DEAD = 'http://127.0.0.1:9';
+const loopbackUrl = (u) => { try { return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(new URL(u).hostname); } catch { return false; } };
+for (const [k, p] of [['AGENT_WORKFORCE_CREATED_URL', '/api/created'], ['AGENT_WORKFORCE_FEEDBACK_URL', '/api/feedback'], ['AGENT_WORKFORCE_COMMUNITY_URL', '/']]) {
+  if (!loopbackUrl(process.env[k])) process.env[k] = DEAD + p;
+}
+
 module.exports = { plantSubscribedClaude };

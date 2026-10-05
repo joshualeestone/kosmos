@@ -124,6 +124,9 @@ esac
       // the real send path, so it would profile a failure the live board does not take.
       AGENT_WORKFORCE_DRY_RUN: '',
       AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
+      // Review 1 (homepage counts): run outside node --test, so the report and the community go nowhere real either.
+      AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
+      AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
