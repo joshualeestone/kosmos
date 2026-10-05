@@ -16,7 +16,7 @@ BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 3: by PARENTAGE (a reused pid cannot be this shell's child unless this shell made it) and by THIS tree's path.
 ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
   case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*"$REAL_QH"*) return 0;; *) return 1;; esac; }
-trap '[ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }; w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do wait $p 2>/dev/null; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"' EXIT
+trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait above is bounded, and the watchdog goes last
 # #5331: a whole-file deadline that outlives anything this file runs: past it the file stops itself and FAILS, so a hang
 # in here can never hold the canary, a full validation or CI that runs it (one held Agent1s 1 h 43 min on 10-05).
 QH_FILE_DEADLINE="${QH_FILE_DEADLINE:-900}"
@@ -61,7 +61,7 @@ until_true() { local end=$(( $(date +%s) + $1 )); while ! eval "$2"; do [ "$(dat
 gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
 # #5331: wait for a wrapper this file stopped, but never without a bound: 0 when it exited within $2 quarter-seconds,
 # 1 (and KILLed, so nothing is left holding a claim) when it did not.
-reap() { local p=$1 i=0; while [ "$i" -lt "${2:-40}" ]; do case "$(ps -o stat= -p "$p" 2>/dev/null)" in ''|Z*) wait "$p" 2>/dev/null; return 0;; esac; sleep 0.25; i=$((i+1)); done; kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 1; }
+reap() { local p=$1 i=0; while [ "$i" -lt "${2:-40}" ]; do [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" = "$$" ] || return 0; case "$(ps -o stat= -p "$p" 2>/dev/null)" in ''|Z*) wait "$p" 2>/dev/null; return 0;; esac; sleep 0.25; i=$((i+1)); done; ours "$p" && kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 1; }
 hold
 o=$(/bin/bash $QH --light "a" sh -c 'cut -d" " -f4- $KOSMOS_RUN_MARKER_DIR/light-side-claim' 2>&1)
 o2=$(cd /tmp && QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB KOSMOS_RUN_MARKER_DIR=$S/mlab /bin/bash $QH "lab" sh -c 'cat $KOSMOS_RUN_MARKER_DIR/machine-claim; echo "CL=${KOSMOS_CLAIM_LABEL:-unset}"' 2>&1)
@@ -219,20 +219,24 @@ ok "#5064 CONTROL: without the re-mark the later joiner runs first (the arm abov
 # so it is not a group leader; the control also keeps the old teardown (group kill, then wait), which hangs.
 sed 's/^  set -m$/  :/' "$REAL_QH" > $S/qh-nojc5331.sh
 sed -e 's/^  set -m$/  :/' -e 's/^  _qh_stop_capper$/  if [ -n "$CAPPER" ]; then kill -KILL -- "-$CAPPER" 2>\/dev\/null; wait "$CAPPER" 2>\/dev\/null; fi/' "$REAL_QH" > $S/qh-old5331.sh
-capper_of() { local c; for c in $(pgrep -P "$1"); do case "$(ps -o command= -p "$c" 2>/dev/null)" in *qh-*5331.sh*) echo "$c"; return 0;; esac; done; return 1; }
-side5331() {   # $1 the copy, $2 its marker dir: prints 0 (reaped in time), 1 (hung, KILLed) or 2 (never started)
+# The capper is the wrapper's only child with a `sleep 7` of its own (QUEUED_HEAVY_SIDE_POLL_S=7 below): the short-lived
+# $(...) subshells the wrapper forks carry the same command line, so a match on that alone could stop the wrong one.
+capper_of() { local c k; for c in $(pgrep -P "$1"); do for k in $(pgrep -P "$c"); do [ "$(ps -o command= -p "$k" 2>/dev/null)" = "sleep 7" ] && { echo "$c"; return 0; }; done; done; return 1; }
+side5331() {   # $1 the copy, $2 its marker dir: writes 0 (reaped in time), 1 (hung, KILLed) or 2 (never started) to $2.r
   local q="$1" m="$2" w cap r
   mkdir -p "$m"; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
-  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" exec /bin/bash "$q" --light "c5331" sleep $((U+3)) ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
-  until_true 30 "grep -q 'SIDE TURN: running' '$m.log' && capper_of $w >/dev/null" || { kill -KILL $w 2>/dev/null; echo 2; return; }
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QUEUED_HEAVY_SIDE_POLL_S=7 exec /bin/bash "$q" --light "c5331" sleep $((U+3)) ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
+  until_true 40 "grep -q 'SIDE TURN: running' '$m.log' && capper_of $w >/dev/null" || { kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return; }
   cap="$(capper_of $w)"; kill -STOP "$cap"
   for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
-  kill $w 2>/dev/null; reap $w 40; r=$?
-  kill -KILL "$cap" 2>/dev/null; wait "$cap" 2>/dev/null
-  echo $r
+  kill $w 2>/dev/null; reap $w 60; r=$?
+  # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
+  case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
+  echo $r > "$m.r"
 }
-r5331="$(side5331 $S/qh-nojc5331.sh $S/m5331)"; c5331="$(side5331 $S/qh-old5331.sh $S/m5331c)"
-ok "#5331: a capper that is not a group leader and is stopped does not hold the teardown (it stops, releases)" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ]'
+side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
+r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
+ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
 EXPECTED=85   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
