@@ -41,6 +41,11 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit and agai
   matches the file's role; no server is configured on this box to show the exact keys.
 - `claude mcp add` defaults to `--scope local` (measured: its `--help`, default "local"); that local scope ties the
   server to the folder it was added from is from review iteration 7.
+- The read-only commands named first: `claude plugin list` ("List installed plugins"), `claude mcp list`, `claude auth
+  status` ("Show authentication status") and `codex mcp list`, each read from its own `--help` on this box. Not
+  `codex plugin list`: its help says it lists plugins AVAILABLE from marketplaces, not installed ones.
+- That a connector added from the desktop app's Connectors screen belongs to the account is not measured; worded as
+  "may", with the account check as the action.
 - The account bullet is limited to Claude: the Codex counterpart (ChatGPT-side connectors) was not measured.
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
   and not an API key; that a reload picks up a late-added plugin.
