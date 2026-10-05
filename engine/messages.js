@@ -572,7 +572,10 @@ const EXTERNAL_TEXT_MAX = 16384;
    before storage, so no reader, including `kosmos room` printing to a terminal,
    ever receives them. Newlines stay; they are how a message has paragraphs. */
 const EXTERNAL_CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
-function externalPost(projectId, { from, fromKind, text }) {
+/* #4649 slice 3: a room member as the relay stamps it: an account id, or "<account>:<mac>" for an owner's computer.
+   Anything else (absent, an older relay, a malformed value) is not stored. */
+const EXTERNAL_MEMBER = /^[A-Za-z0-9_-]{1,80}(?::[A-Za-z0-9_-]{1,80})?$/;
+function externalPost(projectId, { from, fromKind, text, member }) {
   const row = {
     kind: 'external',
     id: 'x-' + crypto.randomUUID(),
@@ -587,6 +590,7 @@ function externalPost(projectId, { from, fromKind, text }) {
     text: byCodePoint(String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/\p{Cf}/gu, '').replace(INVISIBLE, ''), EXTERNAL_TEXT_MAX),
     at: new Date().toISOString(),
   };
+  if (typeof member === 'string' && EXTERNAL_MEMBER.test(member)) row.member = member;
   if (!row.text.trim() || !rowShaped(row)) return null;
   appendLog(row);
   return row;

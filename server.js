@@ -111,6 +111,14 @@ const NO_WINDOW_QUESTION_BECAUSE = 'it did not say what it is asking; on Windows
    confirm run on another program are excluded: codex (OpenAI), and since #3568 gemini, grok and
    antigravity (Gemini on a Google subscription), which also sign in without Claude. No agents at
    all -> false: a fresh install depends on nothing yet, so the banner stays down. */
+/* #4649 slice 3: an outside row without the relay's member stamp, which never leaves this board. */
+function withoutStamp(m) {
+  if (!(m && m.kind === 'external' && Object.prototype.hasOwnProperty.call(m, 'member'))) return m;
+  const c = Object.assign({}, m);
+  delete c.member;
+  return c;
+}
+
 function someAgentNeedsClaude(agentList) {
   // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
@@ -1181,6 +1189,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
 }
 const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const federation = require('./engine/federation');
+const fedmembers = require('./engine/fedmembers');
 /* #3311: one room seat per federated project. What arrives is recorded in the
    room as an external row (data, never typed into a pane); a post that lands in
    a federated room is sent out through its seat (federateOut below). */
@@ -15401,7 +15410,9 @@ const server = http.createServer(async (req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)) });
+      /* #4649 slice 3: an outside row's relay stamp (an account id) stays on this board, as in the room route. The
+         masked read stays written as one expression: server.guide-secrets-3769.test.js finds it by its text. */
+      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)).map(withoutStamp) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -16621,6 +16632,8 @@ const server = http.createServer(async (req, res) => {
         // or old members). Best effort: an unreadable record already keeps every
         // post of a room on this computer.
         try { fedseal.forgetRoom(made.id); } catch { /* see above */ }
+        // #4649: and no outside invites of an earlier project of the same id.
+        try { fedmembers.forget(made.id); } catch { /* see above */ }
         // Only the page sends federation_ref (the create screen that minted the
         // invites); a process caller's is ignored.
         if (fedRef) {
@@ -16864,6 +16877,8 @@ const server = http.createServer(async (req, res) => {
       try { federation.forgetLink(id); } catch { /* create clears it too */ }
       // #3728: and its room keys, so a later project of the same id starts with none.
       try { fedseal.forgetRoom(id); } catch { /* create clears it too */ }
+      // #4649: and its outside invites, so a later project of the same id lists none of them.
+      try { fedmembers.forget(id); } catch { /* create clears it too */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).
@@ -17074,6 +17089,9 @@ const server = http.createServer(async (req, res) => {
     try {
       const rec = messages.record();
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
+      /* #4649 slice 3: the owner's labels by stamped account, read ONCE per request (review round 3: a read per row
+         stalled a busy room). The text view never shows them, so it does not read them. */
+      const labelOf = asText ? new Map() : fedmembers.labelsFor(id);
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
       const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
@@ -17093,7 +17111,10 @@ const server = http.createServer(async (req, res) => {
           /* #3311: from outside this Kosmos; `external: true` is what the page
              and the text view key on, never the name. */
           : m.kind === 'external'
-          ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
+          ? Object.assign({ kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true },
+            /* #4649 slice 3: the owner's own label for the account that posted (the relay's stamp, matched on this
+               board). The stamp itself never leaves the board. */
+            (() => { const l = typeof m.member === 'string' ? labelOf.get(m.member) : null; return l ? { invited_as: l } : {}; })())
           : m.kind === 'note'
           ? { kind: 'note', text: noteTextNow(m, noteNames), at: m.at }
           : m.kind === 'post'
@@ -17539,9 +17560,50 @@ const server = http.createServer(async (req, res) => {
            ADVISORY: a process can present the browser header; this stops the
            default path an agent would take. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        /* #4649: an invite naming an existing project (`project`) goes through fedmembers, which finds or makes the
+           project's owner ref and records the owner's label for the Members list. */
         const out = pathname === '/api/federation/invite'
-          ? await federation.invite(remote, body)
+          ? (typeof body.project === 'string' && body.project
+            ? await fedmembers.invite(remote, body, {
+              projectExists: (id) => { try { return !!projects.get(id); } catch { return false; } },
+              projectName: (id) => { try { const p = projects.get(id); return p && p.name; } catch { return null; } },
+              projectDesc: (id) => { try { const p = projects.get(id); return p && p.description; } catch { return null; } },
+              // The same createdAt fedseats.stampOf compares a link with (its deps below), so the link is this project's.
+              projectCreated: (id) => { try { const p = projects.get(id, []); return p ? (p.createdAt || null) : null; } catch { return null; } },
+            })
+            : await federation.invite(remote, body))
           : await federation.verify(remote, body);
+        // A project shared for the first time sits in its room now, not at the next 60 s pass (ensure is idempotent).
+        if (out.status === 200 && pathname === '/api/federation/invite' && typeof body.project === 'string' && body.project) {
+          fedseats.ensure(body.project).catch(() => {});
+        }
+        sendJson(res, out.status, out.body);
+      })
+      .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+  /* #4649: the owner's Members list of people and agents from outside, and removing or withdrawing one. Screen
+     only, like invite: these act on the coordinator through this Mac's signature. */
+  if (pathname === '/api/federation/members' && req.method === 'GET') {
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see who was invited from outside.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    fedmembers.members(remote, pid, Date.now(), { projectExists: (id) => { try { return !!projects.get(id); } catch { return false; } } }).then((out) => sendJson(res, out.status, out.body))
+      .catch((err) => sendJson(res, 500, { error: (err && err.message) || 'we could not read who was invited' }));
+    return;
+  }
+  if ((pathname === '/api/federation/remove' || pathname === '/api/federation/withdraw') && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can remove someone from an external project.' }); return; }
+        const out = pathname === '/api/federation/remove'
+          ? await fedmembers.remove(remote, body.project, body.edge_id)
+          : await fedmembers.withdraw(remote, body.project, body.invite_id);
+        if (out.roomLine) { try { messages.roomNote(body.project, out.roomLine); } catch { /* the note is furniture */ } }
         sendJson(res, out.status, out.body);
       })
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
@@ -17651,6 +17713,14 @@ const server = http.createServer(async (req, res) => {
             try { projects.remove(made.id); } catch { /* reported below either way */ }
             throw err;
           }
+        }
+        if (!snap.own) {
+          /* #4649 slice 1b (Q-K1): the member's room says it joined from outside. The owner's handle is NOT in it
+             (review round 1): agents read a note as Kosmos's own voice ("[kosmos] ..."), and the handle is a name the
+             owner chose freely, so it could speak as Kosmos. The screen shows the owner's name from Members instead. */
+          try {
+            messages.roomNote(made.id, 'You joined this project from outside. Only its owner can invite people to it.');
+          } catch { /* the note is furniture; the room exists regardless */ }
         }
         if (snap.own) {
           try {

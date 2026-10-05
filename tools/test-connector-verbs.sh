@@ -171,8 +171,14 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # /v1/mac/account-computers route, which the module turns into { ok: false }, so the section
 # stays hidden (engine/account-computers.test.js pins old-tunnel -> ok:false). Nothing that
 # works today breaks.
+# kosmos#4649 re-decided for engine/fedmembers.js (the owner's Members list from outside, Remove, Withdraw): it calls
+# /v1/mac/federation/edges and /revoke, which every connector that signs federation already signs, and
+# /v1/mac/federation/invite/withdraw, which is new: an older connector refuses to sign it ("mac-request does not sign")
+# and the module answers 409 reason 'unsupported', so the screen keeps the pending row and says the code lapses
+# (engine/fedmembers.test.js pins that answer). Federation outside invites never worked before these connectors, so
+# nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/federation.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the six the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the seven the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
