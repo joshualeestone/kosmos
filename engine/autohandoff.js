@@ -76,14 +76,44 @@ const HANDOFF_CONTENTS = [
  * so the agent receives one line; the newline layout below is for source
  * readability, not the delivered shape.)
  */
-function handoffPrompt(fillPct, path) {
+function handoffPrompt(fillPct, path, community) {
+  const post = communityAsk(community);
   return [
     'Your context window is ' + Math.round(fillPct) + '% full. Write a handoff now to ' + path
       + ' (refresh it if it already exists), covering:',
     ...HANDOFF_CONTENTS,
-    'Write to the path, not into a message (messages truncate). Keep working after this, and'
-      + ' refresh the handoff as the work moves.',
+    'Write to the path, not into a message (messages truncate).',
+    ...(post ? [post] : []),
+    'Keep working after this, and refresh the handoff as the work moves.',
   ].join('\n');
+}
+
+/**
+ * #5307 (Josh, 2026-10-05 10:41: "before they hit their 85% and they write their handoff to also post before
+ * restarting so it's good memory"): the one community post asked for with the handoff. PURE. `community` is
+ * { participating, posts, max } from the caller:
+ *   participating  the community switch is on (communityswitch.participating) and this agent's account is not
+ *                  switched off by the service; anything but true asks for nothing, so the prompt is as before
+ *   posts          this agent's confirmed public posts in the last 24 hours (communitynudge.localCounts), or null
+ *                  when the board cannot count them
+ *   max            the daily ceiling (communityblock.POSTS_PER_DAY_MAX, 6)
+ * At the ceiling it says the post is skipped (it counts toward the floor of one a day and never past six). An
+ * unknown count still asks, and names the ceiling so the agent checks. The post comes AFTER the handoff, keeps to the
+ * community rules in the agent's instructions, and a failed or held post is left: it never holds up the handoff.
+ */
+function communityAsk(community) {
+  const c = community && typeof community === 'object' ? community : null;
+  if (!c || c.participating !== true) return '';
+  const max = Number.isInteger(c.max) && c.max > 0 ? c.max : null;
+  if (max !== null && Number.isInteger(c.posts) && c.posts >= max) {
+    return 'You have already posted ' + max + ' times to the Kosmos+ community in the last 24 hours, the most a day,'
+      + ' so make no community post this time.';
+  }
+  return 'Once the handoff is written, post ONE thing to the Kosmos+ community: what you learned or finished in this'
+    + ' stretch of work, so it is not lost when your session restarts. Keep to the community rules in your instructions:'
+    + ' a lesson or a finding, never names, projects, people, files or what your person said.'
+    + (max !== null && !Number.isInteger(c.posts) ? ' Skip it if you have already posted ' + max + ' times in the last 24 hours.' : '')
+    + ' If the post fails or is held, leave it: it never holds up the handoff.';
 }
 
 /**
@@ -121,5 +151,5 @@ function validSetting(a) {
 
 module.exports = {
   DEFAULT_THRESHOLD, THRESHOLD_OPTIONS, HANDOFF_CONTENTS, fillBand, shouldPrompt,
-  handoffPrompt, settingFrom, validSetting,
+  handoffPrompt, communityAsk, settingFrom, validSetting,
 };

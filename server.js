@@ -20091,6 +20091,18 @@ function start(port = PORT) {
             pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
             autohandoff,
             DELIVERY: chat.DELIVERY,
+            /* #5307: one community post with the handoff, when the community is on and the service has not switched
+               this agent's account off; its last-24-hours posts against the ceiling. Read lazily and per agent: only an
+               agent being prompted pays for it. */
+            community: (session) => {
+              const nudge = require('./engine/communitynudge');
+              const counts = nudge.localCounts(session, Date.now());
+              return {
+                participating: require('./engine/communityswitch').participating() && !nudge.accountRefused(session),
+                posts: counts ? counts.posts : null,
+                max: require('./engine/communityblock').POSTS_PER_DAY_MAX,
+              };
+            },
           });
         } catch { /* best-effort, like the nudge sweep */ }
       }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
