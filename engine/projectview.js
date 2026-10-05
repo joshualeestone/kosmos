@@ -169,7 +169,26 @@ function lastWorkAt(tasks) {
   }
   return at;
 }
-function quietExcused(summary, member, tasks, nowMs) {
+/* Review 2 (Opus): the summary is the AGENT's, shared by all its projects, so work on another project counts. Busy when
+   it holds an open part on any project, or any part of its closed more than the rhythm after the summary. An
+   unreadable store (null) is busy. */
+function busyElsewhere(allProjects, sessionName, wroteAt) {
+  if (!Array.isArray(allProjects)) return true;
+  const tasksMod = require('./tasks');
+  for (const q of allProjects) {
+    for (const t of (q && Array.isArray(q.tasks)) ? q.tasks : []) {
+      if (!t) continue;
+      for (const part of tasksMod.partsOf(t)) {
+        if (!part || part.who !== sessionName) continue;
+        const closed = Date.parse(part.closedAt || t.closedAt);
+        if (!Number.isFinite(closed)) return true;
+        if (closed - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return true;
+      }
+    }
+  }
+  return false;
+}
+function quietExcused(summary, member, tasks, nowMs, allProjects) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
   if (openTasks(tasks).open !== 0) return summary;
@@ -178,6 +197,7 @@ function quietExcused(summary, member, tasks, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(endedAt) || !Number.isFinite(wroteAt)) return summary;
   if (endedAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  if (busyElsewhere(allProjects, member.sessionName, wroteAt)) return summary;
   return { ...summary, state: 'quiet', quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
@@ -196,6 +216,8 @@ function overviewOf(p, roster, o) {
   const readReport = opts.readReport || ((name) => { try { return require('./selfreport').read(name); } catch { return null; } });
   const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
   const readBrief = opts.readBrief || require('./brief').readBrief;
+  let allProjects = opts.allProjects;
+  if (allProjects === undefined) { try { allProjects = require('./projects').readAll(); } catch { allProjects = null; } }
   const cards = Array.isArray(roster) ? roster : [];
   const brief = readBrief(p.folder) || { goal: null, done: null, found: false };
   const members = (p.agents || []).map((m) => {
@@ -216,7 +238,7 @@ function overviewOf(p, roster, o) {
          derived from that name reported as this member's summary. */
       /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
          member that is not running is still this member, and its last summary is exactly what a PM checks. */
-      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now),
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now, allProjects),
     };
   });
   return {

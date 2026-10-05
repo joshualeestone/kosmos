@@ -420,10 +420,12 @@ test('#4581 R9: on a project with no open task, a summary current when its work 
   const DAY = 24 * 60;
   const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
   const folder = agentFolder('ida-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);   // written 5 days 1h ago
-  const show = (tasks, report, name = 'ida') => {
+  const show = (tasks, report, name = 'ida', others = []) => {
     const raw = { id: 'qq', name: 'Quiet', folder: '/p/qq', agents: [name], tasks };
     const described = projects.describe(raw, BOARD.agents, [raw]);
-    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report };
+    const mem = described.agents.find((x) => x.sessionName === name);
+    assert.ok(mem && mem.present && mem.tied && mem.state === 'idle', 'fixture: ' + name + ' is not an idle member: ' + JSON.stringify(mem));
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report, allProjects: [raw].concat(others) };
     const view = v.overviewOf(described, BOARD.agents, o);
     return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
   };
@@ -455,6 +457,19 @@ test('#4581 R9: on a project with no open task, a summary current when its work 
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(7 * DAY), closedAt: at(6 * DAY) }], recentIdle).m.summary.state, 'quiet');
   // The edge: exactly four hours after the summary still reads quiet.
   assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 180) }], recentIdle).m.summary.state, 'quiet');
+  // Review 2: the summary is the agent's. CONTROL: an open part on ANOTHER project, a part closed on another project
+  // two days ago, and an unreadable project store each leave it stale; a part elsewhere closed before the summary does not.
+  const other = (parts) => [{ id: 'oo', name: 'Other', agents: ['ida'], tasks: [{ number: 1, sentence: 'x', createdAt: at(7 * DAY), parts }] }];
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'ida', closedAt: null }])).m.summary.state, 'stale');
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'ida', closedAt: at(2 * DAY) }])).m.summary.state, 'stale');
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'ida', closedAt: at(6 * DAY) }])).m.summary.state, 'quiet');
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'someone-else', closedAt: null }])).m.summary.state, 'quiet');
+  {
+    const raw = { id: 'qn', name: 'Quiet Null', folder: '/p/qn', agents: ['ida'], tasks: done };
+    const described = projects.describe(raw, BOARD.agents, [raw]);
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle, allProjects: null };
+    assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale', 'an unreadable project store excused it');
+  }
   // CONTROL: a project that never had a task has no end time, so it stays stale.
   assert.equal(show([], recentIdle).m.summary.state, 'stale');
   // CONTROL: a later task, closed two days ago, is work after the summary.
@@ -470,5 +485,17 @@ test('#4581 R9 CONTROL: a member that is not idle is never marked quiet, even on
   const m = described.agents.find((x) => x.sessionName === 'mark');
   assert.ok(m && m.present && m.state !== 'idle', 'fixture: mark is not a non-idle running member: ' + JSON.stringify(m && m.state));
   const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(30) }) };
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
+});
+
+test('#4581 R9 review 2 CONTROL: a member that is not running is never marked quiet', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('ghost-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);
+  const raw = { id: 'qg', name: 'Quiet Ghost', folder: '/p/qg', agents: ['ghost'], tasks: [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const g = described.agents.find((x) => x.sessionName === 'ghost');
+  assert.ok(g && !g.present, 'fixture: ghost is running: ' + JSON.stringify(g));
+  const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(30) }), allProjects: [raw] };
   assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
 });

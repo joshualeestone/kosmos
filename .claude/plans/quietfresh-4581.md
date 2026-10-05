@@ -12,8 +12,8 @@ that report on, so on a project whose work ended days ago the excuse never appli
 quietExcused, applied after idleExcused: a STALE summary of a present, tied, IDLE member, on a project with no open
 task, written no earlier than the rhythm before the project's work ended, reads `quiet` with quietSince/quietMinutes.
 "Work ended" = the newest task closedAt or part closedAt (lastWorkAt). No such time (never a task, or no timestamps):
-left stale. The CLI (Mac and Windows share projectview.renderShow) prints "current when the project's work ended (...;
-the last task ended N ago)".
+left stale. The CLI (Mac and Windows share projectview.renderShow) prints "current when work on the project's tasks
+ended (...; that was N ago)".
 
 ## Tests (engine/projectview.test.js)
 Quiet arm through real fleet members; part-closed and task-closed-with-open-part arms; controls: open task, part
@@ -30,6 +30,16 @@ member check, rhythm, wiring; each turns a test red.
 - Deferred: quietSince is never in the future in practice (a future end time is more than 4 hours past any summary that
   is not itself 'future', so it stays stale); quietExcused/lastWorkAt not exported (tested through overviewOf, which is
   the real path).
+
+## Review 2 (Opus)
+- The summary is the agent's, shared by every project it is on. busyElsewhere: no quiet while the member holds an open
+  part on ANY project, or closed any part (any project) more than the rhythm after the summary; an unreadable project
+  store counts as busy. Read from projects.readAll (overviewOf option allProjects for tests).
+- Arms added: the fixture member is asserted present/tied/idle; a member not running is never quiet; open part and late
+  closed part on another project; unreadable store.
+- The present/tied check is defensive: a member that is not running never reads idle, so the state check already
+  refuses it (the not-running arm passes with either removed).
+- No REPORTS_WORKING allowlist here on purpose: quiet keys on task times, not on the age of an idle report.
 
 ## Weakest premise
 Work done outside any task (asked in a room or DM) leaves no task time, so a member who did hours of untasked work
