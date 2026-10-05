@@ -98,7 +98,10 @@ test('an idle agent with an open task gets exactly one nudge naming it; one with
     assert.deepEqual(first.calls.map((c) => c.session), [w.key.hastask]);
     assert.deepEqual(first.res.results.map((r) => r.session + ':' + r.act), [w.key.hastask + ':nudge'], 'the agent with nothing must leave no result at all');
     assert.match(first.calls[0].text, new RegExp('task #' + n + ' "write the release notes"'));
-    assert.match(first.calls[0].text, /kosmos report blocked --on <what> --owner <who>/);
+    assert.match(first.calls[0].text, /on another agent, a deploy or a review, kosmos report blocked --on <what> --owner <who>/);
+    // #5318: a person-blocker is offered needs_you, the only state Kosmos escalates.
+    assert.match(first.calls[0].text, /on a person \(a decision, a meeting, an answer\), kosmos report needs_you <your question>, which Kosmos follows up/,
+      '#5318: the nudge offers needs_you for a person');
     // The same stall, the next interval (a real next Prompter step): no second nudge.
     const nextHb = heartbeat.step(first.hb.next, w.cards, true);
     assert.equal(nextHb.next.get(w.key.hastask).open, true, 'fixture: the Prompter must keep the stall open');

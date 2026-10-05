@@ -506,4 +506,31 @@ function history(sessionName) {
   return out;
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean };
+
+/* #5318: blocked and needs_you are not two tones of one state. blocked is a wait nobody chases (heartbeat.js leaves it
+   alone, recommender.js acts only on needs_you), so a person put in --owner sends person-blocked work where it goes
+   inert (0.7.22, a real install: --owner "Josh"). The report is still RECORDED as sent; this only returns a note the
+   CLIs print under "Recorded." A person here is: the About-you name (whole, or its first word), a word that names a
+   person (person, human, user, operator, boss, founder, me, you; optionally after the, my, our or your), or an email
+   address. A name that is also an agent on this board is that agent, never a person. Anything else (a deploy, a
+   review, a provider, an outside company) gets no note: a missed person costs the old behaviour, a false one only a
+   line of advice. The note names no owner and holds no quote or backslash, so the macOS CLI can lift it with sed. */
+const PERSON_WORDS = /^(?:(?:the|my|our|your) )?(?:person|human|user|operator|boss|founder|me|you)$/;
+const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
+  + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you <your question>';
+function blockedOwnerNote(state, owner, opts) {
+  if (state !== 'blocked') return '';
+  const norm = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase();
+  const o = norm(owner);
+  if (!o) return '';
+  const agents = (opts && Array.isArray(opts.agentNames)) ? opts.agentNames.map(norm) : [];
+  if (agents.includes(o)) return '';
+  const person = norm(opts && opts.personName);
+  const first = person.split(' ')[0];
+  const isPerson = PERSON_WORDS.test(o) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o)
+    || (person !== '' && (o === person || (first.length >= 2 && o === first)));
+  return isPerson ? BLOCKED_PERSON_NOTE : '';
+}
+
+module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
+  blockedOwnerNote, BLOCKED_PERSON_NOTE };
