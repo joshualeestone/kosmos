@@ -62744,6 +62744,16 @@ document.getElementById('d-dmthread').addEventListener('focusin', dmRxnKeepInsid
 // 30rem (480px): above the widest phone in portrait (430px) and below a small tablet.
 const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
 const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
+/* #5312: when the touch test changes (a tablet turned, a pointer attached), every Copy in a hover bar is renamed for
+   what a press now does (msgCopyButton, msgCopyPressed). */
+function msgCopyRelabel() {
+  const touch = msgCopyTouch();
+  document.querySelectorAll('.rxn-copy').forEach((b) => {
+    b.setAttribute('aria-label', touch ? 'Copy message or its id' : 'Copy message');
+    if (touch) b.setAttribute('aria-haspopup', 'menu'); else b.removeAttribute('aria-haspopup');
+  });
+}
+try { const mq = window.matchMedia && window.matchMedia(PJ_TOUCH_MQ); if (mq && mq.addEventListener) mq.addEventListener('change', msgCopyRelabel); } catch { /* no media queries: the paint's names stand */ }
 function pjPhoneOrder() {
   const grid = document.querySelector('.pj3');
   const mid = grid && grid.querySelector(':scope > .pjmid');
@@ -63665,11 +63675,15 @@ function msgRefButton(mid) {
     + (n ? '<span class="rxn-ref-n">' + n + '</span>' : '')
     + '</button>';
 }
+/* On a touchscreen Copy opens the menu with both (msgCopyPressed), and its name says so; with a pointer it copies. The
+   same test msgCopyPressed reads at the press, and a change of it (a tablet turned, a pointer attached) relabels every
+   Copy on the page, so the name never disagrees with what a press does. */
+function msgCopyTouch() {
+  return typeof PJ_TOUCH_MQ !== 'undefined' && !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches;
+}
 function msgCopyButton() {
-  /* On a touchscreen it opens the menu with both (msgCopyPressed), and its name says so; with a pointer it copies. */
-  const touch = typeof PJ_TOUCH_MQ !== 'undefined' && !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches;
   return '<button class="rxn-copy" type="button" title="Copy message" '
-    + (touch ? 'aria-label="Copy message or its id" aria-haspopup="menu">' : 'aria-label="Copy message">')
+    + (msgCopyTouch() ? 'aria-label="Copy message or its id" aria-haspopup="menu">' : 'aria-label="Copy message">')
     + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
     + '</button>';
 }
@@ -63786,7 +63800,7 @@ async function msgRefCopy(row) {
    touchscreen it opens the menu with both, at the button, since the bar there has no Copy message id and a phone has no
    right-click. Opened after this tap's own click has finished, or the page's click-outside rule would close it at once. */
 function msgCopyPressed(btn, row) {
-  if (typeof PJ_TOUCH_MQ !== 'undefined' && window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches) {
+  if (msgCopyTouch()) {
     const r = btn.getBoundingClientRect();
     setTimeout(() => { if (row && row.isConnected) msgMenuOpen(row, r.left, r.bottom + 4); }, 0);
     return;
