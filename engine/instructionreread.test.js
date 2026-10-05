@@ -21,7 +21,7 @@ test('the file is in the sandboxed data root, and an absent or odd file reads as
   fs.writeFileSync(ir.file(), '[1,2]');
   assert.deepEqual(ir.readOwed(), {});
   fs.writeFileSync(ir.file(), JSON.stringify({ a: { at: T, sections: ['community', 'nonsense'] }, b: { at: 'x', sections: ['rules'] }, c: { at: T, sections: [] } }));
-  assert.deepEqual(ir.readOwed(), { a: { at: T, n: 1, sections: ['community'] } });
+  assert.deepEqual(ir.readOwed(), { a: { at: T, last: T, n: 1, sections: ['community'] } });
 });
 
 test('owe adds a section once and keeps the first time; an unknown section is ignored', () => {
@@ -29,11 +29,11 @@ test('owe adds a section once and keeps the first time; an unknown section is ig
   o = ir.owe(o, 'ann', 'rules', T + 1000);
   o = ir.owe(o, 'ann', 'community', T + 2000);
   o = ir.owe(o, 'ann', 'bogus', T + 3000);
-  assert.deepEqual(o, { ann: { at: T, n: 3, sections: ['community', 'rules'] } });
+  assert.deepEqual(o, { ann: { at: T, last: T + 2000, n: 3, sections: ['community', 'rules'] } });
   assert.ok(ir.writeOwed(o));
   assert.deepEqual(ir.readOwed(), o);
   assert.ok(ir.oweNow('bea', 'rules', T));
-  assert.deepEqual(ir.readOwed().bea, { at: T, n: 1, sections: ['rules'] });
+  assert.deepEqual(ir.readOwed().bea, { at: T, last: T, n: 1, sections: ['rules'] });
 });
 
 test('settle: a line that landed clears the debt; a held, busy or refused one keeps it; past GIVE_UP_MS it is dropped', () => {
@@ -42,7 +42,7 @@ test('settle: a line that landed clears the debt; a held, busy or refused one ke
   assert.deepEqual(ir.settle(o, 'ann', { state: D.UNCONFIRMED }, D, T), {});
   assert.deepEqual(ir.settle(o, 'ann', { state: D.COULD_NOT, held: true }, D, T), o, 'a quota-held refusal cleared the debt');
   assert.deepEqual(ir.settle(o, 'ann', { state: D.PLACED, busy: true }, D, T), o);
-  assert.deepEqual(ir.settle(o, 'ann', null, D, T), o, 'a throw (no verdict) cleared the debt');
+  assert.deepEqual(ir.settle(o, 'ann', null, D, T), o, 'no verdict at all cleared the debt');
   assert.deepEqual(ir.settle(o, 'ann', { state: D.COULD_NOT }, D, T + ir.GIVE_UP_MS + 1), {});
 });
 
@@ -93,7 +93,7 @@ function passArgs(over = {}) {
     },
   };
 }
-const debt = (sections = ['community']) => ({ at: T, n: 1, sections });
+const debt = (sections = ['community']) => ({ at: T, last: T, n: 1, sections });
 
 test('fixture: real cards, ida idle, ned on a question, wes working', () => {
   for (const s of ['ida', 'ned', 'wes']) assert.equal((CARDS.find((c) => c.sessionName === s) || {}).isNamedOurs, true, s);
@@ -131,7 +131,7 @@ test('passOnce: a refused or held line keeps the debt; live execution off sends 
 });
 
 test('passOnce: restarted since, gone, and expired debts end without a line; an unreadable or empty roster changes nothing', async () => {
-  const p = passArgs({ owed: { ida: debt(), zed: debt(), wes: { at: T - ir.GIVE_UP_MS - 1, n: 1, sections: ['rules'] } },
+  const p = passArgs({ owed: { ida: debt(), zed: debt(), wes: { at: T - ir.GIVE_UP_MS - 1, last: T - ir.GIVE_UP_MS - 1, n: 1, sections: ['rules'] } },
     o: { history: (s) => (s === 'ida' ? [{ state: 'started', at: T + 500 }] : []), allowed: () => false } });
   const r = await ir.passOnce(p.o);
   assert.deepEqual(r.map((x) => [x.session, x.act]).sort(), [['ida', 'restarted'], ['wes', 'expired'], ['zed', 'gone']]);
@@ -157,7 +157,7 @@ test('review 4: oweChanged owes a community re-read to exactly the agents whose 
   const told = [{ agent: 'ann', changed: true, rulesChanged: true }, { agent: 'bea', changed: true, rulesChanged: false },
     { agent: 'cal', changed: false, rulesChanged: false }, { agent: null, state: 'could_not', rulesChanged: false }];
   const next = ir.oweChanged(told, { dot: { at: T - 5, n: 1, sections: ['rules'] } }, T);
-  assert.deepEqual(next, { dot: { at: T - 5, n: 1, sections: ['rules'] }, ann: { at: T, n: 1, sections: ['community'] } });
+  assert.deepEqual(next, { dot: { at: T - 5, n: 1, sections: ['rules'] }, ann: { at: T, last: T, n: 1, sections: ['community'] } });
   assert.deepEqual(ir.oweChanged(null, {}, T), {});
 });
 
@@ -198,4 +198,30 @@ test('review 5: a landed line is recorded with its time (the community turn read
   assert.ok(ir.recordSent('ida', T));
   assert.ok(ir.sentTimes('ida').includes(T));
   assert.ok(ir.sentFile().startsWith(SANDBOX));
+});
+
+test('review 7: a start between two owes does not end the newer one; a start after the latest owe does', async () => {
+  let o = ir.owe({}, 'ida', 'rules', T);            // rules accepted at T
+  o = ir.owe(o, 'ida', 'community', T + 2000);     // the community block changed at T+2s
+  const between = passArgs({ owed: o, o: { history: () => [{ state: 'started', at: T + 1000 }], allowed: () => false } });
+  assert.deepEqual((await ir.passOnce(between.o)).map((x) => x.act), [], 'a start before the latest owe ended the debt');
+  assert.ok(between.file().ida);
+  const after = passArgs({ owed: o, o: { history: () => [{ state: 'started', at: T + 3000 }] } });
+  assert.deepEqual((await ir.passOnce(after.o)).map((x) => x.act), ['restarted']);
+  assert.deepEqual(after.file(), {});
+});
+
+test('review 7: a throw from deliver counts as reached (it may have pasted), so the line is never typed twice', async () => {
+  const p = passArgs({ owed: { ida: debt() }, o: { deliver: async () => { throw new Error('after the paste'); } } });
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['sent']);
+  assert.deepEqual(p.file(), {});
+});
+
+test('review 7: a stood-down agent (every project paused for it) is held, not typed into; its debt is kept', async () => {
+  const p = passArgs({ owed: { ida: debt() }, o: { stoodDown: (s) => s === 'ida' } });
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['stood-down']);
+  assert.deepEqual(p.sent, []);
+  assert.ok(p.file().ida);
+  const ctl = passArgs({ owed: { ida: debt() }, o: { stoodDown: () => false } });
+  assert.deepEqual((await ir.passOnce(ctl.o)).map((x) => x.act), ['sent'], 'CONTROL');
 });

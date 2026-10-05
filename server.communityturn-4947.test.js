@@ -87,6 +87,7 @@ test('#5297: the board runs instructionreread.passOnce on a timer with the idle 
   assert.match(fn, /seenIdle:\s*INSTRUCTION_REREAD_IDLE_SEEN/);
   assert.match(fn, /allowed:\s*\(\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'the operator brake and live execution do not gate the line');
   assert.match(fn, /recordSent:\s*\(session, at\)\s*=>\s*ir\.recordSent\(session, at\)/);
+  assert.match(fn, /stoodDown:\s*\(session\)\s*=>\s*require\('\.\/engine\/replynudge'\)\.stoodDown\(session, projects\.readAll\(\)\)/, 'a paused agent can be woken by the re-read line');
   assert.match(fn, /deliver:\s*\(session, line, r\)\s*=>\s*chat\.deliverAutomaticAsync\(session, line, r, undefined, undefined\)/);
   assert.match(fn, /history:\s*\(session\)\s*=>\s*selfreport\.history\(session\)/);
   assert.doesNotMatch(fn, /chat\.deliver\(|chat\.deliverAsync\(/);
