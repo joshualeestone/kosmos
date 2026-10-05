@@ -2135,9 +2135,28 @@ function pictureUnreachable() {
 function pictureUnsendable() {
   const keys = loadJson(keysFile());
   if (!keys || !endpointAllowed()) return null;
-  return Object.values(keys).filter((k) => k && k.apiKey && !k.refused && (
-    (typeof k.avatarSkipLogged === 'string' && /^(too-big|type):/.test(k.avatarSkipLogged))
-    || (typeof k.avatarRefused === 'string' && k.avatarRefused))).length;
+  const toFit = new Set(pictureToFit() || []);
+  return Object.keys(keys).filter((a) => {
+    const k = keys[a];
+    return k && k.apiKey && !k.refused && (toFit.has(a) || (typeof k.avatarRefused === 'string' && k.avatarRefused));
+  }).length;
+}
+
+/* kosmos#5302: the agents whose saved picture is over the cap or a type the community cannot take, judged on the file
+   as it is NOW (avatarWanted re-reads a changed file), so a picture the page has just fitted (web/index.html
+   refitOldPictures) stops counting before the next sweep re-marks it. A file that cannot be read this moment keeps
+   counting. null when the sweep cannot run at all. */
+function pictureToFit() {
+  const keys = loadJson(keysFile());
+  if (!keys || !endpointAllowed()) return null;
+  return Object.keys(keys).filter((a) => {
+    const k = keys[a];
+    if (!(k && k.apiKey && !k.refused && typeof k.avatarSkipLogged === 'string' && /^(too-big|type):/.test(k.avatarSkipLogged))) return false;
+    let w = null;
+    try { w = avatarWanted(a); } catch { return true; }
+    if (!w || w.busy) return true;
+    return w.id === null && typeof w.why === 'string' && /^(too-big|type):/.test(w.why);
+  });
 }
 
 /* Test hooks. Production never calls these. */
@@ -2149,7 +2168,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
