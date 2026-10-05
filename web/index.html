@@ -71354,6 +71354,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
   go.disabled = false;
+  if (field) field.disabled = false;   // kosmos#4962: the reason below may be about the name, so it can be changed and tried again
   go.classList.remove('added');
   go.textContent = was;
   /* Nothing was added, so nothing is addressable. */

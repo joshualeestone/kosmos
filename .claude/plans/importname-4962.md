@@ -191,3 +191,5 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
   row's shown name. README row states N2's condition.
 - Iteration 8 (sonnet): the code comments carry their reasons without review-round tags (13 lines; the history is
   here). Adopt-row Enter and the in-flight bookkeeping: unchanged (decided; tested).
+- Iteration 9 (opus): an adopt row refused by /api/connect-agent left its Name field disabled (on main already; Enter
+  now reaches it). The failure arm re-enables the field; pinned by a source test (the handler is an anonymous listener).

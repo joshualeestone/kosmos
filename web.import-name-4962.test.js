@@ -710,3 +710,11 @@ test('review 12: a stale attempt that SUCCEEDS late paints nothing while a newer
   assert.equal((api.map.get('/p/pip.md') || {}).state, 'added');
 });
 
+test('an adopt row refused by connect-agent gives its Name field back (Enter now reaches this Add too)', () => {
+  const at = PAGE.indexOf("closest('.fr-foundgo')");
+  assert.ok(at >= 0, 'the adopt-row Add handler moved; re-anchor this test');
+  const body = PAGE.slice(at, PAGE.indexOf('\n});\n', at));
+  assert.match(body, /if \(field\) field\.disabled = true;/, 'CONTROL: the handler disables the field while it adds');
+  const failTail = body.slice(body.lastIndexOf('go.disabled = false;'));
+  assert.match(failTail, /if \(field\) field\.disabled = false;/, 'the failure arm re-enables the field');
+});
