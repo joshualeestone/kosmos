@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: askonce-5161
-diff_hash: 551884c3fe42bed7704a43cb1419e1e000f970e273a72375d7d7bc0890b96cb2
+diff_hash: 90d30f5307f15155b12571419a3fe7cf4642a8db0673e25bced4f0f6a3181793
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-04T09:18:19Z
+timestamp: 2026-10-05T00:28:57Z
 iterations: 2
 converged: true
 ---
@@ -17,12 +17,16 @@ converged: true
 **Total findings:** 3 (0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 4 NITs)
 **Fixed:** 3 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
-Validation on the exact head 8851ecc2d (rebased onto main 10-03 21:2x): tools/run-tests.sh through validation-log
-(hash 551884c3fe42, matching this proof), 14969 tests, 14745 pass, 0 fail, 0 cancelled, clean worktree. No web/ or
-server.js-rendered change beyond the runner wiring, so no browser run. Focused: the 12 Assigner-related files 237/237
-after the rebase. Mutations, each red: the signature skip removed; restored memory dropped on load; an ask that did not
-land keeps its signature; a future-dated asked time kept; the member list left out of the signature; the member list
-unsorted.
+Validation on the exact head a36966a36 (rebased onto main 2026-10-04 12:1x, after main changed server.js):
+- Full validation on Mortals through validation-log: 15058 tests, 0 fail, 0 cancelled, status clean (a real run, not
+  a reused entry). Hash 90d30f5307f1, matching this proof.
+- FULL tools/browser-checks.sh: 316 checks, all page checks passed, 0 FAIL lines, EXIT 0.
+- CORRECTION to the first version of this proof (8851ecc2d): it said no browser run was needed. That was wrong. The
+  change wires the Assigner into server.js, and the rule asks for the full browser checks for any server.js change.
+  The run above is that run.
+- Focused, before the rebase: the 12 Assigner-related files 237/237. Mutations, each red: the signature skip removed;
+  restored memory dropped on load; an ask that did not land keeps its signature; a future-dated asked time kept; the
+  member list left out of the signature; the member list unsorted.
 
 ### Per-Iteration Breakdown
 
