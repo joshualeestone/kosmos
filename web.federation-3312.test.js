@@ -84,6 +84,7 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   assert.match(s.pjFedMessage({ reason: 'not-found' }), /not recognised/i);
   assert.match(s.pjFedMessage({ reason: 'self-join' }), /your own project/i);
   assert.match(s.pjFedMessage({ reason: 'double-join' }), /already on that project/i);
+  assert.match(s.pjFedMessage({ reason: 'not-owner' }), /Only the owner of this project can invite people to it\./, 'kosmos#4649: the invite sheet\'s 409 not-owner');
   assert.equal(s.pjFedMessage({ reason: 'weird-internal-thing' }, 'FALLBACK'), 'FALLBACK', 'an unknown reason leaks through instead of the safe fallback');
   assert.equal(s.pjFedMessage(null, 'FALLBACK'), 'FALLBACK');
 });

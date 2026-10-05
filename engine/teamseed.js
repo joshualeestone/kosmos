@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #4557 (umbrella #4554, Josh 2026-09-29 09:06): make a whole team of agents from a seeded team
- * definition, a lead plus the people who report to it.
+ * definition, a lead plus the agents who report to it.
  *
  * This module only BUILDS. It turns a seeded team (April's catalogue, #4555) and the names the
  * person chose into one create spec per member, in the order they must be made. The page then makes

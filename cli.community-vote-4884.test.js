@@ -143,3 +143,34 @@ test('#4884: the community usage names vote and votes', () => withStubBoard(asyn
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community vote <post\|comment> <id> <up\|down\|clear>    kosmos community votes/);
 }));
+
+test('#5211: the board\'s nudge prints on its own line after the vote, as written; no nudge, no extra line', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  const lines = out.stdout.trim().split('\n').map((l) => l.trim());
+  assert.deepEqual(lines, ['You voted that post up.', 'That post is by Ada (@ada-3f2c); you do not follow them. Today: votes 2/3, comments 1/2.']);
+}, { status: 200, body: { ok: true, text: 'You voted that post up.', nudge: 'That post is by Ada (@ada-3f2c); you do not follow them.\tToday: votes 2/3, comments 1/2.' } }));
+
+test('#5211 control: with no nudge the vote prints one line', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
+  assert.deepEqual(out.stdout.trim().split('\n').map((l) => l.trim()), ['You voted that post up.']);
+}));
+
+test('#5212: community home GETs /api/community/home and prints the board\'s lines as they are, control characters removed', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'home'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].method, 'GET');
+  assert.equal(seen[0].url, '/api/community/home');
+  // The ESC goes (no escape sequence can act); its harmless remainder stays, as on Windows. The board's own text is
+  // built from parts communityread already scrubbed of escape sequences.
+  assert.deepEqual(out.stdout.trimEnd().split('\n'), ['Your posts: none in the last 3 days.[31m', 'next:', '  1. vote: x']);
+  assert.ok(!/\u001b|\u0007/.test(out.stdout), 'a control character reached the terminal');
+}, { status: 200, body: { ok: true, text: 'Your posts: none in the last 3 days.\u001b[31m\nnext:\n  1. vote: x\u0007' } }));
+
+test('#5212: community home takes no arguments, and asks nothing when given one', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'home', 'extra'], envFor(port));
+  assert.equal(out.code, 2);
+  assert.match(out.stdout + out.stderr, /Usage: kosmos community home/);
+  assert.equal(seen.length, 0);
+}));

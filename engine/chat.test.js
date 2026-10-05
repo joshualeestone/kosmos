@@ -749,6 +749,46 @@ test('a viewport we could not capture says so, and never comes back as an empty 
   });
 });
 
+test('#5223: a Windows agent has no window, so the viewport says so and never asks tmux', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    board.card('casey').reachedByChannel = true;
+    const tmux = arm([refused('no server running')]);
+    const view = chat.viewport('casey', board.agents);
+    assert.equal(view.text, null);
+    assert.equal(view.because, chat.NO_WINDOW_BECAUSE);
+    assert.match(view.because, /^on Windows an agent runs without a window/);
+    assert.equal(view.noWindow, true, 'the fact is flagged, so a caller never has to match the wording');
+    assert.doesNotMatch(view.because, /could not/, 'a working Windows agent is not reported as unreachable');
+    assert.equal(tmux.calls.length, 0, 'nothing is captured for an answer that is known');
+  });
+});
+
+test('#5223: Stop now on a Windows agent presses nothing, says it was not stopped, and points at Restart, never at a window', () => {
+  withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
+    board.card('casey').reachedByChannel = true;
+    const tmux = arm([ok('')]);
+    const r = chat.interrupt('casey', board.agents);
+    assert.equal(r.ok, false);
+    assert.equal(r.because, chat.WIN32_NO_KEYS_SENTENCE);
+    assert.match(r.because, /so it was not stopped/, 'the outcome, said plainly to the person who pressed Stop now');
+    assert.match(r.because, /Restart under its AI Settings/);
+    assert.match(r.because, /nothing in its memory/, 'Restart is heavier than the key asked for, and says so');
+    assert.doesNotMatch(r.because, /own window|its window|the window/i, 'a Windows agent has no window to send the person to');
+    assert.equal(tmux.sends().length, 0, 'no key reaches a Windows agent');
+  });
+});
+
+test('#5223 CONTROL: a Mac agent (no channel mark) is still captured from its pane', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    assert.notEqual(board.card('casey').reachedByChannel, true);
+    const tmux = arm([ok('on screen')]);
+    const view = chat.viewport('casey', board.agents);
+    assert.equal(view.text, 'on screen');
+    assert.notEqual(view.noWindow, true);
+    assert.equal(tmux.calls.length, 1);
+  });
+});
+
 test('an untied pane’s screen is not shown under this agent’s name', () => {
   withFleet([fleet.stranger('casey', { state: 'working' })], (board) => {
     const tmux = arm([ok('somebody else’s work')]);
@@ -791,6 +831,60 @@ test('the LAST match wins, because a pane accumulates and an answered question c
   const found = chat.questionIn(pane);
   assert.match(found.text, /Would you like to run the tests\?/);
   assert.ok(!/Do you want to proceed/.test(found.text), 'the stale question above is not the live one');
+});
+
+test('#5051: the safeguards model-switch menu is a question the detail page can find, and gets no buttons', () => {
+  /* The rows of Claude Code's safeguards menu as Splinter captured them on Angel's pane, 2026-10-02 ~11:07 (blank and
+     border rows put back where Claude Code draws them, as #5039's test does). Before #5051, questionIn returned null
+     here, so the detail page said it "cannot find the question" right under the board's own evidence of it. */
+  const MODAL = [
+    'some earlier output',
+    '⏺ Opus 5.5\'s safeguards stopped the response above · continuing once',
+    '  with that noted',
+    '',
+    ' ☐ Model switch',
+    '',
+    '│ Opus 5.5\'s safeguards flagged this session. You may be seeing this for the',
+    '│ first time: Opus 5.5 is more capable and has stronger safeguards as a result,',
+    '│ which can sometimes flag non-cybersecurity work. We\'re improving these',
+    '│ safeguards to reduce the amount of incorrectly flagged messages. Switch to',
+    '│ Opus 4.8 and keep going whenever this happens? You can change this later in',
+    '│ /config.',
+    '',
+    '─'.repeat(80),
+    '❯ 1. Switch automatically',
+    '     Continue on Opus 4.8 now, and switch without asking from now on',
+    '  2. Stay on Opus 5.5',
+    '     Stop here without switching, and ask me each time a message is flagged',
+    '  3. Type something.',
+    '  4. Chat about this',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+  ].join('\n');
+  const found = chat.questionIn(MODAL);
+  assert.ok(found, 'the safeguards menu yields no question region');
+  assert.match(found.text, /^ ☐ Model switch/, 'the region does not start at the menu\'s title: ' + JSON.stringify(found.text.slice(0, 40)));
+  assert.match(found.text, /Switch to\n│ Opus 4\.8 and keep going whenever this happens\?/, 'the question itself is cut off');
+  assert.match(found.text, /2\. Stay on Opus 5\.5/);
+  assert.doesNotMatch(found.text, /some earlier output/, 'the region reaches above the menu');
+  /* A narrower pane wraps the question onto more rows, so a fixed run-up would start mid-question: the region still
+     starts at the title. (Wrapped width assumed; the rows are the captured words.) */
+  const NARROW = MODAL.replace('│ which can sometimes flag non-cybersecurity work.', '│ which can sometimes flag\n│ non-cybersecurity work.')
+    .replace('│ first time: Opus 5.5 is more capable', '│ first time: Opus 5.5 is\n│ more capable');
+  assert.match(chat.questionIn(NARROW).text, /^ ☐ Model switch/, 'a wrapped question cut the title off');
+  /* The options are not on consecutive lines (a description row sits between), so no buttons: the choice is typed by
+     the person, never answered by a guessed button. */
+  assert.equal(chat.optionsIn(found.text), null, 'buttons were drawn for the safeguards menu');
+  /* Review round 1: the same menu WITHOUT description rows (assumed layout) would parse as consecutive options; the
+     refusal is a rule, not a property of the captured layout. */
+  const BARE = MODAL.split('\n').filter((l) => !/^\s{5}(Continue|Stop) /.test(l)).join('\n');
+  assert.equal(chat.optionsIn(chat.questionIn(BARE).text), null, 'buttons were drawn for a compact safeguards menu');
+  /* Review round 1: a non-numbered marker line BELOW the live menu must not start the region mid-menu. */
+  const BELOW = MODAL + '\n✻ Would you like to keep waiting';
+  assert.match(chat.questionIn(BELOW).text, /^ ☐ Model switch/, 'a marker line below the menu cut its question off');
+  /* Controls: the menu's words in an agent's prose above a live permission prompt; the permission prompt is the one. */
+  const PROSE = ['⏺ The choices are:', '  1. Switch automatically', '  2. Stay on Opus 5.5', '', 'Do you want to proceed?', '❯ 1. Yes', '  2. No'].join('\n');
+  assert.doesNotMatch(chat.questionIn(PROSE).text.split('\n').slice(-3).join('\n'), /Switch automatically/);
+  assert.match(chat.questionIn(PROSE).text, /Do you want to proceed\?\n❯ 1\. Yes/);
 });
 
 test('a screen with no question yields null rather than a guess', () => {

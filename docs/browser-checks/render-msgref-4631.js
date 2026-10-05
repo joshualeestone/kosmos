@@ -294,7 +294,11 @@ async function paintRoom(page) {
           sel: String(getSelection()) }));
         chk(r12a.open && r12a.sel === '', '[webkit] R12 a real right-click on a word opens the menu (and leaves no stray word selected)', JSON.stringify(r12a));
         if (r12a.open) {
-          await page.click('#msg-menu-copy');
+          /* #4601: a click where the item is DRAWN. page.click scrolls its target into view first, and any scroll closes
+             this menu (the page closes it on scroll), so on a runner where that scroll happens (Linux WebKit, about half
+             the first attempts) the click found the item hidden. A person clicks a visible menu item without scrolling. */
+          const ib = await page.evaluate(() => { const r = document.getElementById('msg-menu-copy').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+          await page.mouse.click(ib.x, ib.y);
           await page.waitForTimeout(150);
         }
         const r12b = await page.evaluate(() => ({ copied: window.__copied.slice(), hidden: !document.getElementById('msg-menu') || document.getElementById('msg-menu').hidden }));

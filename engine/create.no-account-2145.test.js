@@ -87,7 +87,7 @@ test('#2145: the refusal offers the OpenAI alternative ONLY when OpenAI is conne
   removeClaude(); addOpenai();
   const withOpenai = await create.accountConnectable({ provider: 'anthropic', accountDir: '' });
   assert.equal(withOpenai.ok, false);
-  assert.match(withOpenai.because, /or create this agent on OpenAI instead/);
+  assert.match(withOpenai.because, /or create this agent on OpenAI instead/i);
 
   // Neither provider -> no alternative to offer, so the clause is absent (no dead click in words).
   removeClaude(); removeOpenai();
@@ -107,7 +107,7 @@ test('#2145 (mirror): an OpenAI create with NO account on a machine with no Open
   const r = await create.accountConnectable({ provider: 'openai', accountDir: '' });
   assert.equal(r.ok, false, 'an OpenAI create with no OpenAI sign-in was accepted (the mirror footgun)');
   assert.match(r.because, /no OpenAI sign-in/);
-  assert.match(r.because, /or create this agent on Claude instead/, 'a Claude account is present, so the alternative should be offered');
+  assert.match(r.because, /or create this agent on Claude instead/i, 'a Claude account is present, so the alternative should be offered');
 });
 
 test('#2145: under a CODEX_HOME override, an OpenAI no-account create FAILS OPEN — the agent runs on the real ~/.codex, not the managed home', async () => {

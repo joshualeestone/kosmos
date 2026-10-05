@@ -1,0 +1,112 @@
+# #5091: switching an agent TO Claude offers the Claude accounts, and the panel stops speaking for the old provider
+
+## Measured first (Mortals, 22:12 CDT, the board itself)
+- Josh's board runs 0.7.19 (installed package.json; the board process started 20:54), so #4963's Done-while-waking fix
+  is in. GET /api/accounts: five Claude accounts (main, account-b, account-d, account-g connected; account-e signed out),
+  every one memoryShared. So he could switch: Switch & Restart lands Liu Kang on the MAIN Claude account (the engine's
+  "claude carries no account"), and the Move row then lists the Claude accounts. Told Splinter at 22:13.
+- The defect: the switch picker (#d-provider-account) was hidden for Claude by design ("for a switch back to Anthropic
+  there is nothing to pick", written when Claude meant one account), and the move row below kept speaking for the
+  agent's CURRENT provider (Gemini's "no account to move it to", "Gemini picks its own model").
+
+## Change
+- engine/create.js setProvider: a switch to 'anthropic' may carry `accountDir`. Checked BEFORE anything is written with
+  setAccount's two rules (the account exists here; it shares the agents' history), so a bad pick refuses and changes
+  nothing; applied after the switch through setAccount itself (launch job and #1629's per-account trust), so Move and
+  this cannot disagree. A setAccount refusal after the switch is PARTIAL and said. Returns `account` {dir, email, chosen}.
+- server.js provider route: "it starts on your main Claude account" only when no account was picked; the account noun
+  is "Claude account"; a PARTIAL's sentence is appended.
+- web/index.html: fillSwitchAccounts treats Claude as a keyed target (list = Move's rule: memoryShared, not signed out,
+  preselected on the main); the picker's label says "Claude account to run on"; the confirm dialog names the picked
+  Claude account instead of "your main Claude account"; the CURRENT provider's block (#d-current-rows: account row, its
+  line, model row) is hidden while a switch to another provider is armed, and back when the menu returns to it.
+
+Rejected: only rewording the move row (Josh asked for the list of emails before the switch). Moving after the restart
+in two steps (two restarts, and the agent first comes up on an account nobody chose).
+
+Weakest premise: setAccount after setProvider rewrites the launch job a second time before the restart; the route
+restarts once, after both. If setProvider's restart ever moved inside setProvider, the agent would start on the main
+account and need a second restart.
+
+## Measured (22:2x)
+- engine/create.switch-claude-5091.test.js 5/5: none picked -> main (no pin); picked shared account -> CLAUDE_CONFIG_DIR
+  in the launch job; main picked -> no pin; own-history and unknown -> REFUSED with the job and provider unchanged.
+  Mutants red by name: the pick ignored; the pre-check removed.
+- docs/browser-checks/render-switch-claude-5091.js: on main every substantive arm FAILS (no picker, the rows still
+  shown, no account sent); on the branch 11/11 (picker label, main + account-b only, main preselected, current rows
+  hidden and take no space, the dialog names b@example.com, the POST carries account .claude-b with picked:true, the
+  rows come back on the agent's own provider, no page errors).
+- Existing: 7 switch/provider test files 81/81; reason-grep (counts +1 each, measured) and README index; gated.txt +1
+  (tools.browser-checks-wired 11/11, run from the repo root).
+
+## Review
+- Round 1 (opus, blind): 1 BLOCKER, 4 SHOULD-FIX, 5 NIT, all taken (22:5x). BLOCKER (measured): the hint under the new
+  Claude picker said "Choose which OpenAI sign-in it runs on" (switchKeyedSay knew only OpenAI/Gemini/Grok), the very
+  wrong-provider defect this card fixes; switchKeyedSay now speaks Claude for 'anthropic'. SF1: a PARTIAL (switched, but
+  the picked account could not be applied) reached the page as 'changed' and the dialog said Ready; the route now answers
+  'partial', leading with what happened, restart or not. SF2: after a successful switch the menu value is '' and the
+  block stayed hidden (armed is true for ''); the block now hides only for a real other provider. SF3 (Josh's Liu Kang):
+  an Antigravity/Muse agent's account picker returns early, so the block never came back on a reopen;
+  paintProviderPicker now shows it synchronously. SF4: the check could not see SF1-3; it now reads the hint line, repaints
+  the agent's own provider, checks the rows after the switch, and asserts picked:true. NITs: a refused Claude pick
+  re-reads the list; the PARTIAL sentence has one "main", no doubled stop; the pre-check refusal reads straight; the markup
+  comment and static label; the Claude pick is checked after "already runs on Claude", and picking the main is named back.
+  Engine test +3 arms (8/8): PARTIAL via a list seam (asserts the seam was reached twice), the trust record lands in the
+  picked account's .claude.json, the main named back. Browser check 13/13 on the branch; main fails every substantive arm.
+  ⚠️ While stopping the superseded Mortals run, a broken remote tree-walk killed pid 48283; it was in no listing taken
+  moments later (most likely the walk's own awk), not proven. Killing then went by an explicit printed tree.
+- Round 2 (sonnet, blind): 0 BLOCKER, 2 SHOULD-FIX, 3 NIT, all taken (22:5x). SF1: a PARTIAL whose restart also failed said
+  "now runs on Claude" beside "still running as before"; the engine's sentence is tense-neutral ("is switched to Claude, on
+  your main Claude account: it could not be moved to X") and the route adds "It is starting again now." or the restart's
+  failure. SF2: after a PARTIAL that did restart, "Runs on" did not repaint (only 'changed' did); it repaints for a partial
+  that changed the provider and is starting again (the wake hello is still skipped). NIT3: the two help lines under the
+  current rows (model change, account move) hide with them (.d-current-hint). NIT4: the hint arm asserts the line says
+  "Claude account" (an empty line passed). NIT5: the comment says what the list rule is (state not 'none', Move's rule),
+  not "not signed out". Measured: engine 8/8; Windows double write reasoned by the reviewer (cache forgotten on install).
+- Round 3 (opus, blind, whole change): 0 BLOCKER, 3 SHOULD-FIX, 3 NIT, taken (23:0x). SF1 (the screenshot's defect one step
+  later): after a successful switch the current rows came back still speaking for the OLD provider (nothing repaints an open
+  panel; my round-1 arm checked visibility only). The open agent now takes the runner and Claude account the switch confirmed
+  and the account and model rows are repainted, as Move does. SF2: with no Claude account that can take it (the main signed
+  out, nothing else sharing history), the dialog promised the main account and restarted onto a dead login; the switch now
+  refuses with the remedy (Settings, AI Models), like OpenAI's all-dead rule. SF3: a refused Claude switch whose list re-read
+  failed appended OpenAI's unreadable line; it appends Claude's form, and either form is stripped. NIT1: the dry-run comment
+  (a Claude pick is validated by a read even under dry-run). NIT2: the partial reply carries restarted:true/false and the page
+  keys on it, not on a sentence. Not taken: NIT3 (a setAccount job-write failure right after the switch's own write reads
+  "is switched ... nothing changed"; vanishingly rare, the sentence is setAccount's own).
+  Measured 23:06 (light turn): the browser check 16/16 on the branch. My first post-switch arm expected the picked account
+  among the Move menu's DESTINATIONS; the menu's first option names the account it is ON and lists the others, so the arm
+  now asserts that (on b@example.com, main offered). Engine 8/8, guards 25/25.
+- Round 4 (sonnet, blind): 1 BLOCKER, 3 SHOULD-FIX, 2 NIT. BLOCKER (my round-3 fix was wrong): I nulled `CURRENT.model`, which no page
+  reader uses [CORRECTED round 5: rows do carry `model` (engine/status.js); it is unread here]; modelName/plannedModelName kept the old runner's model, so the model menu led with "Claude GPT 5.6
+  Sol". Both are nulled now; the check seeds a stale modelName and asserts the model row drops it (mutant without the fix
+  reproduces exactly "Claude GPT 5.6 Sol", red; the branch green). SF3 taken: a partial, or no account sent, put the agent
+  on account null and disabled Move; it is now the main Claude account. Not taken, recorded: SF4 the next poll replaces the
+  patched CURRENT with polled data (stale for a few seconds while the runner restarts; the panel is not repainted by the
+  poll either way); NIT5 a machine with NO Claude rows gets no picker and no refusal (pre-existing behaviour); NIT6 the
+  partial route reply is covered at the engine level only (the browser mock answers 'changed').
+- Round 5 (opus, blind): 0 BLOCKER, 3 SHOULD-FIX, 2 NIT; taken but NIT2. SF1 (measured by lifting acctMoveWorld): after a switch
+  to OpenAI/Gemini/Grok on a picked account the Move row named the default; the sent account is kept for those too. SF2:
+  "Right now: <name> (<account>)" kept the OLD account in brackets; rebuilt from the new account. SF3 (measured): the Claude
+  model row said "Unknown Model" (rejected wording, #3739/#4569); plannedModelName is "Claude (its default model)", the
+  server's own words. NIT1: the check asserts that first option and the Right now line. Not taken: NIT2 (after a switch to
+  Gemini/Grok the model menu says "picks its own model" until reopened, while the card names Kosmos's pinned default).
+- Round 6 (sonnet, blind): 0 BLOCKER, 1 SHOULD-FIX, 2 NIT. SF taken: the rebuilt Right now bracket used email-or-label while
+  the normal paint (acctParenthetical) prefers the account's name; it calls acctParenthetical now, so the two paints cannot
+  disagree. NITs not taken: the check does not cover an account with no email (the fixture rows all have one; the code path
+  falls back exactly as acctParenthetical does); the tense is "Right now:" on a partial too (as repaintRunsOnName already did).
+  Reviewer confirmed the rebuild loses nothing (#d-runson is the lead, one <b>, an optional bracket).
+- Round 7 (opus, blind, whole change): 0 BLOCKER, 2 SHOULD-FIX, 2 NIT, all taken (23:4x). SF1 (measured): a main account with
+  no login is LEFT OUT of accounts.list, so a machine with no Claude rows got no list, no line, and a switch onto a dead login;
+  my round-3 claudeNoTarget returned false for an empty list (and round 4's "pre-existing" NIT5 reason was wrong: the card's
+  Expected asks for exactly this). It now counts no rows as no target. SF2: the refusal came only AFTER a confirm dialog that
+  promised the main account; the remedy line shows under the menu when Claude is chosen, and Switch refuses before the
+  dialog. NIT1: the sentence no longer claims "the main one is signed out". NIT2: the route says "your main Claude account"
+  when the main is the one used.
+- Round 8 (sonnet, blind): 0 BLOCKER, 0 SHOULD-FIX, 2 NIT. CONVERGED (23:46). Confirmed: claudeNoTarget cannot refuse on an
+  unloaded or unreadable list (all three paths require ACCOUNTS_LOADED); an unknown provider string maps to 'anthropic' and
+  can only add a target; the early click refusal leaves the button and menu untouched. Not taken: a main account signed in
+  by ANTHROPIC_API_KEY alone has no oauthAccount and is not listed, so the page refuses (the remedy, "sign in to Claude",
+  is accurate for that person; the engine still accepts a no-pick switch); the cached list is re-read only when empty (the
+  existing staleness model, shared with OpenAI's refusal).
+  Final measured state at e6d1c1df8: engine 8/8; browser check all arms green on the branch (main fails every substantive
+  arm); guards 25/25; Mortals full queued at e6d1c1df8.

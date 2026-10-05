@@ -721,6 +721,49 @@ async function main() {
       await page.waitForTimeout(400);
       const back = await page.evaluate(() => document.getElementById('eng-toggle').getAttribute('aria-checked'));
       if (back !== 'false') throw new Error('the engineering toggle did not flip back off');
+      /* #5223: placed AFTER the switch is back off, so a failure here cannot leave Engineering mode on for
+         the retry. The agent page's window box is not on the switch (see the second surface above). */
+      await page.click('#klink');
+      await page.waitForTimeout(400);
+      await page.click('.acard[data-agent=' + JSON.stringify(tiedName) + ']');
+      await page.waitForTimeout(400);
+      await page.click('#d-nav button[data-go="model"]');
+      await page.waitForTimeout(800);
+      /* #5223, the agent page: the engine's no-window answer (stubbed on the window route; this sandbox
+         has no Windows agent) turns the heading away from "the window it is running in", sets the fact as a
+         sentence, and hides the send-into-this-window composer. Then, unstubbed, a Mac answer restores
+         all three (the state is cleared, never inherited). */
+      {
+        // The engine's sentence, copied: this arm pins how the PAGE renders a no-window answer; the engine's
+        // wording itself is pinned by engine/chat.test.js (chat.NO_WINDOW_BECAUSE).
+        const NOWIN = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
+        const readBox = () => page.evaluate(() => {
+          const comp = document.getElementById('d-term-composer');
+          return {
+            label: document.getElementById('d-window-label').textContent,
+            msg: document.getElementById('d-window-msg').textContent,
+            boxHidden: document.getElementById('d-window-box').hidden,
+            composerShown: getComputedStyle(comp).display !== 'none',
+          };
+        });
+        await page.route('**/api/agent/*/window', (route) => route.fulfill({ json: { text: null, noWindow: true, because: NOWIN } }));
+        await page.click('#d-nav button[data-go="talk"]');
+        await page.waitForTimeout(200);
+        await page.click('#d-nav button[data-go="model"]');
+        await page.waitForTimeout(800);
+        const nw = await readBox();
+        await page.unroute('**/api/agent/*/window');
+        if (nw.boxHidden) throw new Error('#5223: the no-window answer hid the box instead of saying the fact');
+        if (/window it is running in/.test(nw.label)) throw new Error('#5223: the heading still names a window the agent does not have: ' + JSON.stringify(nw));
+        if (!/^On Windows an agent runs without a window.*\.$/.test(nw.msg)) throw new Error('#5223: the no-window fact is not set as a sentence: ' + JSON.stringify(nw));
+        if (nw.composerShown) throw new Error('#5223: "send a message into this window" is offered for an agent with no window: ' + JSON.stringify(nw));
+        await page.click('#d-nav button[data-go="talk"]');
+        await page.waitForTimeout(200);
+        await page.click('#d-nav button[data-go="model"]');
+        await page.waitForTimeout(800);
+        const mac = await readBox();
+        if (!/window it is running in/.test(mac.label) || !mac.composerShown) throw new Error('#5223 CONTROL: the no-window state outlived the answer that set it: ' + JSON.stringify(mac));
+      }
     } finally {
       fs.rmSync(engFile, { force: true });
       await ctx.close();

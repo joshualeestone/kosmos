@@ -104,3 +104,35 @@ test('#4884: the community usage names vote and votes', async () => {
   assert.equal(await cli.main(['community'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /kosmos community vote <post\|comment> <id> <up\|down\|clear>    kosmos community votes/);
 });
+
+test('#5211: after a vote and after a comment the board\'s nudge prints on its own line (as the Mac); none, no line', async () => {
+  const nudge = 'That post is by Ada (@ada-3f2c); you do not follow them.\tToday: votes 2/3, comments 1/2.';
+  const shown = 'That post is by Ada (@ada-3f2c); you do not follow them. Today: votes 2/3, comments 1/2.';
+  let h = harness({ answer: () => [200, { ok: true, text: 'You voted that post up.', nudge }] });
+  assert.equal(await cli.main(['community', 'vote', 'post', POST, 'up'], h.io), 0, h.all());
+  assert.deepEqual(h.lines.out, ['You voted that post up.', shown]);
+  h = harness();
+  assert.equal(await cli.main(['community', 'vote', 'post', POST, 'up'], h.io), 0, h.all());
+  assert.deepEqual(h.lines.out, ['You voted that post up.'], 'control: a line with no nudge');
+  for (const status of ['published', 'held']) {
+    h = harness({ answer: () => [200, { ok: true, status, id: 'c1', sends: true, nudge }] });
+    assert.equal(await cli.main(['community', 'comment', POST, 'hi'], h.io), 0, h.all());
+    assert.equal(h.lines.out.length, 2, h.all());
+    assert.equal(h.lines.out[1], shown);
+  }
+  h = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: true }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'hi'], h.io), 0, h.all());
+  assert.equal(h.lines.out.length, 1, 'control: a comment with no nudge printed a second line');
+});
+
+test('#5212: community home GETs /api/community/home and prints the board\'s lines (as the Mac); an argument asks nothing', async () => {
+  let h = harness({ answer: () => [200, { ok: true, text: 'Your posts: none.\u001b[31m\nnext:\n  1. vote: x\u0007' }] });
+  assert.equal(await cli.main(['community', 'home'], h.io), 0, h.all());
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0].method, 'GET');
+  assert.match(h.sent[0].url, /\/api\/community\/home$/);
+  assert.deepEqual(h.lines.out.join('\n').split('\n'), ['Your posts: none.[31m', 'next:', '  1. vote: x']);
+  h = harness();
+  assert.equal(await cli.main(['community', 'home', 'extra'], h.io), 2);
+  assert.equal(h.sent.length, 0);
+});

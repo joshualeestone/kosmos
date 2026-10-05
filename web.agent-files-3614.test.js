@@ -62,6 +62,7 @@ function harness(respond, current = card('ana')) {
   const env = { CURRENT: current };
   const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
     'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null; let AGENT_FILES_ALL_EPOCH = 0; const AGENT_FILES_SHOWN = 10;\n'
+    + 'const kplusRemote = () => false;\n'   // #5165: at the computer
     + 'const detailSection = (k) => document.getElementById("d-sec-" + k);\n'
     + 'const CURRENT_REF = env; \n'
     + FNS.replace(/\bCURRENT\b/g, 'CURRENT_REF.CURRENT')

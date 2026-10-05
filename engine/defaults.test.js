@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -569,5 +569,34 @@ test('#4873: the block tells every agent not to start a message with its own nam
   const section = defaults.sections().find((x) => x.heading === '### Your name is already on your message');
   assert.ok(section, 'sections() does not split it out as its own section');
   assert.deepEqual(defaults.missingFrom(b.replace(section.text, '')).map((x) => x.heading), ['### Your name is already on your message'],
+    'an agent holding every other section would not be offered this one');
+});
+
+/* kosmos#5152 slice 0 (Josh, 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"). Pinned as
+   CONTENT: the measured section (claude -p, 4/4 with it, 0/4 without) is what makes agents file the task with its
+   "Done when:" checks and report each one when they mark it built, so a reword that drops either command is a
+   behaviour change, not a style edit. */
+test('#5152: work goes on a task first, with Done when checks, and the built note reports each check', () => {
+  const sec = defaults.sections().find((s) => s.heading === '### Put the work on a task first');
+  assert.ok(sec, 'the "Put the work on a task first" section is missing from the block');
+  assert.match(sec.text, /`kosmos task add <project-id> "<the work, in one line>" "Done when: 1\) \.\.\. 2\) \.\.\. 3\) \.\.\." --who me`/);
+  assert.match(sec.text, /`kosmos task built <project-id> <task-number> "1 met\. 2 met\. 3 not met: <why>"`/);
+  assert.match(sec.text, /`kosmos task message <project-id> <task-number> "Done when: 1\) \.\.\. 2\) \.\.\. 3\) \.\.\."`/);
+  assert.match(sec.text, /If the work came to you as a task already, do not add another\./);
+  assert.match(sec.text, /Right after adding it, run `kosmos task list <project-id>` and note your\s+task's number/);   // wraps in BLOCK
+  assert.match(sec.text, /The one line holds 200\s+characters/);
+  assert.match(sec.text, /A question, a quick answer or small talk is not a task\./);
+  assert.match(sec.text, /If you are on no\s+project, or the work belongs to none of yours, do not guess another: write the\s+checks in your reply/);   // wraps in BLOCK
+  // Review round 3: a check with a backtick or $ is expanded by the shell inside double quotes (the block's own trap).
+  assert.match(sec.text, /If a check holds a backtick or a `\$`, use single quotes/);
+  // Review round 3: several agents asked in one room add one task, not one each.
+  assert.match(sec.text, /If several of you were asked in one room, add one task between you\./);
+  // The person cannot edit a task's words yet (no edit path in engine/tasks.js), so the section must not say they can.
+  assert.doesNotMatch(sec.text, /\b(change|edit)s? (it|the task|the checks|what it says)\b/i);
+  // It sits right after "Knowing when you are finished", which tells the agent to write finished down first.
+  const heads = defaults.sections().map((s) => s.heading);
+  assert.equal(heads[heads.indexOf('### Knowing when you are finished') + 1], '### Put the work on a task first');
+  // A new heading, so an agent already holding every other section is offered this one (as #4873).
+  assert.deepEqual(defaults.missingFrom(defaults.block().replace(sec.text, '')).map((x) => x.heading), ['### Put the work on a task first'],
     'an agent holding every other section would not be offered this one');
 });

@@ -22,7 +22,7 @@
  * HARD gate -- this only keeps the UI honest.
  *
  * Best-effort by contract: fetchStanding() resolves to the current standing STRING,
- * or null when it cannot be determined (not enrolled/switched-off, the tunnel
+ * or null when it cannot be determined (not enrolled, the tunnel
  * failed, the coordinator refused, or an unreadable answer). A null NEVER changes
  * the cache upstream (remote.js keeps the last-known value), so a transient failure
  * cannot flicker a member off. A failure is no longer silent: see logFailure().
@@ -76,20 +76,26 @@ async function fetchStanding() {
     // No Mac identity when not enrolled.
     if (!remote.enrolled()) return null;
     /* #4731: with remote access OFF this is still sent, at the slow cadence remote.js's
-       refreshStandingIfStale sets for that state, with an EMPTY body: the coordinator must be able to
+       refreshStandingIfStale sets for that state, with no remote report: the coordinator must be able to
        tell a computer that is in use with remote access off from one that is gone (since #4681 a
        computer quiet for a day opens the lost-computer recovery doors). Nothing about remote access
-       itself changes: no tunnel, no relay ticket, and no remote report. */
+       itself changes: no tunnel, no relay ticket, and no remote report.
+       kosmos#4743: the body says ONE thing, {"remote":{"on":false}}, so the account page can say
+       "Remote access off, last heard from ..." instead of "Answering now". No other report field
+       goes out. */
     const settings = remote.read();
     if (settings.ok !== true) return null;   // #4308: an unreadable settings file says nothing, so nothing goes out
     const on = settings.on === true;
     /* POST: the Mac is identified by the signature the tunnel adds, not by anything in
        the body. The body carries this Mac's remote-access report (kosmos#4277,
-       engine/remote-report.js), which a coordinator without #4277 ignores; `{}` when
-       the report cannot be built, or when remote access is off. */
+       engine/remote-report.js), which a coordinator without #4277 ignores. kosmos#4743: with no
+       report (off, or on and it could not be built) the body is just `{"remote":{"on":<switch>}}`. */
     let report = null;
     if (on) { try { report = require('./remote-report').build(); } catch { report = null; } }
-    const r = await remote.macRequest('POST', ROUTE, report ? { remote: report } : {});
+    /* kosmos#4743: on, with no report built, still says on, so a computer the coordinator has
+       marked off is cleared at once. */
+    const body = report ? { remote: report } : { remote: { on } };
+    const r = await remote.macRequest('POST', ROUTE, body);
     if (!r || !r.ok) { logFailure(r && r.because); return null; }
     // The report went out: its heal baseline counts now, not before (a failed send keeps it).
     if (report) { try { require('./remote-report').commitHeal(report); } catch { /* never costs the standing */ } }

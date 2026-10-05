@@ -410,7 +410,56 @@ async function dailyUsageByModel(days = 7) {
     }
   }
 
+  await mergeProviders(wanted, today, byDay, byFolder);
   return { byDay, byFolder, rootsRead };
+}
+
+/* #5158: Codex, Gemini CLI, Grok and Antigravity, frozen per past day in their OWN file beside Claude's pair, never inside it.
+   🛑 CLAUDE'S SAVED DAYS ARE NOT TOUCHED. `<day>.v2.json` and `<day>.folders.v1.json` are read and written exactly as
+   before; Claude prunes old transcripts, so re-deriving a past Claude day could only lose history. A past day with no
+   providers file yet (every day, the first time after this update) is scanned from the providers' own session files and
+   frozen; today is always scanned. The two are merged on read: Claude's model names never collide with the others'
+   (claude-*, gpt-*, gemini-*, grok-*). Gemini CLI and Antigravity both run gemini-* models, and there the buckets add:
+   the same model at the same price. */
+function frozenProvidersPath(day) {
+  return path.join(USAGE_DIR, `${day}.providers.v1.json`);
+}
+
+function addInto(map, key, b) {
+  if (!map[key]) map[key] = emptyBuckets();
+  for (const f of [...BUCKET_FIELDS, 'rows']) map[key][f] += Number(b && b[f]) || 0;
+}
+
+async function mergeProviders(wanted, today, byDay, byFolder, scan = (o) => require('./usageproviders').scanProviders(o)) {
+  const got = {};
+  const missing = [];
+  for (const day of wanted) {
+    if (day === today) { missing.push(day); continue; }
+    const v = await readFrozen(frozenProvidersPath(day));
+    if (v && v.models && v.folders) got[day] = v; else missing.push(day);
+  }
+  if (missing.length) {
+    const sorted = [...missing].sort();
+    let res = { days: {}, folders: {}, complete: false };
+    try { res = await scan({ sinceDay: sorted[0], untilDay: sorted[sorted.length - 1] }); }
+    catch (err) { console.error('usage: could not read Codex, Gemini, Grok or Antigravity usage:', (err && err.message) || err); }
+    /* Shown either way, FROZEN only when every home and file was read: a passing error must not fix a past day at zero. */
+    const freeze = !!(res && res.complete);
+    if (!freeze) console.error('usage: Codex, Gemini, Grok or Antigravity usage was only partly read; not saving it, it is read again next time');
+    for (const day of missing) {
+      got[day] = { models: (res.days && res.days[day]) || {}, folders: (res.folders && res.folders[day]) || {} };
+      if (day !== today && freeze) {
+        try { await ensureUsageDir(); await fsp.writeFile(frozenProvidersPath(day), JSON.stringify(got[day]), 'utf8'); }
+        catch (err) { console.error('usage: could not freeze Codex, Gemini, Grok and Antigravity usage for ' + day + ':', (err && err.message) || err); }
+      }
+    }
+  }
+  for (const [day, v] of Object.entries(got)) {
+    if (!byDay[day]) byDay[day] = {};
+    if (!byFolder[day]) byFolder[day] = {};
+    for (const [model, b] of Object.entries(v.models)) addInto(byDay[day], model, b);
+    for (const [folder, b] of Object.entries(v.folders)) addInto(byFolder[day], folder, b);
+  }
 }
 
 /**
@@ -506,4 +555,6 @@ module.exports = {
   utcDay,
   BUCKET_FIELDS,
   USAGE_DIR,
+  mergeProviders,
+  frozenProvidersPath,
 };

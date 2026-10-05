@@ -95,7 +95,8 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
   const prov = { id: 'd-provider', value: providerValue };
   const els = { 'd-provider-account': sel, 'd-provider': prov, 'd-provider-msg': msg };
   const ctx = {
-    document: { getElementById: (id) => els[id] || null },
+    // #5091: fillSwitchAccounts also shows or hides the `.d-current-hint` lines; this world has none.
+    document: { getElementById: (id) => els[id] || null, querySelectorAll: () => [] },
     CURRENT: current,
     ACCOUNTS: accounts,
     ACCOUNTS_UNREADABLE: unreadable,

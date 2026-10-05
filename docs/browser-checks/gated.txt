@@ -21,6 +21,7 @@ render-agent-pill-3958
 render-agent-sort-4428
 render-agentdm-3414
 render-agentpage-fullwidth-2012
+render-allagents-4812
 render-alltasks
 render-assigner-live-3595
 render-assistant-bubble-3034
@@ -86,6 +87,7 @@ render-emoji-mute-2357
 render-engmode-gate-2131
 render-fed-external-3311
 render-fed-plus-gate
+render-federation-invite-4649
 render-firstrun-access-onebox
 render-firstrun-agy-4081
 render-firstrun-choice-4356
@@ -116,6 +118,7 @@ render-help-tips-3574
 render-home-discovery-removed-3048
 render-home-phone-718
 render-import-add-inplace-2419
+render-import-name-4962
 render-inline-field-errors-2606
 render-keyed-install-3713
 render-layer-gutter-4494
@@ -151,6 +154,7 @@ render-orgchart-phone-718
 render-owncode-4649
 render-personal-instr-4446
 render-phone-offline-718
+render-phone-taps-5218
 render-picker-provider-2097
 render-pj-clear-2575
 render-pjadd-back-2850
@@ -185,6 +189,7 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-guards-4545
 render-recommender-live-3595
+render-remote-file-download-5165
 render-remove-force-2651
 render-rename-4421
 render-rename-followups-4423
@@ -192,6 +197,7 @@ render-restart-kloader-2831
 render-restart-screen-4343
 render-restarting-2019
 render-restore-dircheck-2615
+render-restore-refused-4976
 render-richtext-2067
 render-richtext-room-2239
 render-room-busy-scope-2882
@@ -212,10 +218,12 @@ render-subprojects-1994
 render-subtasks-3861
 render-subview-cleanup-3502
 render-swarm-ui-3564
+render-switch-claude-5091
 render-talk
 render-talk-anchor-1926
 render-talk-fill-2622
 render-talk-search
+render-task-taps-5200
 render-taskhover-4880
 render-tasks
 render-tasks-view-3559

@@ -3687,7 +3687,7 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   assert.ok(from > -1 && mid > from && end > mid,
     'the runs-on composition fell outside the extracted slice');
   /* #2225: the parenthetical was lifted into the pure helper `acctParenthetical`
-     (chosen name -> email -> slug), which the sliced composition now calls, so
+     (chosen name -> email -> API key -> slug), which the sliced composition now calls, so
      the eval scope must carry it or the slice throws ReferenceError. */
   const helperFrom = script.indexOf('function acctParenthetical(');
   assert.ok(helperFrom > -1, 'acctParenthetical is gone from the page');
@@ -11509,13 +11509,51 @@ test('kosmos#4648: /api/remote/computers is served, and when no signed list can 
   assert.match(body.because, /\w/, 'no reason given');
 });
 
+test('kosmos#4794: the pairing routes are served: GET join answers not-held when not enrolled, HEAD answers, confirm checks the code first', async () => {
+  const st = await req('/api/remote/join');
+  assert.equal(st.status, 200, st.body);
+  assert.deepEqual(JSON.parse(st.body), { supported: true, held: false }, 'an unenrolled board is not joining');
+  const head = await req('/api/remote/join', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  const bad = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ code: 'AB-12' }) });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.parse(bad.body).error, /not the code on this screen/);
+  /* A six-digit code reaches joinConfirm's own gate (this board is not enrolled), which proves the route is wired to it. */
+  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ code: '482 915' }) });
+  assert.equal(wired.status, 400);
+  assert.match(JSON.parse(wired.body).error, /finish the Plus sign-up first/);
+});
+
+test('kosmos#4794 (review): confirming a code and allowing a device are screen-only; deny and remove are not', async () => {
+  /* The code exists for a person to compare. A caller that is not a browser page (no Sec-Fetch-Site, no page
+     Origin), or one presenting an agent token even with the page header, is refused before the code is looked at. */
+  const notPage = { 'content-type': 'application/json' };
+  const agentPage = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'f'.repeat(64) };
+  const pageHeader = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+  /* Third shape: the page header with the agent token in the BODY, which isViaScreen also reads as an agent. */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const c = await req('/api/remote/join/confirm', { method: 'POST', headers, body: JSON.stringify({ code: '482 915', ...extra }) });
+    assert.equal(c.status, 403, 'join/confirm let a process through: ' + c.body);
+    assert.match(JSON.parse(c.body).error, /Only a person at the Kosmos screen can confirm the code/);
+    const a = await req('/api/remote/devices/allow', { method: 'POST', headers, body: JSON.stringify({ device_id: 'dev1', code: '482 915', ...extra }) });
+    assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
+    assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
+  }
+  /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route.
+     The 400 is the bad-id refusal (the id is deliberately invalid), not a success. */
+  for (const verb of ['deny', 'remove']) {
+    const r = await req('/api/remote/devices/' + verb, { method: 'POST', headers: notPage, body: JSON.stringify({ device_id: '../evil' }) });
+    assert.equal(r.status, 400, verb + ' was refused as not-a-person: ' + r.body);
+  }
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');
   assert.equal(pending.snapshot, false);
   for (const verb of ['allow', 'deny', 'remove']) {
     const r = await req('/api/remote/devices/' + verb, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ device_id: '../evil' }),
     });
     assert.equal(r.status, 400, verb + ' accepted an id that is not an id');
@@ -13299,6 +13337,80 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
   }
 });
 
+test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s account row, keyTail included', async (t) => {
+  /* The page names a key account "API key ending XXXX" from `a.account.keyTail`. Before this, /api/status built
+     every agent's account from the CLAUDE list only, so a Gemini or Grok agent's row never had a key and the
+     "Right now" bracket was empty on opening the agent. The Gemini and Grok lists are stubbed (their real list()
+     reads this machine's folders), and the dangerous answer is a null keyTail. */
+  const create = require('./engine/create');
+  const geminiAccounts = require('./engine/geminiaccounts');
+  const grokAccounts = require('./engine/grokaccounts');
+  const accounts = require('./engine/accounts');
+  const realGemini = geminiAccounts.list;
+  const realGrok = grokAccounts.list;
+  const realClaude = accounts.list;
+  try {
+    fleet.install([
+      fleet.agent('gemnamed', { state: 'idle' }),
+      fleet.agent('grokdef', { state: 'idle' }),
+      fleet.agent('plainclaude3', { state: 'idle' }),
+      fleet.agent('defcodex5', { state: 'idle' }),
+    ]);
+    geminiAccounts.list = () => [
+      { dir: '/Users/x/.gemini', provider: 'google', label: null, isDefault: true, keyTail: '1111', email: null },
+      { dir: '/Users/x/.gemini-b', provider: 'google', label: 'b', isDefault: false, keyTail: '9999', email: null },
+    ];
+    grokAccounts.list = () => [
+      { dir: '/Users/x/.grok', provider: 'xai', label: null, isDefault: true, keyTail: '4f2a', email: null },
+    ];
+    // A real Claude default row beside the keyed defaults: the dir-less Claude agent must take THIS one.
+    accounts.list = () => [{ dir: '/Users/x/.claude', label: null, isDefault: true, email: 'c@example.com' }];
+    fs.writeFileSync(create.plistPath('gemnamed'),
+      create.plistFor('gemnamed', '/opt/homebrew/bin/gemini', '/opt/homebrew/bin/tmux', null, '/Users/x/.gemini-b', 'gemini'), 'utf8');
+    fs.writeFileSync(create.plistPath('grokdef'),
+      create.plistFor('grokdef', '/opt/homebrew/bin/grok', '/opt/homebrew/bin/tmux', null, null, 'grok'), 'utf8');
+    assert.equal(create.readJob('gemnamed').runner, 'gemini', 'the gemini fixture lost its runner');
+    assert.equal(create.readJob('grokdef').configDir, null, 'the grok fixture carries a dir, so it is not the default shape');
+    fs.writeFileSync(create.plistPath('plainclaude3'),
+      create.plistFor('plainclaude3', '/opt/homebrew/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'claude'), 'utf8');
+    assert.equal(create.readJob('plainclaude3').configDir, null, 'the claude fixture carries a dir, so it is not the dir-less default shape');
+    // A dir-less CODEX agent: OpenAI's list is not in /api/status, so with Claude, Gemini and Grok defaults all in
+    // the list it must get NONE of them. This one exercises accountForAgent's provider gate directly.
+    fs.writeFileSync(create.plistPath('defcodex5'),
+      create.plistFor('defcodex5', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    const board = await req('/api/status');
+    if (!board.type.includes('application/json')) { t.skip('the status engine did not return a board on this machine'); return; }
+    const agents = JSON.parse(board.body).agents || [];
+    const row = (n) => agents.find((a) => a.sessionName === n);
+    const gem = row('gemnamed'); const grok = row('grokdef');
+    assert.ok(gem && grok, 'the fixture agents are not on the board: ' + agents.map((a) => a.sessionName).join(','));
+    // A named Gemini account: its own row by folder, slug and key.
+    assert.equal(gem.account && gem.account.keyTail, '9999', JSON.stringify(gem.account));
+    assert.equal(gem.account.label, 'b');
+    // A DEFAULT Grok agent (no folder): the Grok default row, never Gemini's default (the provider gate).
+    assert.equal(grok.account && grok.account.keyTail, '4f2a', JSON.stringify(grok.account));
+    // CONTROL: a dir-less Claude agent, with three default rows in the mixed list, gets the CLAUDE default. This
+    // pins the Claude row being there and chosen; it does NOT pin accountForAgent's provider gate by itself (the
+    // Claude rows come first in the list): that gate is pinned by server.whoami-grok-4603.test.js's route control,
+    // which goes red when the gate is removed.
+    const claude = row('plainclaude3');
+    assert.ok(claude && claude.account, 'the claude fixture has no account row: ' + JSON.stringify(claude && claude.account));
+    assert.equal(claude.account.dir, '/Users/x/.claude');
+    assert.ok(!claude.account.keyTail, JSON.stringify(claude.account));
+    const codex = row('defcodex5');
+    assert.ok(codex, 'the codex fixture is not on the board');
+    assert.equal(codex.account, null, 'a dir-less codex agent took another provider\'s default row: ' + JSON.stringify(codex.account));
+  } finally {
+    geminiAccounts.list = realGemini;
+    grokAccounts.list = realGrok;
+    accounts.list = realClaude;
+    for (const n of ['gemnamed', 'grokdef', 'plainclaude3', 'defcodex5']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
+    fleet.restore();
+  }
+});
+
 test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude account', () => {
   /**
    * 🛑 THE CARD'S OWN DEFECT, IN THE BRANCH I EXEMPTED BY NAME. A default-account
@@ -14196,6 +14308,38 @@ test('#4928: a platform number in "also" shows the highlights once; the same wor
   // CONTROL: new words (another main version) are offered.
   fs2.writeFileSync(file, JSON.stringify({ version: '0.0.8', also: [current], highlights: h }));
   assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');
+});
+
+test('#5224: /api/whats-new serves only this platform\'s highlights; all for the other platform is none, and a dismissal keeps the earlier record', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const store2 = require('./engine/store');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-plat-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  const seenFile = nodePath.join(store2.ROOT, 'seen-version.json');
+  let before = null;
+  try { before = fs2.readFileSync(seenFile, 'utf8'); } catch { before = null; }
+  whatsnew.setFileForTests(file);
+  t.after(() => {
+    whatsnew.setFileForTests(null);
+    fs2.rmSync(dir, { recursive: true, force: true });
+    if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
+  });
+  fs2.writeFileSync(seenFile, JSON.stringify({ version: '0.0.1' }) + '\n');   // a known record: no earlier dismissal hides these words
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const other = whatsnew.platformOf(process.platform) === 'windows' ? 'mac' : 'windows';
+  const elsewhere = { icon: 'shield', title: 'Elsewhere', line: other === 'mac' ? 'On a Mac, it says so.' : 'On a Windows PC, it says so.', platforms: [other] };
+  const everywhere = { icon: 'spark', title: 'A thing', line: 'It does a thing.' };
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [elsewhere, everywhere] }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, [everywhere], 'the other platform\'s highlight was served here');
+  // The earlier record, then a file whose every highlight is for the other platform: none, and the record is kept.
+  fs2.writeFileSync(seenFile, JSON.stringify({ version: '0.0.1', highlightsFor: '0.0.5' }) + '\n');
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [elsewhere] }));
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a window would open with nothing for this platform');
+  const r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.5', 'words never shown here replaced the record');
 });
 
 /* ------------------------------------------------------------------------- *
@@ -15218,8 +15362,8 @@ test('#2811: a NAMED Codex account is called by its name, not "an account we can
    * the .codex account", and `sentenceForWhoami`'s fallback chain went
    * email -> label -> "an account we cannot identify (<dir>)" with NO `name` rung --
    * while `accountForAgent` computes `name: openaiAccounts.readName(dir)` on BOTH
-   * its branches and every other surface leads with it (`acctParenthetical` is
-   * `acct.name || acct.email || acct.label`).
+   * its branches and every other surface leads with it (`acctParenthetical` leads
+   * with `acct.name`, then email, then key and slug since #5150).
    *
    * So a person who had NAMED their OpenAI account read "Work" on the detail panel
    * and "an account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`,
