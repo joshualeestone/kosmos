@@ -218,6 +218,8 @@ async function read(page) {
         chk(!(await linkNote()).shown, `${engineName}: control: no lost-link notice for a running agent with nothing to compare`);
         setState('working', { tokenInstance: 'abcdef123456' });   // a run whose token is not on file
         await page.waitForTimeout(6500);
+        chk(!(await linkNote()).shown, `${engineName} -> link lost on ONE poll: no notice yet (it waits for a second, past a restart's moment)`);
+        await page.waitForTimeout(5500);
         const lost = await linkNote();
         chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot answer you\./.test(lost.text) && lost.target === 'beatrix',
           `${engineName} -> link lost: the notice names the agent and its Restart is for that agent`, JSON.stringify(lost));
@@ -235,6 +237,7 @@ async function read(page) {
         fs.rmSync(REMOVED_FILE, { force: true });
         chk(!removing.shown, `${engineName} -> removed but still running: no Restart notice for an agent being removed`, JSON.stringify(removing));
         await page.waitForTimeout(6500);
+        await page.waitForTimeout(5500);   // two polls in a row again
         chk((await linkNote()).shown, `${engineName} -> removal record gone, token still gone: the notice is back (the guard, not the poll, hid it)`);
         const minted = sendertoken.mint('beatrix');
         setState('working', { tokenInstance: minted.instance });   // its run's token is on file

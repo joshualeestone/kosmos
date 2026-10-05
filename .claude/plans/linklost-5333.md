@@ -10,9 +10,12 @@ nothing on the board said so ("a message from the person can sit unanswered inde
   holds. Whatever removed it (a retire, a revoke, a wiped store), this sees it. Paneless cards answer false.
 - sendertoken.instanceState(name, instance): 'held', 'gone' (readable and absent, or no file at all), or 'unknown'
   (unreadable or unparseable, or no instance); only 'gone' is lost. An unreadable store never reads as lost.
-- The agent's page shows, under its state, while linkLost is true: "<Name> has lost its link to Kosmos, so it cannot
-  read your messages or answer you. Restart it to fix this: "Write a handoff, then restart" keeps what it was doing."
-  with a Restart button that opens the shared restart confirm for that agent. Gone again once the token is on file.
+- The agent's page shows, under its state, once linkLost has been true on two polls in a row (past a restart's
+  moment): "<Name> has lost its link to Kosmos, so it cannot answer you. Restart it to fix this: "Write a handoff,
+  then restart" keeps what it was doing." with a Restart button that opens the shared restart confirm for that agent.
+  ("Answer", not "read": a message still reaches it, typed into its window; what fails is everything it sends back.)
+  Not for an agent being removed (its token is revoked on purpose), and not beside "Start this agent" when stopped.
+  Gone again once the token is on file.
 - engine/status.linklost-5333.test.js (instanceState, the card field, a wiped store, controls) and an arm in
   render-agent-pill-3958.js (Chromium and WebKit: the notice, its Restart, and the control both ways).
 
