@@ -80,6 +80,9 @@ const MODEL_FIELDS = new Set(['slug', 'display_name', 'description', 'default_re
   'max_context_window', 'comp_hash', 'effective_context_window_percent', 'experimental_supported_tools', 'input_modalities',
   'supports_search_tool', 'use_responses_lite', 'node_repl_auto_review_required', 'node_repl_disabled', 'tool_mode',
   'multi_agent_version']);
+/* Not forced: shell_type and web_search_tool_type, whose off values are not known and could make Codex refuse the
+   catalog. The tools they shape are switched off by `--disable shell_tool`/`unified_exec` and `web_search="disabled"`
+   instead; the capture test reds if either comes back (a mutation re-enabling the shell does). */
 const FORCED = { apply_patch_tool_type: null, tool_mode: null, experimental_supported_tools: [], node_repl_disabled: true,
   supports_search_tool: false, include_apps_usage_instructions: false, include_plugin_usage_instructions: false,
   include_skills_usage_instructions: false };
