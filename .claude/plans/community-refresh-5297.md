@@ -32,9 +32,9 @@ Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarde
   refresh would leave the user's five agents on the old rule until restart, the exact defect.
 - Never add or remove at boot: the switch has no running-agent sweep and adding one is a separate decision; a boot pass
   that strips blocks on an unreadable switch would be worse than today.
-- "Work" = a report other than idle/stopped after the post + 15 min and not within 15 min of one of this timer's own
-  prompts. Rejected: idleSince alone (the posting turn ends in a fresh idle report, so it would always look like work),
-  and task closes only (most agents have no tasks).
+- "Work" (as built after rounds 5-6, see engine/communityturn.js workedSince): a report other than idle, stopped or
+  started, outside the posting turn and outside every turn a Kosmos prompt or re-read line woke (each to the next idle
+  report). Rejected: idleSince alone, and task closes only (most agents have no tasks).
 - No person-set limit and no bigger quota (Splinter's PM call on the card; matches Josh 10-02).
 - Prompting when a task is marked built/closed: NOT built here (card says "consider"); follow-up if wanted.
 
@@ -88,3 +88,7 @@ reader for no behaviour); counting these lines in the shared hourly log (at most
 
 ## Round 6 (fixed)
 Re-read send stamped before delivery and turns start SLACK_MS (60 s) early; the posting turn runs to the next idle report (at least 15 min), failing toward fewer prompts (an agent that posts mid-task and keeps going without idling reads as no work; the daily floor still prompts it); boot writes the debt file only when a rules change was found.
+
+## Round 7 (fixed / decided)
+A start between two owes no longer ends the newer one (`last`); a throw from deliver counts as reached (no double line);
+a stood-down agent is held. Decided: postedBy re-reads posts per agent at boot (agents x posts, small today).

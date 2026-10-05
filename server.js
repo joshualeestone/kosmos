@@ -1068,6 +1068,7 @@ async function instructionRereadPass() {
       // The agent-nudge gate every automatic line shares: live execution AND the operator brake AGENT_WORKFORCE_AGENT_NUDGE_OFF.
       allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
       recordSent: (session, at) => ir.recordSent(session, at),
+      stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
       DELIVERY: chat.DELIVERY,
     });

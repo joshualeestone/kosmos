@@ -12,9 +12,12 @@
  * chat drops a line it cannot place (the shared-quota hold, a busy or unreachable pane), so the debt is kept on disk
  * until a line lands (see settle: PLACED, or UNCONFIRMED, which may have been typed and is never typed twice; if it was
  * not, the agent reads the file at its next start) and the board retries it. { session: { at, n, sections: [...] } }: `at` is when the
- * debt began, `n` counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
+ * debt began (for GIVE_UP_MS), `last` when it was last owed (a session start after `last` read every section owed), and `n`
+ * counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
  * Atomic tmp + rename; an unreadable or odd file reads as empty. A debt ends without a line when the agent has started a
- * session since it began (startedSince: it read the new file at that start), or after GIVE_UP_MS.
+ * session since it was last owed (startedSince: it read the new file at that start), when the agent is missing from the
+ * roster at two passes running (gone), or after GIVE_UP_MS. It is held, not ended, while the agent is stood down (every
+ * project it is in paused or switched off for it: the person's control, as for the other automatic lines).
  *
  * passOnce delivers. It types only into an IDLE card of ours that was idle at the previous pass too (the rule the
  * community turn and the reply nudge use): a line typed into a permission prompt or a question menu would be submitted
@@ -67,7 +70,7 @@ function readOwed() {
     for (const [k, v] of Object.entries(d)) {
       if (!k || !v || typeof v !== 'object' || !Number.isFinite(v.at) || !Array.isArray(v.sections)) continue;
       const sections = v.sections.filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
-      if (sections.length) out[k] = { at: v.at, n: Number.isInteger(v.n) ? v.n : 1, sections };
+      if (sections.length) out[k] = { at: v.at, last: Number.isFinite(v.last) ? v.last : v.at, n: Number.isInteger(v.n) ? v.n : 1, sections };
     }
     return out;
   } catch { return {}; }
@@ -89,7 +92,7 @@ function owe(owed, session, section, now = Date.now()) {
   if (!session || !Object.prototype.hasOwnProperty.call(SECTIONS, section)) return { ...owed };
   const cur = owed[session];
   const sections = cur ? [...new Set([...cur.sections, section])] : [section];
-  return { ...owed, [session]: { at: cur ? cur.at : now, n: (cur && Number.isInteger(cur.n) ? cur.n : 0) + 1, sections } };
+  return { ...owed, [session]: { at: cur ? cur.at : now, last: now, n: (cur && Number.isInteger(cur.n) ? cur.n : 0) + 1, sections } };
 }
 
 /* Read, owe and write in one step, for a caller that is not holding the map. */
@@ -153,8 +156,9 @@ function lineFor(sections) {
  *   allowed()     live execution
  *   deliver(s, line, roster)  chat.deliverAutomaticAsync; DELIVERY: chat.DELIVERY
  *   recordSent(s, ms)         recordSent below (optional)   seenMissing  a Set like seenIdle, for agents missing from the roster
+ *   stoodDown(s)              replynudge.stoodDown over the projects (optional): true holds the debt
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
- * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'missing' | 'restarted' | 'gone' | 'expired'.
+ * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'missing' | 'restarted' | 'gone' | 'expired'.
  */
 async function passOnce(o) {
   const out = [];
@@ -187,7 +191,11 @@ async function passOnce(o) {
       }
       let rows = null;
       try { rows = o.history(session); } catch { rows = null; }
-      if (startedSince(rows, debt.at) === true) { end(session, 'restarted'); continue; }
+      // A start after the LATEST owe read every section owed; one between owes read only the older ones.
+      if (startedSince(rows, Number.isFinite(debt.last) ? debt.last : debt.at) === true) { end(session, 'restarted'); continue; }
+      let down = false;
+      if (typeof o.stoodDown === 'function') { try { down = o.stoodDown(session) === true; } catch { down = false; } }
+      if (down) { out.push({ session, act: 'stood-down' }); continue; }
       if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
@@ -202,7 +210,8 @@ async function passOnce(o) {
       if (!card || !isIdle(card)) { out.push({ session, act: 'not-idle' }); continue; }
       const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
       let v = null;
-      try { v = await o.deliver(session, line, fresh); } catch { v = null; }
+      // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as communityturn and replynudge read chat.
+      try { v = await o.deliver(session, line, fresh); } catch { v = { state: o.DELIVERY && o.DELIVERY.UNCONFIRMED }; }
       const after = settle(owed, session, v, o.DELIVERY, now);
       if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
       else {
