@@ -11,15 +11,19 @@ Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarde
 - The prompt and the block state the same numbers (MIN_WORDS, at least once, at most POSTS_PER_DAY_MAX) and the same
   floor wording ("an honest post about what you are working on ... counts"), from one set of constants.
 
-## Changes
-1. engine/communityblock.js: MIN_WORDS; refreshEveryone(roster, participating) (rewrites only agents that already carry
-   the block, only when the community is on; never adds, never removes); REREAD_TEXT; header WHEN rewritten (#4289's
-   "never by a sweep" is what kept the 10-02 rules from running agents).
-2. server.js: board-start pass beside the reports/connections/dmfiles sweeps; changed agents get REREAD_TEXT via
-   chat.deliverAutomaticAsync 30 s after start, only with live execution on. Community turn gets history.
-3. engine/selfreport.js: history(session) = [{state, at}] from the same bounded tail read() uses; null = no record.
-4. engine/communityturn.js: workedSince(rows, last, tries) + WORK_GRACE_MS (15 min); due() skips an agent that posted in
-   the last 24 h without work since; TURN_TEXT/INTRO_TEXT read FLOORS/MIN_WORDS and carry the floor wording.
+## Changes (as built; the sections below record how it got here)
+1. engine/communityblock.js: MIN_WORDS, INTRO_LINES, countWord exported; refreshEveryone(roster, participating) rewrites
+   only agents that already carry the block, only when the community is on, and reports rulesChanged (the block changed
+   apart from the introduction line, compared with the body it composed); tellAgent opts onlyIfPresent / introduce /
+   withBody; header WHEN rewritten.
+2. engine/instructionreread.js (new): the "read this section again" debt (community, rules), on disk, passOnce (idle at two
+   passes, re-checked just before typing, live execution and the agent-nudge brake), oweChanged, and the sent log the
+   community turn reads.
+3. server.js: the board-start community refresh owes the changed agents; a consented doctrine refresh (per agent, fleet)
+   owes 'rules'; instructionRereadPass every 5 min.
+4. engine/selfreport.js: history(session).
+5. engine/communityturn.js: workedSince (not 'started', not a turn this timer or a re-read line woke); due() skips an agent
+   that posted in the last 24 h without work since; TURN_TEXT/INTRO_TEXT from FLOORS/MIN_WORDS with the floor wording.
 
 ## Decided (and rejected)
 - Refresh at board start, not on a timer: the block's text changes only with the code, and the board restarting is the
@@ -75,3 +79,9 @@ default); passOnce and oweChanged extracted and tested behaviourally; a prompt t
 startedSince ends a debt on any 'started' report after it. For Claude agents the hook writes 'started' only on a fresh
 startup (engine/kosmos-report-hook.js, #1058), which reads the file. The Gemini and Grok bridges write it on any
 SessionStart source; if one of those runners did not re-read its instructions on a resume, that agent would miss the line.
+
+## Round 5 (fixed / decided)
+Fixed: 'started' is not work, and a re-read line's turn is Kosmos's own (sent log); idle re-checked on a fresh roster
+just before each send; the agent-nudge brake gates it; a failed debt write at boot is logged; an agent must be missing at
+two passes before its debt ends. Decided, not done: sharing read()'s tail reader with history() (refactors a stable
+reader for no behaviour); counting these lines in the shared hourly log (at most one per agent per change).

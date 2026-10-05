@@ -56,7 +56,8 @@ const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + 
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 /* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
    it has worked since that post. "Worked" is a report other than idle or stopped (engine/selfreport.history) more than
-   WORK_GRACE_MS after the post, and outside the turn each of this timer's own prompts woke. A prompt's turn is the run
+   WORK_GRACE_MS after the post (a 'started' report is a session start, never work), and outside the turn each of this
+   timer's own prompts, or a Kosmos re-read line (kosmosLines), woke. A prompt's turn is the run
    of reports that starts within WORK_GRACE_MS of the prompt and ends at the agent's next idle report (to the end of the
    record if it has not gone idle); a prompt with no report that soon after it (not reached, or ignored) owns only those
    WORK_GRACE_MS. The turn that wrote the post, and a whole turn the prompt started (#5212's line asks for replies, votes
@@ -70,13 +71,14 @@ function workedSince(rows, last, tries) {
   if (!Array.isArray(rows)) return null;
   const valid = rows.filter((r) => r && Number.isFinite(r.at));
   const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map((t) => {
-    const woke = valid.find((r) => r.at >= t && r.at <= t + WORK_GRACE_MS && r.state !== 'idle' && r.state !== 'stopped');
+    const woke = valid.find((r) => r.at >= t && r.at <= t + WORK_GRACE_MS && r.state !== 'idle' && r.state !== 'stopped' && r.state !== 'started');
     if (!woke) return [t, t + WORK_GRACE_MS];
     const idle = valid.find((r) => r.state === 'idle' && r.at > woke.at);
     return [t, idle ? idle.at : Infinity];
   });
   for (const r of valid) {
-    if (r.state === 'idle' || r.state === 'stopped') continue;
+    // 'started' is a session start (a restart writes one), not work.
+    if (r.state === 'idle' || r.state === 'stopped' || r.state === 'started') continue;
     if (r.at <= last + WORK_GRACE_MS) continue;
     if (own.some(([from, to]) => r.at >= from && r.at <= to)) continue;
     return true;
@@ -92,7 +94,7 @@ function triesOf(book, s) {
 }
 
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines }) {
   const nudgeable = require('./agentnudge').nudgeableCard;
   const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
@@ -121,7 +123,10 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (at.length && now - last < DAY_MS) {
       let rows = null;
       if (typeof history === 'function') { try { rows = history(s); } catch { rows = null; } }
-      if (workedSince(rows, last, tries) !== true) continue;
+      /* #5297: a turn another Kosmos line woke (a "read this section again" line) is Kosmos's own too. */
+      let others = [];
+      if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
+      if (workedSince(rows, last, [...tries, ...others]) !== true) continue;
     }
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
@@ -167,7 +172,7 @@ function tickOnce(o) {
       const nudgeable = require('./agentnudge').nudgeableCard;
       for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
     }
-    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history })) {
+    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines })) {
       for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
       if (sent.length >= cap) {
         const r = { session: d.session, name: d.name, act: 'limit', delivery: null };

@@ -382,3 +382,15 @@ test('#5296 review 3: a prompt that woke nothing (no report within the grace) do
   // CONTROL: the same work starting inside the grace is the prompt's own turn.
   assert.equal(ct.workedSince([{ state: 'working', at: tried + 5 * MIN }, { state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), false);
 });
+
+test('#5296 review 5: a session start is not work, and a turn a Kosmos re-read line woke is not work; CONTROLS', () => {
+  const post = NOW - 8 * H;
+  assert.equal(ct.workedSince([{ state: 'started', at: NOW - 2 * H }, { state: 'idle', at: NOW - 2 * H + MIN }], post, []), false);
+  assert.equal(ct.workedSince([{ state: 'started', at: NOW - 2 * H }, { state: 'working', at: NOW - 2 * H + MIN }], post, []), true, 'CONTROL: work after the start is work');
+  const reread = NOW - 3 * H;
+  const rows = [{ state: 'working', at: reread + MIN }, { state: 'idle', at: reread + 3 * MIN }];
+  const only = (s) => (s === 'ann' ? [ago(8 * H)] : [ago(H)]);
+  assert.deepEqual(ct.due(args({ postTimes: only, history: () => rows, kosmosLines: () => [reread] })), []);
+  assert.deepEqual(ct.due(args({ postTimes: only, history: () => rows })).map((d) => d.session), ['ann'], 'CONTROL: without the send time, that turn reads as work');
+  assert.deepEqual(ct.due(args({ postTimes: only, history: () => rows, kosmosLines: () => { throw new Error('boom'); } })).map((d) => d.session), ['ann']);
+});

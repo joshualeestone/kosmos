@@ -1053,6 +1053,7 @@ const doctrine = require('./engine/doctrine');
    into an agent idle now and at the previous pass). One pass at a time; never throws. A timer at boot runs it. */
 let instructionRereadRunning = false;
 const INSTRUCTION_REREAD_IDLE_SEEN = new Set();
+const INSTRUCTION_REREAD_MISSING_SEEN = new Set();
 async function instructionRereadPass() {
   if (instructionRereadRunning) return;
   instructionRereadRunning = true;
@@ -1062,9 +1063,11 @@ async function instructionRereadPass() {
     const done = await ir.passOnce({
       roster: () => safeRoster(),
       isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
-      seenIdle: INSTRUCTION_REREAD_IDLE_SEEN,
+      seenIdle: INSTRUCTION_REREAD_IDLE_SEEN, seenMissing: INSTRUCTION_REREAD_MISSING_SEEN,
       history: (session) => selfreport.history(session),
-      allowed: () => liveExecution.liveExecutionAllowed(),
+      // The agent-nudge gate every automatic line shares: live execution AND the operator brake AGENT_WORKFORCE_AGENT_NUDGE_OFF.
+      allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+      recordSent: (session, at) => ir.recordSent(session, at),
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
       DELIVERY: chat.DELIVERY,
     });
@@ -20589,6 +20592,7 @@ function start(port = PORT) {
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
           inCommunity,
           history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
+          kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
@@ -21044,7 +21048,9 @@ if (require.main === module) {
       process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${(stuck[0] && stuck[0].agent) || 'the list of agents'} - ${why}\n`);
     }
     const ir = require('./engine/instructionreread');
-    ir.writeOwed(ir.oweChanged(told, ir.readOwed()));
+    if (!ir.writeOwed(ir.oweChanged(told, ir.readOwed()))) {
+      process.stderr.write('Kosmos refreshed the Kosmos+ community section but could not record which running agents to tell; they read it at their next start\n');
+    }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
   }

@@ -85,7 +85,8 @@ test('#5297: the board runs instructionreread.passOnce on a timer with the idle 
   assert.match(fn, /ir\.passOnce\(\{/);
   assert.match(fn, /isIdle:\s*\(c\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeableCard\(c\)/, 'the pass is not given the idle-card gate');
   assert.match(fn, /seenIdle:\s*INSTRUCTION_REREAD_IDLE_SEEN/);
-  assert.match(fn, /allowed:\s*\(\)\s*=>\s*liveExecution\.liveExecutionAllowed\(\)/);
+  assert.match(fn, /allowed:\s*\(\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'the operator brake and live execution do not gate the line');
+  assert.match(fn, /recordSent:\s*\(session, at\)\s*=>\s*ir\.recordSent\(session, at\)/);
   assert.match(fn, /deliver:\s*\(session, line, r\)\s*=>\s*chat\.deliverAutomaticAsync\(session, line, r, undefined, undefined\)/);
   assert.match(fn, /history:\s*\(session\)\s*=>\s*selfreport\.history\(session\)/);
   assert.doesNotMatch(fn, /chat\.deliver\(|chat\.deliverAsync\(/);
@@ -97,4 +98,8 @@ test('#5297 / #4890: a consented working-rules refresh (per agent AND fleet) owe
   assert.match(SRC, /const got = doctrine\.refresh\(name, roster\);\s*if \(got && got\.state === 'added'\) instructionRereadOwe\(name\);/);
   const owe = SRC.slice(SRC.indexOf('function instructionRereadOwe'), SRC.indexOf('function instructionRereadOwe') + 300);
   assert.match(owe, /oweNow\(session, 'rules'\)/);
+});
+
+test('#5297 review 5: the community turn is given the re-read lines\' send times', () => {
+  assert.match(w, /kosmosLines:\s*\(session\)\s*=>\s*require\('\.\/engine\/instructionreread'\)\.sentTimes\(session\)/);
 });

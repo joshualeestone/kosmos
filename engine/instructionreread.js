@@ -29,6 +29,33 @@ const SECTIONS = Object.freeze({
 });
 
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
+/* When a re-read line was typed into each agent, the last day of them: the community turn treats the turn such a line
+   woke as Kosmos's own, never as the agent's work (communityturn.workedSince). { session: [ms, ...] }. */
+function sentFile() { return path.join(require('./store').ROOT, 'instruction-reread-sent.json'); }
+const SENT_KEEP_MS = 24 * 60 * 60 * 1000;
+function readSent() {
+  try {
+    const d = JSON.parse(fs.readFileSync(sentFile(), 'utf8'));
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return {};
+    const out = {};
+    for (const [k, v] of Object.entries(d)) if (k && Array.isArray(v)) out[k] = v.filter(Number.isFinite);
+    return out;
+  } catch { return {}; }
+}
+function sentTimes(session) { const v = readSent()[session]; return Array.isArray(v) ? v : []; }
+function recordSent(session, now = Date.now()) {
+  try {
+    const all = readSent();
+    const out = {};
+    for (const [k, v] of Object.entries(all)) { const keep = v.filter((t) => now - t < SENT_KEEP_MS); if (keep.length) out[k] = keep; }
+    out[session] = [...(out[session] || []), now];
+    fs.mkdirSync(path.dirname(sentFile()), { recursive: true });
+    const tmp = sentFile() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(out) + '\n');
+    fs.renameSync(tmp, sentFile());
+    return true;
+  } catch { return false; }
+}
 
 function readOwed() {
   try {
@@ -69,7 +96,8 @@ function oweNow(session, section, now = Date.now()) {
 }
 
 /* Pure: the map after one delivery verdict. A line that landed clears the agent's whole debt (it named every section
-   owed); anything else keeps it, until GIVE_UP_MS. */
+   owed); anything else keeps it, until GIVE_UP_MS. (chat sets held and busy only on a COULD_NOT verdict today; the
+   check is kept so a landed state can never be read from a refusal.) */
 function settle(owed, session, verdict, DELIVERY, now = Date.now()) {
   const next = { ...owed };
   const state = verdict && verdict.state;
@@ -122,8 +150,9 @@ function lineFor(sections) {
  *   history(s)    engine/selfreport.history
  *   allowed()     live execution
  *   deliver(s, line, roster)  chat.deliverAutomaticAsync; DELIVERY: chat.DELIVERY
+ *   recordSent(s, ms)         recordSent below (optional)   seenMissing  a Set like seenIdle, for agents missing from the roster
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
- * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'restarted' | 'gone' | 'expired'.
+ * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'missing' | 'restarted' | 'gone' | 'expired'.
  */
 async function passOnce(o) {
   const out = [];
@@ -134,6 +163,7 @@ async function passOnce(o) {
     let roster = null;
     try { roster = o.roster(); } catch { roster = null; }
     const seen = o.seenIdle instanceof Set ? new Set(o.seenIdle) : new Set();
+    const missingBefore = o.seenMissing instanceof Set ? new Set(o.seenMissing) : null;
     if (!Array.isArray(roster) || !roster.length) { if (o.seenIdle instanceof Set) o.seenIdle.clear(); return out; }
     const idleNow = new Set();
     const isIdle = (c) => { try { return o.isIdle(c) === true; } catch { return false; } };
@@ -146,7 +176,13 @@ async function passOnce(o) {
     for (const session of Object.keys(owed)) {
       const debt = owed[session];
       if (now - debt.at > GIVE_UP_MS) { end(session, 'expired'); continue; }
-      if (!ours.has(session)) { end(session, 'gone'); continue; }
+      if (!ours.has(session)) {
+        /* Gone only when it was missing at the previous pass too (a caller without the set: at once), so one partial
+           roster cannot end a real debt. */
+        if (missingBefore === null || missingBefore.has(session)) end(session, 'gone');
+        else out.push({ session, act: 'missing' });
+        continue;
+      }
       let rows = null;
       try { rows = o.history(session); } catch { rows = null; }
       if (startedSince(rows, debt.at) === true) { end(session, 'restarted'); continue; }
@@ -156,15 +192,28 @@ async function passOnce(o) {
       if (!ok) break;
       const line = lineFor(debt.sections);
       if (!line) { end(session, 'expired'); continue; }
+      /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
+         is still idle just before typing (and hand chat that fresh roster). */
+      let fresh = null;
+      try { fresh = o.roster(); } catch { fresh = null; }
+      const card = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
+      if (!card || !isIdle(card)) { out.push({ session, act: 'not-idle' }); continue; }
       let v = null;
-      try { v = await o.deliver(session, line, roster); } catch { v = null; }
+      try { v = await o.deliver(session, line, fresh); } catch { v = null; }
       const after = settle(owed, session, v, o.DELIVERY, now);
       if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
-      else end(session, 'sent');
+      else {
+        end(session, 'sent');
+        if (typeof o.recordSent === 'function') { try { o.recordSent(session, Date.now()); } catch { /* only the turn's label is lost */ } }
+      }
+    }
+    if (o.seenMissing instanceof Set) {
+      o.seenMissing.clear();
+      for (const k of Object.keys(owed)) if (!ours.has(k)) o.seenMissing.add(k);
     }
     write(mergeCleared(read(), cleared));
   } catch { /* the next pass tries again */ }
   return out;
 }
 
-module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce };
+module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce, recordSent, sentTimes, sentFile };
