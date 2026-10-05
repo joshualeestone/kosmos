@@ -39312,6 +39312,8 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
 (function snavEdges() {
   const nav = document.getElementById('s-nav');
   const more = document.getElementById('s-nav-more');
+  // Only on a real, laid-out page: the page-text tests run this script against a stub document.
+  if (!nav || !more || typeof nav.scrollWidth !== 'number') return;
   const mark = () => {
     const room = nav.scrollWidth - nav.clientWidth;
     const left = room > 2 && nav.scrollLeft > 2;
