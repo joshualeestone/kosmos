@@ -237,3 +237,21 @@ test('review 8: an unreadable debt file is never replaced (oweNow refuses); a mi
   assert.equal(ir.oweNow('ann', 'rules', T), true);
   assert.deepEqual(ir.readOwed().ann.sections, ['rules']);
 });
+
+test('review 9: a debt naming a section that is switched off is held, not sent; CONTROL: on, it is sent', async () => {
+  const off = passArgs({ owed: { ida: debt(['community']) }, o: { sectionOn: (sec) => sec !== 'community' } });
+  assert.deepEqual((await ir.passOnce(off.o)).map((x) => x.act), ['section-off']);
+  assert.deepEqual(off.sent, []);
+  assert.ok(off.file().ida);
+  const on = passArgs({ owed: { ida: debt(['community']) }, o: { sectionOn: () => true } });
+  assert.deepEqual((await ir.passOnce(on.o)).map((x) => x.act), ['sent']);
+});
+
+test('review 9: a pass that ends nothing does not rewrite the file', async () => {
+  let writes = 0;
+  const p = passArgs({ owed: { ned: debt() } });
+  const write = p.o.write;
+  p.o.write = (o) => { writes += 1; return write(o); };
+  await ir.passOnce(p.o);
+  assert.equal(writes, 0);
+});

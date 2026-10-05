@@ -11,7 +11,7 @@
  *
  * chat drops a line it cannot place (the shared-quota hold, a busy or unreachable pane), so the debt is kept on disk
  * until a line lands (see settle: PLACED, or UNCONFIRMED, which may have been typed and is never typed twice; if it was
- * not, the agent reads the file at its next start) and the board retries it. { session: { at, n, sections: [...] } }: `at` is when the
+ * not, the agent reads the file at its next start) and the board retries it. { session: { at, last, n, sections: [...] } }: `at` is when the
  * debt began (for GIVE_UP_MS), `last` when it was last owed (a session start after `last` read every section owed), and `n`
  * counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
  * Atomic tmp + rename; an unreadable or odd file reads as empty. A debt ends without a line when the agent has started a
@@ -171,8 +171,9 @@ function lineFor(sections) {
  *   deliver(s, line, roster)  chat.deliverAutomaticAsync; DELIVERY: chat.DELIVERY
  *   recordSent(s, ms)         recordSent below (optional)   seenMissing  a Set like seenIdle, for agents missing from the roster
  *   stoodDown(s)              replynudge.stoodDown over the projects (optional): true holds the debt
+ *   sectionOn(section)        false holds a debt naming that section (the community switch, for 'community')
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
- * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'missing' | 'restarted' | 'gone' | 'expired'.
+ * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired'.
  */
 async function passOnce(o) {
   const out = [];
@@ -210,6 +211,7 @@ async function passOnce(o) {
       let down = false;
       if (typeof o.stoodDown === 'function') { try { down = o.stoodDown(session) === true; } catch { down = false; } }
       if (down) { out.push({ session, act: 'stood-down' }); continue; }
+      if (typeof o.sectionOn === 'function' && debt.sections.some((sec) => { try { return o.sectionOn(sec) !== true; } catch { return true; } })) { out.push({ session, act: 'section-off' }); continue; }
       if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
@@ -237,7 +239,7 @@ async function passOnce(o) {
       o.seenMissing.clear();
       for (const k of Object.keys(owed)) if (!ours.has(k)) o.seenMissing.add(k);
     }
-    write(mergeCleared(read(), cleared));
+    if (Object.keys(cleared).length) write(mergeCleared(read(), cleared));
   } catch { /* the next pass tries again */ }
   return out;
 }
