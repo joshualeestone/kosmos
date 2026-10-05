@@ -33,6 +33,9 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const { start, server, boardAuthState } = require('./server');
 const orgchartfile = require('./engine/orgchartfile');
+// No ChatGPT subscription (#5346): run alone from a Codex session, CODEX_HOME names a real account, and these tests
+// mean "no Claude, then keys".
+require('./engine/orgchartcodex').setAccounts(() => []);
 
 const TOK = 'BOARDTOKEN_test_orgchart_4559_0123456789';
 const FIX = path.join(__dirname, 'test-support', 'orgchart-4559');

@@ -76,8 +76,9 @@ async function capture(argsFor, plant = {}) {
   // The reader's own environment (childEnv), plus the fake key this capture signs in with.
   const env = { ...c.childEnv(process.env, home), HOME: root, CODEX_API_KEY: 'sk-capture-5346' };
   await new Promise((resolve) => {
-    const child = spawn(bin, args, { cwd: work, env, stdio: ['ignore', 'ignore', 'ignore'] });
-    const t = setTimeout(() => child.kill('SIGKILL'), 90000);
+    // Its own process group, killed whole on a timeout, as the reader does: the launcher's native child must not outlive it.
+    const child = spawn(bin, args, { cwd: work, env, stdio: ['ignore', 'ignore', 'ignore'], detached: true });
+    const t = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 90000);
     child.on('close', () => { clearTimeout(t); resolve(); });
     child.on('error', () => { clearTimeout(t); resolve(); });
   });

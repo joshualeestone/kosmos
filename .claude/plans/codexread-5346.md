@@ -41,7 +41,10 @@ stay off (measured reasons on the card).
   key, ChatGPT stays the reader and the person is told it cannot take a PDF.
 - **At the read, every gate is asked again** (Windows, version, instructions file, managed config), so a change while
   the consent box was open is caught before Codex starts. An answer counts only from a turn that completed.
-- **Pictures only.** `-i` attaches images; a PDF gets the same "use a picture or an export" sentence as Grok.
+- **PNG and JPEG only**, the two formats measured. A PDF, GIF or WebP gets a "use a picture or an export" sentence.
+- **The version is asked fresh at the read** (async, no cache), since an npm install keeps a fixed mtime and an
+  upgrade under the same path would not change a cache key. The choice uses a cache keyed on the real path, inode,
+  size and mtime. A read folder a dead board left behind is removed by the next read after 15 minutes.
 - **Answer:** the last `agent_message` in the JSON event stream, parsed and validated by orgchartfile.fromModel.
   **Tripwire:** any event item that is not a message, reasoning, a to-do list (what update_plan produces) or an error
   item (a command, a file change, a tool call, an MCP call, a web search, anything new) kills the run and refuses
@@ -72,7 +75,9 @@ stay off (measured reasons on the card).
 - Capture test (real Codex 0.149.1, fake key, local server): 2/2. Mutations, each red for the right reason:
   keeping `tool_mode` -> `exec`, `wait` offered; re-enabling `shell_tool`/`unified_exec` -> `exec_command`,
   `write_stdin` offered. Also captured once with the REAL ChatGPT login (still to a local server): same two tools.
-- Unit tests 19/19 after iteration 5; existing org-chart tests and engine sweeps pass in the same run. Each guard
+- Unit tests 27/27 after iteration 9; existing org-chart tests and engine sweeps pass in the same run. The existing
+  org-chart test files stub the ChatGPT reader out, so a single-file run from a Codex session (CODEX_HOME set) never
+  reads with the person's real account. Each guard
   added in review was checked by a mutation that reds it (group kill, env allowlist, instructions file, failed turn,
   forced catalog field).
 

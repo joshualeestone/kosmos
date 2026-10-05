@@ -278,11 +278,13 @@ test('a catalog with a field this Codex does not know, or written by another Cod
     write({ ...CACHE, models: [...CACHE.models, { slug: 'm3', new_tool_switch: true }] });
     assert.equal(c.deriveCatalog(acct), null);
     const got = await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
-    assert.equal(got.because, c.WHY_CATALOG);
+    assert.equal(got.because, c.WHY_CATALOG_UNKNOWN);
     assert.equal(o.currentReader(), null, 'and the reader is not offered: the reason shows before the consent box');
-    assert.equal(o.whyNoReader(), c.WHY_CATALOG);
+    assert.equal(o.whyNoReader(), c.WHY_CATALOG_UNKNOWN);
     write({ ...CACHE, client_version: '9.9.9' });
     assert.equal(c.deriveCatalog(acct), null);
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), c.WHY_CATALOG_VERSION);
     write(CACHE);
     assert.ok(c.deriveCatalog(acct), 'CONTROL: the known catalog is used');
   } finally { write(CACHE); }
@@ -364,4 +366,25 @@ test('tripwire: an item with no readable type is refused too', async () => {
 test('offeredTools fails closed: a tool of a kind never seen before, in any tools list, is counted', () => {
   const body = { tools: [{ type: 'tool_search' }, {}], input: [{ role: 'developer', tools: [{ type: 'namespace', name: 'functions', tools: [{ type: 'web_fetch' }, { type: 'function', name: 'update_plan' }] }] }] };
   assert.deepEqual(c.offeredTools(body).sort(), ['tool_search', 'unknown', 'update_plan', 'web_fetch'].sort());
+});
+
+test('only PNG and JPEG are read: a GIF or WebP is refused before the consent, in words', () => {
+  const r = o.currentReader('chart.png');
+  assert.match(o.readerProblem('chart.gif', r), /^ChatGPT cannot read this kind of picture/);
+  assert.match(o.readerProblem('chart.webp', r), /^ChatGPT cannot read this kind of picture/);
+  assert.equal(o.readerProblem('chart.jpg', r), null);
+});
+
+test('a read removes a read folder left by a board that died over 15 minutes ago, and keeps a recent one', async () => {
+  const old = fs.mkdtempSync(path.join(os.tmpdir(), c.TMP_PREFIX));
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), c.TMP_PREFIX));
+  const past = (Date.now() - 16 * 60 * 1000) / 1000;
+  fs.utimesSync(old, past, past);
+  try {
+    answer(PEOPLE);
+    await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
+    assert.equal(fs.existsSync(old), false, 'the stale folder (a chart with real names) is gone');
+    assert.equal(fs.existsSync(fresh), true, 'CONTROL: a recent one, maybe another read in progress, is kept');
+  } finally { fs.rmSync(old, { recursive: true, force: true }); fs.rmSync(fresh, { recursive: true, force: true }); }
+  await grandchildGone();
 });

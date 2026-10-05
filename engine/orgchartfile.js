@@ -668,8 +668,8 @@ function readerProblem(name, reader) {
   if (r.kind !== 'key') return null;
   return require('./orgchartkeys').cannotRead(r.provider, MODEL_TYPES[extOf(name)].media);
 }
-/* The runner: a key reader calls its provider's API directly; otherwise the Claude read (#4559). A test runner
-   set with setModelRunner gets (line, signal, file) and replaces both. */
+/* The runner: a key reader calls its provider's API directly; a ChatGPT reader runs Codex (#5346); otherwise the
+   Claude read (#4559). A test runner set with setModelRunner gets (line, signal, file) and replaces all three. */
 function dispatchRunner(line, signal, file) {
   const r = file.reader || currentReader();   // the reader the person agreed to, when the route passes it
   if (r && r.kind === 'key') return require('./orgchartkeys').read(r, PROMPT, file.name, file.media, file.buf, signal);

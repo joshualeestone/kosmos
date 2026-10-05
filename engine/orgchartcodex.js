@@ -31,7 +31,8 @@ const path = require('node:path');
 
 const NAME = 'OpenAI';
 /* What `-i` reads. A PDF is refused before the consent (cannotRead), like Grok's. */
-const READS = { 'image/png': true, 'image/jpeg': true, 'image/webp': true, 'image/gif': true };
+// PNG and JPEG only: the two formats measured (an animated GIF, which OpenAI's image input refuses, is not read).
+const READS = { 'image/png': true, 'image/jpeg': true };
 /* The only tools a run with codexArgs may offer (#5346 ruling). Anything else is a regression the capture test reds. */
 const ALLOWED_TOOLS = ['update_plan', 'request_user_input'];
 /* As the Claude and key reads (orgchartfile MODEL_TIMEOUT_MS), under the Kosmos+ relay's 120 s wait. */
@@ -86,19 +87,21 @@ const MODEL_FIELDS = new Set(['slug', 'display_name', 'description', 'default_re
 const FORCED = { apply_patch_tool_type: null, tool_mode: null, experimental_supported_tools: [], node_repl_disabled: true,
   supports_search_tool: false, include_apps_usage_instructions: false, include_plugin_usage_instructions: false,
   include_skills_usage_instructions: false };
-/* The account's catalog made safe, or null: no catalog yet, another Codex version's, or a field not known here. */
-function deriveCatalog(accountDir) {
+/* The account's catalog made safe as { catalog }, or { why } saying which of the three reasons it cannot be used. */
+function catalogFor(accountDir) {
   let cache;
-  try { cache = JSON.parse(fs.readFileSync(path.join(accountDir, 'models_cache.json'), 'utf8')); } catch { return null; }
-  if (!cache || !Array.isArray(cache.models) || !cache.models.length) return null;
-  if (cache.client_version !== pinnedVersion()) return null;
-  if (cache.models.some((m) => !m || typeof m !== 'object' || Object.keys(m).some((k) => !MODEL_FIELDS.has(k)))) return null;
-  return { models: cache.models.map((m) => {
+  try { cache = JSON.parse(fs.readFileSync(path.join(accountDir, 'models_cache.json'), 'utf8')); } catch { cache = null; }
+  if (!cache || !Array.isArray(cache.models) || !cache.models.length) return { why: WHY_CATALOG };
+  if (cache.client_version !== pinnedVersion()) return { why: WHY_CATALOG_VERSION };
+  if (cache.models.some((m) => !m || typeof m !== 'object' || Object.keys(m).some((k) => !MODEL_FIELDS.has(k)))) return { why: WHY_CATALOG_UNKNOWN };
+  return { catalog: { models: cache.models.map((m) => {
     const out = { ...m, ...FORCED };
     delete out.multi_agent_version;   // absent is a value Codex accepts (gpt-5.5 has none)
     return out;
-  }) };
+  }) } };
 }
+/* The catalog alone, or null. */
+function deriveCatalog(accountDir) { return catalogFor(accountDir).catalog || null; }
 
 /* The Responses API's built-in tool types: each is a tool by its type alone, with no name. */
 const BUILTIN_TOOL_TYPES = new Set(['local_shell', 'shell', 'web_search', 'web_search_preview', 'computer_use_preview',
@@ -145,16 +148,20 @@ const pinnedVersion = () => { try { return require('./runners').MANIFEST.openai.
 const versionCache = new Map();
 const VERSION_TTL_MS = 10 * 60 * 1000;
 const VERSION_FAIL_TTL_MS = 60 * 1000;
+/* The cache key names the program itself (its real path, inode and size, as well as mtime): an npm install keeps a
+   fixed 1985 mtime, so an upgrade under the same path would not change an mtime-only key (#5346 review). */
+const versionKey = (bin) => {
+  try { const real = fs.realpathSync(bin); const st = fs.statSync(real); return [real, st.ino, st.size, st.mtimeMs].join('\u0000'); } catch { return bin; }
+};
+const parseVersion = (out) => { const m = /(\d+\.\d+\.\d+)/.exec(String(out || '')); return m ? m[1] : null; };
+const versionOpts = () => ({ encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: childEnv(process.env, os.tmpdir()) });
 let versionFn = (bin) => {
-  let key = bin;
-  try { key = bin + '\u0000' + fs.statSync(bin).mtimeMs; } catch { /* the run below reports it */ }
+  const key = versionKey(bin);
   const hit = versionCache.get(key);
   if (hit && Date.now() - hit.at < (hit.v ? VERSION_TTL_MS : VERSION_FAIL_TTL_MS)) return hit.v;
   let v = null;
   try {
-    const out = require('node:child_process').execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: childEnv(process.env, os.tmpdir()) });
-    const m = /(\d+\.\d+\.\d+)/.exec(String(out));
-    v = m ? m[1] : null;
+    v = parseVersion(require('node:child_process').execFileSync(bin, ['--version'], versionOpts()));
   } catch { v = null; }
   // A version that could not be read is kept only a minute: long enough that a broken Codex does not stall every
   // request on a 5 s run, short enough that a busy moment does not switch the reader off for good.
@@ -162,8 +169,17 @@ let versionFn = (bin) => {
   return v;
 };
 const versionFnReal = versionFn;
-/** Tests only: the version lookup (bin -> version or null); null restores the real one. */
-function setVersion(fn) { versionFn = typeof fn === 'function' ? fn : versionFnReal; }
+/* At the read: asked fresh (no cache) and without blocking the board, so a Codex upgraded while the consent box was
+   open is the one checked. */
+const freshVersionReal = (bin) => new Promise((resolve) => {
+  require('node:child_process').execFile(bin, ['--version'], { ...versionOpts(), stdio: undefined }, (err, out) => resolve(err ? null : parseVersion(out)));
+});
+let freshVersion = freshVersionReal;
+/** Tests only: the version lookup (bin -> version or null), for the choice and the read; null restores the real ones. */
+function setVersion(fn) {
+  versionFn = typeof fn === 'function' ? fn : versionFnReal;
+  freshVersion = typeof fn === 'function' ? (bin) => Promise.resolve(fn(bin)) : freshVersionReal;
+}
 
 /* The person's own instructions, which Codex sends with every request from the account's folder and which no flag
    switches off (measured in review: AGENTS.override.md, else AGENTS.md, reached the request under every flag,
@@ -190,7 +206,9 @@ const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has C
 /* Windows: the flags, the catalog and the capture were measured on a Mac only, and no administrator-managed layer is
    known there to check. Off until measured, as an unknown is everywhere else in this file. */
 const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. A CSV or Excel export works with any provider, and so does typing the list.';
-const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up a model list Kosmos can use for this account. Start an OpenAI agent once, then try again. A CSV or Excel export works with any provider, and so does typing the list.';
+const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up its model list for this account. Start an OpenAI agent once, then try again. A CSV or Excel export works with any provider, and so does typing the list.';
+const WHY_CATALOG_VERSION = 'ChatGPT does not read org charts with this account: its model list was written by a Codex other than the version Kosmos has checked. A CSV or Excel export works with any provider, and so does typing the list.';
+const WHY_CATALOG_UNKNOWN = 'ChatGPT does not read org charts with this account: its model list has settings Kosmos has not checked, so it is not used. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. A CSV or Excel export works with any provider, and so does typing the list.';
 const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. A CSV or Excel export works with any provider, and so does typing the list.';
 
@@ -213,7 +231,8 @@ function pickWithWhy() {
   if (personalInstructions(r.dir)) return { reader: null, offWhy: WHY_INSTRUCTIONS };
   if (managedConfig()) return { reader: null, offWhy: WHY_MANAGED };
   // Before the consent box, not after it: a model list Codex cannot use here is a reason, not a failed read.
-  if (!deriveCatalog(r.dir)) return { reader: null, offWhy: WHY_CATALOG };
+  const cat = catalogFor(r.dir);
+  if (!cat.catalog) return { reader: null, offWhy: cat.why };
   return { reader: { kind: 'codex', provider: 'openai', dir: r.dir, account: r.email || r.name || null }, offWhy: null };
 }
 function pick() { return pickWithWhy().reader; }
@@ -234,7 +253,18 @@ function cannotRead(media) {
   return 'ChatGPT cannot read this kind of picture. Save it as a PNG or JPG, or use a CSV or Excel export.';
 }
 
-const EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
+const EXT = { 'image/png': '.png', 'image/jpeg': '.jpg' };
+const TMP_PREFIX = 'kosmos-orgchart-codex-';
+/* A read's folder holds the chart (real names) until the read ends. If the board died mid-read, the next read removes
+   any such folder older than 15 minutes: far past the read timeout, so never one still in use. */
+function sweepStale() {
+  let names = [];
+  try { names = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith(TMP_PREFIX)); } catch { return; }
+  for (const n of names) {
+    const p = path.join(os.tmpdir(), n);
+    try { const st = fs.lstatSync(p); if (st.isDirectory() && Date.now() - st.mtimeMs > 15 * 60 * 1000) fs.rmSync(p, { recursive: true, force: true }); } catch { /* gone, or not ours */ }
+  }
+}
 /* The event items a read may produce. Anything else (a command, a file change, an MCP or tool call, a web search)
    means a tool ran: the run is killed and its answer refused. A tripwire, not the guarantee (the flags are). */
 // todo_list is what update_plan produces. request_user_input's item type is not listed on purpose: if it ever emits
@@ -269,19 +299,29 @@ function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : (bin, args, op
  * folder, removed afterwards.
  */
 function read(reader, prompt, media, buf, signal) {
-  const schemaObj = require('./orgchartkeys').STRICT_SCHEMA;
   const bin = binFn();
   if (!bin) return Promise.resolve({ ok: false, unavailable: true, because: 'no ChatGPT connection on this computer' });
   if (!READS[media]) return Promise.resolve({ ok: false, because: cannotRead(media) });
   // Asked again at the moment of the read: a file made, or a Codex upgraded, while the consent box was open.
   if (process.platform === 'win32') return Promise.resolve({ ok: false, because: WHY_WINDOWS });
-  { const want = pinnedVersion(); const have = versionFn(bin); if (!want || have !== want) return Promise.resolve({ ok: false, because: whyVersion(have, want || 'unknown') }); }
+  return freshVersion(bin).then((have) => {
+    const want = pinnedVersion();
+    if (!want || have !== want) return { ok: false, because: whyVersion(have, want || 'unknown') };
+    return readChecked(reader, prompt, media, buf, signal, bin);
+  });
+}
+
+/* The read once the version is known to be the pinned one. */
+function readChecked(reader, prompt, media, buf, signal, bin) {
+  const schemaObj = require('./orgchartkeys').STRICT_SCHEMA;
   if (personalInstructions(reader.dir)) return Promise.resolve({ ok: false, because: WHY_INSTRUCTIONS });
   if (managedConfig()) return Promise.resolve({ ok: false, because: WHY_MANAGED });
-  const catalog = deriveCatalog(reader.dir);
-  if (!catalog) return Promise.resolve({ ok: false, because: WHY_CATALOG });
+  const cat = catalogFor(reader.dir);
+  if (!cat.catalog) return Promise.resolve({ ok: false, because: cat.why });
+  const catalog = cat.catalog;
+  sweepStale();
   let dir;
-  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-codex-')); fs.chmodSync(dir, 0o700); } catch { return Promise.resolve({ ok: false, because: 'the read failed' }); }
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), TMP_PREFIX)); fs.chmodSync(dir, 0o700); } catch { return Promise.resolve({ ok: false, because: 'the read failed' }); }
   const cleanup = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
   const work = path.join(dir, 'work');
   const schema = path.join(dir, 'schema.json');
@@ -387,4 +427,4 @@ function read(reader, prompt, media, buf, signal) {
   });
 }
 
-module.exports = { WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

@@ -7263,9 +7263,10 @@ const server = http.createServer(async (req, res) => {
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
      rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
-     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js) or, with no
-     Claude, by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools (engine/orgchartkeys.js,
-     #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js); with no Claude, a
+     picture by their ChatGPT subscription through Codex, offered only two tools that cannot act (engine/orgchartcodex.js,
+     #5346); otherwise by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools
+     (engine/orgchartkeys.js, #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
      `{ needsConsent, provider, reader, uses, keeps }`, so the page can say who reads it, and what that provider
      keeps, before anything leaves the Mac (Liu Kang's condition 1), and the send goes only to that reader. Nothing
      is stored. Board-token gated like every /api route, and the consent send also wants the screen
@@ -7321,8 +7322,8 @@ const server = http.createServer(async (req, res) => {
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
         /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
-           (Claude's run is killed; a key provider's HTTP request is dropped, so Kosmos stops waiting, though a provider
-           may finish work it had already started). */
+           (Claude's run is killed; Codex's whole process group is killed; a key provider's HTTP request is dropped, so
+           Kosmos stops waiting, though a provider may finish work it had already started). */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
         if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read

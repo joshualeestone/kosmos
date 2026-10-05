@@ -14,6 +14,8 @@ const o = require('./orgchartfile');
    OpenAI, Gemini or Grok account on the machine running the tests and spend its key, so the key path is off here;
    engine/orgchartkeys.test.js tests it against a stub server. */
 require('./orgchartkeys').setAccounts(() => []);
+// Nor a ChatGPT subscription (#5346): run alone from a Codex session, CODEX_HOME names a real account.
+require('./orgchartcodex').setAccounts(() => []);
 
 const csv = (s) => o.readLocal('people.csv', Buffer.from(s));
 

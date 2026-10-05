@@ -20,6 +20,8 @@ delete process.env.CLAUDE_CONFIG_DIR;
 
 const keys = require('./orgchartkeys');
 const o = require('./orgchartfile');
+// No ChatGPT subscription either (#5346): run alone from a Codex session, CODEX_HOME names a real account.
+require('./orgchartcodex').setAccounts(() => []);
 
 const FIX = path.join(__dirname, '..', 'test-support', 'orgchart-4559');
 const PNG = fs.readFileSync(path.join(FIX, 'chart.png'));
