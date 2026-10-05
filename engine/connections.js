@@ -128,6 +128,35 @@ function blockBody() {
     'answer. Being the one who asks a clear question about the screen is more',
     'useful than confidently describing the wrong one.',
     '',
+    /* #5309 (a day-one report): a plugin installed and enabled in the person's own Claude Code or Codex never
+       reached their agents, through restarts, and nothing could tell them why. Kosmos sets up no plugins; an
+       agent reads its OWN provider home, which is the person's only for the default account (CLAUDE_CONFIG_DIR
+       unset), and a separate folder for every other account. Measured: each config folder keeps its own
+       plugins/installed_plugins.json. Knowledge only: where to look, never what is there. */
+    '## A plugin the person installed in their own app',
+    '',
+    'Kosmos does not install provider plugins (a CRM, a calendar and so on).',
+    'A person installs those in their own Claude Code or Codex app, and the app',
+    'keeps them in its own folder. **You see a plugin only if it is in YOUR',
+    'folder**, and yours is not always the same as the person\'s:',
+    '',
+    '- **Claude Code:** your folder is the one in `CLAUDE_CONFIG_DIR`, or',
+    '  `~/.claude` when that is not set. Installed plugins are listed in',
+    '  `plugins/installed_plugins.json` inside it. An agent on a second Claude',
+    '  account has its own folder, so it does not get plugins installed in',
+    '  `~/.claude`. Connectors added on the claude.ai website reach only an agent',
+    '  signed in with a Claude account, never one running on an API key.',
+    '- **Codex:** your folder is the one in `CODEX_HOME`, or `~/.codex` when that',
+    '  is not set. Installed plugins sit under `plugins` inside it.',
+    '',
+    '**When the person says a plugin is connected and you cannot use it,**',
+    'check your folder before anything else. If it is in their folder and not',
+    'in yours, say so plainly: it is connected in their own app, and this agent',
+    'runs from another folder, so it cannot see it. Restarting does not change',
+    'that, so do not suggest it. If it IS in your folder and still fails, that',
+    'is a different problem, for example a sign-in the plugin still needs, and',
+    'say which of the two it is.',
+    '',
     /* #4451 (Josh, 2026-09-28 19:57): agents did not know the Connections tab at all. */
     '## The Connections tab: the services you can work with',
     '',
