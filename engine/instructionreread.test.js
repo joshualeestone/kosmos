@@ -162,8 +162,14 @@ test('review 4: oweChanged owes a community re-read to exactly the agents whose 
 });
 
 test('review 5: just before typing, the card is read again; one that stopped being idle is not typed into', async () => {
+  // The same fleet a moment later, with ida now on a question (a real second snapshot, not a hand-built card).
+  const ASKING = (() => {
+    const board = fleet.install([fleet.agent('ida', { state: 'needs_you' }), fleet.agent('ned', { state: 'needs_you' }), fleet.agent('wes', { state: 'working' })]);
+    try { return status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  })();
+  assert.equal(nudgeable(ASKING.find((c) => c.sessionName === 'ida')), false, 'fixture: ida does not read as asking');
   let calls = 0;
-  const flip = () => { calls += 1; return calls === 1 ? CARDS : CARDS.map((c) => (c.sessionName === 'ida' ? CARDS.find((x) => x.sessionName === 'ned') && { ...CARDS.find((x) => x.sessionName === 'ned'), sessionName: 'ida' } : c)); };
+  const flip = () => { calls += 1; return calls === 1 ? CARDS : ASKING; };
   const p = passArgs({ owed: { ida: debt() }, o: { roster: flip } });
   const r = await ir.passOnce(p.o);
   assert.deepEqual(p.sent, [], 'typed into a card that was no longer idle at the moment of sending');
