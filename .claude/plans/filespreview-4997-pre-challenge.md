@@ -2,27 +2,29 @@
 pre_challenge: true
 method: challenge-loop
 branch: filespreview-4997
-diff_hash: 8e7845aee0b62d84afde89be23a8e0f7f100fd84e0ab65c6c609ebec4934d16a
-validation: passed (focused at cbe6e72fc after the rebase onto main: 728 related tests 0 fail, 121 repo audit files 3623 tests 0 fail, the reviewer's 1180 tests 0 fail; the full suite and FULL browser checks are queued after this proof)
+diff_hash: 31dd0aeedf074039e8db380b187beb2e5a16c4ddbb9dc4af2ae577f28780753f
+validation: passed (full suite at c96f15077: 15261 tests 0 fail, status clean; FULL browser checks at c96f15077 failed ONLY render-agent-files-3614, stale against this PR and updated at 3b4521ed3/ead7046b6; the suite and FULL browser checks re-run after this proof)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-05T00:42:15Z
-iterations: 10
+timestamp: 2026-10-05T06:15:06Z
+iterations: 11
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary: the rebase onto main (2026-10-04 evening)
 
-**Iterations:** 10 (iteration 10 is a blind opus review of the rebase onto main: 137 main commits, 0ef8b4094 -> cbe6e72fc).
+**Iterations:** 11 (iteration 11 reviewed the stale-check update after the full browser checks; iteration 10 is a blind opus review of the rebase onto main: 137 main commits, 0ef8b4094 -> cbe6e72fc).
 **Converged:** Yes. Iteration 10 found no BLOCKER or WARNING.
 **Conflict:** one, in browser-checks-reason-grep.test.js. Main replaced the hand-kept totals with per-check SITE_COUNTS lines; resolved to main's side plus `'render-files-preview-4997.js': [1, 1]`, measured by the file's own count test (sorted, and the measured-count test passes).
 
 ### Per-Iteration Breakdown
+- [NIT] iteration 11 (sonnet, the render-agent-files-3614 update at 3b4521ed3): no assertion that Escape closed the preview before the Cmd-click --> FIXED ead7046b6
 - [NIT] iteration 10: the check is launched by its own run_one line rather than a line in docs/browser-checks/gated.txt, a likely future conflict spot --> DEFERRED (not caused by the rebase; moving it changes the runner's wiring, out of scope for a rebase)
 
 ### Final Ledger
 | # | Iter | Cat | File | Origin | Description | Status |
 |---|---|---|---|---|---|---|
 | 1 | 10 | N | tools/browser-checks.sh | BRANCH | run_one line, not gated.txt | DEFERRED |
+| 2 | 11 | N | docs/browser-checks/render-agent-files-3614.js | SELF | no assertion that Escape closed the preview | FIXED |
 
 Overlap (iteration 10): main's server.js hunks add no route and touch none of this PR's routes, refuseDownload, sendFileDownload or fileInFolder; of the web/index.html hunks only #5218 touches `.pj-doc`, its size only; engine/projects.js gained changedFileTimes, which calls none of this PR's functions; tools/browser-checks.sh's #5231 hunks are compatible.
 
