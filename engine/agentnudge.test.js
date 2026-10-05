@@ -347,7 +347,10 @@ test('#4771 review 2: the nudge names the pause verb with the project id, so a r
 test('#5320: the nudge names needs_you for a wait on the person, and blocked only for other agents, deploys and reviews', () => {
   const text = nudge.nudgeText({ n: 20, projectId: 'relayforge', project: 'RelayForge', sentence: 'gross margin re-check' });
   assert.match(text, /another agent, a deploy or a review: kosmos report blocked --on <what> --owner <who>; /);
-  assert.match(text, /your person's answer or decision: kosmos report needs_you "<your question>"/);
+  assert.match(text, /your person's answer or decision: kosmos report needs_you --project relayforge "<your question>"/);
+  // CONTROL: with no safe id the needs_you form names no project (never a rewritten one).
+  assert.match(nudge.nudgeText({ n: 20, project: 'RelayForge', sentence: 'x' }), /kosmos report needs_you "<your question>"$/);
+  assert.match(nudge.nudgeText({ n: 20, projectId: 'bad id!', project: 'X', sentence: 'x' }), /kosmos report needs_you "<your question>"$/);
   // The one-line contract holds with the longer text.
   assert.doesNotMatch(text, /[\u0000-\u001f\u007f-\u009f]/);
   // CONTROL: blocked is no longer offered for every wait.

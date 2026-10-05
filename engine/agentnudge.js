@@ -99,11 +99,12 @@ function nudgeText(part) {
   // Not all dots: both CLIs refuse such an id (review 4).
   const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId) && /[^.]/.test(part.projectId)) ? part.projectId : '';
   /* #5320: one suggestion for every wait sent agents waiting on their PERSON to `blocked --owner <person>`, which nothing
-     escalates (heartbeat.js does not chase it, recommender.js never acts on it), instead of needs_you. Name both. */
+     chases (heartbeat.js), instead of needs_you, which reaches the person. Name both. The needs_you form carries
+     --project when the id is safe: recommender.js (when it is on) acts only on a needs_you that names its project. */
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or say what you are waiting on: '
     + 'another agent, a deploy or a review: kosmos report blocked --on <what> --owner <who>; '
-    + 'your person\'s answer or decision: kosmos report needs_you "<your question>"'
+    + 'your person\'s answer or decision: kosmos report needs_you ' + (id ? '--project ' + id + ' ' : '') + '"<your question>"'
     + (id ? '. Only if your person asked in the room to pause this project: kosmos project pause ' + id + ' (the room is told you paused it)' : '');
 }
 

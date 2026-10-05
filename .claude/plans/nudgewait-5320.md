@@ -6,13 +6,15 @@
   asked in the room (engine/agentnudge.js nudgeText, #4771 review 2).
 - What is still live is the report's Finding 1 (~/.cache/claude-handoffs/josh-reports-1005/kosmos-audit-board-status-tasks.md):
   the nudge's only suggestion for any wait is `kosmos report blocked --on <what> --owner <who>`. An agent waiting on its
-  person filled in the person's name and chose `blocked`, which heartbeat.js does not chase and recommender.js never acts
-  on, instead of `needs_you`, which recommender.js escalates after 10 minutes.
+  person filled in the person's name and chose `blocked`, which heartbeat.js does not chase, instead of `needs_you`,
+  which reaches the person on its own notify path (heartbeat.js). recommender.js (default OFF) also acts on a needs_you,
+  but only one that names its project (stuckRow drops a missing or carried-over stateProject).
 
 ## Change
 `engine/agentnudge.js` nudgeText: "Pick it up, or say what you are waiting on: another agent, a deploy or a review:
 kosmos report blocked --on <what> --owner <who>; your person's answer or decision: kosmos report needs_you "<your
-question>"". The needs_you form is the one the agent instructions already teach (engine/defaults.js:124). The quotes stay:
+question>"", with `--project <id>` before the question when the project id is safe (the same check as the pause
+hint), so the Recommender can act on it when it is on. The needs_you form is the one the agent instructions already teach (engine/defaults.js:124). The quotes stay:
 an unquoted question ending in `?` fails in zsh ("no matches found").
 
 ## Tests
