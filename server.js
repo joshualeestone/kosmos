@@ -18593,6 +18593,8 @@ const server = http.createServer(async (req, res) => {
         const caller = processCaller(req, body, roster, false, 'the role was not set');
         if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
         name = (caller.card && caller.card.sessionName) || null;
+        // A roster nobody could read names nobody: a 503, not "could not tell which agent you are".
+        if (!name && roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the role was not set' }); return; }
         if (!name) { sendJson(res, 403, { error: 'run this as an agent: Kosmos could not tell which agent you are' }); return; }
         /* The stored spelling of this member, as task built finds it: a paneless caller (every Windows agent) by key. */
         let stored = null;
@@ -18607,7 +18609,7 @@ const server = http.createServer(async (req, res) => {
       try { out = projects.setRoleHere(id, name, body.role); }
       catch (err) {
         const because = String((err && err.message) || 'the role was not set');
-        sendJson(res, err && err.code === 'UNREADABLE' ? 500 : /no project by that name/.test(because) ? 404 : (/not on this project/.test(because) && !viaScreen) ? 403 : 400, { error: because });
+        sendJson(res, err && err.code === 'UNREADABLE' ? 503 : /no project by that name/.test(because) ? 404 : (/not on this project/.test(because) && !viaScreen) ? 403 : 400, { error: because });
         return;
       }
       sendJson(res, 200, { ok: true, role: out.role });

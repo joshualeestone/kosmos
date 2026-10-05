@@ -3247,7 +3247,7 @@ function blockBody(projects, sessionName) {
       'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
-      `Say in a few words what you do on each project, so \`${cliShown} project show\` lists you by it:`,
+      `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
     ] : []),
   ].join('\n');

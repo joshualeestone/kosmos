@@ -27,7 +27,7 @@ async function run(argv, answer, env) {
 test('#5300 Windows: project role POSTs the words with the agent token, set and cleared', async () => {
   const r = await run(['project', 'role', 'p1', 'Researcher'], () => ({ body: JSON.stringify({ ok: true, role: 'Researcher' }) }));
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /Set\. kosmos project show p1 lists you with that role on this project\./);
+  assert.match(r.out, /Set your role on p1\. kosmos project show p1 prints it beside your name\./);
   assert.equal(r.calls.length, 1);
   assert.equal(r.calls[0].method, 'POST');
   assert.equal(r.calls[0].route, '/api/project/p1/role');

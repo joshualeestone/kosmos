@@ -979,7 +979,7 @@ async function projectRole(ctx, args) {
   if (r.status === 200 && r.json && r.json.ok === true) {
     ctx.out(r.json.role === null
       ? 'Cleared your role on ' + project + '. kosmos project show ' + project + ' lists your own role again.'
-      : 'Set. kosmos project show ' + project + ' lists you with that role on this project.');
+      : 'Set your role on ' + project + '. kosmos project show ' + project + ' prints it beside your name.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set that role: ' + ctx.refusedBy(r) + '.'); return 1; }

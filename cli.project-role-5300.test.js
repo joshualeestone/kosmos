@@ -54,7 +54,7 @@ test('#5300 Mac CLI: project role POSTs the words with the agent\'s token and th
   withBoard(() => [200, { ok: true, role: 'Researcher "lead"' }], async (env, hits) => {
     const r = await runCli(['project', 'role', 'p1', 'Researcher "lead"\\ x'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /Set\. kosmos project show p1 lists you with that role on this project\./);
+    assert.match(r.stdout, /Set your role on p1\. kosmos project show p1 prints it beside your name\./);
     assert.equal(hits.length, 1, JSON.stringify(hits));
     assert.equal(hits[0].method, 'POST');
     assert.equal(hits[0].url, '/api/project/p1/role');

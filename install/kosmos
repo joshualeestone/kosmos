@@ -4219,7 +4219,7 @@ cmd_project() {
       [ "$rc" -eq 0 ] || { say_unreached "set your role there" "$rc" write; exit 1; }
       case "$body" in
         '{"ok":true,"role":null}'*) say "Cleared your role on $1. kosmos project show $1 lists your own role again." ;;
-        '{"ok":true'*) say "Set. kosmos project show $1 lists you with that role on this project." ;;
+        '{"ok":true'*) say "Set your role on $1. kosmos project show $1 prints it beside your name." ;;
         '{"error":'*)
           because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos did not set that role: ${because:-it did not say why}."; exit 1 ;;

@@ -170,7 +170,7 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
   /* #4914 added `assign` to the task verbs: its handler identifies the caller from the token (processCaller) and refuses
      an agent not on the project (notOnProjectRefusal), measured in server.task-assign-4914.test.js. */
-  /* #5300 added `role`, a WRITE: its handler identifies the caller from the token (senderFromAgentToken), sets only that
+  /* #5300 added `role`, a WRITE: its handler identifies the caller with processCaller (token, else pane), sets only that
      agent's own role, and refuses an agent not on the project (projects.setRoleHere), measured in
      server.project-role-5300.test.js. */
   assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
