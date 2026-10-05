@@ -87,7 +87,7 @@ test('#5302: the agents to fit are the send layer\'s list (at most 100); none wi
   assert.equal(j.ok, true, 'the list failing broke the industry answer');
 });
 
-test('#5302: a refit PUT names the version it read; the route refuses a changed picture and keeps the original first', () => {
+test('#5302: a refit PUT (x-kosmos-refit-of) goes through store.saveRefitAvatar, a changed picture answering 409', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /const refitOf = req\.headers\['x-kosmos-refit-of'\];\n\s*if \(refitOf !== undefined\) \{\n\s*if \(String\(store\.avatarVersion\(name\)\) !== String\(refitOf\)\) \{ sendJson\(res, 409,[^\n]*\n\s*store\.keepAvatarOriginal\(name\);\n\s*\}\n\s*store\.saveAvatar\(/);
+  assert.match(src, /const refitOf = req\.headers\['x-kosmos-refit-of'\];\n\s*if \(refitOf !== undefined\) \{\n\s*try \{ store\.saveRefitAvatar\(name, req\.headers\['content-type'\], buf, refitOf\); \}\n\s*catch \(e\) \{ if \(e && e\.code === 'CHANGED'\) \{ sendJson\(res, 409,/);
 });

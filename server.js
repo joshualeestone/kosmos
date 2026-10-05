@@ -5927,10 +5927,9 @@ const server = http.createServer(async (req, res) => {
            written. */
         const refitOf = req.headers['x-kosmos-refit-of'];
         if (refitOf !== undefined) {
-          if (String(store.avatarVersion(name)) !== String(refitOf)) { sendJson(res, 409, { error: 'that picture changed since it was read' }); return; }
-          store.keepAvatarOriginal(name);
-        }
-        store.saveAvatar(name, req.headers['content-type'], buf);
+          try { store.saveRefitAvatar(name, req.headers['content-type'], buf, refitOf); }
+          catch (e) { if (e && e.code === 'CHANGED') { sendJson(res, 409, { error: e.message }); return; } throw e; }
+        } else store.saveAvatar(name, req.headers['content-type'], buf);
         sendJson(res, 200, { ok: true });
       })
       // The message is shown to the person verbatim, so it has to say what to

@@ -40,3 +40,9 @@ guards; both browser-check gates; full browser-checks on the final head (queued)
 Original kept before the overwrite; version-gated refit PUT (no race with the chooser); no re-read over an industry save in
 flight. Decided NITs: a paint during a running refit drops its list until the next paint; pictureToFit is called twice per
 read (small, flagged agents only).
+
+## Review 2 (fixed / decided)
+The gate lives in store.saveRefitAvatar (version check, keep the original, then save; runtime-tested: stale version and a
+failed keep write nothing). One original per version (`<key>.<mtime><ext>`), copied to a temp name and renamed; removeAvatar
+clears an agent's originals. Weakest premise: the version is the rounded mtime, so two saves in one millisecond share it
+(the keep then finds that version already kept, which held the same bytes when it was kept).
