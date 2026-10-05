@@ -6962,7 +6962,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
-/* #4631: Copy message reference, first in the hover bar, drawn like Reply. The number is faint: it is there so a
+/* #4631: Copy message reference (#5312: now "Copy message id", after Copy message), drawn like Reply. The number is faint: it is there so a
    person sees what they copy, not to be read as part of the message. #5312: Copy message (the whole text) comes first,
    drawn the same, and the reference became "Copy message id". */
 .rxn-ref, .rxn-copy { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
@@ -63469,7 +63469,7 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
    panel already uses, opened beside whichever post's smiley was clicked. */
 /* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
-   message to then reference it to an agent later on". Every message offers "Copy message reference": right-click
+   message to then reference it to an agent later on". Every message offers a reference (#5312: "Copy message id"): right-click
    (which is ctrl-click on a Mac), ctrl-click on Windows, and a button at the start of the hover bar for touch and
    keyboard. It copies words a person can paste to any agent: "message 530 in Kosmos Growth" for a message with a
    number (ids are one sequence for the whole Kosmos, so the number alone finds it and the room is for the reader;
@@ -63549,7 +63549,7 @@ function msgToast(text) {
    file by its name on a line of its own. PURE. A post with no words carries its file names as its text (pjWords), so
    the names are not said twice. */
 function msgCopyWords(m) {
-  const text = m && typeof m.text === 'string' ? m.text.replace(/\s+$/, '') : '';
+  const text = m && typeof m.text === 'string' ? m.text.replace(/\s+$/, '').replace(/^(?:[ \t]*\r?\n)+/, '') : '';   // blank lines off both ends; a first line's indent stays
   const names = (typeof pjFiles === 'function' ? pjFiles(m) : []).map((a) => (typeof a.name === 'string' ? a.name.trim() : '')).filter(Boolean);
   if (names.length && text.trim() === names.join(', ')) return names.join('\n');
   return [text.trim() ? text : ''].concat(names).filter(Boolean).join('\n');
@@ -63674,9 +63674,12 @@ function msgMenuOpen(row, x, y) {
   }
   const host = row.closest('#pj-room') ? 'pj-room' : 'd-dmthread';
   m.msgRef = { row, host, mid: row.getAttribute('data-mid') || '' };
-  /* Each item only where it has something to copy: an outside guest's row has words but no id. */
-  document.getElementById('msg-menu-text').hidden = !msgCopyText(row);
-  document.getElementById('msg-menu-copy').hidden = !msgRefText(row);
+  /* Each item only where it has something to copy: an outside guest's row has words but no id. With neither, no menu
+     (the touch bar's Copy reaches here without msgMenuRowFor's check). */
+  const hasText = !!msgCopyText(row), hasRef = !!msgRefText(row);
+  if (!hasText && !hasRef) { m.hidden = true; m.msgRef = null; return; }
+  document.getElementById('msg-menu-text').hidden = !hasText;
+  document.getElementById('msg-menu-copy').hidden = !hasRef;
   m.msgBack = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
   m.hidden = false;
   /* A keyboard's menu key reports no pointer position (0, 0): open it at the message instead of the corner. */
