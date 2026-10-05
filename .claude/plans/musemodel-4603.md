@@ -32,5 +32,15 @@ Each fix site perturbed: every one turns a test red.
 On a served build, a Muse agent's `kosmos whoami` names its model during the first turn after it starts. The tests prove
 the file is on disk mid-turn; they do not prove the served whoami line.
 
-## Weakest premise
-That the seat ran whoami in the first turn of its front's life. If it was a later turn, this is not the cause.
+## Review 2
+- The settled check and a late chunk are ordered because both run on the one Node thread: the stop resolves the turn
+  synchronously, and a later 'data' event runs after it. Not stated in code, recorded here.
+- The late-output test calls stop right after runTurn; it relies on runTurn starting runMuse before its first await.
+- Plan file name: `<branch>.md`, as every other plan in this repo's .claude/plans/ is named (deferred: repo practice).
+
+## Weakest premises
+1. That the seat ran whoami in the first turn of its front's life. If it was a later turn, this is not the cause.
+2. That real Muse writes `run.model.configured` to its stdout pipe early in the turn. If it buffers its JSONL until it
+   exits, the model still arrives only at the end and this changes nothing. The research captures on #3939 show the
+   event as sequence 3 of ~90, but they do not show WHEN it reached the pipe. Check on the served build together with
+   the done-condition above.

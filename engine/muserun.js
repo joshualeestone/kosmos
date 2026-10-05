@@ -125,6 +125,7 @@ function modelWatcher(onModel) {
     try {
       const parts = (pending + dec.write(buf)).split('\n');
       pending = parts.pop();
+      // After a drop, the first segment is the dropped line's tail (the 'tail of a dropped line' test).
       for (const l of parts) { if (dropping) { dropping = false; continue; } line(l); }
       if (pending.length > LINE_MAX) { pending = ''; dropping = true; }
     } catch { /* never throws */ }
