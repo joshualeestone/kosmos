@@ -64,3 +64,20 @@ test('#5212 (April\'s review 4): the turn is given the home line, and each pass 
   assert.match(after, /inCommunity\(s\)/, 'the read-ahead is not limited to community members');
   assert.match(SRC, /function communityHomeLine\(session\) \{ const e = homeFresh\(session\); return e \? e\.line : null; \}/);
 });
+
+test('#5296: the turn is given the agent\'s report history, so a further prompt needs work since the last post', () => {
+  assert.match(w, /history:\s*\(session\)\s*=>\s*selfreport\.history\(session\)/);
+});
+
+test('#5297: at board start the community block is refreshed in the agents that carry it, and each changed agent is told', () => {
+  const r = SRC.indexOf("require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating())");
+  assert.notEqual(r, -1, 'no board-start refresh of the community block');
+  const win = SRC.slice(r, SRC.indexOf('could not refresh what agents know about the Kosmos+ community', r));
+  assert.match(win, /t\.changed === true/, 'agents are told whether or not their block changed');
+  assert.match(win, /liveExecution\.liveExecutionAllowed\(\)/, 'the re-read line is not gated on live execution');
+  assert.match(win, /chat\.deliverAutomaticAsync\(session, reread, safeRoster\(\)/, 'the re-read line does not go through the automatic (quota-held) sender');
+  assert.doesNotMatch(win, /chat\.deliver\(|chat\.deliverAsync\(/);
+  // It sits with the other board-start sweeps (before the language block, which says it is the last).
+  assert.ok(r < SRC.indexOf("/* #5050: the person's language block, refreshed at boot"), 'the refresh is not among the board-start sweeps');
+  assert.ok(r > SRC.indexOf('const told = dmfiles.syncEveryone(safeRoster());'), 'the refresh is not among the board-start sweeps');
+});
