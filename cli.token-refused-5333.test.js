@@ -96,6 +96,7 @@ function assertRecovery(stderr) {
   assert.match(stderr, /restart you from Kosmos \(your page, Restart; "Write a handoff, then\s+restart" keeps what you were doing\)/);
   assert.match(stderr, /`kosmos adopt` does not\s+help/);
   assert.match(stderr, /If you have no page in Kosmos at all, your person can add\s+you from New agent\./);
+  assert.match(stderr, /If it still happens after a restart, tell your person: then it is not this session\./);   // a clash outlives a restart
 }
 const NOT_HEX = 'NOT-A-TOKEN';   // both CLIs send only a bare lowercase-hex token, so this one is never sent
 
