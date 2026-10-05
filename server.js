@@ -18286,12 +18286,13 @@ const server = http.createServer(async (req, res) => {
           }
           /* #5319: the task is added as asked (no silent dedup); the answer names OPEN tasks with the same text, so the
              adder can close one. Both CLIs print the note. It holds no double quote or backslash (the macOS CLI lifts
-             it with sed): the look-alikes' sentences are cut to 60 characters with those characters, control characters and
-             direction overrides taken out (a terminal can act on them). */
+             it with sed): the copies' sentences are cut to 60 characters with those characters, control characters and
+             direction overrides taken out (a terminal can act on them). The project id needs none: idFor makes ids of
+             [a-z0-9_-] only. */
           let note = '';
           try {
             const raw = projects.readAll().find((x) => x && x.id === id);
-            const alike = raw ? tasks.similarOpen(raw, made.sentence, made.number, { parent: made.parent || null }) : [];
+            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null }) : [];
             if (alike.length) {
               const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim());
                 return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };

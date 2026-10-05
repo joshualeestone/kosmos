@@ -2,10 +2,10 @@
 
 /**
  * #5319: `kosmos task add` with the same ask as an OPEN task still adds it (no silent dedup), and the board's answer
- * names the open look-alikes so the adder can close one. Seen on 0.7.22: one ask added as #1 and #11, another as #26,
+ * names the open tasks with the same text so the adder can close one. Seen on 0.7.22: one ask added as #1 and #11, another as #26,
  * #27 and #29.
  *
- * Pure rows on tasks.similarOpen, then the real route on a sandboxed board with a real project record, then both CLIs
+ * Pure rows on tasks.sameTextOpen, then the real route on a sandboxed board with a real project record, then both CLIs
  * run on a real answer.
  */
 
@@ -69,15 +69,15 @@ test('#5319: which open tasks count as the same (pure)', () => {
     ['', [], 'no words'],
   ];
   for (const [sentence, want, why] of rows) {
-    assert.deepEqual(tasks.similarOpen(P, sentence, 31).map((t) => t.number), want, `${JSON.stringify(sentence)}: ${why}`);
+    assert.deepEqual(tasks.sameTextOpen(P, sentence, 31).map((t) => t.number), want, `${JSON.stringify(sentence)}: ${why}`);
   }
-  assert.deepEqual(tasks.similarOpen(P, 'Verify Theo AI and Enzo Health', 1), [], 'a task is never the same as itself');
+  assert.deepEqual(tasks.sameTextOpen(P, 'Verify Theo AI and Enzo Health', 1), [], 'a task is never the same as itself');
   // Review round 1: two agents add the same ask at once (#40 and #41): only the OLDER copy is named, so never both close.
-  assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41).map((t) => t.number), [26, 40], 'the newest copy names the older ones');
-  assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 40).map((t) => t.number), [26], 'the older copy never names the newer one');
-  assert.deepEqual(tasks.similarOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [40], 'a subtask never names its own parent');
+  assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 41).map((t) => t.number), [26, 40], 'the newest copy names the older ones');
+  assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 40).map((t) => t.number), [26], 'the older copy never names the newer one');
+  assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [40], 'a subtask never names its own parent');
   // Review rounds 1 to 3: different asks a fuzzy rule matched; each judged against ONE open task.
-  const pair = (open, added) => tasks.similarOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
+  const pair = (open, added) => tasks.sameTextOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
   for (const [open, added, want, why] of [
     ['Email Alice about the contract renewal terms and pricing', 'Email Bob about the contract renewal terms and pricing', false, 'another person'],
     ['Ask Josh to approve the Ingram MSA draft today', 'Ask Josh to reject the Ingram MSA draft today', false, 'the opposite verb'],
@@ -87,8 +87,10 @@ test('#5319: which open tasks count as the same (pure)', () => {
     ['Add v2 login page', 'Add v3 login page', false, 'another version'],
     ['Deploy', 'Deploy', true, 'the very same one-word task'],
     ['修复登录错误', '修复登录错误', true, 'the very same Chinese task (no spaces)'],
-    ['Café menu', 'Café menu', true, 'the same text, another Unicode form (NFKC)'],
-    ['Ｆｉｘ login bug', 'Fix login bug', true, 'full-width letters are the same text'],
+    ['Café menu', 'Café menu', true, 'the same text, the same character written two ways (NFC)'],
+    ['Ｆｉｘ login bug', 'Fix login bug', false, 'full-width letters are other text (NFC, not NFKC): a miss'],
+    ['Graph y = x\u00b2', 'Graph y = x2', false, 'a superscript is not a digit (review 5: NFKC would fold it)'],
+    ['Rank \u2460', 'Rank 1', false, 'a circled number is not a digit'],
     // Review 4: signs and symbols carry meaning.
     ['Set offset to -5', 'Set offset to 5', false, 'a sign'],
     ['Ship if x > 5', 'Ship if x < 5', false, 'a comparison'],
@@ -97,7 +99,7 @@ test('#5319: which open tasks count as the same (pure)', () => {
     ['Pay $5', 'Pay \u20ac5', false, 'another currency'],
   ]) assert.equal(pair(open, added), want, `${open} | ${added}: ${why}`);
   const many = { tasks: [2, 3, 4, 5].map((n) => ({ number: n, sentence: 'deep dive worlds', closedAt: null })) };
-  assert.deepEqual(tasks.similarOpen(many, 'deep dive worlds', 99).map((t) => t.number), [2, 3, 4], 'at most three, oldest first');
+  assert.deepEqual(tasks.sameTextOpen(many, 'deep dive worlds', 99).map((t) => t.number), [2, 3, 4], 'at most three, oldest first');
 });
 
 function seed() {
@@ -110,7 +112,7 @@ async function add(sentence) {
   return { code: res.status, json: await res.json() };
 }
 
-test('#5319: the route adds a look-alike task and names the open one, with the close command', async () => {
+test('#5319: the route adds a same-text task and names the open one, with the close command', async () => {
   seed();
   const r = await add('verify theo ai and enzo health');
   assert.equal(r.code, 200, JSON.stringify(r.json));
