@@ -66458,6 +66458,10 @@ function pjFedMessage(body, fallback, opts) {
     // Only a sentence that ends "...lapses." takes the date; any other wording is shown as given.
     return (opts && opts.lapses && /lapses\.\s*$/.test(body.error)) ? body.error.replace(/\.\s*$/, '') + ' on ' + opts.lapses + '.' : body.error;
   }
+  // Remove and Withdraw (opts.change): the owner's own list, so the invite sheet's and the joiner's sentences do
+  // not fit. Their callers ask the list again for these reasons (it may hide the section or the row).
+  if (opts && opts.change && reason === 'not-owner') return 'Only the owner of this project can change who is in it.';
+  if (opts && opts.change && reason === 'expired') return 'This code has already lapsed, so there is nothing to withdraw.';
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',
@@ -68113,8 +68117,13 @@ async function fedRemoveGo() {
     return;
   }
   // A 403 means the request did not read as from this screen: nothing the person can act on.
-  if (!said) said = res.status === 403 ? fallback : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
-  if (!(res && res.status === 404) && still) { msg.textContent = said; fedOutsidePaint(false); return; }   // repaint: the row's Remove is live again
+  if (!said) said = res.status === 403 ? fallback : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { change: true });
+  // The board says this is not (or no longer) the owner's list to change: ask it again, which may hide it.
+  const stale = !!(body && ['not-owner', 'self-shared', 'expired'].includes(body.reason));
+  if (stale) fedMembersLoad(f.project);
+  // Repaint (the row's Remove is live again) and put focus back on Remove, which was disabled while it was asked,
+  // so a keyboard user is not left on <body> inside the dialog.
+  if (!(res && res.status === 404) && still) { msg.textContent = said; fedOutsidePaint(false); go.focus(); return; }
   // 404 (not a connection of this project any more): said beside the list, which is asked again; or the
   // dialog was closed meanwhile, so the refusal is said on the row instead.
   FED_MSGS[f.key] = said; fedSay(said);
@@ -68160,14 +68169,15 @@ async function fedWithdraw(r) {
   }
   if (!said) {
     said = res.status === 403 ? fallback
-      : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { lapses: fedShortDate(r.expires_at) });
+      : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { lapses: fedShortDate(r.expires_at), change: true });
   }
   FED_MSGS[key] = said; fedSay(said);
   fedOutsidePaint(false);
   // 409 joined: someone used the code meanwhile, so the row is now a joined one; 404: the code is not known any
   // more. Both ask again, and focus is placed after that repaint (the row's key changes or the row goes).
   let at = key;
-  if (timedOut || (res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)) {
+  if (timedOut || (res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)
+    || (body && ['not-owner', 'self-shared', 'expired'].includes(body.reason))) {
     await fedMembersLoad(project);
     if (PJ_CURRENT !== project) return;
     // Joined meanwhile: the row is now keyed by its connection, so the sentence moves under it (it points to that

@@ -74,7 +74,8 @@
  *       there. Control: B4, the same answer in the tab layout.
  *  B15 focus across a tab rebuild (a) and a rail rebuild (b); focus on the "+" after a Remove (c); a Remove that a
  *      Cancel did not stop says it went through (d); a Withdraw nobody answers is given up on (e); the rows at 390 (f);
- *      Remove pressed in the rail (g).
+ *      Remove pressed in the rail (g); a late answer never pulls focus out of another dialog (h); a Remove nobody
+ *      answers is given up on (i).
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
  *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
@@ -767,6 +768,8 @@ const closeAll = (page) => page.evaluate(() => {
     m = await modal(page);
     let f = await readFed(page, '#pj-fed-outside');
     check('B3 remove 502: the dialog stays open with the board\'s sentence', m.open && m.msg === 'The connection service refused just now.', JSON.stringify(m));
+    const refusedFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check('B3 remove 502: focus is back on the Remove button (it was disabled while asked)', refusedFocus === 'mem-go', 'focus=' + refusedFocus);
     check('B3 remove 502: Dana\'s row stays', f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify(f.rows.map((r) => r.key)));
 
     // B2: the 200. The next members answer has Dana removed.
@@ -1207,6 +1210,24 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-keep');
     check('B15h a late Remove answer never pulls focus out of another open dialog (control: focus was in it before the answer)',
       h.open && h.first === 'mem-keep' && h.after === 'mem-keep', JSON.stringify(h));
+    // B15i: a Remove nobody answers is given up on: the dialog closes, the sentence is said beside the list, which is
+    // asked again, and focus is not left on <body>.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; window.__answerDelay = 3000; window.__remove = { status: 200, body: { removed: true } }; });
+    const i0 = await gets(page);
+    await page.click('#mem-go');
+    await page.waitForTimeout(600);
+    const iModal = (await modal(page)).open;
+    const iF = await readFed(page, '#pj-fed-outside');
+    const iFocus = await focusedKey();
+    const iAsked = (await gets(page)) - i0;
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
+    check('B15i a Remove nobody answers: the dialog closes, the sentence beside the list, the list asked, focus placed (control: B15e for Withdraw)',
+      !iModal && iF.msgs.some((m) => m.startsWith('Kosmos did not hear back in time.')) && iAsked >= 1 && iFocus && iFocus !== 'BODY',
+      JSON.stringify({ iModal, msgs: iF.msgs, iAsked, iFocus }));
     await ctx.close();
   }
   {
