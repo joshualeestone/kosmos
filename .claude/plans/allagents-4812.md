@@ -201,3 +201,5 @@ still shows #grid in the consolidated Agents view; org hides it and the section 
   just went offline. The words say "may" for that reason; a flaky network can read as "update".
 - Status words: 401 and 403 (and a 2xx that is not an agents list) are the gate, "not let in". Any other 3xx or 4xx
   is 'blocked' (keeps the last list), since signing in cannot fix a missing route.
+- Review round 3 after #5106 (opus): the shared fake DOM now lets a node made focusable with a tabindex ATTRIBUTE
+  take focus (the page's usual way), tested. The 'may need the latest Kosmos' inference is the premise above (kept).
