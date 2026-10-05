@@ -176,7 +176,8 @@ function overviewOf(p, roster, o) {
          same downloaded catalogue the page learns its titles from. The CLI only prints it: requiring roles.js in
          the CLI would read the store there and can print a catalogue line on stderr (review 1). */
       roleTitle: m.role ? require('./roles').roleTitle(m.role) : null,
-      roleHere: typeof m.roleHere === 'string' && m.roleHere ? m.roleHere : null,   // #5300: what it does on this project
+      // #5300: what the member said it does on this project.
+      roleHere: typeof m.roleHere === 'string' && m.roleHere ? m.roleHere : null,
       state: m.present && m.tied ? m.state : 'unknown',
       present: Boolean(m.present),
       family: m.tied ? familyOf(m.runner) : null,

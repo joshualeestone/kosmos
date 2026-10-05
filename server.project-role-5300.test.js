@@ -122,3 +122,24 @@ test('#5300 review 3: a paneless (Windows) agent sets its role under the member 
   assert.equal(r.status, 200, await r.clone().text());
   assert.deepEqual(stored(p.id).rolesHere, { Kip5300: 'Tester of builds' }, 'not stored under the project\'s spelling, or a tag character kept');
 });
+
+test('#5300 review 9: the pane path (no token, as a Mac agent without its token calls) sets that pane\'s member; a damaged store is a 503', async () => {
+  const { board, ada } = twoAgents();
+  try {
+    const card = board.agents.find((c) => c.sessionName === ada);
+    assert.ok(card && typeof card.target === 'string' && card.target, 'fixture: the card has no pane target: ' + JSON.stringify(card && card.target));
+    const p = projects.create({ name: 'Role By Pane' });
+    projects.addAgent(p.id, ada, board.agents);
+    const r = await post(p.id, { role: 'Pane set', from_pane: card.target }, {});
+    assert.equal(r.status, 200, await r.clone().text());
+    assert.deepEqual(stored(p.id).rolesHere, { [ada]: 'Pane set' });
+    // A projects file that cannot be read is the board's trouble (503), not the caller's request.
+    const file = projects.file();
+    const before = fs.readFileSync(file, 'utf8');
+    try {
+      fs.writeFileSync(file, '{ not json');
+      const d = await post(p.id, { role: 'x', from_pane: card.target }, {});
+      assert.equal(d.status, 503, await d.clone().text());
+    } finally { fs.writeFileSync(file, before); projects.readAll(); }
+  } finally { board.restore(); }
+});

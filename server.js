@@ -18571,9 +18571,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #5300 (10-05 user diagnostic R10): a member says what it does on THIS project (`kosmos project role`). Body
-     { role } (empty clears it). A token or pane caller sets only its own, identified by processCaller; the screen
-     names the member (`name`), and a local process that claims to be the screen (isViaScreen) is taken at its word,
-     as on the sibling routes. describe carries it as `roleHere`, beside `role`. Not valved: one field
+     { role } (empty clears it). The caller is identified by processCaller and sets its own: a token names it exactly;
+     a pane (from_pane) is taken as given, and the screen names the member (`name`), with a local process that claims
+     to be the screen (isViaScreen) taken at its word, as on the sibling routes. describe carries it as `roleHere`, beside `role`. Not valved: one field
      per member per project, rewritten in place; display only (describe's roleHere), so it decides no routing. */
   const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
   if (roleHere && req.method === 'POST') {

@@ -2876,7 +2876,8 @@ function addAgent(id, sessionName, roster, made) {
 const ROLE_HERE_MAX = 60;
 function cleanRoleHere(role) {
   if (typeof role !== 'string') throw new Error('say the role in words');
-  const one = require('./projectview').one(role);   // the filter project show prints it through, so the two cannot differ
+  // The filter project show prints it through, so the two cannot differ.
+  const one = require('./projectview').one(role.toWellFormed());
   if ([...one].length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
   return one;
 }
@@ -2913,7 +2914,8 @@ function removeAgent(id, sessionName, made) {
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.
     delete told[key];
-    if (p.rolesHere && Object.prototype.hasOwnProperty.call(p.rolesHere, key)) {   // #5300: the role here goes with the membership
+    // #5300: the role here goes with the membership.
+    if (p.rolesHere && Object.prototype.hasOwnProperty.call(p.rolesHere, key)) {
       const rolesHere = { ...p.rolesHere };
       delete rolesHere[key];
       p = { ...p, rolesHere };
