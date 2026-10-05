@@ -2847,3 +2847,12 @@ test('#4927: "Your projects" says the paths are this computer\'s and how a sandb
   assert.match(flat, /If you work in a sandbox that shows this computer's folders under other paths \(mount names can change between sessions\), find a project's folder there by the folder's own name, the last part of its path \(it can differ from the project's name\)\./);
   assert.doesNotMatch(flat, /this is where their folders are/, 'the heading still certifies a path that may have moved');
 });
+
+/* kosmos#5325: the sandbox is removed when the file ends. Every run used to leave it in the temp folder (about 20 MB
+   each here; 128 of them filled 2.6 GB on one Mac). Only a folder this file made under the temp folder is removed. */
+test.after(() => {
+  const tmp = fs.realpathSync(os.tmpdir());
+  const mine = fs.realpathSync(SANDBOX);
+  if (!mine.startsWith(tmp + path.sep) || !path.basename(mine).startsWith('kosmos-projects-')) return;
+  fs.rmSync(mine, { recursive: true, force: true });
+});

@@ -47,7 +47,13 @@ const REPO = path.resolve(__dirname, '..', '..');
 /* Screenshots go to SHOT_DIR or a fresh temp dir, never into the repo (#630):
    they differ byte for byte run to run and dirtied the shared checkout under
    every cut. The path is printed at the end so a person can find them. */
-const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'toast-shots-'));
+/* kosmos#5325: every folder this check makes in the temp folder is removed when it exits, on a pass, a die() or a
+   throw (process.exit runs 'exit' handlers). The board home's app/ is a symlink to the repo: rmSync removes the link,
+   never what it points at. The shots folder stays when SHOT_DIR names it (the caller asked for the shots). */
+const MADE = [];
+const made = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); MADE.push(d); return d; };
+process.on('exit', () => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
+const OUT = process.env.SHOT_DIR || made('toast-shots-');   // unnamed shots are never reported, so they go too
 /* A free port, asked of the kernel, never a number (#708): the gate got this
    in #633 and the self-booting checks still carried fixed ports, so two agents
    running the same check collided exactly as before. */
@@ -66,7 +72,7 @@ const RELPORT = freePort();
 
   const roots = {};
   for (const k of ['DATA', 'WORKERS', 'LAUNCH', 'PROJECTS']) {
-    roots[k] = fs.mkdtempSync(path.join(os.tmpdir(), 'ut-drive-' + k.toLowerCase() + '-'));
+    roots[k] = made('ut-drive-' + k.toLowerCase() + '-');
   }
   /* ⚠️ HALF RESTATED, SAID PLAINLY. The first leg (the toast appears, its text,
      its geometry) follows the product's ruling below and is green. The later
@@ -90,7 +96,7 @@ const RELPORT = freePort();
   const tipsFile = require(path.join(REPO, 'engine', 'tips')).FILE();
   fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
   fs.writeFileSync(tipsFile, JSON.stringify({ seen: [], off: true }));
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ut-drive-home-'));
+  const home = made('ut-drive-home-');
   fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(home, 'runtime', 'bin', 'node'), '#!/bin/sh\nexec node "$@"\n', { mode: 0o755 });
   fs.symlinkSync(REPO, path.join(home, 'app'));
