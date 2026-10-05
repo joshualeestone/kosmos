@@ -99,7 +99,7 @@ function openBar(minTap) {
   const composerTop = bar && bar.offsetParent ? bar.getBoundingClientRect().top : Infinity;
   const vv = window.visualViewport;
   const screenBottom = vv ? vv.offsetTop + vv.height : innerHeight;
-  const buttons = [...q.querySelectorAll('button')];
+  const buttons = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length);   // shown ones: on a touchscreen Copy message id is not in the bar (#5312)
   return {
     shown: shown.length, at: row.querySelector('.rxns').getAttribute('data-at'),
     hoverNone: matchMedia('(hover: none)').matches, op: getComputedStyle(q).opacity,
