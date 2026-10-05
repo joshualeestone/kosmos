@@ -55,8 +55,9 @@
  *  B5  checked_at null: the one plain line "Kosmos could not check who has joined just now. This list may be out
  *      of date.", rows kept with no Withdraw and no Make a new code (the board then reports a joined person as
  *      pending or expired, and sends no joined rows). Control: B1 (a number) has no such line and offers both.
- *      A 404 draws nothing at all. The GET failing (500):
- *      no outside rows, the same line, and the project's own agents still listed.
+ *      A 404 draws nothing at all. A failed REFRESH (500) keeps the last rows with the same line; a failed FIRST
+ *      load (no answer kept) shows the line and no outside rows, the project's own agents still listed. With
+ *      shared:true an unchecked answer with no rows still says the line.
  *  B6  the outside disc is dashed and untinted (computed border-top-style dashed, transparent background), in
  *      light AND dark, including the row labelled "Ada", the name of a local agent (#3851). Control: the local
  *      Ada's own disc in the same Members card IS tinted, so the page does tint that name where it should.
@@ -68,8 +69,9 @@
  *  B8  gate not "show": the members route is never asked and the section draws nothing. Control: B1.
  *  B10a a label that is not a name ("my sister") gets the they/their body, never "my's computer". Control: Dana's
  *       body says "Dana's computer".
- *  B10b another project opened while a Remove is asked: the dialog closes, nothing is said, and the old
- *       project's list is not asked again. Control: B2, where the same 200 does ask again.
+ *  B10b the open project changed (PJ_CURRENT set directly) while a Remove is asked: the dialog closes, nothing is
+ *       said, and the old project's list is not asked again. Control: B2. The real openProject path is B18g.
+ *  B11c a passing signup reading leaves an open outside Remove open, and Remove pressed under it sends nothing.
  *  B11a consolidated layout: Withdraw pressed in the RAIL asks the board and says its 409 unsupported sentence
  *       there. Control: B4, the same answer in the tab layout.
  *  B15 focus across a tab rebuild (a) and a rail rebuild (b); focus on the "+" after a Remove (c); a Remove that a
@@ -78,7 +80,8 @@
  *      answers is given up on (i); a rail "Make a new code" cancelled after a rebuild returns focus to its row (j).
  *  B18 a first members load the network drops (a), Remove 403 (b), Remove not-owner (c), Withdraw unreachable (d),
  *      an older members reply after a newer one (e), a Remove answered after leaving and reopening the project (f),
- *      the same through the back chevron and reopening the SAME project (g).
+ *      the same through the back chevron and reopening the SAME project (g), a not-owner refusal whose reload hides
+ *      the section still shows its sentence (h).
  *  B16 owner:false and self_shared draw no From outside section. Control: the same invites as owner draw rows.
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.

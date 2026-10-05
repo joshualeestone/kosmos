@@ -66458,7 +66458,9 @@ function pjFedMessage(body, fallback, opts) {
   // Withdraw's 409 `joined`: the board's own sentence, as given; the map below is only for a body without one.
   // Only for Remove and Withdraw (opts.change): any other caller keeps the contract that an unknown reason gets its
   // own safe fallback, not the board's text.
-  if (opts && opts.change && reason === 'joined' && typeof body.error === 'string' && body.error) return body.error;
+  if (opts && opts.change && reason === 'joined') {   // Withdraw's 409: the board's sentence, or the page's own
+    return (typeof body.error === 'string' && body.error) ? body.error : 'Someone already joined with this code. Remove them instead.';
+  }
   /* kosmos#4649 slice B: Withdraw's 409 `unsupported` (a coordinator older than the withdraw route).
      The board's sentence ends "...stops working on its own when it lapses."; the screen adds the date
      (Kitty's Q-K2), passed as opts.lapses ("Oct 11"). Shown as given when there is no date. */
@@ -66480,7 +66482,6 @@ function pjFedMessage(body, fallback, opts) {
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
     'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
     'not-owner': 'Only the owner of this project can invite people to it.',   // kosmos#4649 invite sheet, Kitty's 409
-    'joined': 'Someone already joined with this code. Remove them instead.',   // kosmos#4649 slice B: Withdraw's 409, when the board gave no sentence
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
     // kosmos#4699: an own code names the computer that made it, and only this account's computers count.
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
@@ -67901,7 +67902,7 @@ function fedOutsideRowHtml(r, unchecked) {
   } else {
     name = r.label || unnamed;
     sub = until ? 'Expired ' + until : 'Expired';
-    if (!unchecked) { act = 'renew'; label = 'Make a new code'; }
+    if (!unchecked && r.invite_id) { act = 'renew'; label = 'Make a new code'; }   // a row with no id has no key of its own
   }
   const wait = r.state === 'joined' ? '' : ' fedout-wait';
   const btn = act
@@ -68105,7 +68106,6 @@ async function fedRemoveGo() {
   if (!p || !p.fed) return;
   const f = p.fed;
   const gen = FED_GEN;   // a project switch meanwhile, even away and back, bumps it
-  fedClearLoose();
   const go = document.getElementById('mem-go');
   const msg = document.getElementById('mem-msg');
   const fallback = 'Kosmos could not remove them just now. Try again in a moment.';
@@ -68113,6 +68113,7 @@ async function fedRemoveGo() {
   // invite sheet makes no code under it: said in the dialog, and nothing is sent.
   if (!fedShow()) { msg.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
   delete FED_MSGS[f.key];   // a retry clears this row's earlier sentence, as Withdraw does
+  fedClearLoose();   // after the gate check: a press that sends nothing leaves the sentences as they are
   // Focus moves to Cancel BEFORE Remove is disabled: a focused button that becomes disabled drops focus to <body>
   // behind the open dialog, for up to the time limit. Cancel stays live (it closes; the request goes on).
   document.getElementById('mem-keep').focus();

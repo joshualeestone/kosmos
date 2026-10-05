@@ -88,7 +88,7 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   // kosmos#4649 slice B: Withdraw's two 409s. `joined` is the board's sentence; `unsupported` is shown as the
   // board wrote it, with the lapse date the screen adds (Kitty's Q-K2), and as given when there is no date.
   assert.equal(s.pjFedMessage({ reason: 'joined', error: 'The board said so.' }, 'fb', { change: true }), 'The board said so.', 'kosmos#4649: Withdraw\'s 409 joined shows the board\'s sentence as given');
-  assert.equal(s.pjFedMessage({ reason: 'joined' }), 'Someone already joined with this code. Remove them instead.', 'kosmos#4649: Withdraw\'s 409 joined with no sentence falls back to the page\'s');
+  assert.equal(s.pjFedMessage({ reason: 'joined' }, 'fb', { change: true }), 'Someone already joined with this code. Remove them instead.', 'kosmos#4649: Withdraw\'s 409 joined with no sentence falls back to the page\'s');
   assert.equal(s.pjFedMessage({ reason: 'unsupported', error: 'Withdraw is not available on this coordinator.' }, 'fb', { lapses: 'Oct 11', change: true }),
     'Withdraw is not available on this coordinator.', 'kosmos#4649: an unsupported sentence that does not end "lapses." is shown as given, with no date glued on');
   const unsupported = { reason: 'unsupported', error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.' };
@@ -96,7 +96,8 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   assert.equal(s.pjFedMessage(unsupported, 'FALLBACK', { change: true }), unsupported.error, 'kosmos#4649: with no date the board\'s sentence is shown as given');
   // Control: any other caller (no opts.change) keeps the contract, an unknown reason gets its own fallback.
   assert.equal(s.pjFedMessage(unsupported, 'FALLBACK'), 'FALLBACK', 'kosmos#4649: outside Remove/Withdraw, unsupported is not shown raw');
-  assert.equal(s.pjFedMessage({ reason: 'joined', error: 'The board said so.' }, 'FALLBACK'), 'Someone already joined with this code. Remove them instead.', 'kosmos#4649: outside Remove/Withdraw, joined uses the page\'s sentence');
+  assert.equal(s.pjFedMessage({ reason: 'joined', error: 'The board said so.' }, 'FALLBACK'), 'FALLBACK', 'kosmos#4649: outside Remove/Withdraw, joined gets the caller\'s own fallback');
+  assert.equal(s.pjFedMessage({ reason: 'joined' }, 'FALLBACK'), 'FALLBACK', 'kosmos#4649: a joiner never reads the owner\'s "Remove them instead."');
   assert.equal(s.pjFedMessage({ reason: 'weird-internal-thing' }, 'FALLBACK'), 'FALLBACK', 'an unknown reason leaks through instead of the safe fallback');
   assert.equal(s.pjFedMessage(null, 'FALLBACK'), 'FALLBACK');
 });
