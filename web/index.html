@@ -22740,7 +22740,7 @@ function setAgentsGrouped(on) {
     plus.setAttribute('aria-label', label);
     plus.title = label;
   }
-  if (!on && typeof pjAddMenuClose === 'function' && PJ_ADDMENU_OPENER === plus) pjAddMenuClose(false);
+  if (!on && typeof pjAddMenuCloseKeepFocus === 'function' && PJ_ADDMENU_OPENER === plus) pjAddMenuCloseKeepFocus();
   if (typeof pjAddMenuSync === 'function') pjAddMenuSync();   // kosmos#4649: aria-haspopup only while it opens the menu
 }
 
@@ -67450,10 +67450,10 @@ function pjAddMenuSync() {
   if (m && !m.hidden && (PJ_ADDMENU_PROJECT !== PJ_CURRENT || !PJ_ADDMENU_OPENER || !PJ_ADDMENU_OPENER.getClientRects().length)) pjAddMenuCloseKeepFocus();
   const on = fedShow() && !!PJ_CURRENT;   // with no project open the + opens the add-agent dialog, not a menu
   const grouped = AGENTS_GROUPED === true;   // declared near the top (a typeof guard would not shield a TDZ read anyway)
-  for (const [id, menuy] of [['pj-add-member', on], ['rail-agents-new', on && grouped]]) {
+  for (const [id, opensMenu] of [['pj-add-member', on], ['rail-agents-new', on && grouped]]) {
     const b = document.getElementById(id);
     if (!b) continue;
-    if (menuy) {
+    if (opensMenu) {
       b.setAttribute('aria-haspopup', 'menu');
       b.setAttribute('aria-expanded', String(PJ_ADDMENU_OPENER === b));
     } else {
@@ -67523,6 +67523,7 @@ const FEDINV_TITLE = 'Invite someone outside your Kosmos';
 function fedInviteOpen(opener) {
   if (!fedShow() || !PJ_CURRENT) return;
   FEDINV_INFLIGHT = false;   // a Make dropped by a forced close never cleared it (its seq no longer matched)
+  document.getElementById('fedinv-cancel').disabled = false;
   FEDINV_OPENER = opener || null;
   FEDINV_PROJECT = PJ_CURRENT;
   FEDINV_SEQ++;
@@ -67546,8 +67547,13 @@ function fedInviteOpen(opener) {
 // minted and recorded the code, and dropping its reply would leave a pending invite nobody saw. Only federation
 // turning off (force) closes it then.
 function fedInviteClose(force) {
-  if (FEDINV_INFLIGHT && force !== true) return;
-  FEDINV_INFLIGHT = false;   // forced: the in-flight reply is dropped by the seq below, so it will not clear this
+  if (FEDINV_INFLIGHT && force !== true) {
+    // Escape (Cancel is disabled meanwhile) is heard and refused out loud, not silently.
+    document.getElementById('fedinv-msg').textContent = 'One moment: Kosmos is making the code.';
+    return;
+  }
+  FEDINV_INFLIGHT = false;
+  document.getElementById('fedinv-cancel').disabled = false;   // forced: the in-flight reply is dropped by the seq below, so it will not clear this
   FEDINV_SEQ++;
   document.getElementById('fedinv-modal').hidden = true;
   const back = [FEDINV_OPENER, document.getElementById('pj-add-member')].find((b) => b && b.getClientRects().length);
@@ -67560,7 +67566,8 @@ function fedInviteLongDate(sec) {
   try { return new Date(sec * 1000).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); } catch { return ''; }
 }
 let FEDINV_MAKE_LIMIT_MS = 60000;   // above the board's worst case for one invite (see fedInviteMake); a let so a check can shorten it
-const FEDINV_TIMED_OUT = 'Kosmos did not hear back in time. A code may still have been made: check Members before making another.';
+// True without slice B (which lists pending codes in Members and could point there): an unseen code still lapses.
+const FEDINV_TIMED_OUT = 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.';
 async function fedInviteMake() {
   if (!fedShow()) {   // a passing signup reading keeps the asking step open, but no new code is made under it
     document.getElementById('fedinv-msg').textContent = 'Inviting is not available just now. Try again in a moment.';
@@ -67575,6 +67582,7 @@ async function fedInviteMake() {
   const seq = ++FEDINV_SEQ;
   make.disabled = true;
   FEDINV_INFLIGHT = true;
+  document.getElementById('fedinv-cancel').disabled = true;   // the sheet will not close while Make is answered: say so by look
   msg.textContent = 'Making a code…';
   const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
   try {
@@ -67607,6 +67615,7 @@ async function fedInviteMake() {
     document.getElementById('fedinv-done').hidden = false;
     document.getElementById('fedinv-code').value = body.code;
     const until = fedInviteLongDate(body.expires_at);
+    // Shot 03 also says "You can withdraw it from Members until <name> joins."; that sentence comes with Withdraw (slice B).
     document.getElementById('fedinv-until').textContent = until ? 'It works once, until ' + until + '.' : 'It works once.';
     document.getElementById('fedinv-copy').focus();
   } catch (err) {
@@ -67615,7 +67624,7 @@ async function fedInviteMake() {
       document.getElementById('fedinv-label').focus();   // Make is disabled until finally: keep focus in the sheet
     }
   } finally {
-    if (seq === FEDINV_SEQ) { make.disabled = false; FEDINV_INFLIGHT = false; }
+    if (seq === FEDINV_SEQ) { make.disabled = false; FEDINV_INFLIGHT = false; document.getElementById('fedinv-cancel').disabled = false; }
   }
 }
 // Copy the code: pjCopyInvite's pattern ("Copied", the Command C fallback, one revert timer),

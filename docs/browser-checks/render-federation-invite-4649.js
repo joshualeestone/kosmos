@@ -26,6 +26,7 @@
  *      a scroll keeps the menu, Tab returns to its +; a code survives a passing signup reading, closes on off.
  *  A8  the sheet's ways out (backdrop and Escape on each step) and its Tab trap.
  *  A9  the sheet does not close while Make is answered, and shows the minted code.
+ *  A12 the abort landing during the body read (headers in, body stalled) gives the same message.
  *  A11 a Make past its limit (shortened by the arm) says a code may still have been made; Make is live again.
  *  A10 a forced close mid-Make (federation off) does not leave the reopened sheet refusing to close; the menu
  *      closes when its project is switched.
@@ -70,6 +71,7 @@ function initStub(cfg) {
   window.__fed = cfg.fed;
   window.__posts = [];
   window.__inviteDelay = 0;
+  window.__inviteBodyStall = false;
   window.__copied = [];
   window.__invite = { status: 200, body: { code: cfg.code, expires_at: cfg.expires, invite_id: 'inv-1' } };
   window.__project = { id: 'k', name: 'Spring launch', parent: null, archived: false, description: '',
@@ -91,6 +93,12 @@ function initStub(cfg) {
           const sig = opts && opts.signal;
           if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
         });
+      }
+      // A12: the headers arrive, the body stalls, and (like a real fetch) the abort errors the body stream.
+      if (window.__inviteBodyStall) {
+        const sig = opts && opts.signal;
+        const stream = new ReadableStream({ start(c) { if (sig) sig.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; c.error(e); }); } });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } });
       }
       return enc(window.__invite.status, window.__invite.body);
     }
@@ -453,13 +461,13 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__inviteDelay = 500; });
     await page.click('#fedinv-make');
     await page.keyboard.press('Escape');
-    await page.click('#fedinv-cancel');
-    const during = await page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    const during = await page.evaluate(() => ({ open: !document.getElementById('fedinv-modal').hidden,
+      cancelOff: document.getElementById('fedinv-cancel').disabled, said: document.getElementById('fedinv-msg').textContent }));
     await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
     const shown = await page.evaluate(() => ({ open: !document.getElementById('fedinv-modal').hidden, code: document.getElementById('fedinv-code').value }));
     await page.evaluate(() => { window.__inviteDelay = 0; });
-    check('A9 Escape and Cancel while Make is answered leave the sheet open, and the minted code is shown (control: A8, Escape closes an idle asking step)',
-      during === true && shown.open && shown.code === CODE, JSON.stringify({ during, shown }));
+    check('A9 while Make is answered: Escape is refused out loud, Cancel is disabled, the sheet stays, and the minted code is shown (control: A8, Escape closes an idle asking step)',
+      during.open && during.cancelOff && during.said === 'One moment: Kosmos is making the code.' && shown.open && shown.code === CODE, JSON.stringify({ during, shown }));
     await ctx.close();
   }
 
@@ -504,8 +512,25 @@ const closeAll = (page) => page.evaluate(() => {
       focus: document.activeElement && document.activeElement.id }));
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteDelay = 0; });
     check('A11 a Make past its limit says a code may still have been made, Make is live again and focus is on the label (control: A4 answers in time)',
-      timed.msg === 'Kosmos did not hear back in time. A code may still have been made: check Members before making another.'
+      timed.msg === 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.'
       && timed.make && timed.focus === 'fedinv-label', JSON.stringify(timed));
+    await ctx.close();
+  }
+
+  /* ---------------- A12: an abort while the body is being read (res.json() swallows it; the signal does not) ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteBodyStall = true; });
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(700);
+    const msg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
+    await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteBodyStall = false; });
+    check('A12 an abort during the body read still says a code may have been made (control: A11, an abort before the headers)',
+      msg === 'Kosmos did not hear back in time. A code may still have been made; if so, it stops working on its own when it lapses.', msg);
     await ctx.close();
   }
 
