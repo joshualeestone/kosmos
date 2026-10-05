@@ -134,7 +134,15 @@ function tickOnce(o) {
       }
       let v = null;
       // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as replynudge reads chat's contract.
-      try { v = o.deliver(d.session, d.first ? INTRO_TEXT : TURN_TEXT, roster); } catch { v = { state: D.UNCONFIRMED }; }
+      /* #5212: what is actually waiting for this agent (engine/communityhome.js nudgeLine, read ahead of the pass by the
+         caller, since this pass is synchronous), in place of the generic line; the generic line whenever there is none.
+         An agent that has never posted keeps the introduction line. Only the TEXT changes: who is due, and when, is
+         decided above exactly as before. */
+      let text = d.first ? INTRO_TEXT : TURN_TEXT;
+      if (!d.first && typeof o.lineFor === 'function') {
+        try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
+      }
+      try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
       // Review 3: a pane still placing another message is busy, not unreachable (chat.js says a try-counter need not count

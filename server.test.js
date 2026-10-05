@@ -3687,7 +3687,7 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   assert.ok(from > -1 && mid > from && end > mid,
     'the runs-on composition fell outside the extracted slice');
   /* #2225: the parenthetical was lifted into the pure helper `acctParenthetical`
-     (chosen name -> email -> slug), which the sliced composition now calls, so
+     (chosen name -> email -> API key -> slug), which the sliced composition now calls, so
      the eval scope must carry it or the slice throws ReferenceError. */
   const helperFrom = script.indexOf('function acctParenthetical(');
   assert.ok(helperFrom > -1, 'acctParenthetical is gone from the page');
@@ -13337,6 +13337,80 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
   }
 });
 
+test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s account row, keyTail included', async (t) => {
+  /* The page names a key account "API key ending XXXX" from `a.account.keyTail`. Before this, /api/status built
+     every agent's account from the CLAUDE list only, so a Gemini or Grok agent's row never had a key and the
+     "Right now" bracket was empty on opening the agent. The Gemini and Grok lists are stubbed (their real list()
+     reads this machine's folders), and the dangerous answer is a null keyTail. */
+  const create = require('./engine/create');
+  const geminiAccounts = require('./engine/geminiaccounts');
+  const grokAccounts = require('./engine/grokaccounts');
+  const accounts = require('./engine/accounts');
+  const realGemini = geminiAccounts.list;
+  const realGrok = grokAccounts.list;
+  const realClaude = accounts.list;
+  try {
+    fleet.install([
+      fleet.agent('gemnamed', { state: 'idle' }),
+      fleet.agent('grokdef', { state: 'idle' }),
+      fleet.agent('plainclaude3', { state: 'idle' }),
+      fleet.agent('defcodex5', { state: 'idle' }),
+    ]);
+    geminiAccounts.list = () => [
+      { dir: '/Users/x/.gemini', provider: 'google', label: null, isDefault: true, keyTail: '1111', email: null },
+      { dir: '/Users/x/.gemini-b', provider: 'google', label: 'b', isDefault: false, keyTail: '9999', email: null },
+    ];
+    grokAccounts.list = () => [
+      { dir: '/Users/x/.grok', provider: 'xai', label: null, isDefault: true, keyTail: '4f2a', email: null },
+    ];
+    // A real Claude default row beside the keyed defaults: the dir-less Claude agent must take THIS one.
+    accounts.list = () => [{ dir: '/Users/x/.claude', label: null, isDefault: true, email: 'c@example.com' }];
+    fs.writeFileSync(create.plistPath('gemnamed'),
+      create.plistFor('gemnamed', '/opt/homebrew/bin/gemini', '/opt/homebrew/bin/tmux', null, '/Users/x/.gemini-b', 'gemini'), 'utf8');
+    fs.writeFileSync(create.plistPath('grokdef'),
+      create.plistFor('grokdef', '/opt/homebrew/bin/grok', '/opt/homebrew/bin/tmux', null, null, 'grok'), 'utf8');
+    assert.equal(create.readJob('gemnamed').runner, 'gemini', 'the gemini fixture lost its runner');
+    assert.equal(create.readJob('grokdef').configDir, null, 'the grok fixture carries a dir, so it is not the default shape');
+    fs.writeFileSync(create.plistPath('plainclaude3'),
+      create.plistFor('plainclaude3', '/opt/homebrew/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'claude'), 'utf8');
+    assert.equal(create.readJob('plainclaude3').configDir, null, 'the claude fixture carries a dir, so it is not the dir-less default shape');
+    // A dir-less CODEX agent: OpenAI's list is not in /api/status, so with Claude, Gemini and Grok defaults all in
+    // the list it must get NONE of them. This one exercises accountForAgent's provider gate directly.
+    fs.writeFileSync(create.plistPath('defcodex5'),
+      create.plistFor('defcodex5', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    const board = await req('/api/status');
+    if (!board.type.includes('application/json')) { t.skip('the status engine did not return a board on this machine'); return; }
+    const agents = JSON.parse(board.body).agents || [];
+    const row = (n) => agents.find((a) => a.sessionName === n);
+    const gem = row('gemnamed'); const grok = row('grokdef');
+    assert.ok(gem && grok, 'the fixture agents are not on the board: ' + agents.map((a) => a.sessionName).join(','));
+    // A named Gemini account: its own row by folder, slug and key.
+    assert.equal(gem.account && gem.account.keyTail, '9999', JSON.stringify(gem.account));
+    assert.equal(gem.account.label, 'b');
+    // A DEFAULT Grok agent (no folder): the Grok default row, never Gemini's default (the provider gate).
+    assert.equal(grok.account && grok.account.keyTail, '4f2a', JSON.stringify(grok.account));
+    // CONTROL: a dir-less Claude agent, with three default rows in the mixed list, gets the CLAUDE default. This
+    // pins the Claude row being there and chosen; it does NOT pin accountForAgent's provider gate by itself (the
+    // Claude rows come first in the list): that gate is pinned by server.whoami-grok-4603.test.js's route control,
+    // which goes red when the gate is removed.
+    const claude = row('plainclaude3');
+    assert.ok(claude && claude.account, 'the claude fixture has no account row: ' + JSON.stringify(claude && claude.account));
+    assert.equal(claude.account.dir, '/Users/x/.claude');
+    assert.ok(!claude.account.keyTail, JSON.stringify(claude.account));
+    const codex = row('defcodex5');
+    assert.ok(codex, 'the codex fixture is not on the board');
+    assert.equal(codex.account, null, 'a dir-less codex agent took another provider\'s default row: ' + JSON.stringify(codex.account));
+  } finally {
+    geminiAccounts.list = realGemini;
+    grokAccounts.list = realGrok;
+    accounts.list = realClaude;
+    for (const n of ['gemnamed', 'grokdef', 'plainclaude3', 'defcodex5']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
+    fleet.restore();
+  }
+});
+
 test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude account', () => {
   /**
    * 🛑 THE CARD'S OWN DEFECT, IN THE BRANCH I EXEMPTED BY NAME. A default-account
@@ -15288,8 +15362,8 @@ test('#2811: a NAMED Codex account is called by its name, not "an account we can
    * the .codex account", and `sentenceForWhoami`'s fallback chain went
    * email -> label -> "an account we cannot identify (<dir>)" with NO `name` rung --
    * while `accountForAgent` computes `name: openaiAccounts.readName(dir)` on BOTH
-   * its branches and every other surface leads with it (`acctParenthetical` is
-   * `acct.name || acct.email || acct.label`).
+   * its branches and every other surface leads with it (`acctParenthetical` leads
+   * with `acct.name`, then email, then key and slug since #5150).
    *
    * So a person who had NAMED their OpenAI account read "Work" on the detail panel
    * and "an account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`,

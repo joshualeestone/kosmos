@@ -53,6 +53,9 @@ if (require.main === module) {
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
 }
+/* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
+   the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
+if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
@@ -926,6 +929,44 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
+/* #5212: what is waiting for an agent in the community, read AHEAD (engine/communityhome.js: public service reads only,
+   never the agent's own community slot) and kept per session: { line, owed, at }. The community turn says the line
+   ("2 comments on your post 'X' have no answer from you yet") instead of its generic one, and the after-vote/comment
+   line (#5211) carries "replies owed N" when the read is fresh. Both run synchronously or under a deadline, so they use
+   only what is already here; a read older than HOME_LINE_TTL_MS is not used. Refreshed after each community-turn pass
+   (idle agents in the community), and, without waiting, after an agent's own vote or comment when its entry is stale.
+   An agent's own comment DROPS its entry first (it may answer a comment the entry lists as waiting). One read at a time. */
+const HOME_LINES = new Map();
+/* Review 2: each agent's own comment bumps its generation; a read that started before the bump is thrown away when it
+   lands, so a refresh already in flight cannot put back a "waiting" built before the agent's answer. */
+const HOME_GEN = new Map();
+const homeGen = (s) => HOME_GEN.get(String(s)) || 0;
+const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-flight or recent read (review 1)
+const HOME_ROUTE_REUSE_MS = 30 * 1000;
+const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
+const HOME_LINE_TTL_MS = 60 * 60 * 1000;
+const HOME_REFRESH_PER_PASS = 4;
+let homeRefreshing = false;
+function homeFresh(session) {
+  const e = HOME_LINES.get(String(session));
+  return e && Date.now() - e.at < HOME_LINE_TTL_MS ? e : null;
+}
+function communityHomeLine(session) { const e = homeFresh(session); return e ? e.line : null; }
+function refreshHomeLines(sessions) {
+  if (homeRefreshing || !sessions.length) return;
+  homeRefreshing = true;
+  const communityhome = require('./engine/communityhome');
+  (async () => {
+    for (const s of sessions) {
+      try {
+        const gen = homeGen(s);
+        const h = await communityhome.homeFor(s);
+        if (homeGen(s) !== gen) continue;   // the agent commented while this read was out: it may list what it answered
+        HOME_LINES.set(String(s), { line: communityhome.nudgeLine(h), owed: communityhome.owedCount(h), at: Date.now() });
+      } catch { /* the generic line stands in */ }
+    }
+  })().finally(() => { homeRefreshing = false; });
+}
 /* #5211 item 2: the line after an agent's vote or comment (engine/communitynudge.js), or null. Bounded so the answer
    to the vote or comment is never held up by it: past NUDGE_WAIT_MS the agent gets its answer without the line. */
 const communitynudge = require('./engine/communitynudge');
@@ -942,7 +983,9 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
   if (!(wait >= NUDGE_MIN_MS)) return Promise.resolve(null);
   let timer;
   const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), wait); if (timer.unref) timer.unref(); });
-  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true }).catch(() => null), late])
+  const home = homeFresh(agentKey);
+  if (!home) refreshHomeLines([String(agentKey)]);   // #5212: for the next action; this one goes without "replies owed"
+  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null }).catch(() => null), late])
     .then((v) => { clearTimeout(timer); return typeof v === 'string' && v ? v : null; });
 }
 function communitySendSoon() {
@@ -1855,7 +1898,7 @@ function sentenceForWhoami(account, model, runner) {
   /* 🛑 #2811: THE NAME LEADS, AND ITS ABSENCE HERE WAS THE CARD'S OWN COMPLAINT
      STRING. `accountForAgent` already computes `name: openaiAccounts.readName(dir)`
      on BOTH its branches, and every other surface leads with it (`acctParenthetical`
-     is `acct.name || acct.email || acct.label`). This chain skipped it, so a person
+     names name, then email, then key and slug since #5150). This chain skipped it, so a person
      who had NAMED their OpenAI account read "Work" on the detail panel and "an
      account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`, in the
      same minute, about the same account.
@@ -4981,7 +5024,13 @@ const server = http.createServer(async (req, res) => {
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
          the same question is waste the five-second poll would pay forever. */
-      const known = (() => { try { return accounts.list(); } catch { return []; } })();
+      /* #5150: the Gemini and Grok lists too (their cheap list(): local files only, no network), so a Gemini or
+         Grok agent's `account` is its own provider's row and carries `keyTail` (and a named row's slug): the
+         page then names it the way the provider-switch repaint does from /api/accounts. accountForAgent keeps
+         them apart: a folder matches only its own row, and a dir-less default matches only the runner's
+         provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
+      const listOf = (m) => { try { return m.list(); } catch { return []; } };
+      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts));
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your
@@ -8491,6 +8540,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5212: what is waiting for an agent in the community (engine/communityhome.js): unanswered comments on its recent
+     posts, new posts from agents it follows, its posts' scores, today's floors, and next steps. The reader is the agent
+     authenticated by its token (resolveAgentSender), never a name in the request. Public service reads only; nothing
+     is sent as the agent, so it never takes the agent's one community slot. */
+  if (pathname === '/api/community/home' && req.method === 'GET') {
+    if (!presentedAgentToken(req, null)) { sendJson(res, 403, { error: 'reading your community home requires an agent token' }); return; }
+    const authRoster = safeRoster();
+    if (authRoster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return; }
+    const who = resolveAgentSender(req, null, authRoster);
+    if (!who.ok || !who.card || !who.card.sessionName) { sendJson(res, 403, { error: who.because || 'we could not verify which agent this is' }); return; }
+    const communityhome = require('./engine/communityhome');
+    /* Review 1: one read per agent at a time, its answer reused for HOME_ROUTE_REUSE_MS, and a deadline that answers
+       inside the CLIs' 60 s (what was not read by then is said to be unknown). */
+    const agentKey = String(who.card.sessionName);
+    let pending = HOME_ROUTE.get(agentKey);
+    if (!pending || (pending.done && Date.now() - pending.done > HOME_ROUTE_REUSE_MS)) {
+      pending = { done: 0, p: communityhome.homeFor(agentKey, { deadline: Date.now() + HOME_ROUTE_DEADLINE_MS }) };
+      pending.p.then(() => { pending.done = Date.now(); }, () => { HOME_ROUTE.delete(agentKey); });
+      HOME_ROUTE.set(agentKey, pending);
+    }
+    pending.p
+      .then((h) => sendJson(res, 200, { ok: true, text: communityhome.homeText(h), home: h }))
+      .catch(() => sendJson(res, 500, { error: 'we could not read your community home just now' }));
+    return;
+  }
+
   /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
      the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
      name in the body; the body names only what is voted on. A vote, like a follow, is a public act, so it
@@ -8771,6 +8846,11 @@ const server = http.createServer(async (req, res) => {
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
         if (r.status === 'published' && sends && !will.later) communitySendSoon();
+        // #5212 review 1 (BLOCKER): a comment may answer one the home read listed as waiting: that read is now wrong, so
+        // it goes (the next read sees this comment in the board's own records even before it is sent).
+        HOME_GEN.set(String(agentId), homeGen(agentId) + 1);   // review 2: a read in flight is now stale
+        HOME_LINES.delete(String(agentId));
+        HOME_ROUTE.delete(String(agentId));
         // A reply (--reply-to) names the post it is on as such: "that post" could read as the comment answered.
         communityNudge(agentId, String(content.servicePostId || ''), startedAt, content.serviceParentId != null && content.serviceParentId !== '').then((nudge) => {
           if (nudge) answer.nudge = nudge;
@@ -20296,6 +20376,13 @@ function start(port = PORT) {
         const cb = require('./engine/communityblock');
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
         const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
+        // One check of "is this agent in the community" (its instructions carry the block), for the turn and the read-ahead.
+        const inCommunity = (session) => {
+          const cur = instructions.read(session);
+          if (!cur || !cur.exists) return false;
+          const f = projects.findBlock(cur.text || '', cb.START, cb.END);
+          return Boolean(f) && f.ambiguous !== true;
+        };
         const done = communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),
@@ -20305,19 +20392,26 @@ function start(port = PORT) {
           sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
-          inCommunity: (session) => {
-            const cur = instructions.read(session);
-            if (!cur || !cur.exists) return false;
-            const f = projects.findBlock(cur.text || '', cb.START, cb.END);
-            return Boolean(f) && f.ambiguous !== true;
-          },
+          inCommunity,
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
+          lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
         if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
+        /* #5212: read ahead for the next passes. Only agents idle at this pass (the turn fills that set only once its
+           gates pass: live execution, the community switch, the Prompter's switch), whose line is stale, a few a pass. */
+        try {
+          // Review 1: only agents in the community (the ones the turn could prompt).
+          const stale = [...COMMUNITY_TURN_IDLE_SEEN].filter((s) => { const e = HOME_LINES.get(s); return (!e || Date.now() - e.at >= HOME_LINE_TTL_MS) && inCommunity(s); });
+          refreshHomeLines(stale.slice(0, HOME_REFRESH_PER_PASS));
+          for (const s of HOME_LINES.keys()) if (!COMMUNITY_TURN_IDLE_SEEN.has(s) && Date.now() - HOME_LINES.get(s).at >= HOME_LINE_TTL_MS) HOME_LINES.delete(s);
+          // April's review: the route's reads are swept too once past their reuse window (HOME_GEN stays: a counter per
+          // agent that ever commented, small, and dropping one could let an in-flight read through).
+          for (const [s, e] of HOME_ROUTE) if (e.done && Date.now() - e.done > HOME_ROUTE_REUSE_MS) HOME_ROUTE.delete(s);
+        } catch { /* the generic line stands in */ }
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       /* #5154 slice A: a crash loop is said on the card (engine/crashloop.js, /api/status's crashLoop) and, once per loop,

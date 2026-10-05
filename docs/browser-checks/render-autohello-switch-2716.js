@@ -410,6 +410,36 @@ function initStub() {
   check('real model switch that does not restart: no hello is sent and no confirmation is shown',
     s11c.threads === 0 && !/Reactivated/.test(s11c.msg), 'threads=' + s11c.threads + ' msg=' + JSON.stringify(s11c.msg));
 
+  // ---- Arm 12 (#5150): a key account is named in the bracket when the agent is opened through openDetail ----
+  // /api/status now hands a Gemini or Grok agent its own provider's row (server.test.js #5150), keyTail included.
+  // A DEFAULT Grok key account reads its key, and so does a NAMED Gemini one (key before the slug, as the Move
+  // dropdown); CONTROL: a slug with no key (a Claude folder) still reads its slug.
+  const s12 = await page.evaluate(() => {
+    const out = {};
+    const prev = CURRENT && CURRENT.sessionName;
+    const base = LAST.find((x) => x.sessionName === 'april') || {};
+    const add = (sessionName, runner, account) => { const a = Object.assign({}, base, { sessionName, name: sessionName, displayName: sessionName, runner, isNamedOurs: true, account }); LAST.push(a); return a; };
+    const made = [];
+    try {
+      made.push(add('grokdef', 'grok', { dir: '/h/.grok', name: null, email: null, label: null, keyTail: '4f2a' }));
+      made.push(add('gemnamed', 'gemini', { dir: '/h/.gemini-b', name: null, email: null, label: 'b', keyTail: '9999' }));
+      made.push(add('clslug', 'claude', { dir: '/h/.claude-work2', name: null, email: null, label: 'work2', keyTail: null }));
+      openDetail('grokdef');
+      out.grok = document.getElementById('d-runson').textContent;
+      openDetail('gemnamed');
+      out.gem = document.getElementById('d-runson').textContent;
+      openDetail('clslug');
+      out.slug = document.getElementById('d-runson').textContent;
+    } catch (e) { out.err = String(e && e.message || e); }
+    for (const a of made) LAST.splice(LAST.indexOf(a), 1);
+    const back = (prev && LAST.some((x) => x.sessionName === prev)) ? prev : (LAST[0] && LAST[0].sessionName);
+    if (back) openDetail(back);   // leave the page on a real agent, never on a removed one
+    return out;
+  });
+  check('#5150 opened through openDetail: a default Grok key reads "(API key ending 4f2a)", a named Gemini key "(API key ending 9999)"; control: a keyless slug reads "(work2)"',
+    !s12.err && /\(API key ending 4f2a\)$/.test(s12.grok || '') && /\(API key ending 9999\)$/.test(s12.gem || '') && /\(work2\)$/.test(s12.slug || ''),
+    JSON.stringify(s12));
+
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
 

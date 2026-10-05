@@ -19500,16 +19500,22 @@ function plusStarsLoop(now) { plusStarsDraw(now); plusStarsRaf = requestAnimatio
 function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
   plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
   if (!plusReduce) plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+/* #5209: one coordinate of a dot across a resize from old size o to new size n. The part inside the box
+   scales; a dot in the 4px wrap margin keeps its offset from the edge it is past. Scaling the margin too
+   pushed a just-wrapped dot (y about -3.7, grown x1.6 to about -6) past the -4 wrap line, so it was
+   wrapped to the far edge early (off the canvas either side, so not visible). */
+function plusStarScale(v, o, n) { return v < 0 ? v : v > o ? n + (v - o) : v * n / o; }
 /* #3778 (review pass 2): a re-size KEEPS the field. Re-seeding on every change in the section's
    height (a status line appearing is enough) made every dot jump to a new place each time. Each
-   dot keeps its place in proportion to the new box; the count follows the area (trimmed, or new
-   dots added), and one frame is drawn at once, as plusStarsStart does. */
+   dot keeps its place in proportion to the new box (a dot in the wrap margin keeps its offset,
+   #5209); the count follows the area (trimmed, or new dots added), and one frame is drawn at once,
+   as plusStarsStart does. */
 function plusStarsResize() {
   var ow = plusSW, oh = plusSH;
   if (!plusParts || !plusParts.length || !ow || !oh) { plusStarsStart(); return; }
   plusStarsBuffer();
-  var fx = plusSW / ow, fy = plusSH / oh;
-  for (var i = 0; i < plusParts.length; i++) { plusParts[i].x *= fx; plusParts[i].y *= fy; }
+  for (var i = 0; i < plusParts.length; i++) {
+    plusParts[i].x = plusStarScale(plusParts[i].x, ow, plusSW); plusParts[i].y = plusStarScale(plusParts[i].y, oh, plusSH); }
   var N = plusStarsCount();
   if (plusParts.length > N) plusParts.length = N;
   while (plusParts.length < N) plusParts.push(plusStarNew());
@@ -20214,13 +20220,21 @@ function menuRunsOn(a) {
    now carried on `a.account` because the board reads it off the launch dir since
    #2225 -- so this line names the account the same way the pickers and the
    Settings row have since #2095, instead of the raw path slug. It falls back to
-   the email, then the slug (`label`), for accounts that were never named, and
+   the email, then an API key's last four (#5150), then the slug (`label`), for accounts that were never named, and
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
-   directly. */
+   directly.
+   #5150: a Gemini or Grok key account has no name and no email; what names it is its key's last four, in the
+   server's own words, "API key ending XXXX", AHEAD of the folder slug (label): the Move dropdown just below
+   (acctPrimaryName) names a key account by its key, so this line agrees with it. kosmos whoami's sentence
+   (server.js sentenceForWhoami) still names the slug first: a known difference between the two surfaces. /api/status carries keyTail for those agents (accountForAgent is handed the Gemini and Grok lists too),
+   so the open-the-agent paint and the provider-switch repaint (which reads /api/accounts) name it the same way
+   whenever the switch sends an account folder. OpenAI is left out of /api/status on purpose (codex agents keep
+   their account shape), so an OpenAI key account is named by its key after a switch but not on opening the agent;
+   that difference is known and accepted. */
 function acctParenthetical(a) {
   const acct = a && a.account;
-  return (acct && (acct.name || acct.email || acct.label)) || '';
+  return (acct && (acct.name || acct.email || (acct.keyTail ? 'API key ending ' + acct.keyTail : '') || acct.label)) || '';
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
@@ -37444,7 +37458,7 @@ function openDetail(sessionName, section, fromProject) {
      account dropdown too; the separate Signed-in-as sentence below was
      the fourth explains-the-visible line Josh cut tonight, and it went
      with this change. */
-  /* email, then label, and DELIBERATELY not the dir rung the picker
+  /* name, email, API key, then label (acctParenthetical), and DELIBERATELY not the dir rung the picker
      keeps: a raw filesystem path does not belong in the headline, and
      the dropdown below still shows it for the configured-but-unknown
      account state. And the parenthetical reads from the launch file,
@@ -46917,7 +46931,7 @@ let OPENAI_DETAIL_GEN = 0;
    from a.plannedModelId, the job's RAW model id (#4416: plannedModelName is now a readable name, "GPT 5.6 Sol",
    which no option's value matches).
    🔑 THE ACCOUNT DIR. a.account is resolved by accountForAgent against the CLAUDE
-   account list (server.js). A codex agent WITH its own configDir gets
+   account list, plus Gemini and Grok since #5150 but never OpenAI (server.js). A codex agent WITH its own configDir gets
    {dir: <that codex dir>, isDefault:null} -- a real OpenAI account the route
    accepts, so we send it. A DEFAULT-codex agent (configDir null) gets NO ROW AT
    ALL: sending the Claude default would 404 and wrongly park the picker even for
@@ -47318,7 +47332,7 @@ let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a
      performs the swap (it does NOT refuse it, which is why the old "a codex agent
      cannot be moved from here" message is gone), so the picker offers the OpenAI
      accounts. Its current account is resolved HERE, not from `a.account`: the
-     board computes `a.account` against the CLAUDE list only, so a DEFAULT codex
+     board computes `a.account` against the Claude list (plus Gemini and Grok, #5150; never OpenAI), so a DEFAULT codex
      agent (no CODEX_HOME in its job) arrives with `a.account` null, and a named
      one arrives as a dir-only stub. The default codex home is the default OpenAI
      row, so a null falls back to it. */
@@ -49047,7 +49061,7 @@ async function changeProviderNow(say) {
       {
         const drun = document.getElementById('d-runson');
         const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
-        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label)
+        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, key, label)
         if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
       }
       accountsDropped();

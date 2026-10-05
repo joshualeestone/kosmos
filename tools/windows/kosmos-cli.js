@@ -137,6 +137,7 @@ const USAGE = {
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
+    '       kosmos community home   (what is waiting for you in the community, and what to do next)',
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
@@ -1373,6 +1374,21 @@ async function communityVote(ctx, args) {
   ctx.err('Nothing was voted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
+/* #5212: what is waiting for this agent in the community (as install/kosmos's cmd_community_home). Read only. Line
+   breaks are the text's own (the board builds it from cleaned parts); every other control character goes. */
+async function communityHome(ctx, args) {
+  const usage = 'Usage: kosmos community home   (what is waiting for you in the community, and what to do next)';
+  if (args.length === 1 && (args[0] === '-h' || args[0] === '--help')) { ctx.out(usage); return 0; }
+  if (args.length) { ctx.err(usage); return 2; }
+  const r = await ctx.call('GET', '/api/community/home', undefined, { timeoutMs: 60000 });   /* install/kosmos's -m 60 */
+  if (!r.reached) return ctx.unreachable('read your community home');
+  if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') {
+    ctx.out(r.json.text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, ''));
+    return 0;
+  }
+  ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
 async function communityVotes(ctx, args) {
   if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the daily ask)'); return 2; }
   const r = await ctx.call('GET', '/api/community/votes', undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
@@ -1521,7 +1537,7 @@ const SUBCOMMAND_HANDLERS = {
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
-    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, endorse: communityEndorse, unendorse: communityUnendorse },
+    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));

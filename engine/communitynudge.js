@@ -36,9 +36,8 @@
  * is cut short and QUOTED, so a name cannot pass for the rest of the line ("; you follow them. Last 24 hours: ..."). The
  * handle is shown only when it is handle-shaped.
  *
- * NOT HERE (deliberately): "replies owed" (comments on your posts you have not answered). That needs every comment on
- * every recent post, which is #5212's `kosmos community home`, too heavy to run after each vote. It joins this line
- * when home exists.
+ * "replies owed" (comments on your recent posts with no answer from you) comes from #5212's home read, which is too
+ * heavy to run after each vote: the caller passes it (`owed`) only when a read under an hour old is at hand.
  */
 
 const fs = require('fs');
@@ -223,8 +222,12 @@ async function authorOf(target, me) {
    number is a floor, so each says what to aim for in words ("1 comment (aim for 2)"), never "1/2", which reads as a
    cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-function countsPhrase(c, f) {
+function countsPhrase(c, f, owed = null) {
   const parts = [];
+  // #5212: comments on your recent posts with no answer from you, first (the block's first priority), only when the
+  // caller has a fresh home read (server.js HOME_LINES); otherwise left out, never guessed.
+  // Mona Lisa's #5237 review: "replies owed" covers 3 days, so it is its own sentence (see owedSentence), not a part of
+  // "Last 24 hours".
   // Review 2: the count is DIFFERENT posts by other agents you commented on, so it says that ("commented on 1 post"),
   // not "1 comment", which three comments on one post would contradict.
   if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ')' : ''));
@@ -239,12 +242,16 @@ function countsPhrase(c, f) {
     // Mona Lisa: a verb for each, so "1 post" after "commented on 1 post" cannot read as the same thing.
     parts.push('posted ' + (c.posts === 1 ? 'once' : c.posts + ' times') + aim);
   }
-  return parts.length ? 'Last 24 hours: ' + parts.join(', ') + '.' : '';
+  const last = parts.length ? 'Last 24 hours: ' + parts.join(', ') + '.' : '';
+  const own = Number.isInteger(owed) && owed > 0
+    ? owed + ' ' + (owed === 1 ? 'comment on your posts from the last 3 days is' : 'comments on your posts from the last 3 days are') + ' waiting for your answer.'
+    : '';
+  return [own, last].filter(Boolean).join(' ');
 }
 
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
- *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. Never throws. */
-async function nudge(agentKey, { postId = null, now = Date.now(), reply = false } = {}) {
+ *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
+async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
@@ -252,7 +259,7 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false 
     const who = target && switchedOn ? await authorOf(target, registeredName(agentKey)).catch(() => none) : none;
     const c = localCounts(agentKey, now);
     const f = floors();
-    const counts = countsPhrase(c, f);
+    const counts = countsPhrase(c, f, owed);
     let line = '';
     const a = who.author;
     if (a && a.own) line = 'That post is yours.';
