@@ -585,6 +585,24 @@ test('review 11: a stale attempt that fails late does not undo a newer attempt o
   assert.equal((api.map.get('/p/pip.md') || {}).state, 'added');
 });
 
+test('a stuck add is dropped on either list; a receipt is forgotten only by a new visit to the create screen', () => {
+  // eslint-disable-next-line no-new-func
+  const api = new Function('const IMPORT_ADDS = new Map();\n' + slice('importAddsDropStuck') + '\n' + slice('importAddsNewVisit')
+    + '\nreturn { drop: importAddsDropStuck, visit: importAddsNewVisit, map: IMPORT_ADDS };')();
+  const fill = () => {
+    api.map.clear();
+    api.map.set('/stuck.md', { state: 'adding', at: Date.now() - 61000 });
+    api.map.set('/fresh.md', { state: 'adding', at: Date.now() });
+    api.map.set('/done.md', { state: 'added', name: 'Pip' });
+  };
+  fill(); api.drop();
+  assert.deepEqual([...api.map.keys()].sort(), ['/done.md', '/fresh.md'], 'first run: only the stuck add goes');
+  fill(); api.visit();
+  assert.deepEqual([...api.map.keys()], ['/fresh.md'], 'CONTROL: a new visit also forgets the receipt');
+  const scan = PAGE.slice(PAGE.indexOf('function frPaintScan() {'), PAGE.indexOf('function frPaintScan() {') + 200);
+  assert.match(scan, /importAddsDropStuck\(\)/, 'first run paints its list through the stuck-add drop');
+});
+
 test('a stuck attempt that SUCCEEDS late, with nothing newer in flight, records the add', async () => {
   const t = makeDom();
   const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');

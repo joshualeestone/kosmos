@@ -53109,12 +53109,17 @@ function importRowApply(row) {
     go.textContent = 'Adding\u2026';
   }
 }
-function importAddsNewVisit() {
-  /* An add still in flight is kept, unless it has been in flight over a minute: a request that never
-     settles must not leave the row "Adding..." until the page is reloaded (review 7). */
+/* An add in flight over a minute is dropped, so a request that never settles does not leave its row "Adding..."
+   until the page is reloaded. Receipts ('added') are kept. */
+function importAddsDropStuck() {
   for (const [f, st] of [...IMPORT_ADDS]) {
-    if (st.state === 'added' || (typeof st.at === 'number' && Date.now() - st.at > 60000)) IMPORT_ADDS.delete(f);
+    if (st.state !== 'added' && typeof st.at === 'number' && Date.now() - st.at > 60000) IMPORT_ADDS.delete(f);
   }
+}
+/* A fresh visit to the create screen's list also forgets the receipts; an add still in flight is kept. */
+function importAddsNewVisit() {
+  importAddsDropStuck();
+  for (const [f, st] of [...IMPORT_ADDS]) if (st.state === 'added') IMPORT_ADDS.delete(f);
 }
 function importRowsSync(file, msg, aboutName, pressed) {
   /* Review 8/9: focus moves only when the PRESSED row was redrawn away (fail() has already focused it when it is
@@ -53359,7 +53364,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      more. Full-opacity settled green with a check, not the half-visible disabled
      state, and the row is marked done. No sentence on success: the button says it. */
   if (!current()) {
-    /* Review 11/12: a newer attempt owns the row now, and a late success paints nothing over it. But when the
+    /* A newer attempt owns the row now, and a late success paints nothing over it. But when the
        attempt was only DROPPED (stuck over a minute) and nothing replaced it, the agent was made all the same:
        record it, so the row is not offered as "Add to Kosmos" for an agent that exists. */
     if (!IMPORT_ADDS.has(file)) { IMPORT_ADDS.set(file, { state: 'added', name: typed || name }); importRowsSync(file); }
@@ -70832,6 +70837,7 @@ function frImportOffer() {
  * every agent the scan finds appears on this one screen with a one-click action.
  */
 function frPaintScan() {
+  importAddsDropStuck();   // kosmos#4962: first run's list drops a stuck add too (its receipts stay for the visit)
   const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
   const cand = frScanOffer();
