@@ -281,3 +281,39 @@ test('#3312: the join picked-agents list renders the empty state when nobody is 
   s.pjPaintJoinAgents();
   assert.match(s.doc.getElementById('pj-join-agents').innerHTML, /No agents on it yet\./);
 });
+
+// kosmos#4649 slice B: the From outside rows, from the page's own functions (no browser). Which rows show, their
+// keys, and what each offers (none of Withdraw or Make a new code when the board could not check who joined).
+function buildRows() {
+  const src = [lift('esc'), lift('fedRowKey'), lift('fedOutsideRows'), lift('fedShortDate'), lift('fedDiscLetters'), lift('fedOutsideRowHtml')].join('\n');
+  // eslint-disable-next-line no-new-func
+  return new Function('FED_BUSY', 'FED_MSGS', src + '\nreturn { fedRowKey, fedOutsideRows, fedOutsideRowHtml };')(new Set(), {});
+}
+test('#4649 slice B: which outside rows show, and their keys', () => {
+  const { fedOutsideRows, fedRowKey } = buildRows();
+  const rows = fedOutsideRows({ invites: [
+    { invite_id: 'a', label: 'Dana', state: 'joined', edge_id: 'e1' },
+    { invite_id: 'b', label: 'Lee', state: 'pending' },
+    { invite_id: 'c', label: 'Lee', state: 'expired' },     // a newer code for Lee is pending: the expired one goes
+    { invite_id: 'd', label: 'Old', state: 'expired' },     // nothing newer: it stays, to be made again
+    { invite_id: 'e', label: 'Gone', state: 'withdrawn' },
+    { invite_id: 'f', label: 'Out', state: 'removed', edge_id: 'e2' },
+    null, 'junk',
+  ] });
+  assert.deepEqual(rows.map(fedRowKey), ['e:e1', 'i:b', 'i:d']);
+  assert.deepEqual(fedOutsideRows({}), []);
+  assert.deepEqual(fedOutsideRows(null), []);
+});
+test('#4649 slice B: each row offers its action, and none of Withdraw or Make a new code when unchecked', () => {
+  const { fedOutsideRowHtml } = buildRows();
+  const joined = { invite_id: 'a', label: 'Dana Ruiz', state: 'joined', edge_id: 'e1', kind: 'person' };
+  const pending = { invite_id: 'b', label: 'Lee <b>Park</b>', state: 'pending', kind: 'person' };
+  const expired = { invite_id: 'c', label: 'Old Friend', state: 'expired', kind: 'agent' };
+  assert.match(fedOutsideRowHtml(joined, false), /data-fed-act="remove"[^>]*aria-label="Remove Dana Ruiz"/);
+  assert.match(fedOutsideRowHtml(pending, false), /data-fed-act="withdraw"[^>]*aria-label="Withdraw the code for Lee &lt;b&gt;Park&lt;\/b&gt;"/);
+  assert.match(fedOutsideRowHtml(expired, false), /data-fed-act="renew"[^>]*aria-label="Make a new code for Old Friend"/);
+  assert.ok(!/<b>Park<\/b>/.test(fedOutsideRowHtml(pending, false)), 'a label is escaped');
+  // Unchecked: Remove stays (the person did join); Withdraw and Make a new code go.
+  assert.match(fedOutsideRowHtml(joined, true), /data-fed-act="remove"/);
+  assert.ok(!/fedout-act/.test(fedOutsideRowHtml(pending, true)) && !/fedout-act/.test(fedOutsideRowHtml(expired, true)));
+});

@@ -67882,7 +67882,7 @@ function fedOutsideRowHtml(r, unchecked) {
   const wait = r.state === 'joined' ? '' : ' fedout-wait';
   const btn = act
     ? '<button class="fedout-act" type="button" data-fed-act="' + act + '" data-fed-key="' + esc(key) + '"'
-      + ' aria-label="' + esc(label + ' ' + name) + '"'
+      + ' aria-label="' + esc(act === 'remove' ? 'Remove ' + name : act === 'withdraw' ? 'Withdraw the code for ' + name : 'Make a new code for ' + name) + '"'
       + (FED_BUSY.has(key) ? ' disabled' : '') + '>' + label + '</button>'
     : '';
   const said = FED_MSGS[key];
@@ -67898,6 +67898,9 @@ function fedOutsideHtml() {
   const body = fm.body || {};
   if (fm.ok && (body.owner !== true || body.self_shared === true)) return '';
   const rows = fm.ok ? fedOutsideRows(body) : [];
+  // A failed REFRESH that kept an answer with no rows says nothing: there is nothing on screen to be out of date,
+  // and the line would appear for every owner who never invited anyone whenever one poll fails. A failed FIRST
+  // load has no answer at all, so it says it could not check.
   // Not checked: the GET failed, or the board could not ask the coordinator and there are rows to show (with
   // none visible, e.g. a project that never invited anyone, there is nothing to be out of date about).
   // shared (Ice Cream Kitty, 18:18): true when the project has ever had an owner link, so an unchecked answer
@@ -68081,6 +68084,15 @@ async function fedRemoveGo() {
   if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) memConfirmClose(); return; }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
+  // Given up on: the list is being asked again (above), so the dialog closes and the sentence is said beside the
+  // list, where the person sees what the board did, rather than offering again to remove someone it may not show.
+  if (timedOut) {
+    if (still) fedRemoveDone();
+    FED_MSGS[f.key] = said; fedSay(said);
+    fedOutsidePaint(false);
+    fedRefocus(f.key);
+    return;
+  }
   if (!said && res.ok) {
     delete FED_MSGS[f.key];
     // The kept answer (a failed refetch keeps it) must not bring back the person just removed.
@@ -68092,7 +68104,7 @@ async function fedRemoveGo() {
     // gone, so the sentence is a loose one, cleared by the next action), rather than letting the row just vanish.
     if (!still) { const done = (f.label ? f.label : 'They') + ' ' + (f.label ? 'was' : 'were') + ' removed from this project.'; FED_MSGS[f.key] = done; fedSay(done); }
     fedOutsidePaint(false);   // the row goes now, not when the refetch answers
-    if (still) fedRemoveDone();
+    if (still) fedRemoveDone(); else fedRefocus(f.key);   // after a Cancel, focus fell to <body>: the "+" takes it
     fedMembersLoad(f.project);
     return;
   }
@@ -68103,10 +68115,11 @@ async function fedRemoveGo() {
   // dialog was closed meanwhile, so the refusal is said on the row instead.
   FED_MSGS[f.key] = said; fedSay(said);
   if (res && res.status === 404) {
-    if (still) fedRemoveDone();
+    if (still) fedRemoveDone(); else fedRefocus(f.key);
     fedMembersLoad(f.project);
   } else {
     fedOutsidePaint(false);
+    fedRefocus(f.key);   // the dialog was closed meanwhile: back to the row's Remove, live again
   }
 }
 async function fedWithdraw(r) {
@@ -68176,7 +68189,8 @@ else fedSay('');
 // The repaint replaces the pressed button: focus goes to the same row's button if it is still shown, else to the
 // Members "+" (as fedRemoveDone does), never to <body>.
 function fedRefocus(key) {
-  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent);
+  // A disabled button cannot take focus (its row is still being asked), so it is skipped for the "+".
+  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent && !x.disabled);
   const plus = [document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((x) => x && x.offsetParent);
   const to = b || plus;
   // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section or in
