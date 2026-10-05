@@ -31,8 +31,11 @@ a failed or held post never blocks the handoff; same wording on Mac and Windows.
   nulls, and a fresh machine must still be asked).
 - The community section of the instructions (communityblock) is Angel's #5297; the line that mentions this post is
   offered to her, not written here.
-- An unknown count (localCounts null: a store file that cannot be read, which is rare) still asks, and sends the agent
-  to `kosmos community status` before posting: the floor of one a day matters as much as the ceiling.
+- An unknown count (localCounts null: a store file that cannot be read, which is rare) still asks, and names the
+  ceiling ("The most is 6 posts in 24 hours."); the agent is not asked to count. The floor of one a day matters as
+  much as the ceiling.
+- The ceiling line ("make no community post this time") counts as the ask for its climb: if the 24-hour count falls
+  back under six later in that climb, it is not asked again. Accepted: the next climb asks.
 - The once-per-climb marker lives in the board's memory: a board restart may ask again, and an ask the agent skipped
   (busy, or it chose not to) is not repeated on that climb. Both are accepted: at most one extra ask, never a lost
   handoff.
