@@ -90,6 +90,14 @@ function envFor(port, home, token) {
   return env;
 }
 
+/* The recovery's three sentences, the same on both CLIs. */
+function assertRecovery(stderr) {
+  assert.match(stderr, /If your person removed you from Kosmos, that is expected/);
+  assert.match(stderr, /restart you from Kosmos \(your page, Restart; "Write a handoff, then\s+restart" keeps what you were doing\)/);
+  assert.match(stderr, /`kosmos adopt` does not\s+help/);
+}
+const NOT_HEX = 'NOT-A-TOKEN';   // both CLIs send only a bare lowercase-hex token, so this one is never sent
+
 const VERBS = [['whoami'], ['inbox'], ['reply', 'hello'], ['msg', 'mara', 'hello'], ['post', 'p5333', 'hello'], ['report', 'working', 'on', 'it']];
 
 for (const args of VERBS) {
@@ -101,9 +109,7 @@ for (const args of VERBS) {
         assert.ok(got.out.includes(NO_MATCH), `the board's sentence is kept: ${got.out}`);
         assert.ok(got.stderr.includes(HINT), `the way back is said, on stderr: ${got.out}`);
         assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone, as before (a script captures it)');
-        assert.match(got.stderr, /If your person removed you from Kosmos, that is expected/);
-        assert.match(got.stderr, /restart you from Kosmos \(your page, Restart; "Write a handoff, then\s+restart" keeps what you were doing\)/);
-        assert.match(got.stderr, /`kosmos adopt` does not\s+help/);
+        assertRecovery(got.stderr);
         // Exit codes as before: whoami 0 (the board answers its refusal with a 200), the others non-zero.
         if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.notEqual(got.code, 0, 'still a failure');
       });
@@ -113,9 +119,11 @@ for (const args of VERBS) {
     const home = makeHome();
     try {
       await withStub(NO_MATCH, async (port) => {
-        const got = await run(CLI, args, envFor(port, home, null));
-        assert.ok(got.out.includes(NO_MATCH), `the stub answered: ${got.out}`);
-        assert.ok(!got.out.includes(HINT), 'no token was sent, so there is no token to have been refused');
+        for (const tok of [null, NOT_HEX]) {
+          const got = await run(CLI, args, envFor(port, home, tok));
+          assert.ok(got.out.includes(NO_MATCH), `the stub answered: ${got.out}`);
+          assert.ok(!got.out.includes(HINT), 'no token was sent (none set, or not a bare hex one), so none was refused');
+        }
       });
       for (const other of [OTHER, QUOTED]) {
         await withStub(other, async (port) => {
@@ -138,12 +146,15 @@ for (const args of VERBS) {
         const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN));
         assert.ok(got.out.includes(NO_MATCH), `the board's sentence is kept: ${got.out}`);
         assert.ok(got.stderr.includes(HINT), `the way back is said, on stderr: ${got.out}`);
+        assertRecovery(got.stderr);
         if (got.stderr.includes(NO_MATCH)) assert.ok(got.stderr.indexOf(NO_MATCH) < got.stderr.indexOf(HINT), 'after the board\'s words on the same stream');
         assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone');
         if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.notEqual(got.code, 0, 'still a failure');
-        const none = await run(process.execPath, [WIN, ...args], envFor(port, home, null));
-        assert.ok(none.out.includes(NO_MATCH), `CONTROL: the stub answered without a token: ${none.out}`);
-        assert.ok(!none.out.includes(HINT), 'CONTROL: no token sent, no hint');
+        for (const tok of [null, NOT_HEX]) {
+          const none = await run(process.execPath, [WIN, ...args], envFor(port, home, tok));
+          assert.ok(none.out.includes(NO_MATCH), `CONTROL: the stub answered without a token: ${none.out}`);
+          assert.ok(!none.out.includes(HINT), 'CONTROL: no token sent (none, or not a bare hex one), no hint');
+        }
       });
       for (const other of [OTHER, QUOTED]) {
         await withStub(other, async (port) => {
