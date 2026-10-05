@@ -65,10 +65,12 @@ test('#5150: a Gemini or Grok key account (no name, email or label) is named by 
   assert.equal(acctParenthetical(a), 'API key ending 4f2a');
 });
 
-test('#5150: the key is the LAST rung: a name, an email or a label still wins over it', () => {
+test('#5150: the key comes after a name and an email but BEFORE the folder slug (as the Move dropdown and whoami)', () => {
   assert.equal(acctParenthetical({ account: { name: 'Research', keyTail: '4f2a' } }), 'Research');
   assert.equal(acctParenthetical({ account: { email: 'g@example.com', keyTail: '4f2a' } }), 'g@example.com');
-  assert.equal(acctParenthetical({ account: { label: 'gemini-b', keyTail: '4f2a' } }), 'gemini-b');
+  assert.equal(acctParenthetical({ account: { label: 'gemini-b', keyTail: '4f2a' } }), 'API key ending 4f2a');
+  // CONTROL: a slug with no key (a Claude or codex folder) is still named by its slug.
+  assert.equal(acctParenthetical({ account: { label: 'work2', keyTail: null } }), 'work2');
 });
 
 test('#5150 CONTROL: a row with nothing at all, keyTail included, still gives no bracket', () => {

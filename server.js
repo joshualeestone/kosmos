@@ -4978,8 +4978,7 @@ const server = http.createServer(async (req, res) => {
          them apart: a folder matches only its own row, and a dir-less default matches only the runner's
          provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
       const listOf = (m) => { try { return m.list(); } catch { return []; } };
-      const known = (() => { try { return accounts.list(); } catch { return []; } })()
-        .concat(listOf(geminiAccounts), listOf(grokAccounts));
+      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts));
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your

@@ -13384,7 +13384,10 @@ test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s accoun
     assert.equal(gem.account.label, 'b');
     // A DEFAULT Grok agent (no folder): the Grok default row, never Gemini's default (the provider gate).
     assert.equal(grok.account && grok.account.keyTail, '4f2a', JSON.stringify(grok.account));
-    // CONTROL: a dir-less Claude agent, with three default rows in the mixed list, gets the CLAUDE default.
+    // CONTROL: a dir-less Claude agent, with three default rows in the mixed list, gets the CLAUDE default. This
+    // pins the Claude row being there and chosen; it does NOT pin accountForAgent's provider gate by itself (the
+    // Claude rows come first in the list): that gate is pinned by server.whoami-grok-4603.test.js's route control,
+    // which goes red when the gate is removed.
     const claude = row('plainclaude3');
     assert.ok(claude && claude.account, 'the claude fixture has no account row: ' + JSON.stringify(claude && claude.account));
     assert.equal(claude.account.dir, '/Users/x/.claude');
