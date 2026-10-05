@@ -33987,7 +33987,7 @@ function fedGateStamp(data) {
     // entitlement as unknown on prod); only federation turning off ("hidden") closes it. The asking step closes.
     const done = document.getElementById('fedinv-done');
     const codeShown = !!(done && !done.hidden);
-    if (inv && !inv.hidden && typeof fedInviteClose === 'function' && (mode === 'hidden' || !codeShown)) fedInviteClose();
+    if (inv && !inv.hidden && typeof fedInviteClose === 'function' && (mode === 'hidden' || !codeShown)) fedInviteClose(mode === 'hidden');
   }
   if (typeof pjAddMenuSync === 'function') pjAddMenuSync();
 }
@@ -67353,6 +67353,9 @@ document.getElementById('pj-add-member').addEventListener('click', (e) => pjAddP
    tab view and #rail-agents-new while the consolidated rail groups the project's members. */
 /* PJ_ADDMENU_OPENER / PJ_ADDMENU_AGENT are declared beside AGENTS_GROUPED, above: setAgentsGrouped
    and fedGateStamp read them, and a `let` read before its line runs throws. */
+// Gap G1 (spec section 2), stated so it is not read as a decision: "Invite someone outside" is offered to every "show"
+// viewer, including a board that only joined this project from outside (the board answers 409 not-owner) or a
+// self-shared project (409 self-shared). Hiding it needs a per-project role the board does not send yet.
 function pjAddPlus(opener, openAm) {
   const menu = document.getElementById('pj-addmenu');
   if (!menu || !fedShow() || !PJ_CURRENT || !opener.getClientRects().length) { pjAddMenuClose(false); openAm(); return; }
@@ -67367,8 +67370,9 @@ function pjAddPlus(opener, openAm) {
   opener.setAttribute('aria-expanded', 'true');
   document.getElementById('pj-addmenu-agent').focus();
 }
-// The sub-line under "Add one of your agents" (Mona: "Ada, Basil and the rest of your team"),
-// from the agents this board can see, the same list the #am-modal picker offers from.
+// The sub-line under "Add one of your agents" (Mona: "Ada, Basil and the rest of your team"), from every agent this
+// board can see. It is NOT the #am-modal picker's list (that offers only agents not yet on the project): it names
+// the team, as Mona's mock does, so it can name members who are already on the project.
 function pjAddMenuAgentsLine() {
   const names = (LAST || []).filter((a) => a && a.isGuide !== true && a.name).map((a) => String(a.name));
   if (names.length >= 3) return names[0] + ', ' + names[1] + ' and the rest of your team';
@@ -67415,7 +67419,7 @@ function pjAddMenuClose(refocus) {
    while it is the project's "+" rather than New agent). Called by fedGateStamp and setAgentsGrouped. */
 function pjAddMenuSync() {
   const on = fedShow();
-  const grouped = typeof AGENTS_GROUPED !== 'undefined' && AGENTS_GROUPED;
+  const grouped = AGENTS_GROUPED === true;   // declared near the top (a typeof guard would not shield a TDZ read anyway)
   for (const [id, menuy] of [['pj-add-member', on], ['rail-agents-new', on && grouped]]) {
     const b = document.getElementById(id);
     if (!b) continue;
@@ -67502,7 +67506,12 @@ function fedInviteOpen(opener) {
   document.getElementById('fedinv-modal').hidden = false;
   label.focus();
 }
-function fedInviteClose() {
+// While Make is being answered the sheet does not close (Cancel, Escape, the backdrop): the board may already have
+// minted and recorded the code, and dropping its reply would leave a pending invite nobody saw. Only federation
+// turning off (force) closes it then.
+let FEDINV_INFLIGHT = false;
+function fedInviteClose(force) {
+  if (FEDINV_INFLIGHT && force !== true) return;
   FEDINV_SEQ++;
   document.getElementById('fedinv-modal').hidden = true;
   const back = [FEDINV_OPENER, document.getElementById('pj-add-member')].find((b) => b && b.getClientRects().length);
@@ -67523,6 +67532,7 @@ async function fedInviteMake() {
   const kind = document.getElementById('fedinv-kind-agent').checked ? 'agent' : 'person';
   const seq = ++FEDINV_SEQ;
   make.disabled = true;
+  FEDINV_INFLIGHT = true;
   msg.textContent = 'Making a code…';
   const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
   try {
@@ -67536,6 +67546,7 @@ async function fedInviteMake() {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
       msg.textContent = res.status === 403 ? fallback
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
+      document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
       return;
     }
     msg.textContent = '';
@@ -67549,7 +67560,7 @@ async function fedInviteMake() {
   } catch {
     if (seq === FEDINV_SEQ) msg.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
   } finally {
-    if (seq === FEDINV_SEQ) make.disabled = false;
+    if (seq === FEDINV_SEQ) { make.disabled = false; FEDINV_INFLIGHT = false; }
   }
 }
 // Copy the code: pjCopyInvite's pattern ("Copied", the Command C fallback, one revert timer),
@@ -67572,7 +67583,7 @@ document.getElementById('fedinv-make').addEventListener('click', fedInviteMake);
 // Enter is a second Make button, so it obeys the same guard (a request in flight disables Make) and does not fire
 // while an input method is composing (Enter there confirms the composition, not the form).
 document.getElementById('fedinv-label').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || e.isComposing) return;
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;   // WebKit commits a composition as keyCode 229
   e.preventDefault();
   if (!document.getElementById('fedinv-make').disabled) fedInviteMake();
 });
@@ -67586,7 +67597,7 @@ document.getElementById('fedinv-modal').addEventListener('click', (e) => {
 // Escape closes either step (#1316: every dialog's keyboard way out). Unlike a stray backdrop click it is deliberate,
 // so it may close the code step; not while an input method is composing (Escape there cancels the composition).
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || e.isComposing || document.getElementById('fedinv-modal').hidden) return;
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || document.getElementById('fedinv-modal').hidden) return;
   fedInviteClose();
 });
 // Tab stays inside the sheet, which declares aria-modal (plus-lost-modal's trap): among its visible, enabled controls.

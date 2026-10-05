@@ -429,6 +429,26 @@ const closeAll = (page) => page.evaluate(() => {
     await ctx.close();
   }
 
+  /* ---------------- A9: the sheet does not close while Make is being answered ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { window.__inviteDelay = 500; });
+    await page.click('#fedinv-make');
+    await page.keyboard.press('Escape');
+    await page.click('#fedinv-cancel');
+    const during = await page.evaluate(() => !document.getElementById('fedinv-modal').hidden);
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    const shown = await page.evaluate(() => ({ open: !document.getElementById('fedinv-modal').hidden, code: document.getElementById('fedinv-code').value }));
+    await page.evaluate(() => { window.__inviteDelay = 0; });
+    check('A9 Escape and Cancel while Make is answered leave the sheet open, and the minted code is shown (control: A8, Escape closes an idle asking step)',
+      during === true && shown.open && shown.code === CODE, JSON.stringify({ during, shown }));
+    await ctx.close();
+  }
+
   await browser.close();
   if (problems.length) {
     console.log('render-federation-invite-4649: ' + problems.length + ' FAILED');
