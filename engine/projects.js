@@ -634,9 +634,8 @@ function profileRole(card) {
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
-/* #5300: the role a member set for this project, or null. Shown beside the member's role, never in place of it
-   (review 1): `role` decides who a room opens on (chat.defaultAgentFor) and the two-coordinators warning, and a
-   role the person saved wins there (#4896). */
+/* #5300: the role a member set for this project, or null. Display only: `role` (who a room opens on, the
+   two-coordinators warning, a person-saved role) never reads it. */
 function roleHereOf(p, key) {
   const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
   return typeof r === 'string' && r.trim() ? r : null;
@@ -2870,8 +2869,7 @@ function addAgent(id, sessionName, roster, made) {
   });
 }
 
-/* #5300 (10-05 user diagnostic R10, and N11 in the 0.7.15 one: "let the role say what the agent does on that project"):
-   every member showed its agent's one role, so five agents made as Project Managers read as five Project Managers on
+/* #5300: every member showed its agent's one role, so five agents made as Project Managers read as five Project Managers on
    every project. A member can say what it does on THIS project; describe carries it as `roleHere`, beside `role`.
    Kept per project in `rolesHere` (session name -> words), removed with the membership. One line of plain words, at
    most ROLE_HERE_MAX characters; an empty one clears it. Throws on a non-member or words that are not text. */
