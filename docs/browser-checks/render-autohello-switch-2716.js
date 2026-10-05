@@ -417,6 +417,7 @@ function initStub() {
     const out = {};
     try {
       const prevAccounts = ACCOUNTS;
+      const prevCurrent = CURRENT;
       const gem = Object.assign({}, LAST.find((x) => x.sessionName === 'april') || {}, {
         sessionName: 'gemkey', name: 'Gemkey', displayName: 'Gemkey', runner: 'gemini', isNamedOurs: true,
         account: { dir: '/h/.gemini-b', name: null, email: null, label: null, keyTail: null } });
@@ -427,13 +428,23 @@ function initStub() {
       ACCOUNTS = [];
       openDetail('gemkey');
       out.noRow = document.getElementById('d-runson').textContent;
+      // The cold first open: the list was not read when the line was painted; it arrives through accountsRead (the
+      // picker's own fetch calls it) and the open agent's line gains its bracket then.
+      accountsRead([{ dir: '/h/.gemini-b', provider: 'google', keyTail: '9999' }]);
+      out.afterRead = document.getElementById('d-runson').textContent;
+      accountsRead([{ dir: '/h/.gemini-b', provider: 'google', keyTail: '9999' }]);   // a second read adds nothing
+      out.afterTwo = document.getElementById('d-runson').textContent;
       ACCOUNTS = prevAccounts;
+      CURRENT = prevCurrent;
       LAST.splice(LAST.indexOf(gem), 1);
     } catch (e) { out.err = String(e && e.message || e); }
     return out;
   });
   check('#5150 a Gemini key agent opened through openDetail names its key: "(API key ending 9999)" (control: no listed row, no bracket)',
     !s12.err && /\(API key ending 9999\)$/.test(s12.withRow || '') && !/\(/.test(s12.noRow || ''), JSON.stringify(s12));
+  check('#5150 the cold first open: the line gains its key when the account list arrives, once (control: none before it)',
+    !s12.err && !/\(/.test(s12.noRow || '') && /\(API key ending 9999\)$/.test(s12.afterRead || '')
+      && (s12.afterTwo || '').split('(').length === 2, JSON.stringify(s12));
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);

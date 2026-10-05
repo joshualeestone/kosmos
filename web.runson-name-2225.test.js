@@ -94,7 +94,8 @@ test('#5150 review 2: the open-the-agent paint takes the key from the account li
   assert.equal(acctParenthetical({ account: acctWithListedKey(status, [{ dir: '/h/.gemini-c', keyTail: '1111' }]) }), '');
   // A default-account agent (no folder) is not matched to anything, and a row that already has a key keeps it.
   assert.equal(acctWithListedKey(null, listed), null);
-  assert.equal(acctWithListedKey({ dir: null }, listed).keyTail, undefined);
+  // A listed row with no folder either: only the no-folder guard keeps them from matching.
+  assert.equal(acctWithListedKey({ dir: null }, listed.concat([{ dir: null, keyTail: '7777' }])).keyTail, undefined);
   assert.equal(acctWithListedKey({ dir: '/h/.gemini-b', keyTail: '4f2a' }, listed).keyTail, '4f2a');
 });
 test('#5150 review 2: the paint site goes through acctWithListedKey (a source pin, as the helper is pure)', () => {

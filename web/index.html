@@ -20094,6 +20094,17 @@ function acctWithListedKey(acct, list) {
   const row = list.find((x) => x && x.dir === acct.dir);
   return row && row.keyTail ? Object.assign({}, acct, { keyTail: row.keyTail }) : acct;
 }
+/* #5150 review 3: on a session's FIRST agent open the account list is not read yet (the picker reads it after the
+   line is painted), so the key could not show until a later open. When the list arrives (accountsRead), the open
+   agent's line gains its bracket if it has none. Only that agent's line (data-acct-for), and only once (data-acct). */
+function runsOnAddListedKey() {
+  const drun = document.getElementById('d-runson');
+  if (!drun || typeof CURRENT === 'undefined' || !CURRENT || drun.dataset.acctFor !== CURRENT.sessionName || drun.dataset.acct === '1') return;
+  const who = acctParenthetical({ account: acctWithListedKey(CURRENT.account, ACCOUNTS) });
+  if (!who) return;
+  drun.appendChild(document.createTextNode(' (' + who + ')'));
+  drun.dataset.acct = '1';
+}
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
    restarted session writes one, that is the OLD session's, so Runs on said "Right now: <the old model>"
@@ -37264,6 +37275,8 @@ function openDetail(sessionName, section, fromProject) {
   const acctEmail = acctParenthetical({ account: acctWithListedKey(a && a.account, typeof ACCOUNTS !== 'undefined' ? ACCOUNTS : null) });
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
     + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
+  drun.dataset.acctFor = a.sessionName;   // #5150: runsOnAddListedKey adds the bracket to this agent's line once
+  drun.dataset.acct = acctEmail ? '1' : '';
   /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
      The migration path is real (a stopped agent appears under Found agents
      and Add records it); while it runs Kosmos will not write a launch file
@@ -47091,6 +47104,7 @@ function accountsRead(list) {
   ACCOUNTS = Array.isArray(list) ? list : [];
   ACCOUNTS_LOADED = true;
   ACCOUNTS_UNREADABLE = false;
+  if (typeof runsOnAddListedKey === 'function') runsOnAddListedKey();   // #5150: a first open's line gains its key
 }
 function accountsUnreadable() {
   /* 🛑 DELIBERATELY DOES NOT TOUCH `ACCOUNTS`, AND THAT IS NOT AN OVERSIGHT. A failed read
@@ -48857,6 +48871,7 @@ async function changeProviderNow(say) {
         const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
         const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label)
         if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
+        if (drun) { drun.dataset.acctFor = CURRENT.sessionName; drun.dataset.acct = who ? '1' : ''; }   // #5150
       }
       accountsDropped();
       try { await paintAccountPicker(CURRENT); } catch { /* the switch's own sentence is the answer */ }
