@@ -1,6 +1,16 @@
 {
-  "version": "0.7.23",
+  "version": "0.7.24",
   "highlights": [
+    {
+      "icon": "swarm",
+      "title": "Agents on all your computers",
+      "line": "With Kosmos+, the Agents view now also lists the agents on your other connected computers, under each computer's name."
+    },
+    {
+      "icon": "tasks",
+      "title": "See what a task changed",
+      "line": "A closed task now shows what each Claude agent changed: the files it created or edited, how many commands it ran, and its tokens."
+    },
     {
       "icon": "list",
       "title": "Name an agent file as you add it",
@@ -10,16 +20,6 @@
       "icon": "spark",
       "title": "Token Usage for every provider",
       "line": "Settings > Token Usage now counts your OpenAI, Gemini and Grok agents beside Claude, per day, model and agent."
-    },
-    {
-      "icon": "swarm",
-      "title": "Org charts read without Claude",
-      "line": "Without Claude set up, an org chart picture or PDF can now be read with an OpenAI API key, or a PNG or JPG picture with a Grok API key."
-    },
-    {
-      "icon": "chat",
-      "title": "Key accounts show their key",
-      "line": "A Gemini or Grok key account with no name now shows on the Right now line as \"API key ending\" and its last characters."
     },
     {
       "icon": "shield",
