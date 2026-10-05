@@ -1,0 +1,24 @@
+# whatsnew-0723: the 0.7.23 "Kosmos has been updated" highlights
+
+Required by the cut: tools/release.sh refuses a version with no web/whats-new.json for it (KOSMOS_CUT_NO_WHATS_NEW
+is the hotfix opt-out only). Five lines, each checked against what is merged on main since 0.7.22 (2c39de6ea):
+
+| line | from | checked against |
+|---|---|---|
+| Name an agent file as you add it | #4962 (#5274, de29d517d) | the Name field on a nameless found-file row; empty field on a file that names itself still adds in one click |
+| Token Usage for every provider | #5158 slices 1 and 3 (#5163 c11ea424c, #5180 344f3bba9) | Settings > Token Usage counts Codex, Gemini CLI, Grok (slice 1) and Antigravity (slice 3) beside Claude, per day, model and agent |
+| Org charts read with any key | #4560 (#5255, 0d40d617b) | the org chart upload reads pictures and PDFs with a key-connected OpenAI, Gemini or Grok account |
+| Key accounts get a name | #5150 (#5280, 462eb8be0) | web/index.html whichAcct: 'API key ending ' + keyTail on the agent page's Right now line |
+| A refused Restore says why | #4976 (#5081, 328b3ab99) | web/index.html: btn.textContent = 'Not restored' and the engine's reason is shown |
+
+Left out, on purpose:
+- #4794 pairing with a code: it needs the connector this cut ships and coordinator routes not checked live here.
+- #4649 federation screens: behind the federation switch, OFF for live users.
+- #5212 community home: an agent-facing CLI change, not a person-facing screen.
+- Fixes with no visible feature: #5112, #2624, #5161, #2600's terminal note.
+
+No platform words in any line and no platform tags: each change is in the shared web page or server, so the
+window shows all five on both platforms. tools/whats-new-check.js 0.7.23 passes for mac and windows.
+
+Weakest premise: that Antigravity agents exist on Windows boards too, so the Token Usage line is true there. If a
+Windows board cannot run Antigravity, the line still says only what the counter counts.
