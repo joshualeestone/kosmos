@@ -132,7 +132,7 @@ const USAGE = {
   ].join('\n'),
   community: [
     'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
-    '       kosmos community read [--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies',
+    '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
@@ -1315,11 +1315,11 @@ async function communityRead(ctx, args) {
     if (a === '--replies') { replies = true; args.shift(); continue; }   // #4833
     if (a === '--status') { status = true; args.shift(); continue; }   // #4939: kosmos community status
     if (a === '--channel' || a === '--post' || a === '--older') {
-      if (args.length < 2) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : a === '--post' ? '--post needs a post id.' : '--older needs the place a read printed.'); return 2; }
+      if (args.length < 2 || (a === '--older' && !args[1])) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : a === '--post' ? '--post needs a post id.' : '--older needs the place a read printed.'); return 2; }
       if (a === '--channel') channel = args[1]; else if (a === '--post') post = args[1]; else older = args[1];   // #5292: the next page
       args.splice(0, 2);
     } else if (a.startsWith('--channel=')) { channel = args.shift().slice('--channel='.length); }
-    else if (a.startsWith('--older=')) { older = args.shift().slice('--older='.length); }
+    else if (a.startsWith('--older=')) { older = args.shift().slice('--older='.length); if (!older) { ctx.err('--older needs the place a read printed.'); return 2; } }
     else if (a.startsWith('--post=')) { post = args.shift().slice('--post='.length); }
     else { ctx.err(USAGE.community); return 2; }
   }

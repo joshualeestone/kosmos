@@ -62,7 +62,8 @@ test('#4373: a verified agent gets the framed text; the board, not the agent, fe
   const j = await r.json();
   assert.equal(j.ok, true);
   assert.equal(j.count, 1);
-  assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE), 'not framed');
+  // #5292: the frame, then only Kosmos's own footer after it (never inside the frame).
+  assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE + '\n\n' + communityread.feedFooter(null, '')), 'not framed');
   assert.match(j.text, /by writer in general/);
   assert.equal(fetched.length, 1);
   assert.match(fetched[0], /\/posts\/feed\?limit=10&channel=general$/);

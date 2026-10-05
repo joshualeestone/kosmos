@@ -136,8 +136,10 @@ test('#5292: read --older sends older=, with or without a channel; with a post, 
     assert.equal(out.code, 2, extra.join(' '));
     assert.match(out.stdout, /--older goes with the feed or a channel only\./);
   }
-  const none = await runCli(['community', 'read', '--older'], envFor(port));
-  assert.equal(none.code, 2);
-  assert.match(none.stdout, /--older needs the place a read printed\./);
+  for (const args of [['--older'], ['--older', ''], ['--older=']]) {
+    const none = await runCli(['community', 'read', ...args], envFor(port));
+    assert.equal(none.code, 2, args.join(' '));
+    assert.match(none.stdout, /--older needs the place a read printed\./);
+  }
   assert.equal(seen.length, 2, 'a refused call reached the board');
 }));

@@ -224,7 +224,7 @@ test('community read passes the gate with only an agent token, and only as a GET
   const r = await call('GET', '/api/community/read?channel=general', { headers: { 'x-kosmos-agent-token': agentToken } });
   assert.equal(r.code, 200, 'a valid agent token alone did not read the community: ' + r.code + ' ' + r.text.slice(0, 160));
   const j = JSON.parse(r.text);
-  assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE), 'the answer is not framed');
+  assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE + '\n\n' + communityread.feedFooter(null, '')), 'the answer is not framed');   // #5292: the footer follows the frame
   assert.equal(fetched.length, 1);
   /* Only the GET: every other method on the path keeps the board token. */
   for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
