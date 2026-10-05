@@ -281,3 +281,19 @@ test('#3312: the join picked-agents list renders the empty state when nobody is 
   s.pjPaintJoinAgents();
   assert.match(s.doc.getElementById('pj-join-agents').innerHTML, /No agents on it yet\./);
 });
+
+// kosmos#4649 slice C: every "copy it yourself" line names this computer's keys through copyKeysWord/copyKeysGlyph.
+// Outside those two helpers the page holds no hard-coded Mac copy keys, so pjCopyInvite, pjsOwnCopy and the sheet
+// cannot go back to "Command C" on Windows without this failing (no browser arm renders the two older refusals).
+test('#4649 copy keys: no hard-coded Mac copy keys outside copyKeysWord/copyKeysGlyph', () => {
+  const MAC_KEYS = /Command[ -]C|Cmd[ +-]C|⌘\s?C|\\u2318C/g;
+  const helpers = PAGE.match(/^function copyKeysWord\(\)[^\n]*\n^function copyKeysGlyph\(\)[^\n]*$/m);
+  assert.ok(helpers, 'the two helpers sit together as one-liners');
+  // Control: the pattern does find the helpers' own Mac keys, so a zero below is a real zero.
+  assert.equal((helpers[0].match(MAC_KEYS) || []).length, 2, 'the pattern finds the helpers’ own keys');
+  const rest = PAGE.replace(helpers[0], '');
+  // Comments that NAME the old wrong wording are allowed; any string literal or text holding the keys is not.
+  const ONE = new RegExp(MAC_KEYS.source);
+  const lines = rest.split('\n').filter((l) => ONE.test(l) && !/^\s*(\/\/|\/\*|\*)/.test(l));
+  assert.deepEqual(lines, [], 'hard-coded Mac copy keys outside the helpers');
+});

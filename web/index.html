@@ -67609,6 +67609,7 @@ const FEDINV_TITLE = 'Invite someone outside your Kosmos';
    the same label and kind filled in, and focus on "Make an invite code", so Enter makes the code. */
 function fedInviteOpen(opener, prefill) {
   if (!fedShow() || !PJ_CURRENT) return;
+  FEDINV_SAY++;   // a sentence still pending from a closed sheet must not land on this one
   FEDINV_OPENER = opener || null;
   FEDINV_PROJECT = PJ_CURRENT;
   FEDINV_SEQ++;
@@ -67638,6 +67639,7 @@ function fedInviteOpen(opener, prefill) {
 }
 function fedInviteClose() {
   FEDINV_SEQ++;
+  FEDINV_SAY++;
   document.getElementById('fedinv-modal').hidden = true;
   const back = [FEDINV_OPENER, document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((b) => b && b.getClientRects().length);
   FEDINV_OPENER = null;
@@ -67788,16 +67790,17 @@ function fedInviteCopySaid(btn, sentence) {
   setTimeout(() => { if (btn.textContent === 'Copied') document.getElementById('fedinv-status').textContent = sentence; }, 30);
   FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
 }
-// Both copy buttons share one revert timer and one message line, so a press on one never leaves the other
-// saying "Copied" over a newer result.
 // A sentence on the sheet's message line, cleared first and said 30 ms later, so pressing again speaks it again in
-// the live region (the same way fedInviteCopySaid says Copied). A reset or a newer sentence cancels it.
+// the live region (the same way fedInviteCopySaid says Copied). A reset, a newer sentence, or opening or closing
+// the sheet cancels it.
 function fedInviteSay(sentence) {
   const mine = ++FEDINV_SAY;
   const status = document.getElementById('fedinv-status');
   status.textContent = '';
   setTimeout(() => { if (mine === FEDINV_SAY) status.textContent = sentence; }, 30);
 }
+// Both copy buttons share one revert timer and one message line, so a press on one never leaves the other
+// saying "Copied" over a newer result.
 function fedInviteCopyReset() {
   FEDINV_SAY++;
   if (FEDINV_COPY_TIMER) clearTimeout(FEDINV_COPY_TIMER);
