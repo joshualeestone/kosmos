@@ -154,20 +154,19 @@ function idleExcused(summary, member, readReport, nowMs) {
 /* #4581 (10-05 user diagnostic R9, on 0.7.22): idleExcused measures from the member's LATEST idle report, and any turn
    while the project is quiet (a community prompt every few hours, a room post) moves that report on, so a summary
    written when the work ended reads as behind for days. The rhythm is a summary every four hours of WORK, so on a
-   project with no open task, the clock that matters is when its work ended: the newest time any of its tasks was
-   closed or had a part closed. A stale summary of an idle member written no earlier than the rhythm
-   before that reads 'quiet', with quietSince. A project that has never had a task has no such time and is left as it
+   project with no open task, the clock that matters is when the work ended: for a member that held parts here, the
+   newest close of its own parts (quietKind 'own'), else the newest close of any task or part here ('project'). A stale
+   summary of an idle member written no earlier than the rhythm before that reads 'quiet', with quietSince. A project that has never had a task has no such time and is left as it
    was, and so is one with any open task: there is work to summarise. Weakest premise: work done outside any task
-   (a member asked in a room or a DM to do something) leaves no task time, so it is not counted here.
-   Review 4 (Opus): a member that held parts here is measured from ITS last part's end (quietKind 'own'), so one that
-   finished early is not held to a teammate's later work; one that held none, from the project's ('project'). */
+   (a member asked in a room or a DM to do something) leaves no task time, so it is not counted here. */
 function lastWorkAt(tasks, who) {
+  const tasksMod = require('./tasks');
   let at = NaN;
   const take = (v) => { const t = Date.parse(v); if (Number.isFinite(t) && !(t <= at)) at = t; };
   for (const t of Array.isArray(tasks) ? tasks : []) {
     if (!t) continue;
     if (who === undefined) take(t.closedAt);
-    for (const part of require('./tasks').partsOf(t)) {
+    for (const part of tasksMod.partsOf(t)) {
       if (!part) continue;
       if (who === undefined) take(part.closedAt);
       else if (part.who === who) take(part.closedAt || t.closedAt);

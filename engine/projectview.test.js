@@ -550,10 +550,21 @@ test('#4581 R9 review 4: a member is measured from its own last part here; the r
     fs.writeFileSync(storeFile, '{ not json');
     const real = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle };
     assert.equal(v.overviewOf(described, BOARD.agents, real).members.find((m) => m.sessionName === 'ida').summary.state, 'stale', 'a damaged project store excused it');
-  } finally { fs.writeFileSync(storeFile, before); }
+  } finally { fs.writeFileSync(storeFile, before); projects.readAll(); }   // the re-read resets the store's read flag
   // A legacy task (a who and no parts) is the member's own too (partsOf derives the part).
   const legacy = { id: 'ql', name: 'Quiet Legacy', folder: '/p/ql', agents: ['ida', 'mark'], tasks: [
     { number: 1, sentence: 'a', who: 'ida', createdAt: at(6 * DAY), closedAt: at(5 * DAY) },
     { number: 2, sentence: 'b', who: 'mark', createdAt: at(6 * DAY), closedAt: at(2 * DAY) }] };
   assert.equal(v.overviewOf(projects.describe(legacy, BOARD.agents, [legacy]), BOARD.agents, { ...o, allProjects: [legacy] }).members.find((m) => m.sessionName === 'ida').summary.quietKind, 'own');
+});
+
+test('#4581 R9 review 6: a stale summary refused before the cross-project check (an open task) does not read the store', () => {
+  let reads = 0;
+  const raw = { id: 'qx', name: 'Quiet Open', folder: '/p/qx', agents: ['ida'], tasks: [{ number: 1, sentence: 'a', createdAt: new Date(NOW - 7 * 86400000).toISOString() }] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const stale = agentFolder('ida-open', [['2026-09-24-15.md', 5 * 24 * 60]]);
+  const o = { now: NOW, folderOf: () => stale, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: new Date(NOW - 30 * 60000).toISOString() }) };
+  Object.defineProperty(o, 'allProjects', { get() { reads += 1; return []; }, enumerable: true });
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
+  assert.equal(reads, 0, 'the project store was read for a member an open task had already refused');
 });
