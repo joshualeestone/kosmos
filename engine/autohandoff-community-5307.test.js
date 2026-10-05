@@ -54,7 +54,7 @@ test('#5307: at the ceiling of 6 the post is skipped, and the prompt says so; an
   assert.match(ah.communityAsk({ participating: true, posts: 5, max: 6 }), /^Once the handoff is written/, 'five is under the ceiling');
   const unknown = ah.communityAsk({ participating: true, posts: null, max: 6 });
   assert.match(unknown, /^Once the handoff is written/);
-  assert.match(unknown, /Skip it if you have already posted 6 times in the last 24 hours\./);
+  assert.match(unknown, /Check `kosmos community status` first, and skip it if you have already posted 6 times in the last 24 hours\./, 'the agent is told where to look, not asked to count');
 });
 
 test('#5307: the sweep asks the community per agent; a lookup that throws still delivers the handoff, without the post', () => {
