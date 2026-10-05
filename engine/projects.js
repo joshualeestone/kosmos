@@ -2879,7 +2879,7 @@ const ROLE_HERE_MAX = 60;
 function cleanRoleHere(role) {
   if (typeof role !== 'string') throw new Error('say the role in words');
   const one = require('./projectview').one(role);   // the filter project show prints it through, so the two cannot differ
-  if (one.length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
+  if ([...one].length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
   return one;
 }
 function setRoleHere(id, sessionName, role) {

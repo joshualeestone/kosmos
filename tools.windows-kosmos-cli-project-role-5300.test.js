@@ -47,4 +47,7 @@ test('#5300 Windows: a refusal says the board\'s reason; bad calls are refused b
     assert.equal(r.code, code, args.join(' ') + ': ' + r.err);
     assert.equal(r.calls.length, 0, args.join(' ') + ' reached the board');
   }
+  // The option refusal says what the Mac says: the sentence, then the usage line (the shared refuseOption).
+  const opt = await run(['project', 'role', 'p1', '--clear'], () => ({ body: '{}' }));
+  assert.match(opt.err, /--clear is not an option of kosmos project role, so nothing was done\.\nUsage: kosmos project role <project-id> "<what you do here>"/, opt.err);
 });
