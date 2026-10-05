@@ -67764,8 +67764,7 @@ async function fedInviteCopy() {
     status.textContent = FEDINV_BUSY_LINE;
     return;
   }
-  // Cleared, then said 30 ms later, so a second Copied is spoken again by the live region (plusCopyAddress's way).
-  const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Code copied.'; }, 30); FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
+  const said = () => fedInviteCopySaid(btn, 'Code copied.');
   // A late write did copy it: say so, whatever the line shows now. fedCopyText calls this only for the newest press,
   // or for an earlier press of the SAME text (then a newer press may have spoken, but the clipboard is right).
   const ok = await fedCopyText(text, btn, said, 'the code alone');
@@ -67775,6 +67774,14 @@ async function fedInviteCopy() {
   fedInviteCopyReset();
   btn.textContent = 'Press ' + copyKeysGlyph() + ' to copy';
   status.textContent = 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
+  FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
+}
+// "Copied" on the button that copied, and its sentence: cleared, then said 30 ms later, so a second Copied is spoken
+// again by the live region (plusCopyAddress's way); both revert after 2 s. Shared, so the two buttons cannot drift.
+function fedInviteCopySaid(btn, sentence) {
+  fedInviteCopyReset();
+  btn.textContent = 'Copied';
+  setTimeout(() => { if (btn.textContent === 'Copied') document.getElementById('fedinv-status').textContent = sentence; }, 30);
   FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
 }
 // Both copy buttons share one revert timer and one message line, so a press on one never leaves the other
@@ -67799,8 +67806,11 @@ function fedInviteText(made) {
   // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, the zero-width
   // space, the BOM), so a name cannot visually reorder or hide text in the paste. ZWNJ and ZWJ stay: some Persian
   // and Indic names and emoji sequences need them.
-  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b\u200e\u200f\u061c\ufeff]/g, '').replace(/[\u0080-\u009f]/g, ' ').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
-  const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '');
+  // Also the word joiner and invisible operators, the soft hyphen, the Mongolian vowel separator and the tag block
+  // (the usual way to hide text). ZWNJ and ZWJ stay.
+  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b\u200e\u200f\u061c\ufeff\u2060-\u2064\u00ad\u180e\u{e0000}-\u{e007f}]/gu, '').replace(/[\u0080-\u009f]/g, ' ').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+  // No brackets in the name: "Maya (fake.kosmosplus.com)" must not pass for the vouched address the line prints.
+  const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
   const fm = FED_MEMBERS;
   const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
     && PLUS_NAME_RULE.test(fm.body.owner_name)) ? fm.body.owner_name : '';
@@ -67817,17 +67827,15 @@ function fedInviteText(made) {
     + '\n'
     + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
 }
-// plusCopyViaExec's order: select-and-copy on an off-screen textarea FIRST, synchronously inside the press (no await
-// before it, so a web view that needs the press's activation still has it), then the clipboard as the second try,
-// given 3 s (a permission prompt nobody answers must not leave the button silent). A refusal of both says what to
-// do instead and never throws.
+// Copy the invitation: through fedCopyText (select-and-copy first, then the clipboard with its limit). A refusal of
+// both keeps its line on screen and says what to do instead; it never throws.
 async function fedInviteCopyAll() {
   const made = FEDINV_MADE;
   if (!made) return;
   const btn = document.getElementById('fedinv-copy-all');
   const status = document.getElementById('fedinv-status');
   if (FEDINV_COPY_BUSY) { status.textContent = FEDINV_BUSY_LINE; return; }   // one answer at a time, said rather than silent
-  const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Invitation copied.'; }, 30); FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
+  const said = () => fedInviteCopySaid(btn, 'Invitation copied.');
   // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if the refusal still shows.
   const ok = await fedCopyText(fedInviteText(made), btn, said, 'the invitation');
   if (ok === null) return;   // the sheet was closed or reopened while the clipboard answered
