@@ -139,3 +139,10 @@ owe is logged; the unreachable no-line branch is gone. Decided: connected agents
 get the block at boot too; the restart path (remove.js) already adds it to them while Community is on, so this only
 stops it depending on a restart, and Community (default ON, #5023) is the install's consent. Flagged to Splinter.
 Known (NIT): the agent page still offers "restart it so it knows" after a refresh it has been told about.
+
+## Splinter 11:37: connected agents are refreshed, never added to (supersedes the round 15 decision)
+A connected agent's file lives in the person's own folder, often a git-tracked repo; a board start (every update) silently
+adding text there is an unexplained diff in their project, which costs more trust than the posts are worth. So the ADD
+skips an agent whose folder is outside Kosmos's workers folder (create.workerDir vs workersDir; unknown reads as
+connected). If it already carries the block, it is refreshed as before. The restart path is unchanged (a restart is a
+visible act). Josh can overturn it.
