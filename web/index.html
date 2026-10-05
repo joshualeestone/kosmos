@@ -12185,7 +12185,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5333: a RUNNING agent that has lost its link to Kosmos (its run's token is no longer on file, card.linkLost)
            cannot read its messages or answer, and nothing else says so. One sentence and the one remedy, the restart
            (the shared confirm, which offers "Write a handoff, then restart"). Shown ONLY while linkLost is true. -->
-      <p class="fhint detail-linklost" id="d-linklost" hidden><span id="d-linklost-text"></span>
+      <p class="fhint detail-linklost" id="d-linklost" style="color: var(--label-2);" hidden><span id="d-linklost-text"></span>
         <button type="button" class="btn" id="d-linklost-restart" data-restart-agent="">Restart</button></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
@@ -37799,7 +37799,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
  * passes the same `fresh` card it hands paintBusy and swarmPagePaint, so the pill, the DM
  * line's dots and the card's green all read one sample.
  */
-const LINK_LOST_SEEN = new Map();   // #5333: polls in a row each agent has read as link-lost (see paintDetailState)
+const LINK_LOST_SEEN = new Map();   // #5333: per agent, { n, card, at }: polls in a row it has read as link-lost (paintDetailState)
 function paintDetailState(card) {
   /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
      ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
@@ -37849,11 +37849,18 @@ function paintDetailState(card) {
     /* Seen on TWO polls in a row before it shows: one snapshot can fall in a restart's moment, between the old run's
        token being retired and its session closing. Not beside "Start this agent": a stopped agent already has its
        remedy, and two buttons would do one job. */
-    const seen = a.linkLost === true && a.state !== 'stopped';
-    const prev = LINK_LOST_SEEN.get(a.sessionName) || 0;
-    const count = seen ? prev + 1 : 0;
-    if (count) LINK_LOST_SEEN.set(a.sessionName, count); else LINK_LOST_SEEN.delete(a.sessionName);
-    const on = count >= 2;
+    /* A reading counts once per POLL, never per paint: each poll brings new card objects, and a repaint of the same
+       card (opening the page paints the cached one) adds nothing. And only if the last lost reading was recent, so a
+       count left from an earlier visit cannot carry over. */
+    const seen = card.linkLost === true && a.state !== 'stopped';
+    const prev = LINK_LOST_SEEN.get(a.sessionName);
+    let n = 0;
+    if (seen) {
+      if (prev && prev.card === card) n = prev.n;
+      else n = prev && Date.now() - prev.at < 12000 ? prev.n + 1 : 1;
+      LINK_LOST_SEEN.set(a.sessionName, { n, card, at: Date.now() });
+    } else LINK_LOST_SEEN.delete(a.sessionName);
+    const on = n >= 2;
     if (lost.hidden === on) lost.hidden = !on;
     if (on) {
       /* "Answer", not "read": a message still reaches it (the board types it into its window, no token involved);

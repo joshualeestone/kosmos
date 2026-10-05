@@ -326,14 +326,17 @@ function live(sessionName) {
  * (its session carries the run's instance, @kosmos_token_instance, and the token behind it is gone, so every verb the
  * agent runs is refused). Three answers, because "we could not read the store" must never read as "gone":
  *   'held'     the file holds a token with this instance
- *   'gone'     the file is readable and does not, or there is no file at all (the store lost every token)
- *   'unknown'  the file is there and cannot be read or parsed, is in the old single-token shape, or no instance was
- *              given
+ *   'gone'     the file is readable and does not, or there is no file for this agent in a store that exists
+ *   'unknown'  the file is there and cannot be read or parsed, is in the old single-token shape, no instance was
+ *              given, or there is no token store at all (a board that has never minted)
  * Instances are labels, not secrets (the supervisor stamps them on the session), so nothing here touches a token.
  */
 function instanceState(sessionName, instance) {
   if (typeof instance !== 'string' || !/^[0-9a-f]+$/.test(instance)) return 'unknown';
   let raw;
+  /* A store directory that does not exist at all says this board has never minted anything (a second board on another
+     data root, sharing the tmux server), not that a token was removed: unknown, never lost. */
+  try { fs.statSync(DIR); } catch { return 'unknown'; }
   try { raw = fs.readFileSync(fileFor(sessionName), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? 'gone' : 'unknown'; }
   let kept;
   try { kept = JSON.parse(raw); } catch { return 'unknown'; }
