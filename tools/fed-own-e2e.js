@@ -22,7 +22,9 @@
  * WHAT IT DOES (every file under ONE mktemp sandbox, every port a free high port,
  * checked free before use; the live board and 16180-16199 are never touched)
  *   1. Starts the coordinator (KOSMOS_DEV_MODE=1: codes to stdout, REQUIRE_SECOND=0,
- *      FEDERATION_LIVE=1) and waits on GET /v1/meta. The coordinator and relay get an
+ *      FEDERATION_LIVE=1, KOSMOS_DOMAIN=fedproof.localhost) and waits on GET /v1/meta.
+ *      Everything reaches it as http://login.fedproof.localhost:<port>, never by IP: a
+ *      board refuses own codes when its Kosmos+ address has no computer domain (#4699). The coordinator and relay get an
  *      ALLOWLISTED environment (PATH, TMPDIR, a sandboxed HOME, and only the KOSMOS_*
  *      keys set here), never this shell's, which may carry real keys.
  *   2. Cuts dev relay certs and starts the relay, pinned to the coordinator pubkey
@@ -86,6 +88,14 @@ const BIN = {
   relay: path.join(BIN_DIR, 'kosmos-relay'),
   tunnel: path.join(BIN_DIR, 'kosmos-tunnel'),
 };
+/* kosmos#4693: the coordinator is reached by a NAME, not 127.0.0.1. Since #4699 a board refuses
+   an own code when its Kosmos+ address has no domain for computers to live under (an IP, a
+   localhost, a two-label host: engine/account-computers.js computerDomain), so an IP-addressed
+   coordinator fails the own-code join before anything is shared. `.localhost` names resolve to
+   this machine (RFC 6761), so login.<FEDPROOF_DOMAIN> gives the domain FEDPROOF_DOMAIN, and the
+   coordinator's KOSMOS_DOMAIN is set to it so the computers it names are trusted under it. */
+const FEDPROOF_DOMAIN = 'fedproof.localhost';
+const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 const DELIVERY_MS = Number(process.env.FEDPROOF_DELIVERY_MS) || 30000;   // how long a delivery may take
 const ABSENCE_MS = Number(process.env.FEDPROOF_ABSENCE_MS) || 12000;     // how long an absence is watched
@@ -471,14 +481,21 @@ async function main() {
     if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
   }
 
-  // 1. coordinator
+  // 1. coordinator, bound to the loopback address its name resolves to HERE (macOS answers
+  // ::1 for a .localhost name, Linux may answer 127.0.0.1), so every client that dials the
+  // name reaches it. A name that does not resolve to loopback stops the run: dialling it
+  // could reach another machine.
+  const coordAt = await require('node:dns').promises.lookup(FEDPROOF_COORD_HOST).catch((e) => ({ error: e }));
+  if (coordAt.error || !['127.0.0.1', '::1'].includes(coordAt.address)) {
+    throw new Error(FEDPROOF_COORD_HOST + ' must resolve to this machine (127.0.0.1 or ::1), got ' + (coordAt.error ? coordAt.error.code : coordAt.address));
+  }
   const coordPort = await freePort();
-  REL.coordinator = 'http://127.0.0.1:' + coordPort;
+  REL.coordinator = 'http://' + FEDPROOF_COORD_HOST + ':' + coordPort;
   const coordData = path.join(SANDBOX, 'coordinator');
   fs.mkdirSync(coordData);
   coord = start('coordinator', BIN.coordinator, [], { env: serviceEnv(path.join(SANDBOX, 'coordinator-home'), {
-    KOSMOS_DEV_MODE: '1', KOSMOS_REQUIRE_SECOND: '0', KOSMOS_FEDERATION_LIVE: '1',
-    KOSMOS_LISTEN: '127.0.0.1:' + coordPort, KOSMOS_DATA_DIR: coordData }) });
+    KOSMOS_DEV_MODE: '1', KOSMOS_REQUIRE_SECOND: '0', KOSMOS_FEDERATION_LIVE: '1', KOSMOS_DOMAIN: FEDPROOF_DOMAIN,
+    KOSMOS_LISTEN: (coordAt.family === 6 ? '[::1]:' : '127.0.0.1:') + coordPort, KOSMOS_DATA_DIR: coordData }) });
   // Load-tolerant (a debug build on a busy Mac), but a coordinator that EXITED (a port taken
   // between the check and its bind) is reported at once rather than waited on.
   const meta = await waitFor(async () => {
