@@ -161,7 +161,7 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   assert.match(flat, /your folder is the one in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
   assert.match(flat, /or set up for the project folder you are working in/);
   /* MCP servers are in .claude.json, which sits BESIDE .claude when CLAUDE_CONFIG_DIR is unset (review 5; measured). */
-  assert.match(flat, /For Claude Code, a server added with `claude mcp add` is recorded in `\.claude\.json`, which sits next to `\.claude` in the home folder when `CLAUDE_CONFIG_DIR` is not set and inside that folder when it is/);
+  assert.match(flat, /A server added with `claude mcp add` is a separate record from a plugin: it is kept in `\.claude\.json`, which sits next to `\.claude` in the home folder when `CLAUDE_CONFIG_DIR` is not set and inside that folder when it is/);
   assert.match(flat, /\*\*Your account \(Claude\)\.\*\*/);
   assert.match(flat, /this is about Claude and Codex agents/);
   assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
@@ -169,7 +169,7 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   /* `claude mcp add` defaults to --scope local (its own --help, measured), so the server stays with the folder it
      was added from (review 7). */
   assert.match(flat, /By default \(`--scope local`\) such a server belongs to the project folder it was added from/);
-  assert.match(flat, /Check your own yourself; ask them only which account they added it to/);
+  assert.match(flat, /Check your own account yourself; ask them only which one they added it to/);
   assert.match(flat, /one added with `--scope project` is kept in that project's own `\.mcp\.json` instead/);
   assert.match(flat, /compare the actual folders rather than assuming from the account/);
   /* A connector belongs to an ACCOUNT, not a folder (review: it is never in a plugins file); desktop-app chat additions
