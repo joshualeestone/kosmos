@@ -1053,7 +1053,7 @@ const closeAll = (page) => page.evaluate(() => {
     const keys = await page.evaluate(() => copyKeysWord());
     check('C4 the keys named are this platform\'s', keys === (ON_MAC ? 'Command C' : 'Ctrl C'), 'keys=' + keys);
     check('C4 a refused clipboard says so in the message line, keeps the button\'s words and the sheet, and throws nothing (control: C1 said Copied)',
-      st.status === 'Kosmos could not copy the invitation. Select the code above and press ' + keys + ', then paste it into your message.'
+      st.status === 'Kosmos could not copy the invitation. Select the code above and press ' + keys + ' to copy the code alone, then paste it into your message.'
       && st.allText === 'Copy the invitation' && st.open && st.copied.length === 0 && st.unhandled.length === 0,
       JSON.stringify({ status: st.status, all: st.allText, open: st.open, unhandled: st.unhandled }));
     await page.waitForTimeout(2300);

@@ -67695,10 +67695,12 @@ async function fedInviteCopy() {
   const btn = document.getElementById('fedinv-copy');
   const status = document.getElementById('fedinv-status');
   const text = codeEl.value;
-  if (!text || FEDINV_COPY_BUSY) return;   // Copy the invitation is still asking the clipboard: one answer at a time
+  if (!text || FEDINV_COPY_BUSY) return;   // the other copy is still asking the clipboard: one answer at a time
   const seq = FEDINV_SEQ;
   let ok = false;
-  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
+  FEDINV_COPY_BUSY = true;   // both copies share one line, so neither answer may wipe the other's
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await (async () => navigator.clipboard.writeText(text))(); ok = true; } } catch { ok = false; }
+  finally { if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }
   if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered (as Copy the invitation)
   if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
   fedInviteCopyReset();
@@ -67763,7 +67765,9 @@ async function fedInviteCopyAll() {
     FEDINV_COPY_BUSY = true;
     let limit = null;
     const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
-    const write = navigator.clipboard.writeText(text);
+    // Called through an async function, so a web view whose writeText THROWS (rather than rejecting) still reaches
+    // the catch and the finally below, and the busy flag cannot be left set.
+    const write = (async () => navigator.clipboard.writeText(text))();
     try { await Promise.race([write, late]); ok = true; }
     catch {
       ok = false;
@@ -67785,7 +67789,7 @@ async function fedInviteCopyAll() {
   fedInviteCopyReset();
   if (!ok) {
     // Kept on screen (no revert timer): a refusal that vanished after two seconds could be missed.
-    status.textContent = 'Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ', then paste it into your message.';
+    status.textContent = 'Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ' to copy the code alone, then paste it into your message.';
     return;
   }
   btn.textContent = 'Copied';
