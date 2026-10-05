@@ -5,8 +5,9 @@
  *
  * Codex cannot be run with zero tools (measured on #5346, codex-cli 0.149.1): with every switch below it still offers
  * the model `update_plan` (a plan list) and `request_user_input` (a question to the user). Neither can act. Splinter's
- * ruling (#5346, 2026-10-05 17:41) is that "nothing can act" is the promise, so this read ships with exactly those two,
- * and engine/orgchartcodex.capture.test.js fails if a Codex run with these flags offers any other tool.
+ * ruling (#5346, 2026-10-05 17:41) is that "nothing can act" is the promise, so this read ships with exactly those two.
+ * engine/orgchartcodex.capture.test.js checks the request these flags produce, signed in with a key against a local
+ * server; tools Codex fetches from OpenAI for a ChatGPT sign-in cannot reach that server (see the plan).
  *
  * 🛑 THE FLAGS ARE THE SECURITY OF THIS PATH, as claudeArgs is for #4559. Each `--disable` and `-c` below removed a
  * tool or a block of the person's own context in a captured request (#5346). `--sandbox read-only` is NOT the
@@ -98,9 +99,10 @@ let accountsFn = () => require('./openaiaccounts').list();
 /** Tests only: replace the account rows; null restores the real list. */
 function setAccounts(fn) { accountsFn = typeof fn === 'function' ? fn : () => require('./openaiaccounts').list(); }
 /* The reader, or null. Needs a Codex this board can run. */
-let binFn = () => { try { const r = require('./runners').resolveBin('openai'); return r && r.present ? r.bin : null; } catch { return null; } };
+const realBin = () => { try { const r = require('./runners').resolveBin('openai'); return r && r.present ? r.bin : null; } catch { return null; } };
+let binFn = realBin;
 /** Tests only: the Codex binary to use (a function returning a path or null); null restores the real one. */
-function setBin(fn) { binFn = typeof fn === 'function' ? fn : () => { try { const r = require('./runners').resolveBin('openai'); return r && r.present ? r.bin : null; } catch { return null; } }; }
+function setBin(fn) { binFn = typeof fn === 'function' ? fn : realBin; }
 function pick() {
   if (!binFn()) return null;
   let rows = [];
@@ -120,7 +122,7 @@ function label(reader) {
    on a personal plan the "Improve the model for everyone" setting applies to Codex tasks, and business plans are not
    used for training by default. Codex sends store: false (captured, #5346). How long OpenAI keeps it is not stated
    there, so it is not claimed here. */
-const KEEPS = 'On a personal ChatGPT plan, OpenAI may use what you send to improve its models unless "Improve the model for everyone" is off in ChatGPT\'s Data Controls. Business and Enterprise plans are not used for training.';
+const KEEPS = 'On a personal ChatGPT plan, OpenAI may use what you send to improve its models unless "Improve the model for everyone" is off in ChatGPT\'s Data Controls. Business and Enterprise plans are not used for training by default.';
 function cannotRead(media) {
   if (READS[media]) return null;
   if (media === 'application/pdf') return 'ChatGPT cannot read a PDF sent this way. Export the chart as a PNG or JPG picture, or use a CSV or Excel export.';
@@ -130,8 +132,12 @@ function cannotRead(media) {
 const EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
 /* The event items a read may produce. Anything else (a command, a file change, an MCP or tool call, a web search)
    means a tool ran: the run is killed and its answer refused. A tripwire, not the guarantee (the flags are). */
+// todo_list is what update_plan produces. request_user_input's item type is not listed on purpose: if it ever emits
+// one, the read is refused, which fails safe. Do not add a type here without a capture showing what it is.
 const QUIET_ITEMS = new Set(['agent_message', 'reasoning', 'todo_list', 'error']);
 
+// A process group per read on Mac and Linux; on Windows `detached` would open a console window instead.
+const GROUPS = process.platform !== 'win32';
 let spawnFn = (bin, args, opts) => require('node:child_process').spawn(bin, args, opts);
 /** Tests only: replace spawn (bin, args, opts) -> ChildProcess; null restores the real one. */
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : (bin, args, opts) => require('node:child_process').spawn(bin, args, opts); }
@@ -162,23 +168,37 @@ function read(reader, prompt, media, buf, signal) {
     fs.writeFileSync(catalogFile, JSON.stringify(catalog), { mode: 0o600 });
     fs.writeFileSync(image, buf, { mode: 0o600 });
   } catch { cleanup(); return Promise.resolve({ ok: false, because: 'the read failed' }); }
-  const env = { ...process.env, CODEX_HOME: reader.dir };
+  /* The account the consent named, and only it: an OPENAI_* or CODEX_* variable the board inherited (a key, another
+     base URL, another home) could bill a key or send the chart elsewhere while the box says "using your plan". */
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) if (!/^(OPENAI_|CODEX_)/.test(k)) env[k] = v;
+  env.CODEX_HOME = reader.dir;
   return new Promise((resolve) => {
     let done = false;
     let child;
     let timer = null;
+    /* Codex is often an npm launcher that starts the native program as ITS child, and a SIGKILL to the launcher cannot
+       be passed on (measured, #5346 review: the native process outlived it). So Codex runs in its own process group
+       (detached) and every ending kills the whole group: a stop, a timeout and the tool tripwire then stop the model
+       call too, not only the answer. Only that group's id is signalled, never a pattern. */
+    const killGroup = () => {
+      if (!child || !Number.isInteger(child.pid) || child.pid <= 1) return;
+      // Windows has no process groups to signal (and runs codex.exe itself, not a launcher): the child alone.
+      if (GROUPS) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } return; }
+      try { if (child.exitCode === null) child.kill('SIGKILL'); } catch { /* already gone */ }
+    };
     const finish = (v) => {
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', onAbort);
-      try { if (child && child.exitCode === null) child.kill('SIGKILL'); } catch { /* gone */ }
+      killGroup();
       cleanup();
       resolve(v);
     };
     const onAbort = () => finish({ ok: false, because: 'the read was stopped' });
     try {
-      child = spawnFn(bin, codexArgs({ dir: work, catalog: catalogFile, schema, image, prompt }), { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawnFn(bin, codexArgs({ dir: work, catalog: catalogFile, schema, image, prompt }), { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'], detached: GROUPS });
     } catch { finish({ ok: false, because: 'ChatGPT did not answer' }); return; }
     if (signal) { if (signal.aborted) { onAbort(); return; } signal.addEventListener('abort', onAbort); }
     timer = setTimeout(() => finish({ ok: false, because: 'reading the file took too long' }), timeoutMs);
@@ -198,6 +218,8 @@ function read(reader, prompt, media, buf, signal) {
       if (ev && ev.type === 'item.completed' && item && item.type === 'agent_message' && typeof item.text === 'string') last = item.text;
       if (ev && (ev.type === 'turn.failed' || ev.type === 'error')) failed = (ev.error && ev.error.message) || ev.message || 'error';
     };
+    // Decoded as a stream, so a name whose UTF-8 bytes straddle two chunks is not garbled.
+    child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => {
       out += d;
       if (out.length > (8 << 20)) { finish({ ok: false, because: 'ChatGPT\'s answer was too large to read' }); return; }

@@ -36,17 +36,23 @@ fs.writeFileSync(path.join(acct, 'models_cache.json'), JSON.stringify({ client_v
   { slug: 'm2', apply_patch_tool_type: 'freeform', context_window: 2 },
 ] }));
 const record = path.join(root, 'record.json');
+const gpid = path.join(root, 'grandchild.pid');
 const script = path.join(root, 'events.jsonl');
 const fake = path.join(root, 'codex');
 /* The fake: records argv, CODEX_HOME, the picture's bytes and the catalog file's contents, then prints the scripted
-   events (or sleeps forever when the script says "hang"). */
+   events (or sleeps forever when the script says "hang"). Like the npm launcher, it first starts a CHILD of its own (a
+   long sleep) and records its pid: a read must leave that grandchild dead however it ends (#5346 review). */
 fs.writeFileSync(fake, '#!' + process.execPath + '\n' + `
 const fs = require('fs');
+const g = require('child_process').spawn('/bin/sleep', ['300'], { stdio: 'ignore' });
+g.unref();   // the fake exits when its script ends, as the launcher does when native Codex finishes
+fs.writeFileSync(${JSON.stringify(gpid)}, String(g.pid));
 const a = process.argv.slice(2);
 const at = (f) => a[a.indexOf(f) + 1];
 const cat = (a.find((x) => x.startsWith('model_catalog_json=')) || '').slice('model_catalog_json='.length);
 const catPath = JSON.parse(cat || '""');
 fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: a, home: process.env.CODEX_HOME,
+  inherited: Object.keys(process.env).filter((k) => /^(OPENAI_|CODEX_)/.test(k)),
   image: fs.readFileSync(at('-i')).toString('base64'), imagePath: at('-i'),
   catalog: catPath ? JSON.parse(fs.readFileSync(catPath, 'utf8')) : null,
   schema: JSON.parse(fs.readFileSync(at('--output-schema'), 'utf8')) }));
@@ -54,6 +60,16 @@ const s = fs.readFileSync(${JSON.stringify(script)}, 'utf8');
 if (s === 'hang') setInterval(() => {}, 1000); else process.stdout.write(s);
 `);
 fs.chmodSync(fake, 0o755);
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/* The grandchild the fake started is gone (polled briefly: a SIGKILL is delivered asynchronously). */
+async function grandchildGone() {
+  const pid = Number(fs.readFileSync(gpid, 'utf8'));
+  assert.ok(pid > 1, 'the fake recorded no grandchild');
+  for (let i = 0; i < 40 && alive(pid); i += 1) await new Promise((r) => setTimeout(r, 50));
+  const left = alive(pid);
+  if (left) process.kill(pid, 'SIGKILL');   // exact pid this test's fake started; never a pattern
+  assert.equal(left, false, 'Codex\'s own child outlived the read');
+}
 const events = (...evs) => fs.writeFileSync(script, evs.map((e) => JSON.stringify(e)).join('\n') + '\n');
 const answer = (obj) => events({ type: 'thread.started' }, { type: 'turn.started' },
   { type: 'item.completed', item: { id: 'i0', type: 'agent_message', text: JSON.stringify(obj) } }, { type: 'turn.completed' });
@@ -113,6 +129,26 @@ test('a read: every switch is on the command line, the picture goes in, the cata
   assert.equal(rec.catalog.models[0].context_window, 1, 'the rest of the catalog is the account\'s own');
   assert.deepEqual(rec.schema, keys.STRICT_SCHEMA);
   assert.equal(fs.existsSync(path.dirname(rec.imagePath)), false, 'the picture\'s folder is removed after the read');
+  await grandchildGone();
+});
+
+test('an inherited OPENAI_* or CODEX_* variable never reaches Codex: the read is on the account the consent named', async () => {
+  const saved = { a: process.env.OPENAI_API_KEY, b: process.env.CODEX_API_KEY, c: process.env.OPENAI_BASE_URL };
+  process.env.OPENAI_API_KEY = 'sk-TEST-5346'; process.env.CODEX_API_KEY = 'sk-TEST-5346'; process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9/v1';
+  try {
+    answer(PEOPLE);
+    await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
+    const rec = JSON.parse(fs.readFileSync(record, 'utf8'));
+    assert.deepEqual(rec.inherited, ['CODEX_HOME']);
+    assert.equal(rec.home, acct);
+  } finally {
+    for (const [k, v] of [['OPENAI_API_KEY', saved.a], ['CODEX_API_KEY', saved.b], ['OPENAI_BASE_URL', saved.c]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+  await grandchildGone();
+});
+
+test('reader id: another ChatGPT account signed in to the same folder is another reader', () => {
+  assert.notEqual(o.readerId({ kind: 'codex', dir: acct, account: 'a@x.test' }), o.readerId({ kind: 'codex', dir: acct, account: 'b@x.test' }));
 });
 
 test('tripwire: any tool event refuses the answer', async () => {
@@ -122,6 +158,7 @@ test('tripwire: any tool event refuses the answer', async () => {
     const got = await o.readWithModel('chart.png', PNG, { reader: o.currentReader() });
     assert.deepEqual(got.rows, [], type);
     assert.match(got.problems[0], /tried to use a tool/, type);
+    await grandchildGone();
   }
 });
 
@@ -141,6 +178,7 @@ test('a hung Codex ends at the timeout; a stopped read ends at once', async () =
   try {
     let got = await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
     assert.deepEqual(got, { ok: false, because: 'reading the file took too long' });
+    await grandchildGone();
     c.setTimeoutMs(60000);
     const ctl = new AbortController();
     setTimeout(() => ctl.abort(), 300);
@@ -148,6 +186,7 @@ test('a hung Codex ends at the timeout; a stopped read ends at once', async () =
     got = await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, ctl.signal);
     assert.deepEqual(got, { ok: false, because: 'the read was stopped' });
     assert.ok(Date.now() - t0 < 5000);
+    await grandchildGone();
   } finally { c.setTimeoutMs(null); }
 });
 

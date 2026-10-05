@@ -635,7 +635,8 @@ function readerId(r) {
   const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
   // Claude with its account folder hashed, like a key account's: another default account is another reader.
   if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
-  if (r.kind === 'codex') return 'codex:' + hash(r.dir);
+  // The account too, so another ChatGPT sign-in in the same folder while the box is open is another reader.
+  if (r.kind === 'codex') return 'codex:' + hash(String(r.dir || '') + '\u0000' + String(r.account || ''));
   // The key's last four characters too (already on the account row), so a key replaced in the same account folder
   // while the consent box is open is another reader, not the one the person agreed to. The id IDENTIFIES the reader;
   // it is not a secret (its inputs are guessable and the key's last four are shown on the account row anyway).

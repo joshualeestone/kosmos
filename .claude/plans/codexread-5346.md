@@ -16,7 +16,12 @@ stay off (measured reasons on the card).
   -C <empty 0700 dir>`, every tool feature `--disable`d, `web_search="disabled"`, `tools.view_image=false`,
   `agents.enabled=false`, `history.persistence="none"`, skills/apps/environment/permissions/collaboration
   instructions off, `project_doc_max_bytes=0`, `model_catalog_json=<derived catalog>`, `--output-schema <file>`,
-  the picture with `-i <file>`. CODEX_HOME is the account's folder (unset for the default one, as agents run it).
+  the picture with `-i <file>`. CODEX_HOME is always set to the account's folder (for the default account that is
+  the folder Codex reads anyway), and every inherited OPENAI_* and CODEX_* variable is removed first, so a key or a
+  base URL in the board's environment cannot take over the read the consent named.
+- **Codex runs in its own process group** (not on Windows) and every ending kills the group. Measured in review:
+  `/opt/homebrew/bin/codex` is an npm launcher whose native child survives a SIGKILL to the launcher; the group kill
+  removes both (measured on the real binary).
 - **The catalog is derived per read, not shipped.** `model_catalog_json` REPLACES Codex's catalog, and the only
   way to drop `apply_patch` and the code-mode tool is to clear `apply_patch_tool_type` and `tool_mode` on each
   model. The reader copies the account's own `models_cache.json` and clears those two fields, so the catalog
