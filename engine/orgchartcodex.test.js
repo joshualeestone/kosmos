@@ -31,10 +31,11 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5346-'));
 /* An account folder with the catalog Codex fetched (two models carrying the two tool fields the read must clear). */
 const acct = path.join(root, 'codex-acct');
 fs.mkdirSync(acct);
-fs.writeFileSync(path.join(acct, 'models_cache.json'), JSON.stringify({ client_version: '0.149.1', models: [
+const CACHE = { client_version: require('./runners').MANIFEST.openai.version, models: [
   { slug: 'm1', apply_patch_tool_type: 'freeform', tool_mode: 'code_mode_only', context_window: 1 },
-  { slug: 'm2', apply_patch_tool_type: 'freeform', context_window: 2 },
-] }));
+  { slug: 'm2', apply_patch_tool_type: 'freeform', context_window: 2, experimental_supported_tools: ['read_file'], node_repl_disabled: false, supports_search_tool: true, multi_agent_version: 'v2', include_apps_usage_instructions: true },
+] };
+fs.writeFileSync(path.join(acct, 'models_cache.json'), JSON.stringify(CACHE));
 const record = path.join(root, 'record.json');
 const gpid = path.join(root, 'grandchild.pid');
 const script = path.join(root, 'events.jsonl');
@@ -52,6 +53,7 @@ const at = (f) => a[a.indexOf(f) + 1];
 const cat = (a.find((x) => x.startsWith('model_catalog_json=')) || '').slice('model_catalog_json='.length);
 const catPath = JSON.parse(cat || '""');
 fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: a, home: process.env.CODEX_HOME,
+  homeVar: process.env.HOME,
   inherited: Object.keys(process.env).filter((k) => /^(OPENAI_|CODEX_|AGENT_WORKFORCE_|NODE_OPTIONS$|ANTHROPIC_)/i.test(k)),
   proxy: process.env.HTTPS_PROXY || null,
   image: fs.readFileSync(at('-i')).toString('base64'), imagePath: at('-i'),
@@ -80,8 +82,9 @@ c.setBin(() => fake);
 c.setAccounts(() => [SUB]);
 const PINNED = require('./runners').MANIFEST.openai.version;
 c.setVersion(() => PINNED);
+c.setSystemConfigPaths(() => []);
 keys.setAccounts(() => []);
-test.after(() => { c.setBin(null); c.setVersion(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
+test.after(() => { c.setBin(null); c.setVersion(null); c.setSystemConfigPaths(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
 
 test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', () => {
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey', isDefault: true }, { dir: '/b', authMode: 'chatgpt', email: 'b@x.test' }, { ...SUB, isDefault: true }]);
@@ -129,6 +132,16 @@ test('a read: every switch is on the command line, the picture goes in, the cata
   assert.equal(rec.home, acct, 'run on the account the consent named');
   assert.equal(rec.image, PNG.toString('base64'), 'the picture itself is handed to Codex');
   assert.deepEqual(rec.catalog.models.map((m) => [m.slug, m.apply_patch_tool_type, m.tool_mode]), [['m1', null, null], ['m2', null, null]]);
+  // Every tool-switching field the server could set is forced off, whatever the cache said.
+  for (const m of rec.catalog.models) {
+    for (const [k, v] of Object.entries(c.FORCED)) assert.deepEqual(m[k], v, m.slug + ' ' + k);
+    assert.equal('multi_agent_version' in m, false, m.slug);
+  }
+  // Spelled out here, not read from c.FORCED, so dropping a field from FORCED reds this.
+  const m2 = rec.catalog.models.find((m) => m.slug === 'm2');
+  assert.deepEqual([m2.experimental_supported_tools, m2.node_repl_disabled, m2.supports_search_tool, m2.include_apps_usage_instructions], [[], true, false, false]);
+  assert.notEqual(rec.homeVar, process.env.HOME, 'Codex runs with a home of its own, not the person\'s');
+  assert.equal(path.dirname(rec.homeVar), path.dirname(rec.imagePath), 'inside the read\'s own folder, removed afterwards');
   assert.equal(rec.catalog.models[0].context_window, 1, 'the rest of the catalog is the account\'s own');
   assert.deepEqual(rec.schema, keys.STRICT_SCHEMA);
   assert.equal(fs.existsSync(path.dirname(rec.imagePath)), false, 'the picture\'s folder is removed after the read');
@@ -257,4 +270,40 @@ test('with no reader at all, a switched-off key provider\'s reason wins over the
     assert.equal(o.currentReader(), null);
     assert.match(o.whyNoReader(), /Kosmos has checked only version/, 'CONTROL: alone, the ChatGPT reason is shown');
   } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); }
+});
+
+test('a catalog with a field this Codex does not know, or written by another Codex version, is not used', async () => {
+  const write = (cache) => fs.writeFileSync(path.join(acct, 'models_cache.json'), JSON.stringify(cache));
+  try {
+    write({ ...CACHE, models: [...CACHE.models, { slug: 'm3', new_tool_switch: true }] });
+    assert.equal(c.deriveCatalog(acct), null);
+    const got = await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
+    assert.match(got.because, /has not finished setting up/);
+    write({ ...CACHE, client_version: '9.9.9' });
+    assert.equal(c.deriveCatalog(acct), null);
+    write(CACHE);
+    assert.ok(c.deriveCatalog(acct), 'CONTROL: the known catalog is used');
+  } finally { write(CACHE); }
+});
+
+test('a computer with Codex settings an administrator manages is not used', async () => {
+  const managed = path.join(root, 'etc-codex');
+  fs.mkdirSync(managed, { recursive: true });
+  c.setSystemConfigPaths(() => [managed]);
+  try {
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), c.WHY_MANAGED);
+    fs.rmSync(record, { force: true });
+    assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: c.WHY_MANAGED });
+    assert.equal(fs.existsSync(record), false, 'Codex never started');
+  } finally { c.setSystemConfigPaths(() => []); }
+  assert.equal(o.currentReader().kind, 'codex', 'CONTROL: without it the read is offered');
+});
+
+test('a reconnect error followed by a completed turn is still an answer; one with no completed turn is not', async () => {
+  events({ type: 'error', message: 'Reconnecting... 1/5' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.completed' });
+  assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).ok, true);
+  events({ type: 'error', message: 'Reconnecting... 5/5' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } });
+  assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).ok, false);
+  await grandchildGone();
 });

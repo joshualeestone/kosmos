@@ -591,11 +591,13 @@ function providerLabel(reader) {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
-/* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); otherwise the first
-   KEY-connected OpenAI, Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+/* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); then a ChatGPT
+   subscription through Codex (#5346, engine/orgchartcodex.js; pictures only); otherwise the first KEY-connected OpenAI,
+   Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
 let lastWhy = null;   // set by currentReader (see whyNoReader)
 let readerOverride = null;
-/** Tests only: the reader to use ({kind:'claude'} or {kind:'key', provider, dir, account}); null restores the real one. */
+/** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
+    null restores the real one. */
 function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
 function currentReader() {
   lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from

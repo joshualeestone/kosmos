@@ -68,12 +68,33 @@ function codexArgs({ dir, catalog, schema, image, prompt, extra = [] }) {
   return a;
 }
 
-/* The account's catalog with the two tool fields cleared, or null (Codex has never fetched one in this account). */
+/* The catalog is written by OpenAI's servers and refreshed whenever the person's Codex runs, so it is not trusted:
+   every field that can switch on a tool is FORCED to its off value, and a catalog with a field this version's
+   catalog does not have, or written by another Codex version, is not used at all (fails closed). The fields are the
+   ones codex-cli 0.149.1's own catalog carries (read 2026-10-05). */
+const MODEL_FIELDS = new Set(['slug', 'display_name', 'description', 'default_reasoning_level', 'supported_reasoning_levels',
+  'shell_type', 'visibility', 'supported_in_api', 'priority', 'additional_speed_tiers', 'service_tiers', 'availability_nux',
+  'upgrade', 'model_messages', 'include_skills_usage_instructions', 'include_plugin_usage_instructions',
+  'include_apps_usage_instructions', 'default_reasoning_summary', 'support_verbosity', 'default_verbosity',
+  'apply_patch_tool_type', 'web_search_tool_type', 'truncation_policy', 'supports_image_detail_original', 'context_window',
+  'max_context_window', 'comp_hash', 'effective_context_window_percent', 'experimental_supported_tools', 'input_modalities',
+  'supports_search_tool', 'use_responses_lite', 'node_repl_auto_review_required', 'node_repl_disabled', 'tool_mode',
+  'multi_agent_version']);
+const FORCED = { apply_patch_tool_type: null, tool_mode: null, experimental_supported_tools: [], node_repl_disabled: true,
+  supports_search_tool: false, include_apps_usage_instructions: false, include_plugin_usage_instructions: false,
+  include_skills_usage_instructions: false };
+/* The account's catalog made safe, or null: no catalog yet, another Codex version's, or a field not known here. */
 function deriveCatalog(accountDir) {
   let cache;
   try { cache = JSON.parse(fs.readFileSync(path.join(accountDir, 'models_cache.json'), 'utf8')); } catch { return null; }
   if (!cache || !Array.isArray(cache.models) || !cache.models.length) return null;
-  return { models: cache.models.map((m) => ({ ...m, apply_patch_tool_type: null, tool_mode: null })) };
+  if (cache.client_version !== pinnedVersion()) return null;
+  if (cache.models.some((m) => !m || typeof m !== 'object' || Object.keys(m).some((k) => !MODEL_FIELDS.has(k)))) return null;
+  return { models: cache.models.map((m) => {
+    const out = { ...m, ...FORCED };
+    delete out.multi_agent_version;   // absent is a value Codex accepts (gpt-5.5 has none)
+    return out;
+  }) };
 }
 
 /* The Responses API's built-in tool types: each is a tool by its type alone, with no name. */
@@ -111,19 +132,21 @@ const pinnedVersion = () => { try { return require('./runners').MANIFEST.openai.
    launcher's own mtime need not change when the program it starts is upgraded. */
 const versionCache = new Map();
 const VERSION_TTL_MS = 10 * 60 * 1000;
+const VERSION_FAIL_TTL_MS = 60 * 1000;
 let versionFn = (bin) => {
   let key = bin;
   try { key = bin + '\u0000' + fs.statSync(bin).mtimeMs; } catch { /* the run below reports it */ }
   const hit = versionCache.get(key);
-  if (hit && Date.now() - hit.at < VERSION_TTL_MS) return hit.v;
+  if (hit && Date.now() - hit.at < (hit.v ? VERSION_TTL_MS : VERSION_FAIL_TTL_MS)) return hit.v;
   let v = null;
   try {
     const out = require('node:child_process').execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: childEnv(process.env, os.tmpdir()) });
     const m = /(\d+\.\d+\.\d+)/.exec(String(out));
     v = m ? m[1] : null;
   } catch { v = null; }
-  // A version that could not be read is not cached: a slow or busy moment must not switch the reader off for good.
-  if (v) versionCache.set(key, { v, at: Date.now() });
+  // A version that could not be read is kept only a minute: long enough that a broken Codex does not stall every
+  // request on a 5 s run, short enough that a busy moment does not switch the reader off for good.
+  versionCache.set(key, { v, at: Date.now() });
   return v;
 };
 const versionFnReal = versionFn;
@@ -138,6 +161,20 @@ const INSTRUCTION_FILES = ['AGENTS.override.md', 'AGENTS.md'];
 function personalInstructions(dir) {
   return INSTRUCTION_FILES.some((f) => { try { fs.lstatSync(path.join(dir, f)); return true; } catch { return false; } });
 }
+/* Codex settings an administrator manages (a system config layer or a managed-preferences profile). The person's own
+   config is switched off by --ignore-user-config; these layers may not be, and could add a tool, so a computer that
+   has one is not used. Windows: no such layer is known to us, so none is checked (a stated gap, on the plan). */
+const userName = () => { try { return os.userInfo().username || ''; } catch { return ''; } };
+let systemConfigPaths = () => (process.platform === 'win32' ? [] : ['/etc/codex',
+  '/Library/Managed Preferences/com.openai.codex.plist',
+  path.join('/Library/Managed Preferences', userName(), 'com.openai.codex.plist')]);
+/** Tests only: the system-config paths to look for; null restores the real ones. */
+function setSystemConfigPaths(fn) { systemConfigPaths = typeof fn === 'function' ? fn : systemConfigPathsReal; }
+const systemConfigPathsReal = systemConfigPaths;
+function managedConfig() {
+  return systemConfigPaths().some((p) => { try { fs.lstatSync(p); return true; } catch { return false; } });
+}
+const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has Codex settings an administrator manages, which Kosmos cannot switch off. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. A CSV or Excel export works with any provider, and so does typing the list.';
 const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. A CSV or Excel export works with any provider, and so does typing the list.';
 
@@ -155,6 +192,7 @@ function pickWithWhy() {
   const have = versionFn(bin);
   if (!want || have !== want) return { reader: null, offWhy: whyVersion(have, want || 'unknown') };
   if (personalInstructions(r.dir)) return { reader: null, offWhy: WHY_INSTRUCTIONS };
+  if (managedConfig()) return { reader: null, offWhy: WHY_MANAGED };
   return { reader: { kind: 'codex', provider: 'openai', dir: r.dir, account: r.email || r.name || null }, offWhy: null };
 }
 function pick() { return pickWithWhy().reader; }
@@ -216,6 +254,7 @@ function read(reader, prompt, media, buf, signal) {
   if (!READS[media]) return Promise.resolve({ ok: false, because: cannotRead(media) });
   // Asked again at the moment of the read: a file made while the consent box was open must not ride along.
   if (personalInstructions(reader.dir)) return Promise.resolve({ ok: false, because: WHY_INSTRUCTIONS });
+  if (managedConfig()) return Promise.resolve({ ok: false, because: WHY_MANAGED });
   const catalog = deriveCatalog(reader.dir);
   if (!catalog) return Promise.resolve({ ok: false, because: 'Codex has not finished setting up this ChatGPT account. Start an OpenAI agent once, then try again' });
   let dir;
@@ -232,6 +271,12 @@ function read(reader, prompt, media, buf, signal) {
     fs.writeFileSync(image, buf, { mode: 0o600 });
   } catch { cleanup(); return Promise.resolve({ ok: false, because: 'the read failed' }); }
   const env = childEnv(process.env, reader.dir);
+  /* An empty home of its own, so nothing under the person's home folder can load (their ~/.agents skills and plugins,
+     say). Measured: a ChatGPT read signs in from CODEX_HOME alone, and writes nothing to this folder. */
+  const home = path.join(dir, 'home');
+  try { fs.mkdirSync(home, { mode: 0o700 }); } catch { cleanup(); return Promise.resolve({ ok: false, because: 'the read failed' }); }
+  env.HOME = home;
+  if (process.platform === 'win32') env.USERPROFILE = home;
   return new Promise((resolve) => {
     let done = false;
     let child;
@@ -242,6 +287,7 @@ function read(reader, prompt, media, buf, signal) {
        call too, not only the answer. Only that group's id is signalled, never a pattern. */
     const killGroup = () => {
       if (!child || !Number.isInteger(child.pid) || child.pid <= 1) return;
+      // Bounded by the group's own life: if the board itself dies mid-read, Codex runs on until its request ends.
       // Windows has no process groups to signal (and runs codex.exe itself, not a launcher): the child alone.
       if (GROUPS) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } return; }
       try { if (child.exitCode === null) child.kill('SIGKILL'); } catch { /* already gone */ }
@@ -264,6 +310,8 @@ function read(reader, prompt, media, buf, signal) {
     let out = '';
     let last = null;
     let failed = null;
+    let errored = null;
+    let completed = false;
     let stderr = '';
     const onLine = (l) => {
       let ev;
@@ -275,11 +323,16 @@ function read(reader, prompt, media, buf, signal) {
         return;
       }
       if (ev && ev.type === 'item.completed' && item && item.type === 'agent_message' && typeof item.text === 'string') last = item.text;
-      if (ev && (ev.type === 'turn.failed' || ev.type === 'error')) failed = (ev.error && ev.error.message) || ev.message || 'error';
+      // A turn that failed fails the read. A top-level error (Codex reports a reconnect this way) fails it only if no
+      // turn.completed follows.
+      if (ev && ev.type === 'turn.failed') failed = (ev.error && ev.error.message) || ev.message || 'error';
+      if (ev && ev.type === 'error') errored = ev.message || (ev.error && ev.error.message) || 'error';
+      if (ev && ev.type === 'turn.completed') completed = true;
     };
     // Decoded as a stream, so a name whose UTF-8 bytes straddle two chunks is not garbled.
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => {
+      if (done) return;
       out += d;
       if (out.length > (8 << 20)) { finish({ ok: false, because: 'ChatGPT\'s answer was too large to read' }); return; }
       let i;
@@ -293,6 +346,7 @@ function read(reader, prompt, media, buf, signal) {
       if (out) onLine(out);
       if (done) return;
       // A turn that failed is refused even if a message came before the failure: that text may be a partial answer.
+      if (failed === null && errored !== null && !completed) failed = errored;
       if (last === null || failed !== null) {
         const said = (failed || String(stderr).split('\n').map((s) => s.trim()).find(Boolean) || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
         if (said) console.warn('[orgchart] codex ended without an answer: ' + said);
@@ -306,4 +360,4 @@ function read(reader, prompt, media, buf, signal) {
   });
 }
 
-module.exports = { pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

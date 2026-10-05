@@ -25,12 +25,23 @@ stay off (measured reasons on the card).
   removes both (measured on the real binary).
 - **The catalog is derived per read, not shipped.** `model_catalog_json` REPLACES Codex's catalog, and the only
   way to drop `apply_patch` and the code-mode tool is to clear `apply_patch_tool_type` and `tool_mode` on each
-  model. The reader copies the account's own `models_cache.json` and clears those two fields, so the catalog
-  never drifts from what this Codex fetched. No cache: the read is refused in words (Codex has never run here).
+  model. The reader copies the account's own `models_cache.json`, which OpenAI's servers write and refresh, so it is
+  NOT trusted: every field that can switch a tool on is forced off (orgchartcodex.FORCED: both tool fields null,
+  `experimental_supported_tools` empty, `node_repl_disabled` true, `supports_search_tool` false, the three
+  usage-instruction flags false, `multi_agent_version` removed), and a cache written by another Codex version, or
+  with a field 0.149.1's catalog does not have, is refused (fails closed). No cache: refused in words.
+- **Codex runs with an empty home of its own** (HOME, and USERPROFILE on Windows), inside the read's temp folder:
+  nothing under the person's home (their ~/.agents skills and plugins) can load. Measured: a real ChatGPT read signs
+  in from CODEX_HOME alone and writes nothing there.
+- **A computer with administrator-managed Codex settings is not used** (`/etc/codex`, or a com.openai.codex
+  managed-preferences profile): those layers may not be covered by `--ignore-user-config` and could add a tool.
+  Windows: no such layer is known, so none is checked; a stated gap.
 - **Pictures only.** `-i` attaches images; a PDF gets the same "use a picture or an export" sentence as Grok.
 - **Answer:** the last `agent_message` in the JSON event stream, parsed and validated by orgchartfile.fromModel.
-  **Tripwire:** any event item that is not a message or reasoning (a command, a file change, a tool call, an MCP
-  call, a web search) kills the run and refuses the answer. Defense in depth, not the guarantee.
+  **Tripwire:** any event item that is not a message, reasoning, a to-do list (what update_plan produces) or an error
+  item (a command, a file change, a tool call, an MCP call, a web search, anything new) kills the run and refuses
+  the answer. Defense in depth, not the guarantee. A turn.failed refuses the answer even after a message; a top-level
+  error (Codex reports a reconnect this way) refuses it only if no turn.completed follows.
 - **Files:** the picture and the schema are written to a fresh 0700 temp folder and removed after the read,
   success or failure. Nothing is saved by Codex (`--ephemeral`, measured on the card).
 - **Consent:** "OpenAI (ChatGPT, <email>)", "using your plan", and what OpenAI does with it (orgchartcodex.KEEPS):
@@ -56,7 +67,9 @@ stay off (measured reasons on the card).
 - Capture test (real Codex 0.149.1, fake key, local server): 2/2. Mutations, each red for the right reason:
   keeping `tool_mode` -> `exec`, `wait` offered; re-enabling `shell_tool`/`unified_exec` -> `exec_command`,
   `write_stdin` offered. Also captured once with the REAL ChatGPT login (still to a local server): same two tools.
-- Unit tests 10/10; existing org-chart tests 138/138; engine sweep tests 128/128.
+- Unit tests 19/19 after iteration 5; existing org-chart tests and engine sweeps pass in the same run. Each guard
+  added in review was checked by a mutation that reds it (group kill, env allowlist, instructions file, failed turn,
+  forced catalog field).
 
 - **Two fail-closed gates before the reader is offered** (and the first again at the read):
   1. **The account has its own instructions file** (`AGENTS.override.md` or `AGENTS.md` in its Codex folder): not
@@ -81,4 +94,7 @@ stay off (measured reasons on the card).
 
 That the tools-off state seen in a capture is the state of a real read. Tools Codex loads from OpenAI's servers
 (ChatGPT apps) cannot appear in a capture against a local server. With `--disable apps` the real probe on the card
-listed only the two, and the tripwire refuses any tool event, but that is one measured run.
+listed only the two, and the tripwire refuses any tool event, but that is one measured run. Second: that the layers
+checked are all the context Codex loads. Measured as not sent under the flags: the account's config, skills, prompts,
+memories, rules and hooks (capture test, with a control). The system and managed layers are refused rather than
+measured, and Windows has no such check.
