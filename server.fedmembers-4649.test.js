@@ -25,6 +25,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+// The new routes are behind the federation switch; these tests run with it on (the operator override, read per request).
+process.env.AGENT_WORKFORCE_FEDERATION_LIVE = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -192,4 +194,31 @@ test('#4649 slice 3 review round 3: the room reads the invites record once per r
   const labelled = (room.json.messages || room.json.rows || []).filter((m) => m && m.invited_as === 'Kim').length;
   assert.equal(labelled, 50, 'precondition: every stamped post is labelled');
   assert.equal(reads, 1, 'the invites record was read ' + reads + ' times for one room request');
+});
+
+test('#4649: with the federation switch OFF (live today), every new route answers 404 and nothing reaches the coordinator', async () => {
+  const made = projects.create({ name: 'Switch Off Room' });
+  const pid = made.id || (made.project && made.project.id);
+  const before = signedCalls.length;
+  delete process.env.AGENT_WORKFORCE_FEDERATION_LIVE;
+  try {
+    const m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
+    const r = await call('POST', '/api/federation/remove', { project: pid, edge_id: 'e' }, SCREEN);
+    const w = await call('POST', '/api/federation/withdraw', { project: pid, invite_id: 'i' }, SCREEN);
+    const i = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person' }, SCREEN);
+    assert.deepEqual([m.status, r.status, w.status, i.status], [404, 404, 404, 404]);
+    // The GATE's own answer on all four (review: a never-shared project 404s on Remove and Withdraw anyway).
+    const off = 'Sharing a project with people outside this computer is not turned on yet.';
+    assert.deepEqual([m.json.error, r.json.error, w.json.error, i.json.error], [off, off, off, off], 'a route answered without the switch gate');
+    assert.equal(signedCalls.length, before, 'a route reached the coordinator with the switch off');
+    assert.equal(federation.linkFor(pid), null, 'an invite with the switch off made the project a shared one');
+    // CONTROL: the create screen's invite path is unchanged (it is the existing feature, shown only when the switch is on).
+    const c = await call('POST', '/api/federation/invite', { project_ref: 'ref-ctl', project_name: 'C', invited_kind: 'person' }, SCREEN);
+    assert.equal(c.status, 200);
+  } finally {
+    process.env.AGENT_WORKFORCE_FEDERATION_LIVE = '1';
+  }
+  // And back on, the same request works.
+  const on = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
+  assert.equal(on.status, 200);
 });
