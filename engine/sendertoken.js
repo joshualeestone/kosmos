@@ -259,8 +259,18 @@ function retire(sessionName, instance) {
        lose an update the same way. Calls `revokeUnlocked` (not `revoke`) because
        it already holds the lock. */
     held = withSessionLock(sessionName, () => {
-      const left = readTokens(sessionName).filter((t) => t.instance !== instance);
-      if (left.length === 0) return revokeUnlocked(sessionName);
+      const had = readTokens(sessionName);
+      const left = had.filter((t) => t.instance !== instance);
+      /* #5333: retiring the LAST token leaves an empty list, not no file. Refused exactly like no file (resolve finds no
+         token in it), but the board can then tell "this store knew this agent and holds no token for its run" (a live
+         session whose token was retired: lost) from "this store never knew it" (another board's store: unknown). Since
+         #4530 each agent's file holds only its live run's token, so this is the usual case, not an edge. A file that
+         held nothing is left as it was (a retire never creates one). revoke still removes the file: a deliberate cut-off. */
+      if (left.length === 0) {
+        if (had.length === 0) return revokeUnlocked(sessionName);
+        writeTokens(sessionName, []);
+        return { ok: true };
+      }
       writeTokens(sessionName, left);
       return { ok: true };
     });
@@ -326,7 +336,8 @@ function live(sessionName) {
  * (its session carries the run's instance, @kosmos_token_instance, and the token behind it is gone, so every verb the
  * agent runs is refused). Three answers, because "we could not read the store" must never read as "gone":
  *   'held'     the file holds a token with this instance
- *   'gone'     this agent's file is readable and does not hold the run's token (retired, or the run replaced)
+ *   'gone'     this agent's file is readable and does not hold the run's token (retired, even its last one, which
+ *              leaves an empty list; or the run replaced)
  *   'unknown'  there is no file for this agent (another board's store, a revoke, a wiped store), the file cannot be
  *              read or parsed, is in the old single-token shape, or no instance was given
  * Instances are labels, not secrets (the supervisor stamps them on the session), so nothing here touches a token.

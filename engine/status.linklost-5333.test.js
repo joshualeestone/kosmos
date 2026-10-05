@@ -2,8 +2,9 @@
 /**
  * #5333 slice 2: a RUNNING agent that has lost its link to Kosmos is shown as such on its card. The session carries the
  * run's sender-token instance (@kosmos_token_instance, stamped by the supervisor); the card's `linkLost` is true when
- * the token store this board reads no longer holds that run's token, so every verb the agent runs is refused. Whatever
- * removed the token (a retire, a revoke, a wiped store), this sees it; an unreadable store is never read as lost.
+ * this board's token file for the agent is there without that run's token (a retire, even of its last token, or the run
+ * replaced), so every verb the agent runs is refused. A missing file (a revoke, a wiped store, another board's store)
+ * and an unreadable one read 'unknown' and are never flagged.
  */
 
 // ⚠️ SANDBOX FIRST, BEFORE ANY REQUIRE (store.js and engine/status resolve their roots at load), as sendertoken.test.js.
@@ -42,6 +43,21 @@ test('#5333: instanceState answers held, gone, or unknown, and never reads an un
   assert.equal(sendertoken.instanceState('ivy', 'NOT-HEX'), 'unknown');
   fs.writeFileSync(path.join(sendertoken.DIR, 'ivy.json'), '{not json');
   assert.equal(sendertoken.instanceState('ivy', minted.instance), 'unknown', 'a store file that cannot be read says nothing');
+});
+
+test('#5333: a run whose ONLY token is retired is lost (the file stays, empty), and its token is refused like no file', () => {
+  const minted = sendertoken.mint('fay');
+  const board = fleet.install([fleet.agent('fay', { state: 'idle', tokenInstance: minted.instance })]);
+  try {
+    assert.equal(sendertoken.live('fay').length, 1, 'precondition: its only token, as #4530 leaves every agent');
+    sendertoken.retire('fay', minted.instance);
+    assert.ok(fs.existsSync(path.join(sendertoken.DIR, 'fay.json')), 'the file stays, with an empty list');
+    assert.deepEqual(sendertoken.live('fay'), []);
+    assert.equal(sendertoken.resolve(minted.token, board.roster).ok, false, 'the retired token is refused');
+    assert.equal(board.snapshot().find((a) => a.sessionName === 'fay').linkLost, true, 'and the running agent reads as lost');
+    sendertoken.retire('nobody-at-all', 'abcdef123456');
+    assert.equal(fs.existsSync(path.join(sendertoken.DIR, 'nobody-at-all.json')), false, 'CONTROL: a retire never creates a file');
+  } finally { board.restore(); }
 });
 
 test('#5333: a running agent whose run token is held is not lost; once it is retired, its card says so', () => {
