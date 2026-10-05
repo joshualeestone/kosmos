@@ -77,12 +77,13 @@
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
  *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
- * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text,
- * her Q-M5 owner name). Every C assertion arm (not the setup line or C3's negative control) fails on origin/main,
- * which has no invite sheet at all, and on slice B, which
- * has no #fedinv-copy-all. The owner's name is the board's "You" name (/api/you, faked below as __you) and the
- * address is the ACCOUNT's name (owner_name on the owner's members answer, Kitty's follow-up), both read by the
- * page's own loaders (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own address.
+ * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text, her
+ * Q-M5 owner name). On origin/main (no invite sheet) the C block fails from its first arm. On slice B (no #fedinv-
+ * copy-all) the C0 arms fail by assertion, the setup line, C3's negative control and C1's bare-Copy control pass
+ * (correctly), and the run ends in a crash at C4's copyKeysWord(); every arm after that point does not run there.
+ * The owner's name is the board's "You" name (/api/you, faked below as __you) and the address is the ACCOUNT's name
+ * (owner_name on the owner's members answer, Kitty's follow-up), both read by the page's own loaders
+ * (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own address.
  *  C0  the code step reads as shot 03: "It works once, until Sunday, October 11. You can withdraw it from Members
  *      until Dana joins.", the Easier box naming Dana, and "Copy the invitation" as the primary (uprime) button
  *      after Done, with the bare-code Copy still there. A label that is not a name ("my sister") says "they join"
@@ -1191,7 +1192,7 @@ const closeAll = (page) => page.evaluate(() => {
       const after = await step(p7.page);
       check('C7 a held write that lands after a newer copy says the clipboard now holds the invitation (control: C6 without a newer press)',
         newer.status === 'Code copied.'
-        && after.status === 'An earlier copy finished late, so the clipboard now holds the invitation. Press the button again to copy the other.',
+        && after.status === 'An earlier copy finished late, so the clipboard now holds the invitation. Press Copy to copy the code alone.',
         JSON.stringify({ newer: newer.status, after: after.status }));
       // C7b: the same button twice (same text): the stale write changes nothing, so the newer "Copied" stands.
       await p7.page.evaluate(() => {
