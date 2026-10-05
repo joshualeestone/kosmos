@@ -21,4 +21,5 @@ recorded nowhere; it was found only in macOS's own unified log.
 That the error the APP receives is kLSRErrorDomain 201 itself or wraps it as the underlying error. The daemon logged
 201; the client-side NSError was not observed (the app logged nothing). The NSLog added here is what proves it next
 time. If it arrives as something else (e.g. kAFAssistantErrorDomain), the log names it and the map gains one line.
-Copy approved by Mona Lisa (11:13), "this computer" per the page rule.
+Also unmeasured: 201 may come from Siri and Dictation blocked by Screen Time or a device-management profile, where the
+Keyboard switch is not the fix; the sentence's path would then lead nowhere. Copy approved by Mona Lisa (11:13), "this computer" per the page rule.

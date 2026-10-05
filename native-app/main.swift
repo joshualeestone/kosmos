@@ -1482,7 +1482,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     static func endReason(domain: String, code: Int) -> String {
         if domain == "kAFAssistantErrorDomain" && code == 1110 { return "nothing-heard" }
         if domain == "kAFAssistantErrorDomain" && (code == 203 || code == 216 || code == 301) { return "" }   // cancelled or stopped by us
-        // #5311 (measured on Mortals 2026-10-05 11:00:04, the unified log): macOS refuses on-device recognition with
+        // #5311 (measured 2026-10-05, the unified log): macOS refuses on-device recognition with
         // kLSRErrorDomain 201 "Siri and Dictation are disabled" when Dictation is off. Said as that, not as a fault.
         if domain == "kLSRErrorDomain" && code == 201 { return "dictation-off" }
         return "recognizer"
@@ -1617,16 +1617,18 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             /* #5311: the framework may hand the app a wrapper; the daemon's own error is underneath. Use it when it says more. */
             let under = error.userInfo[NSUnderlyingErrorKey] as? NSError
             if reason == "recognizer", let under {
+                // Review 1: only a reason that SAYS something; our own stop underneath (empty) must not silence the error.
                 let deeper = Self.endReason(domain: under.domain, code: under.code)
-                if deeper != "recognizer" { reason = deeper }
+                if !deeper.isEmpty && deeper != "recognizer" { reason = deeper }
             }
+            let said = "voice: ended, " + error.domain + " " + String(error.code)
+                + (under.map { ", under " + $0.domain + " " + String($0.code) } ?? "") + " -> " + (reason.isEmpty ? "(our own stop)" : reason)
+            /* #5311: logLine writes to the test harness's log only when /tmp/kosmos-app-test exists, so on a person's
+               computer this error was recorded nowhere. NSLog reaches the unified log, every time (the installed app's
+               process is "Kosmos": log show --predicate 'process == "Kosmos"'). Domain and code only, never words. */
+            NSLog("%@", said)
             if !reason.isEmpty {
-                let said = "voice: ended, " + error.domain + " " + String(error.code)
-                    + (under.map { ", under " + $0.domain + " " + String($0.code) } ?? "") + " -> " + reason
                 logLine(said)
-                /* #5311: logLine writes only to an existing test log, so in production this error was recorded nowhere.
-                   NSLog reaches the unified log (log show --predicate 'process == "kosmos-app"'). */
-                NSLog("%@", said)
                 emit(["kind": "error", "reason": reason])
             }
         }

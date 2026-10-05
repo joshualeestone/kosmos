@@ -24,7 +24,8 @@ function voiceSays() {
 }
 
 test('#5311 every non-empty reason endReason returns has a sentence on the page', () => {
-  const reasons = [...endReasonBody().matchAll(/return "([a-z-]*)"/g)].map((x) => x[1]).filter(Boolean);
+  // Review 1: any spelling of a reason literal, not only lowercase-and-dash.
+  const reasons = [...endReasonBody().matchAll(/return "([^"]*)"/g)].map((x) => x[1]).filter(Boolean);
   assert.ok(reasons.length >= 3, 'too few reasons read, so this proves nothing: ' + reasons.join(','));
   const says = voiceSays();
   for (const r of reasons) assert.ok(says.has(r), `endReason returns "${r}" but VOICE_SAYS has no sentence for it`);
@@ -37,4 +38,13 @@ test('#5311 Dictation off is mapped natively and said honestly on the page', () 
   assert.match(m[1], /Dictation is turned off/);
   assert.match(m[1], /System Settings, Keyboard, Dictation/);
   assert.doesNotMatch(m[1], /—/);
+});
+
+test('#5311 review 1: every reason the bridge REFUSES with (refuse("...")) has a page sentence too', () => {
+  const start = SWIFT.indexOf('final class VoiceBridge');
+  const body = start > 0 ? SWIFT.slice(start, SWIFT.indexOf('\nfinal class ', start + 10) > 0 ? SWIFT.indexOf('\nfinal class ', start + 10) : undefined) : SWIFT;
+  const refused = [...body.matchAll(/refuse\("([^"]+)"/g)].map((x) => x[1]);
+  assert.ok(refused.length >= 3, 'too few refusals read, so this proves nothing: ' + refused.join(','));
+  const says = voiceSays();
+  for (const r of refused) assert.ok(says.has(r), `the bridge refuses with "${r}" but VOICE_SAYS has no sentence for it`);
 });
