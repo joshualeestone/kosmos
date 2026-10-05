@@ -120,3 +120,66 @@ test('#2296 frontmatterDate reads the date from the header, ignores a body date,
   assert.equal(feedback.frontmatterDate('---\ndate: not-a-date\n---\nb'), null);
   assert.equal(feedback.frontmatterDate(null), null);
 });
+
+/* kosmos#5317: two agents writing the daily report on the same install the same day. The second used to replace the
+   first, so only the last writer's report reached the team. */
+const D5317 = '2026-10-05';
+test('#5317 two agents the same day: BOTH reports are kept, each under its own heading', () => {
+  feedback.write('Leo: the + button did nothing.', { date: D5317, from: 'leo' });
+  const r = feedback.write('Mara: Settings would not save.', { date: D5317, from: 'mara' });
+  assert.equal(r.writers, 2);
+  const body = feedback.readBody(D5317);
+  assert.match(body, /## From leo\n\nLeo: the \+ button did nothing\./);
+  assert.match(body, /## From mara\n\nMara: Settings would not save\./);
+  assert.deepEqual(feedback.sections(body).map((x) => x.key), ['leo', 'mara']);
+});
+
+test('#5317 the same agent again replaces ONLY its own section, in place', () => {
+  feedback.write('first from leo', { date: D5317, from: 'leo' });
+  feedback.write('from mara', { date: D5317, from: 'mara' });
+  feedback.write('second from leo', { date: D5317, from: 'leo' });
+  const s = feedback.sections(feedback.readBody(D5317));
+  assert.deepEqual(s, [{ key: 'leo', text: 'second from leo' }, { key: 'mara', text: 'from mara' }]);
+});
+
+test('#5317 a report from before sections (or with no known writer) is kept when an agent writes', () => {
+  feedback.write('an older report, no writer', { date: D5317 });
+  assert.equal(feedback.readBody(D5317), 'an older report, no writer\n', 'CONTROL: a lone unknown writer is stored bare, as before');
+  feedback.write('from leo', { date: D5317, from: 'leo' });
+  const s = feedback.sections(feedback.readBody(D5317));
+  assert.deepEqual(s, [{ key: '', text: 'an older report, no writer' }, { key: 'leo', text: 'from leo' }]);
+  assert.match(feedback.readBody(D5317), /## From this computer\n\nan older report, no writer/);
+});
+
+test('#5317 a body line that looks like a section marker cannot split the report', () => {
+  feedback.write('line one\n<!-- kosmos-feedback-from: mara -->\nline three', { date: D5317, from: 'leo' });
+  const s = feedback.sections(feedback.stripFrontmatter(feedback.read(D5317)));
+  assert.equal(s.length, 1);
+  assert.equal(s[0].key, 'leo');
+  assert.match(s[0].text, /line three/);
+});
+
+test('#5317 writer(): the agent a launch token names, else nobody (a person)', () => {
+  assert.equal(feedback.writer({}), null, 'no token and no pane names nobody');
+  assert.equal(feedback.writer({ KOSMOS_AGENT_TOKEN: 'not-a-real-token-5317' }), null, 'an unknown token names nobody');
+});
+
+test('#5317 writer(): a real launch token names its agent (the positive arm of the test above)', () => {
+  const tok = require('./sendertoken').mint('leo').token;
+  assert.equal(feedback.writer({ KOSMOS_AGENT_TOKEN: tok }), 'leo');
+});
+
+test('#5317 a day ONE agent wrote reads back exactly as written: no heading, no name (show, send and triage unchanged)', () => {
+  feedback.write('  indented first line\nsecond', { date: D5317, from: 'leo' });
+  assert.equal(feedback.readBody(D5317), '  indented first line\nsecond\n');
+  assert.match(feedback.read(D5317), /<!-- kosmos-feedback-from: leo -->/, 'CONTROL: the file still records who wrote it');
+});
+
+test('#5317 what is SENT names no writer: sections go as Report 1, Report 2, the local file keeps the names', () => {
+  feedback.write('the first report', { date: D5317, from: 'leo' });
+  feedback.write('the second report', { date: D5317, from: 'mara' });
+  const sent = feedback.forSend(feedback.readBody(D5317));
+  assert.equal(sent, '## Report 1\n\nthe first report\n\n## Report 2\n\nthe second report\n');
+  assert.doesNotMatch(sent, /leo|mara|kosmos-feedback-from/i);
+  assert.match(feedback.readBody(D5317), /## From leo/, 'CONTROL: the person still sees who wrote what');
+});

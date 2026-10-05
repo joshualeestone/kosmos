@@ -380,7 +380,7 @@ function payload(date) {
     install: install || 'unknown',
     date: d,
     generated_at: generatedAt(raw) || new Date().toISOString(),
-    body: scrub(feedback.readBody(d)),
+    body: scrub(feedback.forSend(feedback.readBody(d))),   // kosmos#5317: no writer names in the headings
     consent: { given: true, version: CONSENT_VERSION },
   };
 }

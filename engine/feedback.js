@@ -69,12 +69,81 @@ function pathFor(date) { assertDate(date); return path.join(dir(), date + '.md')
 /** today's date key, exported so a caller need not reach for `new Date()`. */
 function today() { return dateKey(); }
 
+/* kosmos#5317: one file per day, one SECTION per writer. Two agents on one install used to replace each other's
+   report (only the last writer's reached the team). A section starts with this marker line, then a heading. */
+const SECTION_RE = /^<!-- kosmos-feedback-from: ([^\n]*?) -->$/;
+function sectionMarker(key) { return '<!-- kosmos-feedback-from: ' + key + ' -->'; }
+function sectionHeading(key) { return key === '' ? '## From this computer' : '## From ' + key; }
+/** The sections of a stored body, in order: [{ key, text }], `text` without its marker and heading. Text before any
+ *  marker (a report from before #5317, or one written with no known writer) is the '' section: this computer. */
+function sections(body) {
+  const lines = String(body == null ? '' : body).split('\n');
+  const pre = [];
+  const out = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(SECTION_RE);
+    if (m) { cur = { key: m[1], lines: [] }; out.push(cur); continue; }
+    (cur ? cur.lines : pre).push(line);
+  }
+  // Exact, never trimmed at the front: write() stores `marker \n heading \n\n text \n` and text has no trailing space.
+  const result = [];
+  const preText = pre.join('\n').replace(/\s*$/, '');
+  if (preText) result.push({ key: '', text: preText });
+  for (const sct of out) {
+    const raw = sct.lines.join('\n');
+    const head = sectionHeading(sct.key) + '\n\n';
+    result.push({ key: sct.key, text: (raw.startsWith(head) ? raw.slice(head.length) : raw).replace(/\s*$/, '') });
+  }
+  return result;
+}
+/* A body line that looks like a section marker would split the report on the next read: indent it by one space so it
+   reads the same and is never taken for a marker. */
+function neutral(text) {
+  return String(text).split('\n').map((l) => (SECTION_RE.test(l) ? ' ' + l : l)).join('\n');
+}
+function writerKey(from) {
+  if (from == null) return '';
+  return String(from).replace(/[\r\n]/g, ' ').replace(/-->/g, '').trim().slice(0, 64);
+}
+/** Who is writing, for the CLIs: the agent its launch token names, else the agent whose tmux window this is (the
+ *  same resolver a kept message uses, engine/outbox.js resolveKeepSender), else null (a person, or unknown). */
+function writer(env) {
+  try {
+    const r = require('./outbox').resolveKeepSender(env || process.env);
+    return r && r.ok ? r.name : null;
+  } catch { return null; }
+}
+/** kosmos#5317: the body as it leaves this computer. Each writer's section is headed "Report 1", "Report 2", ... and
+ *  never by an agent's name: the send scrub removes the names it can find (profiles, worker folders), and a legacy
+ *  agent with neither is still a name, so the headings carry none at all. The local file keeps the names. */
+function forSend(body) {
+  const secs = sections(body);
+  if (secs.length < 2) return body;
+  return secs.map((x, i) => '## Report ' + (i + 1) + '\n\n' + x.text + '\n').join('\n');
+}
+/* Two writers at once must not lose each other's section: the read-modify-write runs under a lock directory. */
+function withLock(dest, fn) {
+  const lock = dest + '.lock';
+  const until = Date.now() + 5000;
+  for (;;) {
+    try { fs.mkdirSync(lock); break; } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err;
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) { fs.rmdirSync(lock); continue; } } catch { continue; }
+      if (Date.now() > until) throw new Error('feedback: another write of this report is still running');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try { return fn(); } finally { try { fs.rmdirSync(lock); } catch { /* gone */ } }
+}
+
 /**
- * Write (replace) a day's report. `body` is the agent-authored markdown; this
- * wraps it in a small frontmatter header so the send layer and the reader can
- * find the date and the install without parsing prose. Idempotent: writing
- * again the same day replaces the file, so a re-run regenerates rather than
- * appending duplicates.
+ * Write a day's report for ONE writer. `body` is the agent-authored markdown; this wraps the day's file in a small
+ * frontmatter header so the send layer and the reader can find the date and the install without parsing prose.
+ * kosmos#5317: the day's file holds one section per writer (`opts.from`: an agent's name, or null for this computer).
+ * Writing again REPLACES ONLY THAT WRITER'S SECTION, so a re-run regenerates rather than appending duplicates, and
+ * another agent's report the same day is kept. A day with only an unknown writer is stored bare, exactly as before
+ * #5317, and a report from before #5317 reads as that writer's section.
  *
  * Write-then-rename (the store.js pattern): an interrupted write cannot leave
  * a half-file that a later read treats as a real, truncated report.
@@ -82,6 +151,7 @@ function today() { return dateKey(); }
 function write(body, opts) {
   const o = opts || {};
   const date = o.date ? assertDate(o.date) : today();
+  const key = writerKey(o.from);
   // installId is this install's own random anchor (notify/ping reuse it). It
   // is not PII and it lets a later send de-duplicate one machine's reports.
   let install = null;
@@ -94,16 +164,25 @@ function write(body, opts) {
     '---',
     '',
   ].join('\n');
-  const content = header + String(body == null ? '' : body).replace(/\s*$/, '') + '\n';
-
   fs.mkdirSync(dir(), { recursive: true });
   const dest = pathFor(date);
-  const tmp = dest + '.tmp';
-  fs.writeFileSync(tmp, content);
-  fs.renameSync(tmp, dest);
-  return { ok: true, path: dest, date };
+  return withLock(dest, () => {
+    let prior = [];
+    try { prior = sections(stripFrontmatter(fs.readFileSync(dest, 'utf8'))); } catch (err) {
+      if (!err || err.code !== 'ENOENT') throw err;
+    }
+    const mine = { key, text: neutral(String(body == null ? '' : body).replace(/\s*$/, '')) };
+    const at = prior.findIndex((x) => x.key === key);
+    if (at >= 0) prior[at] = mine; else prior.push(mine);
+    const content = header + (prior.length === 1 && prior[0].key === ''
+      ? prior[0].text + '\n'
+      : prior.map((x) => sectionMarker(x.key) + '\n' + sectionHeading(x.key) + '\n\n' + x.text + '\n').join('\n'));
+    const tmp = dest + '.tmp';
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, dest);
+    return { ok: true, path: dest, date, from: key || null, writers: prior.length };
+  });
 }
-
 /** The raw file contents for a day, or null when there is no report. */
 function read(date) {
   try { return fs.readFileSync(pathFor(date), 'utf8'); }
@@ -151,7 +230,11 @@ function frontmatterDate(raw) {
 function readBody(date) {
   const raw = read(date);
   if (raw == null) return null;
-  return stripFrontmatter(raw);
+  const body = stripFrontmatter(raw);
+  // kosmos#5317: a day ONE writer wrote reads as exactly what it wrote (no heading, no name), as before sections; the
+  // headings appear only once two writers share the day.
+  const secs = sections(body);
+  return secs.length === 1 ? secs[0].text + '\n' : body;
 }
 
 /** True when a report exists for the day. */
@@ -214,4 +297,4 @@ function reportsForTriage(opts) {
   return { ok: true, reports, notes };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };
