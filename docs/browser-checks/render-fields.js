@@ -153,15 +153,75 @@ const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):n
    distinguishable from its container by AT LEAST ONE channel — fill or border. */
 const BUTTONS = 'button, input[type=button], input[type=submit]';
 
+/* #4734: WAIT ON THE CONTROLS, NOT ON NETWORK QUIET. `networkidle` is a guess about quiet, not a fact about the page:
+   it can fire before the page has drawn everything (a timer, not a request, adds the late controls) and on a page that
+   polls it may never fire. Measured 2026-10-02 on this board (Agent1s, load 4.3, webkit and chromium x3): 100 fields
+   from DOMContentLoaded; buttons 431-432 at DOMContentLoaded, 432-434 at load, 434 at networkidle and once settled, so
+   2-3 buttons arrive after load. networkidle happened to catch them in all six runs; nothing guaranteed it.
+   So: load, then the board's FIRST /api/status poll ANSWERED (probably what paints the late controls: the timing was
+   measured, the cause was not; review round 1: a counts
+   window alone could close before a slow poll answered, which networkidle never allowed; and `card` being defined says
+   nothing, it is a hoisted declaration), then the field and button counts unchanged for SETTLE_MS. A poll that never
+   answers within SETTLE_MAX_MS of being registered, or counts that never settle within SETTLE_MAX_MS after it (so up to
+   about twice that in all), is a FAILURE, never a measurement taken anyway. */
+const SETTLE_MS = 1500;
+const SETTLE_MAX_MS = 20000;
+/* #4734: floors on WHAT WAS MEASURED, so the WRONG PAGE (a 404, a stub, a wrong base URL) cannot pass over a short list.
+   NOT a guard on a dead page script: about 100 fields and 430 buttons are static HTML, so a page whose script died
+   still clears both floors (review round 1); that case is the page errors and the answered poll. About half of what
+   this check MEASURED on 2026-10-02
+   (96 fields in both engines; 388 visible buttons in webkit, 372 in chromium; the page holds 100 and 434, some
+   excluded or not visible): a control legitimately removed does not trip it; a page that rendered only its shell
+   does. */
+const FIELD_FLOOR = 50;
+const BUTTON_FLOOR = 200;
+async function settle(page, polled) {
+  const t0 = Date.now();
+  if (polled) {
+    try { await polled; } catch { throw new Error(`the board's first /api/status poll did not answer in ${SETTLE_MAX_MS} ms`); }
+  }
+  let last = null; let since = Date.now();
+  for (;;) {
+    const s = await page.evaluate(([f, b]) => ({ f: document.querySelectorAll(f).length, b: document.querySelectorAll(b).length }), [FIELDS, BUTTONS]);
+    const key = `${s.f}/${s.b}`;
+    if (key !== last) { last = key; since = Date.now(); }
+    if (Date.now() - since >= SETTLE_MS) return { fields: s.f, buttons: s.b, ms: Date.now() - t0 };
+    if (Date.now() - t0 > SETTLE_MAX_MS) throw new Error(`the page did not settle in ${SETTLE_MAX_MS} ms (last ${key}, fields/buttons)`);
+    await page.waitForTimeout(100);
+  }
+}
+/* #4734: THE CONTROL, run once per engine before anything is measured. A page that adds three fields 1.2 s after it
+   loads, with no request at all: networkidle must MISS them (that is the hole) and settle must SEE them (that is the
+   fix). If networkidle sees them, the control could not tell the two apart and says so; if settle misses them, no
+   measurement below means anything. */
+async function settleSelfCheck(engine) {
+  const LATE = 'data:text/html,<body><script>setTimeout(function(){for(var i=0;i<3;i++)document.body.appendChild(document.createElement("input"))},1200)</script></body>';
+  const browser = await pw[engine].launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(LATE, { waitUntil: 'networkidle' });
+    const atIdle = await page.evaluate((f) => document.querySelectorAll(f).length, FIELDS);
+    const page2 = await browser.newPage();
+    await page2.goto(LATE, { waitUntil: 'load' });
+    const settled = await settle(page2, null);   // a data: page polls nothing
+    return { atIdle, settled: settled.fields };
+  } finally { await browser.close(); }
+}
+
 async function measure(engine, scheme) {
   const browser = await pw[engine].launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, colorScheme: scheme });
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  /* Registered BEFORE goto, so a poll that answers during load is not missed. */
+  const polled = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/status', { timeout: SETTLE_MAX_MS });
+  polled.catch(() => {});   // awaited (and reported) inside settle; this only stops an early rejection going unhandled
+  await page.goto(BASE, { waitUntil: 'load' });
   let out;
+  let settled = null;
   try {
+  settled = await settle(page, polled);   // #4734: throws (reported as a FAIL by the catch at the bottom) rather than measuring an unsettled page
   out = await page.evaluate((sel) => {
     /* The wizard covers the board, so it stays hidden -- and is EXCLUDED from
        the unhide sweep below, which previously put it straight back. A line
@@ -406,15 +466,19 @@ async function measure(engine, scheme) {
     // its exit code — a checker that cannot report its own failure.
     await browser.close();
   }
-  return { ...out, errs };
+  return { ...out, errs, settled };
 }
 
+let failures = 0;   // module scope (#4734): the bottom catch reports the true count, not "1"
 (async () => {
   selfCheck();
-  let failures = 0;
   const fail = (msg) => { failures += 1; console.log('  FAIL  ' + msg); };
 
   for (const engine of ENGINES) {
+    const ctl = await settleSelfCheck(engine);
+    console.log(`  ${engine} settle control: networkidle saw ${ctl.atIdle} of 3 late fields, settle saw ${ctl.settled}`);
+    if (ctl.settled !== 3) { console.log(`  FAIL  INSTRUMENT FAILED SELF-CHECK: settle missed fields added late (${ctl.settled} of 3); no result below means anything`); process.exit(1); }
+    if (ctl.atIdle === 3) console.log('  note: networkidle caught the late fields this time, so this run cannot show the old wait\'s hole (settle still saw them)');
     const seen = {};
     for (const scheme of ['light', 'dark']) {
       const r = await measure(engine, scheme);
@@ -438,6 +502,10 @@ async function measure(engine, scheme) {
          empty array and the script would say OK. The exact silent-skip shape
          this file rejects one screen down. */
       if (!r.fields.length) fail(`${engine}/${scheme} no fields were found, so every field verdict below is over an empty set`);
+      /* #4734: and a FLOOR, not just "not zero": a page that drew a fraction of itself measured a fraction and passed. */
+      if (r.fields.length < FIELD_FLOOR) fail(`${engine}/${scheme} only ${r.fields.length} fields measured (floor ${FIELD_FLOOR}; 96 on 2026-10-02), so the page did not draw itself`);
+      if ((r.buttons || []).length < BUTTON_FLOOR) fail(`${engine}/${scheme} only ${(r.buttons || []).length} buttons measured (floor ${BUTTON_FLOOR}; 372-388 on 2026-10-02), so the page did not draw itself`);
+      if (r.settled) console.log(`  settled after ${r.settled.ms} ms on ${r.settled.fields} fields, ${r.settled.buttons} buttons`);
       const selects = r.fields.filter((f) => f.tag === 'select');
       console.log(`  selects ${selects.length}`);
       if (!selects.length) fail(`${engine}/${scheme} no selects were found, so the appearance and arrow checks ran over nothing`);
@@ -662,4 +730,11 @@ async function measure(engine, scheme) {
 
   console.log('\n' + (failures ? `FAILED: ${failures}` : 'OK: every field and control invariant holds in both engines, both schemes'));
   process.exit(failures ? 1 : 0);
-})();
+})().catch((e) => {
+  /* #4734: a page that never settles (or any other throw) is a reported FAILURE with its own FAILED: line, not an
+     unhandled rejection that dies without one. */
+  console.log('  FAIL  ' + (e && e.message ? e.message : String(e)));
+  failures += 1;
+  console.log(`\nFAILED: ${failures}`);
+  process.exit(1);
+});
