@@ -1295,13 +1295,16 @@ function tasksTabShown() {
    reader is usually an agent that will, so a false match costs a real task while a miss costs only today's behaviour.
    Three rounds of fuzzy rules (word overlap, contained words) each still matched different asks: another person
    ("Email Alice" / "Email Bob"), the opposite verb (approve / reject), a negation ("Do not enable" / "Enable"), swapped
-   places (Dallas to Austin / Austin to Dallas). The same text, with case, punctuation, spacing and Unicode form aside
-   (NFKC), has none of those, and catches both real cases.
+   places (Dallas to Austin / Austin to Dallas). The same text, with case, spacing and Unicode form aside
+   (NFKC), has none of those, and catches both real cases. Every other character counts (review 4: punctuation and
+   symbols carry meaning, "-5" is not "5", "x > 5" is not "x < 5"), so the same words with other punctuation are a
+   miss, which costs only today's behaviour.
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
    told to close, never both. Never the task's own parent (a subtask may repeat it). At most three, oldest first. */
 function sameTaskText(sentence) {
-  return (String(sentence == null ? '' : sentence).normalize('NFKC').toLowerCase()
-    .match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{M}\p{N}]+/gu) || []).join(' ');
+  // Review 4: EVERY character counts but case, runs of whitespace and Unicode form. Dropping punctuation and symbols
+  // made opposite asks equal ("-5" / "5", "x > 5" / "x < 5", a check mark / a cross, "C++" / "C").
+  return String(sentence == null ? '' : sentence).normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
 }
 function similarOpen(p, sentence, beforeNumber, { parent = null } = {}) {
   const mine = sameTaskText(sentence);
