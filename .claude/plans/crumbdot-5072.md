@@ -1,8 +1,8 @@
 # crumbdot-5072: the Tasks crumb's dot wraps with Open project
 
 Card: joshualeestone/kosmos#5072 (Mona Lisa's nit on #5053's design shots).
-Stacked on chevwrap-5053 (it needs that branch's `project-tasks` mobile-shots screen and its long-name phone arm in
-render-subback-4586.js). Merges after #5053.
+Was stacked on chevwrap-5053 (it needs that branch's `project-tasks` mobile-shots screen and its long-name phone arm in
+render-subback-4586.js). #5053 merged; origin/main is merged in (2026-10-05), so the diff is against main.
 
 ## Problem
 For one project the Tasks crumb is `All tasks › <name> · Open project`. On a phone, when Open project wraps to the
@@ -60,3 +60,13 @@ rebased onto main (the proof's diff_hash is against main), and a free test slot.
 - Rejected: dropping tsk-crumb from my annotation. It would make the map less true to pass a test that read live state.
 - Review 9 (blind Opus): converged, 0/0, 2 NITs, both fixed: the arms now pick checks with the gate's own parser
   (bc_surface_tokens_of + bc_surface_token_hits against the fixture's changed lines), and a stale comment.
+
+## 2026-10-05: on main
+- origin/main merged in (#5053 merged; clean). 2451/2451 web.* tests, the surface-gate self-test and both static gates
+  pass. A comment of mine named "grid" (a surface token render-allagents-4812 maps); reworded, not overridden.
+- One blind review of the merged branch (Sonnet): this plan's Status lines were stale (it said stacked, rebase TODO);
+  corrected here. The 30rem claim holds: PJ_PHONE_MQ is '(max-width: 30rem)', the room's phone query, pinned by
+  web.room-phone-718.test.js.
+- Remaining: render-subback-4586 on the merged head (queued), full validation (queued), proof, PR, merge. The design
+  shots on the card show this build; Mona Lisa made the layout call herself.
+
