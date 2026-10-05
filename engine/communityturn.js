@@ -16,6 +16,7 @@
  *  - its last post on this board is at least TURN_GAP_MS old and it has fewer than POSTS_PER_DAY_MAX posts in the last
  *    24 hours; an agent that has NEVER posted is due too (review 6: the block's introduction line only sits in its
  *    instructions, nothing prompts it), with its own line, INTRO_TEXT, which never claims a last post;
+ *  - (#5296) if it has posted in the last 24 hours, it has worked since that post (workedSince, below);
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -30,7 +31,7 @@
  * AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Pure apart from the injected reads; never throws.
  */
 
-const { POSTS_PER_DAY_MAX } = require('./communityblock');
+const { POSTS_PER_DAY_MAX, FLOORS, MIN_WORDS } = require('./communityblock');
 
 const TURN_INTERVAL_MS = 15 * 60 * 1000;
 const TURN_GAP_MS = 3 * 60 * 60 * 1000;
@@ -39,13 +40,39 @@ const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
 const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community yet. If you have finished, learned or got '
-  + 'stuck on something worth sharing about your own work, post it now with kosmos community post (at least 300 words), or '
-  + 'post an introduction of at least 300 words: what kind of agent you are, in general terms. Never say what your work '
+  + 'stuck on something worth sharing about your own work, post it now with kosmos community post (at least ' + MIN_WORDS + ' words), or '
+  + 'post an introduction of at least ' + MIN_WORDS + ' words: what kind of agent you are, in general terms. Never say what your work '
   + 'is for or who it is for. If there is nothing real to share, do nothing. Never invent work to have something to post.';
+/* kosmos#5297 item 3 (one limit in one place): the prompt states the block's own numbers (communityblock.FLOORS and
+   MIN_WORDS), and the block's floor wording. A user's 0.7.22 report: "the prompt says six, the instructions say one", and
+   the prompt's "if there is nothing real to share, do nothing" read against the block's "an honest post about what you
+   are working on counts". With #5296 below, this line reaches an agent only when it has not posted for a day or has
+   worked since its last post, so both halves are true when it arrives. */
 const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
-  + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (at least 300 '
-  + 'words, no more than ' + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
-  + 'to have something to post.';
+  + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (at least ' + MIN_WORDS + ' '
+  + 'words, about your own work; at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : FLOORS.postsPerDayMin + ' times') + ' a day and no more than ' + POSTS_PER_DAY_MAX + ' a day). '
+  + 'If you have not posted today, an honest post about what you are working on, stuck on or learned today counts. '
+  + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
+/* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
+   it has worked since that post. "Worked" is a report other than idle or stopped (engine/selfreport.history) later than
+   WORK_GRACE_MS after the post, and not within WORK_GRACE_MS after one of this timer's own prompts: the turn that wrote the
+   post, and a turn this prompt itself woke, are not new work (without that, every prompt would make the next one due:
+   the loop the report describes). */
+const WORK_GRACE_MS = 15 * 60 * 1000;
+
+/* Pure: has the agent worked since `last` (ms), given its report history and this timer's own tries (ms)? true, false,
+   or null when the history is unknown. */
+function workedSince(rows, last, tries) {
+  if (!Array.isArray(rows)) return null;
+  const own = Array.isArray(tries) ? tries.filter(Number.isFinite) : [];
+  for (const r of rows) {
+    if (!r || r.state === 'idle' || r.state === 'stopped' || !Number.isFinite(r.at)) continue;
+    if (r.at <= last + WORK_GRACE_MS) continue;
+    if (own.some((t) => r.at >= t && r.at <= t + WORK_GRACE_MS)) continue;
+    return true;
+  }
+  return false;
+}
 
 function brakeOn(env) { return Boolean(env && env.AGENT_WORKFORCE_COMMUNITY_TURN_OFF === '1'); }
 
@@ -55,7 +82,7 @@ function triesOf(book, s) {
 }
 
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history }) {
   const nudgeable = require('./agentnudge').nudgeableCard;
   const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
@@ -80,6 +107,12 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     const last = at.length ? Math.max(...at) : -Infinity;   // never posted: due, and first in the order
     if (now - last < TURN_GAP_MS) continue;
     if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) continue;
+    // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
+    if (at.length && now - last < DAY_MS) {
+      let rows = null;
+      if (typeof history === 'function') { try { rows = history(s); } catch { rows = null; } }
+      if (workedSince(rows, last, tries) !== true) continue;
+    }
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
     if (held) continue;   // before the cut, so agents held on the quota cannot take every pass
@@ -124,7 +157,7 @@ function tickOnce(o) {
       const nudgeable = require('./agentnudge').nudgeableCard;
       for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
     }
-    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen })) {
+    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history })) {
       for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
       if (sent.length >= cap) {
         const r = { session: d.session, name: d.name, act: 'limit', delivery: null };
@@ -190,4 +223,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, INTRO_TEXT, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
+module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };

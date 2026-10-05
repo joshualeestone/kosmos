@@ -33,12 +33,16 @@ const NOW = Date.parse('2026-10-02T19:30:00Z');
 const H = 3600e3;
 const ago = (ms) => new Date(NOW - ms).toISOString();
 const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+/* #5296: every fixture agent worked half an hour ago, after the fixture posts (an hour or more old) and their grace, so
+   the pre-#5296 cases still read as they did. The #5296 tests below take this away. */
+const WORKED = () => [{ state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }];
 
 function args(over = {}) {
   return {
     roster: [card('ann'), card('bea'), card('cal'), card('dan')], projects: [],
     now: NOW, book: new Map(),
     inCommunity: () => true, idleSince: () => NOW - H, seenIdle: new Set(['ann', 'bea', 'cal', 'dan']),
+    history: WORKED,
     postTimes: (s) => ({ ann: [ago(8 * H)], bea: [ago(4 * H)], cal: [ago(1 * H)], dan: [ago(1 * H)] }[s] || [ago(1 * H)]),
     ...over,
   };
@@ -131,6 +135,7 @@ function tickArgs(over = {}) {
     roster: () => [card('ann'), card('bea')], readProjects: () => [], now: NOW, book: new Map(), sent: [],
     readLimit: () => ({ on: true, perHour: 20 }),
     inCommunity: () => true, postTimes: () => [ago(6 * H)], idleSince: () => NOW - H, idleSeen: new Set(['ann', 'bea']),
+    history: WORKED,
     deliver: (s, text) => { sent.push([s, text]); return { state: D.PLACED }; }, DELIVERY: D,
     ...over,
   } };
@@ -294,4 +299,67 @@ test('#5212: a lineFor that throws or answers blank leaves the generic line', ()
     ct.tickOnce(o);
     assert.equal(sent[0][1], ct.TURN_TEXT);
   }
+});
+
+/* ---- kosmos#5296 / #5297: once the floor is met, a prompt needs new work since the last post ---- */
+const MIN = 60e3;
+
+test('#5296 workedSince: the posting turn and a turn this timer woke are not work; a later turn is; CONTROLS for each', () => {
+  const post = NOW - 4 * H;
+  // The turn that wrote the post: working before it and up to WORK_GRACE_MS after it.
+  assert.equal(ct.workedSince([{ state: 'working', at: post - 5 * MIN }, { state: 'working', at: post + 10 * MIN }, { state: 'idle', at: post + 12 * MIN }], post, []), false);
+  assert.equal(ct.workedSince([{ state: 'working', at: post + ct.WORK_GRACE_MS + MIN }], post, []), true, 'CONTROL: past the grace it is work');
+  // A turn this timer's own prompt woke (the loop in the user's report): not work.
+  const tried = post + 3 * H;
+  assert.equal(ct.workedSince([{ state: 'working', at: tried + 2 * MIN }, { state: 'idle', at: tried + 3 * MIN }], post, [tried]), false);
+  assert.equal(ct.workedSince([{ state: 'working', at: tried + 2 * MIN }], post, []), true, 'CONTROL: the same turn with no prompt before it is work');
+  // Idle and stopped are never work; needs_you and blocked are (the agent was on something).
+  assert.equal(ct.workedSince([{ state: 'idle', at: post + 2 * H }, { state: 'stopped', at: post + 2 * H }], post, []), false);
+  assert.equal(ct.workedSince([{ state: 'needs_you', at: post + 2 * H }], post, []), true);
+  assert.equal(ct.workedSince(null, post, []), null, 'no record is unknown, never "did not work"');
+});
+
+test('#5296 due: posted today and idle since -> not prompted; CONTROL: the same agent after real work is', () => {
+  const only = (s) => (s === 'ann' ? [ago(4 * H)] : [ago(H)]);
+  const idleSince = [{ state: 'working', at: NOW - 4 * H - 5 * MIN }, { state: 'idle', at: NOW - 4 * H + 5 * MIN }];
+  assert.deepEqual(ct.due(args({ postTimes: only, history: () => idleSince })), []);
+  assert.deepEqual(ct.due(args({ postTimes: only, history: WORKED })).map((d) => d.session), ['ann']);
+});
+
+test('#5296 due: an unknown history (null, or a throw) prompts nobody who has posted today', () => {
+  const only = (s) => (s === 'ann' ? [ago(4 * H)] : [ago(H)]);
+  assert.deepEqual(ct.due(args({ postTimes: only, history: () => null })), []);
+  assert.deepEqual(ct.due(args({ postTimes: only, history: () => { throw new Error('boom'); } })), []);
+  assert.deepEqual(ct.due(args({ postTimes: only, history: undefined })), [], 'no history read at all');
+});
+
+test('#5296 due: the daily floor stands: no post in 24 h is due with no work at all, and a never-posted agent too', () => {
+  const none = () => [];
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), history: none })).map((d) => d.session), ['ann']);
+  const first = ct.due(args({ postTimes: (s) => (s === 'ann' ? [] : [ago(H)]), history: none }));
+  assert.deepEqual(first.map((d) => [d.session, d.first]), [['ann', true]]);
+});
+
+test('#5296 tickOnce: the reported loop ends: a prompt that wakes an idle agent does not make it due again', () => {
+  // ann posted 7 h ago, was prompted 4 h ago (tick book), woke for a minute and went idle; now 4 h on, she is not due.
+  const book = new Map([['ann', [NOW - 4 * H]]]);
+  const hist = () => [{ state: 'working', at: NOW - 4 * H + MIN }, { state: 'idle', at: NOW - 4 * H + 2 * MIN }];
+  const { sent, o } = tickArgs({ roster: () => [card('ann')], book, postTimes: () => [ago(7 * H)], history: hist, idleSeen: new Set(['ann']) });
+  assert.deepEqual(ct.tickOnce(o), []);
+  assert.deepEqual(sent, []);
+  const ctl = tickArgs({ roster: () => [card('ann')], book: new Map(), postTimes: () => [ago(7 * H)], history: hist, idleSeen: new Set(['ann']) });
+  assert.equal(ct.tickOnce(ctl.o).length, 1, 'CONTROL: the same turn with no prompt in the book is work, so she is prompted');
+});
+
+test('#5297 item 3: the prompt and the block state the same numbers, from one place', () => {
+  const cb = require('./communityblock');
+  const body = cb.blockBody();
+  for (const text of [ct.TURN_TEXT, body]) {
+    assert.match(text, new RegExp('at least ' + cb.MIN_WORDS + ' words'));
+    assert.match(text, new RegExp('no more than ' + cb.POSTS_PER_DAY_MAX + ' (times )?a day'));
+    assert.match(text, /at least once a day|Post at least once a day/);
+    assert.match(text, /an honest post about what you are working on, stuck on or learned today counts/);
+  }
+  assert.equal(cb.FLOORS.postsPerDayMax, cb.POSTS_PER_DAY_MAX);
+  assert.match(ct.INTRO_TEXT, new RegExp('at least ' + cb.MIN_WORDS + ' words'));
 });
