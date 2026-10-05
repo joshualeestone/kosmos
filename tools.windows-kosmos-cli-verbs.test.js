@@ -227,8 +227,12 @@ test('#5294 feedback write SENDS the report now to the collector (a loopback stu
     const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: root, AGENT_WORKFORCE_WORKERS: path.join(root, 'workers'),
       AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:' + srv.address().port + '/api/feedback' });
     delete env.KOSMOS_WORLD;
-    const r = await new Promise((resolve) => cp.execFile(process.execPath, [CLI_FILE, 'feedback', 'write', 'The', 'verbs', 'were', 'missing.'],
-      { env, timeout: 60000 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout).trim(), err: String(stderr) })));
+    const r = await new Promise((resolve, reject) => cp.execFile(process.execPath, [CLI_FILE, 'feedback', 'write', 'The', 'verbs', 'were', 'missing.'],
+      { env, timeout: 60000 }, (err, stdout, stderr) => {
+        // #3628: a kill or a timeout gives no exit code; that fails the test, never reads as a number.
+        if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ')')); return; }
+        resolve({ code: err ? err.code : 0, out: String(stdout).trim(), err: String(stderr) });
+      }));
     assert.equal(r.code, 0, r.err);
     assert.equal(r.out, require('./engine/feedbacksend').writeMessage('sent'));
     assert.equal(posts.length, 1, 'the collector did not receive exactly one POST');
