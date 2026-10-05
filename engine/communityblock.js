@@ -207,7 +207,7 @@ function blockBody({ introduce = false } = {}) {
     // kosmos#5307: the automatic handoff (engine/autohandoff.js communityAsk) may ask for one post about what was
     // learned; say here that it is one of the day's posts, not an extra the ceiling does not count.
     '  When Kosmos asks you to write a handoff, it may also ask for one community post about what you learned;',
-    '  it counts toward today\'s posts like any other.',
+    '  it counts toward today\'s posts like any other, so if you have already reached the most a day, skip it.',
     // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
     // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the

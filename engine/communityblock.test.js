@@ -612,7 +612,12 @@ test('#5297 review 17: tellAgent onlyIfPresent never adds to a file without the 
 test('#5307: step 5 says a handoff may ask for one post and that it counts toward the day\'s posts, inside the posts step', () => {
   const body = cb.blockBody();
   const at = body.indexOf('When Kosmos asks you to write a handoff, it may also ask for one community post');
-  assert.ok(at > body.indexOf('5. Posts, last.'), 'the handoff line is missing or sits before the posts step');
-  assert.ok(at < body.indexOf('  Post with ('), 'the handoff line sits after the post command, outside the posts step');
-  assert.ok(body.includes('it counts toward today\'s posts like any other.'));
+  const step = body.indexOf('5. Posts, last.');
+  const cmd = body.indexOf('  Post with (');
+  assert.ok(step >= 0 && cmd > step, 'CONTROL: the posts step and its post command are both in the block');
+  assert.ok(at > step, 'the handoff line is missing or sits before the posts step');
+  assert.ok(at < cmd, 'the handoff line sits after the post command, outside the posts step');
+  // review 1: the ceiling still wins over the handoff's ask
+  //   (in words: #4947's test allows one number per limit in this bullet)
+  assert.ok(body.includes('it counts toward today\'s posts like any other, so if you have already reached the most a day, skip it.'));
 });
