@@ -8,14 +8,17 @@ for the default account), and a Codex agent reads `CODEX_HOME`. Each config fold
 
 ## Change
 `engine/connections.js` `blockBody()`: a new section, "A plugin the person installed in their own app", placed before
-the Connections tab section. It covers:
-- where the agent's own folder is (Claude: `CLAUDE_CONFIG_DIR` or `~/.claude`; Codex: `CODEX_HOME` or `~/.codex`);
-- where installed plugins are listed in that folder;
-- that a second-account agent does not get the person's plugins, and an API-key agent does not get claude.ai connectors;
-- to check the folder first, say plainly when the plugin is in the person's folder only, not to suggest restarting,
-  and to name the other failure (a sign-in still needed) when the plugin is present.
+the Connections tab section. It names the two things that decide whether an agent gets a plugin, both checkable by the
+agent itself:
+- **its folder**: Claude `CLAUDE_CONFIG_DIR` or `.claude` in the home folder; Codex `CODEX_HOME` or `.codex` (Windows:
+  the user's own folder). A second-account agent runs from its own folder.
+- **its account**: claude.ai connectors come with the signed-in Claude account, not a folder; never on an API key.
+Then it says to name which one it is plainly, rules out a restart for the other-folder/account case only, and lists the
+in-folder causes (switched off, one project only, added after start where a restart IS the fix, a sign-in still needed).
 
-Knowledge only: the block stays constant (no argument, no machine state), as its tests require.
+Knowledge only: the block stays constant (no argument, no machine state), as its tests require. It deliberately names no
+file inside a provider folder: where Codex records an enabled plugin, and how account-synced Claude plugins arrive, were
+not measured (review iteration 1).
 
 ## Tests
 `engine/connections.test.js`: one new test pinning the section's facts, its position before the Connections tab
@@ -23,8 +26,9 @@ section, and no em dash. Red-capable: with origin/main's connections.js it fails
 Related files run: connections-refresh-1649, connections, discover.adopt, create: 263/263.
 
 ## Rejected
-- Copying or linking the person's plugins into agent folders: #4592 keeps the desktop app's plugins and their
-  untrusted hooks out of agents on purpose.
+- Copying or linking the person's plugins into agent folders: a second account's folder is separate by design (its
+  own sign-in), and #4592 (PR #4605, open) proposes the same separation for Codex because desktop-app plugins brought
+  hooks agents were never told to trust. Carrying plugins over is a decision for that card, not this text.
 - A per-agent statement of which folder the agent uses: that is machine state, which this block must not carry.
   The agent reads its own environment instead.
 
@@ -32,5 +36,5 @@ Related files run: connections-refresh-1649, connections, discover.adopt, create
 The board shows, per agent, plugins present in the person's own folder and missing from the agent's (#5309 part 2).
 
 ## Weakest premise
-The Codex wording rests on `plugins` under `CODEX_HOME` (seen on Codex 0.149.1 here). I did not measure where the Codex
-desktop app records a plugin as enabled.
+That folder and account are the two causes worth naming. The text stays general where I measured nothing (Codex's
+enabled-plugin record, account-synced Claude plugins under `plugins/synced/`), so an agent checks rather than trusts it.
