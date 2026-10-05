@@ -1085,6 +1085,17 @@ function instructionRereadOwe(session) {
   if (!ok) process.stderr.write(`Kosmos updated ${session}'s working rules but could not record that it should be told; it reads them at its next start\n`);
 }
 const INSTRUCTION_REREAD_MS = 5 * 60 * 1000;
+/* kosmos#5304: every agent whose `section` block a sweep rewrote (its verdict says changed) owes a re-read. Never throws. */
+function instructionRereadOweEach(told, section) {
+  try {
+    if (!Array.isArray(told) || !told.some((t) => t && t.changed === true)) return;
+    const ir = require('./engine/instructionreread');
+    const cur = ir.readOwedStrict();
+    if (cur === null || !ir.writeOwed(ir.oweEach(told, cur, section))) {
+      process.stderr.write(`Kosmos could not record which running agents to tell about their ${section} section; they read it at their next start\n`);
+    }
+  } catch { /* the files are right; only the line is lost */ }
+}
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const accountComputers = require('./engine/account-computers'); // kosmos#4648
@@ -16110,6 +16121,7 @@ const server = http.createServer(async (req, res) => {
             const card = t && Array.isArray(roster) ? roster.find((c) => c && c.sessionName === t.agent) : null;
             return card && card.name ? { ...t, shownAs: card.name } : t;
           });
+          instructionRereadOweEach(told, 'you');   // kosmos#5304
           /* 🛑 kosmos#1684. THESE TWO USED TO DISCARD THEIR VERDICTS AND SWALLOW
              THEIR THROWS ("carried by the marker, not here"). The marker is
              real -- #323's stale-block marker -- but it marks a block as stale
@@ -16135,23 +16147,24 @@ const server = http.createServer(async (req, res) => {
           const sideWork = [
             // The reports-to block names the person in its default form (#336),
             // so a new name here has to reach it too. Same roster, same posture.
-            ['who they report to', () => reports.syncEveryone(roster)],
+            ['who they report to', () => reports.syncEveryone(roster), 'reports'],
             /* #1034: the connections block rides the same sweep. Its words never
                change, so this is a no-op for an agent that already has it, and it
                is the one write that gives it to every agent created before the
                block existed. */
-            ['how to connect a provider', () => connections.syncEveryone(roster)],
+            ['how to connect a provider', () => connections.syncEveryone(roster), 'connections'],
             /* #3614: where to save a file made for the person in a direct message. Per-agent
                (it names each agent's own folder), and a no-op once an agent has it. */
-            ['where to save the files it makes', () => dmfiles.syncEveryone(roster)],
+            ['where to save the files it makes', () => dmfiles.syncEveryone(roster), 'dmfiles'],
           ];
-          for (const [what, run] of sideWork) {
+          for (const [what, run, section] of sideWork) {
             let verdicts;
             try { verdicts = run(); }
             catch (e) {
               verdicts = [{ agent: null, state: projects.TOLD.COULD_NOT,
                             because: String((e && e.message) || 'we could not write it') }];
             }
+            instructionRereadOweEach(verdicts, section);   // kosmos#5304
             for (const v of (Array.isArray(verdicts) ? verdicts : [])) {
               if (!v || v.state === projects.TOLD.TOLD) continue;
               /* Name WHICH block failed. "we could not tell them" over a
@@ -20964,6 +20977,7 @@ if (require.main === module) {
    */
   try {
     const told = reports.syncEveryone(safeRoster());
+    instructionRereadOweEach(told, 'reports');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (stuck.length) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
@@ -20974,6 +20988,7 @@ if (require.main === module) {
   }
   try {
     const told = connections.syncEveryone(safeRoster());
+    instructionRereadOweEach(told, 'connections');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (stuck.length) {
       /* ⚠️ NAME THE REASON, not just the count. This runs at boot with nobody
@@ -20993,6 +21008,7 @@ if (require.main === module) {
      agent, and it is never fatal. */
   try {
     const told = dmfiles.syncEveryone(safeRoster());
+    instructionRereadOweEach(told, 'dmfiles');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (stuck.length) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
@@ -21030,6 +21046,7 @@ if (require.main === module) {
     }
     if (record.state === 'saved') {
       const told = you.syncEveryone(safeRoster(), { addOnly: true });
+      instructionRereadOweEach(told, 'you');
       const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
       if (stuck.length) {
         const why = (stuck[0] && stuck[0].because) || 'no reason given';
@@ -21079,6 +21096,7 @@ if (require.main === module) {
       process.stderr.write('Kosmos could not read this computer\'s language setting; agents\' language blocks were left as they are (it is read again at the next start)\n');
     }
     const told = personlanguage.syncEveryone(safeRoster());
+    instructionRereadOweEach(told, 'language');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (stuck.length) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
