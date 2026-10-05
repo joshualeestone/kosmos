@@ -59,7 +59,7 @@ async function paintRoom(page) {
         attachments: [{ name: 'Brief.pdf', url: '/api/files/1', kind: 'pdf' }, { name: 'Logo.png', url: '/api/files/2', kind: 'image' }] },
       { kind: 'post', id: 'm534', from: 'april', to: [], project: 'p1', at: a1, text: 'Deck.pptx', attachments: [{ name: 'Deck.pptx', url: '/api/files/3', kind: 'other' }] },
     ];
-    PJ_ROOM_POSTS = new Map(rows.map((r) => [r.id, r]));
+    PJ_ROOM_POSTS = new Map(rows.map((r) => [r.id, r])); PJ_CURRENT = 'p1'; PJ_ROOM_POSTS_OF = 'p1';   // painted for this project
     const room = document.getElementById('pj-room');
     room.innerHTML = rows.map((m) => pjRoomRow(m, p, false)).join('');
     // Reveal the room's own column: every hidden ancestor, as opening the project would.
@@ -333,11 +333,14 @@ async function paintRoom(page) {
         const c5 = await page.evaluate((a5) => {
           const t = document.getElementById('d-dmthread');
           const rec = { from: 'april', at: a5, text: 'April: the record says this\nand this' };
-          DM_ROWS = new Map([[a5, rec]]);
+          DM_ROWS = new Map([[a5, rec]]); DM_ROWS_OF = 'april';
           t.insertAdjacentHTML('beforeend', dmRow(rec, 'April', false));
-          const row = t.lastElementChild; const out = msgCopyText(row); row.remove(); DM_ROWS = new Map(); return out;
+          const row = t.lastElementChild; const out = msgCopyText(row);
+          DM_ROWS_OF = 'someone-else'; const stale = msgCopyText(row);   // a store painted for another agent is not read
+          row.remove(); DM_ROWS = new Map(); DM_ROWS_OF = null; return { out, stale };
         }, at(5));
-        chk(c5 === 'April: the record says this\nand this', tag + 'C5 a direct-conversation row copies its record\'s words', JSON.stringify(c5));
+        chk(c5.out === 'April: the record says this\nand this', tag + 'C5 a direct-conversation row copies its record\'s words', JSON.stringify(c5));
+        chk(c5.stale === 'the record says this\nand this', tag + 'C5 a store painted for another agent is not read: the row\'s own words instead', JSON.stringify(c5));
         /* A row a repaint detached while the menu was open is in neither thread: it copies its own words, never a DM record
            that happens to share its id. */
         const c5d = await page.evaluate(() => { const row = document.querySelector('#pj-room .msg[data-mid="m530"]'); const clone = row.cloneNode(true);

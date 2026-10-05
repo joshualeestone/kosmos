@@ -63676,7 +63676,8 @@ function msgRefButton(mid) {
    same test msgCopyPressed reads at the press, and a change of it (a tablet turned, a pointer attached) relabels every
    Copy on the page, so the name never disagrees with what a press does. */
 function msgCopyTouch() {
-  return typeof PJ_TOUCH_MQ !== 'undefined' && !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches;
+  // try: typeof does not protect a const still in its temporal dead zone (a paint during the page's own start).
+  try { return !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches; } catch { return false; }
 }
 function msgCopyButton() {
   return '<button class="rxn-copy" type="button" '
@@ -63747,11 +63748,16 @@ function msgCopyWords(m) {
 function msgRecordOf(row) {
   const mid = row && row.getAttribute ? row.getAttribute('data-mid') || '' : '';
   if (!mid) return null;
-  if (row.closest && row.closest('#pj-room')) return (typeof PJ_ROOM_POSTS !== 'undefined' && PJ_ROOM_POSTS.get(mid)) || null;
+  /* Only a store painted for what is on screen (the reply code's own test): a store left from another project or agent
+     could hold a different message under the same key (a DM row is keyed by its time). Otherwise the row's own words. */
+  if (row.closest && row.closest('#pj-room')) {
+    if (typeof PJ_ROOM_POSTS === 'undefined' || typeof PJ_CURRENT === 'undefined' || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) return null;
+    return PJ_ROOM_POSTS.get(mid) || null;
+  }
   /* In neither thread (a repaint detached it while the menu was open): no store can be told from its place, so none is
      guessed (a room post's id could match a DM row's); its own words are copied instead. */
   if (!(row.closest && row.closest('#d-dmthread'))) return null;
-  if (typeof DM_ROWS === 'undefined') return null;
+  if (typeof DM_ROWS === 'undefined' || typeof CURRENT === 'undefined' || !CURRENT || DM_ROWS_OF !== CURRENT.sessionName) return null;
   if (DM_ROWS.has(mid)) return DM_ROWS.get(mid);
   for (const r of DM_ROWS.values()) if (r && r.id === mid) return r;
   return null;
