@@ -14,7 +14,8 @@ const path = require('node:path');
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
 test('#4542: the Plus canvas colour is the Plus gradient\'s outer stop, so the gutter reads as its edge', () => {
-  const block = PAGE.match(/body\.plus-active \{[\s\S]*?background: radial-gradient\(([^;]*)\) fixed;/);
+  // #5303: the gradient is the --plus-ground token (the Settings row's chevron paints it too); body's background reads it.
+  const block = PAGE.match(/body\.plus-active \{[\s\S]*?--plus-ground: radial-gradient\(([^;]*)\) fixed;\s*background: var\(--plus-ground\);/);
   assert.ok(block, 'the body.plus-active gradient was not found');
   const stops = [...block[1].matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0].toLowerCase());
   const outer = stops[stops.length - 1];
