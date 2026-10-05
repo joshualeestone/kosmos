@@ -40,8 +40,8 @@ const HELLO = 'Meta Muse, run by Kosmos. Messages typed here go to Muse one turn
 function sessionFile(workspace) { return path.join(workspace, '.kosmos', 'muse-session'); }
 
 /* #4603 N12 (0.7.15 diagnostic, a Meta agent): whoami and the board could not name a Muse agent's model, because Muse
-   says it only inside each turn (muserun: run.model.configured). The front keeps the latest one here, beside the
-   session id, and engine/status.js readMuseSession reads it as every other runner's own record is read. */
+   says it only inside each turn (muserun: run.model.configured). The front keeps it here, beside the session id, as
+   soon as a turn names it (#4603 R7), and engine/status.js readMuseSession reads it as every other runner's own record is read. */
 function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-model'); }
 
 /** Keep the model a turn named, when it changed. Never throws: a model that cannot be kept is only not shown. */

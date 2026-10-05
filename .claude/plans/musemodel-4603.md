@@ -22,5 +22,15 @@ over-long line dropped; real-spawn turn fires onModel before it ends and a stopp
 musefront.test.js: the model is on disk while the turn is held; the call contract includes onModel.
 Each fix site perturbed: every one turns a test red.
 
+## Review 1
+- A stopped turn's late stdout no longer reaches onModel once the turn has settled (a new life's forgetModel could
+  otherwise be undone). onOut is called inside a try, so a throwing consumer cannot reach the stream's data handler.
+- The board reads the kept model on its tick (status.js readMuseSession), so whoami names it from the first tick after
+  the stream names it, not instantly.
+
+## Done when
+On a served build, a Muse agent's `kosmos whoami` names its model during the first turn after it starts. The tests prove
+the file is on disk mid-turn; they do not prove the served whoami line.
+
 ## Weakest premise
 That the seat ran whoami in the first turn of its front's life. If it was a later turn, this is not the cause.

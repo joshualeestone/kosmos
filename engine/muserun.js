@@ -107,8 +107,8 @@ function parseEvents(jsonl) {
 /* #4603 (10-05 user diagnostic R7): the model as soon as the stream names it, not when the turn ends. The front forgets
    the model when it starts, so a model kept only at a turn's end left the first turn of every life with none, and an
    agent that runs `kosmos whoami` in that turn could not name its model. Fed raw stdout chunks; calls onModel(id) for
-   each `run.model.configured` line, whole lines only. A line past LINE_MAX is dropped rather than held, so a huge delta
-   cannot grow this buffer. Never throws. */
+   each `run.model.configured` line, whole lines only. A line still unfinished past LINE_MAX is dropped rather than
+   held, so a huge delta cannot grow this buffer. */
 const LINE_MAX = 64 * 1024;
 function modelWatcher(onModel) {
   const dec = new StringDecoder('utf8');
@@ -158,7 +158,7 @@ let runMuse = (bin, args, opts, done) => {
     if (over) return;
     bytes += buf.length;
     (which === 'out' ? outChunks : errChunks).push(buf);
-    if (which === 'out' && opts.onOut) opts.onOut(buf);   // #4603: modelWatcher, which never throws
+    if (which === 'out' && opts.onOut) { try { opts.onOut(buf); } catch { /* a throw in a 'data' handler would reach the board */ } }
     if (bytes > maxBytes) { over = true; killGroup(); }
   };
   child.stdout.on('data', take('out')); child.stderr.on('data', take('err'));
@@ -189,6 +189,7 @@ function runTurn(input) {
     let seenModel = null;
     const fail = (because) => finish({ ok: false, exitCode: null, sessionId: null, model: seenModel, text: '', done: false, because });
     const onModel = (m) => {
+      if (settled) return;   // a stopped turn's late output must not write after the front has moved on
       seenModel = m;
       if (input && typeof input.onModel === 'function') { try { input.onModel(m); } catch { /* never ends the turn */ } }
     };
