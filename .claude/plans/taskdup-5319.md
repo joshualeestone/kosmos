@@ -90,3 +90,12 @@ word order are kept.
 
 **Test gap closed:** the route test's look-alike now has a double quote and a backslash in its stored text. Control:
 with the strip removed, the row goes red.
+
+## Review round 4 (sonnet)
+- [W] FIXED by narrowing further: dropping punctuation and symbols made opposite asks equal ("-5" / "5", "x > 5" /
+  "x < 5", a check mark / a cross, "C++" / "C", "$5" / "EUR 5"). The comparison now sets aside ONLY case, runs of
+  whitespace and Unicode form (NFKC); every other character counts. The report's duplicates were literal copies, so
+  they still match. "Deep dive: Worlds" vs "Deep dive - Worlds" is now a miss (today's behaviour). Test rows for each pair.
+- [N] not changed: a zero-width character between letters makes a miss (harmless under the asymmetry), and shown()
+  leaves line separators and zero-width characters in the note (mostly harmless on a terminal; bidi and C0/C1 controls,
+  the ones that matter, are stripped).

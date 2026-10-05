@@ -58,7 +58,8 @@ const P = {
 test('#5319: which open tasks count as the same (pure)', () => {
   const rows = [
     ['verify Theo AI and Enzo Health', [1], 'the same text, other case (the report\'s #1 and #11)'],
-    ['Deep dive - Worlds', [26], 'the same text, other punctuation (the report\'s #26, #27, #29); the closed #7 is not named'],
+    ['deep  dive: WORLDS ', [26], 'the same text, other case and spacing (the report\'s #26, #27, #29); the closed #7 is not named'],
+    ['Deep dive - Worlds', [], 'other punctuation is other text (review 4: punctuation can carry meaning)'],
     ['deep dive worlds again', [], 'one word more is not the same text (a miss costs only today\'s behaviour)'],
     ['write the release notes for 0.7.23', [], 'more words is not the same text'],
     ['Fix the signup bug', [], 'another word'],
@@ -88,6 +89,12 @@ test('#5319: which open tasks count as the same (pure)', () => {
     ['修复登录错误', '修复登录错误', true, 'the very same Chinese task (no spaces)'],
     ['Café menu', 'Café menu', true, 'the same text, another Unicode form (NFKC)'],
     ['Ｆｉｘ login bug', 'Fix login bug', true, 'full-width letters are the same text'],
+    // Review 4: signs and symbols carry meaning.
+    ['Set offset to -5', 'Set offset to 5', false, 'a sign'],
+    ['Ship if x > 5', 'Ship if x < 5', false, 'a comparison'],
+    ['Support C++', 'Support C', false, 'a symbol in a name'],
+    ['Say \u2705', 'Say \u274c', false, 'a check mark is not a cross'],
+    ['Pay $5', 'Pay \u20ac5', false, 'another currency'],
   ]) assert.equal(pair(open, added), want, `${open} | ${added}: ${why}`);
   const many = { tasks: [2, 3, 4, 5].map((n) => ({ number: n, sentence: 'deep dive worlds', closedAt: null })) };
   assert.deepEqual(tasks.similarOpen(many, 'deep dive worlds', 99).map((t) => t.number), [2, 3, 4], 'at most three, oldest first');
@@ -118,7 +125,7 @@ test('#5319: the route adds a look-alike task and names the open one, with the c
   assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
 
   // The open task's stored text has a double quote and a backslash; the note must carry neither (the macOS CLI's sed).
-  const quoted = await add('ship the beta build');
+  const quoted = await add('SHIP the "beta" \\ build');
   assert.match(quoted.json.note || '', /^Note: an open task with the same text already exists: #12 \(Ship the beta build\)\./, quoted.json.note);
   assert.doesNotMatch(quoted.json.note, /["\\]/, 'the note holds no double quote or backslash');
 });
