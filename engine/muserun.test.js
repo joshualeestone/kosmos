@@ -384,7 +384,7 @@ test('#4603 R7: modelWatcher names the model from whole lines, across chunk and 
   // One byte at a time: the model line and a two-byte character are split everywhere they can be.
   for (let i = 0; i < buf.length; i++) w(buf.subarray(i, i + 1));
   assert.deepEqual(seen, ['muse-spark-1.3-contributor']);
-  // A line that is not JSON, or names no model, is not a model; a throwing callback does not escape.
+  // A line that is not JSON, or names no model, is not a model.
   w(Buffer.from('run.model.configured but not json\n{"payload_type":"run.model.configured","payload":{}}\n'));
   assert.deepEqual(seen, ['muse-spark-1.3-contributor'], 'a line with no model_id was read as one');
   // A throwing callback does not cost the rest of the chunk: the next model line is still read.
@@ -435,11 +435,11 @@ test('#4603 R7: runTurn tells onModel while Muse still runs, and a stopped turn 
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
 
-test('#4603 R7 review 1: output that arrives after a turn was stopped never reaches onModel', { timeout: 5000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+test('#4603 R7 review 1: output that arrives after a turn was stopped never reaches onModel', { timeout: 5000 }, async () => {
   gate.allowLiveExecution();
-  fakeMuse('exit 0');   // only so the turn sees Muse installed; runMuse below is the fake
+  fakeMuse('exit 0');   // only so the turn sees Muse installed; runMuse below is the fake, so any platform runs it
   let late = null;
-  run.setForTests({ runMuse: (bin, args, opts) => { late = () => opts.onOut(Buffer.from(TURN.split('\n')[1] + '\n')); return () => {}; } });
+  run.setForTests({ platform: 'darwin', runMuse: (bin, args, opts) => { late = () => opts.onOut(Buffer.from(TURN.split('\n')[1] + '\n')); return () => {}; } });
   try {
     const named = [];
     let stopIt = null;
@@ -456,5 +456,19 @@ test('#4603 R7 review 1: output that arrives after a turn was stopped never reac
     stopIt();
     await p2;
     assert.deepEqual(named, ['muse-spark-1.3-contributor']);
+  } finally { gate.resetForTests(); run.resetForTests(); }
+});
+
+test('#4603 R7 review 3: a turn that times out still carries the model its stream named; a repeat is told once', { timeout: 5000 }, async () => {
+  gate.allowLiveExecution();
+  fakeMuse('exit 0');
+  const line = TURN.split('\n')[1] + '\n';
+  run.setForTests({ platform: 'darwin', hardCapMs: 200, runMuse: (bin, args, opts) => { opts.onOut(Buffer.from(line + line)); return () => {}; } });
+  try {
+    const named = [];
+    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi', onModel: (m) => named.push(m) });
+    assert.equal(r.because, run.TIMED_OUT);
+    assert.equal(r.model, 'muse-spark-1.3-contributor', 'a timed-out turn dropped the model its stream named');
+    assert.deepEqual(named, ['muse-spark-1.3-contributor'], 'the same model named twice was told twice');
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
