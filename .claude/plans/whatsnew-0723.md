@@ -30,3 +30,7 @@ not run on a Windows box here.
 Review 3: "Grok API key" (accountsFrom keeps authMode apikey only, so a Grok subscription does not read org charts);
 the key-account title says what the line shows. ACCEPTED, not measured: the Token Usage line on Windows. The scans
 have no platform branch (os.homedir), so it is reasoned true there; it has not been run on a Windows box.
+Review 4 (sonnet): CONVERGED. Its OpenAI-key concern is deferred with evidence: #5280 (462eb8be0) hands /api/status
+only the Claude, Gemini and Grok account lists (server.js: "OpenAI's list is left out on purpose: codex agents keep
+their existing account shape"), so the change this release ships is exactly Gemini and Grok. NIT left: "last
+characters" could say "last four".
