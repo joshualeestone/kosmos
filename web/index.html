@@ -67592,7 +67592,9 @@ const FEDINV_BUSY_LINE = 'One moment: Kosmos is still copying. Press again in a 
 let FEDINV_COPY_TEXT = '';     // slice C: the text the newest copy press asked for
 let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is known to have put on the clipboard
 // Anything copied in another app replaces the clipboard without this page knowing, so leaving the window forgets the
-// record: a later refusal then says so honestly rather than claiming an earlier copy still stands.
+// record: a later refusal then says so honestly rather than claiming an earlier copy still stands. A permission
+// prompt that takes focus also forgets a record that was true; that only costs a "could not copy" line, never a
+// false "copied".
 window.addEventListener('blur', () => { FEDINV_CLIP_HOLDS = ''; });
 // So is any copy on this page that fires a copy event (the person's own Command or Ctrl C, select-and-copy controls;
 // a clipboard API write fires none): it fires before the sheet's select-and-copy records its text, so the sheet's
@@ -67704,10 +67706,10 @@ async function fedInviteMake() {
    with a 3 s limit while holding the shared busy flag (so neither button's answer can wipe the other's line). A write
    that lands after the limit calls onLate, if the sheet is still the same one. Returns null when the sheet was closed
    or reopened meanwhile (say nothing), else whether it copied. writeText goes through an async function, so a web
-   view that THROWS instead of rejecting still reaches the finally and cannot leave the flag set. */
-// After the 3 s limit the busy flag is freed while a held write may still land (holding it would let one unanswered
-// permission prompt silently disable the other button). A write that lands after a newer press cannot be called
-// back, so this says what the clipboard now holds.
+   view that THROWS instead of rejecting still reaches the finally and cannot leave the flag set. After the limit
+   the busy flag is freed while a held write may still land (holding it would let one unanswered permission prompt
+   silently disable the other button). A write that lands after a newer press cannot be called back, so this says
+   what the clipboard now holds: `what` names this press's text for that line. */
 async function fedCopyText(text, btn, onLate, what) {
   const seq = FEDINV_SEQ;
   const token = ++FEDINV_COPY_TOKEN;   // this press; a newer press makes a late write from this one stale
@@ -67805,10 +67807,9 @@ function fedInviteCopyReset() {
 function fedInviteText(made) {
   // One line each: a name or project with a newline or a control character must not break the invitation's lines.
   // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, the zero-width
-  // space, the BOM), so a name cannot visually reorder or hide text in the paste. ZWNJ and ZWJ stay: some Persian
-  // and Indic names and emoji sequences need them.
-  // Also the word joiner and invisible operators, the soft hyphen, the Mongolian vowel separator and the tag block
-  // (the usual way to hide text). ZWNJ and ZWJ stay.
+  // space, the BOM, the word joiner and invisible operators, the soft hyphen, the Mongolian vowel separator and the
+  // tag block, the usual way to hide text), so a name cannot visually reorder or hide text in the paste. ZWNJ and
+  // ZWJ stay: some Persian and Indic names and emoji sequences need them.
   const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b\u200e\u200f\u061c\ufeff\u2060-\u2064\u00ad\u180e\u{e0000}-\u{e007f}]/gu, '').replace(/[\u0080-\u009f]/g, ' ').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
   // No brackets in the name: "Maya (fake.kosmosplus.com)" must not pass for the vouched address the line prints.
   const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
@@ -67818,7 +67819,9 @@ function fedInviteText(made) {
   const addr = handle ? handle + '.kosmosplus.com' : '';
   const who = name && addr ? name + ' (' + addr + ')' : (name || addr || 'Someone');
   const until = fedInviteLongDate(made.expires_at);
-  return who + ' invited you to ' + (line(made.project) ? 'the project "' + line(made.project) + '"' : 'a project') + ' on Kosmos.\n'
+  // A double quote in the project's name becomes a single one, so the quoted name cannot seem to end early.
+  const project = line(made.project).replace(/"/g, "'");
+  return who + ' invited you to ' + (project ? 'the project "' + project + '"' : 'a project') + ' on Kosmos.\n'
     + '\n'
     + '1. Open Kosmos on your computer. If you do not have it yet, get it at installkosmos.com and sign in to Kosmos+.\n'
     + '2. Go to Projects, press + Add Project, then Join an external project.\n'
