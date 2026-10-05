@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText refreshYouName pj-new pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText refreshYouName pj-new pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE YOU_NAME fedInviteLongDate computersFetch THIS_COMPUTER_NAME
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -108,6 +108,7 @@
  *  C7  a held write landing after a newer, successful copy on the other button: the line says what the clipboard
  *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
  *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
+ *      C7d: the other direction: a held bare-code write landing after a newer invitation copy names the code alone.
  *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
  *      second Copied.)
  *  C9  the clipboard-holds record through its real listeners (blur, copy events) and an in-time write, and a held
@@ -1235,6 +1236,33 @@ const closeAll = (page) => page.evaluate(() => {
         refused.status.startsWith('Kosmos could not copy the invitation.') && landed.status === 'Invitation copied.',
         JSON.stringify({ refused: refused.status, landed: landed.status }));
       await p7.ctx.close();
+    }
+    /* C7d: the other direction. The bare Copy's clipboard is held past the limit, then Copy the invitation succeeds by
+       select-and-copy, then the held code write lands and replaces the invitation: the line says the clipboard holds
+       the code alone. Control: C7, the same race the other way round, names the invitation. */
+    {
+      const p7d = await newPage(1280, SHOW);
+      await openProjectIn(p7d.page, 'tabs');
+      await makeCode(p7d.page, 'Dana Ruiz');
+      await p7d.page.evaluate(() => {
+        FEDINV_CLIP_HOLDS = '';
+        window.__execOk = false;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
+      });
+      await p7d.page.click('#fedinv-copy');
+      await p7d.page.waitForTimeout(3600);
+      await p7d.page.evaluate(() => { window.__execOk = true; });
+      await p7d.page.click('#fedinv-copy-all');
+      await p7d.page.waitForTimeout(100);
+      const newer = await step(p7d.page);
+      await p7d.page.evaluate(() => window.__releaseClip());
+      await p7d.page.waitForTimeout(150);
+      const after = await step(p7d.page);
+      check('C7d a held code write that lands after a newer invitation copy says the clipboard now holds the code alone (control: C7)',
+        newer.status === 'Invitation copied.'
+        && after.status === 'An earlier copy finished late, so the clipboard now holds the code alone. Press Copy the invitation to copy the invitation.',
+        JSON.stringify({ newer: newer.status, after: after.status }));
+      await p7d.ctx.close();
     }
 
     /* C8: the sheet's type (Mona's NIT 4): title size equals the add-agent dialog's .rm-title; fields have no hairline. */

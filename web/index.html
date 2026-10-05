@@ -67705,6 +67705,9 @@ async function fedInviteMake() {
    that lands after the limit calls onLate, if the sheet is still the same one. Returns null when the sheet was closed
    or reopened meanwhile (say nothing), else whether it copied. writeText goes through an async function, so a web
    view that THROWS instead of rejecting still reaches the finally and cannot leave the flag set. */
+// After the 3 s limit the busy flag is freed while a held write may still land (holding it would let one unanswered
+// permission prompt silently disable the other button). A write that lands after a newer press cannot be called
+// back, so this says what the clipboard now holds.
 async function fedCopyText(text, btn, onLate, what) {
   const seq = FEDINV_SEQ;
   const token = ++FEDINV_COPY_TOKEN;   // this press; a newer press makes a late write from this one stale
@@ -67749,11 +67752,8 @@ async function fedCopyText(text, btn, onLate, what) {
   // Refused, but an earlier write of this same text already landed: the clipboard has it, so that is a copy.
   return ok || FEDINV_CLIP_HOLDS === text;
 }
-// Copy the code alone: pjCopyInvite's words ("Copied", the copy-keys fallback, a revert timer) on this sheet's own
-// elements. It shares one timer and one message line with Copy the invitation (fedInviteCopyReset).
-// After the 3 s limit the busy flag is freed while a held write may still land (holding it would let one unanswered
-// permission prompt silently disable the other button). A write that lands after a newer press cannot be called
-// back, so fedCopyText says what the clipboard now holds.
+// Copy the code alone: pjCopyInvite's words ("Copied", the copy-keys fallback) on this sheet's own elements. It
+// shares one timer and one message line with Copy the invitation (fedInviteCopyReset).
 async function fedInviteCopy() {
   const codeEl = document.getElementById('fedinv-code');
   const btn = document.getElementById('fedinv-copy');
@@ -67774,7 +67774,8 @@ async function fedInviteCopy() {
   fedInviteCopyReset();
   btn.textContent = 'Press ' + copyKeysGlyph() + ' to copy';
   status.textContent = 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
-  FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
+  // Only the button reverts: the sentence stays, as Copy the invitation's refusal does, so neither can be missed.
+  FEDINV_COPY_TIMER = setTimeout(() => { FEDINV_COPY_TIMER = null; btn.textContent = 'Copy'; }, 2000);
 }
 // "Copied" on the button that copied, and its sentence: cleared, then said 30 ms later, so a second Copied is spoken
 // again by the live region (plusCopyAddress's way); both revert after 2 s. Shared, so the two buttons cannot drift.
