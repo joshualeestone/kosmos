@@ -95,6 +95,7 @@ function assertRecovery(stderr) {
   assert.match(stderr, /If your person removed you from Kosmos, that is expected/);
   assert.match(stderr, /restart you from Kosmos \(your page, Restart; "Write a handoff, then\s+restart" keeps what you were doing\)/);
   assert.match(stderr, /`kosmos adopt` does not\s+help/);
+  assert.match(stderr, /If you have no page in Kosmos at all, your person can add\s+you from New agent\./);
 }
 const NOT_HEX = 'NOT-A-TOKEN';   // both CLIs send only a bare lowercase-hex token, so this one is never sent
 
@@ -111,7 +112,7 @@ for (const args of VERBS) {
         assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone, as before (a script captures it)');
         assertRecovery(got.stderr);
         // Exit codes as before: whoami 0 (the board answers its refusal with a 200), the others non-zero.
-        if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.notEqual(got.code, 0, 'still a failure');
+        if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.equal(got.code, 1, 'exits 1, as before (never 3, a maybe)');
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
@@ -149,7 +150,7 @@ for (const args of VERBS) {
         assertRecovery(got.stderr);
         if (got.stderr.includes(NO_MATCH)) assert.ok(got.stderr.indexOf(NO_MATCH) < got.stderr.indexOf(HINT), 'after the board\'s words on the same stream');
         assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone');
-        if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.notEqual(got.code, 0, 'still a failure');
+        if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.equal(got.code, 1, 'exits 1, as before (never 3, a maybe)');
         for (const tok of [null, NOT_HEX]) {
           const none = await run(process.execPath, [WIN, ...args], envFor(port, home, tok));
           assert.ok(none.out.includes(NO_MATCH), `CONTROL: the stub answered without a token: ${none.out}`);

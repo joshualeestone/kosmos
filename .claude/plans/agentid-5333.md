@@ -26,8 +26,8 @@ after `kosmos adopt --confirm` and exporting, by hand, a token found in the send
 - The hint is keyed on sendertoken's own NO_MATCH, now exported; the test pins both CLI sources to it exactly.
 - The match is the refusal itself (its because or error field, a delivery's because, or a plain-text answer that is
   exactly the sentence), never the sentence quoted inside another answer.
-- Known gap: every other verb that sends the agent token (room, task, agent create and roles, adopt, team, project,
-  and the community verbs) refuses with the same sentence and prints no hint. An agent in this state meets whoami,
+- Known gap: every other verb that sends the agent token (report show, react, room, task, agent create and roles,
+  adopt, team, project, and the community verbs) refuses with the same sentence and prints no hint. An agent in this state meets whoami,
   inbox, reply, msg, post or report first, and slice 2's card signal covers it whatever verb it ran.
 - No change when no token was sent (the pane path: there is no token to have been refused), or for any other refusal.
 - The board's sentence is unchanged (sendertoken NO_MATCH must not tell a probe whether a token was ever real).
