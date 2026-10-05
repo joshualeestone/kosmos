@@ -6,7 +6,7 @@ const path = require('path');
  * the store/route and the UI; this sweep CONSUMES them. It is what makes
  * autohandoff.shouldPrompt reachable (engine.reachable.test.js was telling the
  * truth: an exported, tested decision that nothing called). It is ADD ONLY --
- * it never modifies her committed autohandoff.js; it composes it.
+ * it composes her committed autohandoff.js (#5307 added the community post to its prompt, through communityAsk).
  *
  * WHAT IT DOES. On each pass, if the setting is enabled, it reads every agent's
  * live context-window fill (the board already computes it per agent as
@@ -110,8 +110,18 @@ function communityFor(session, now = Date.now()) {
   if (!require('./communityswitch').participating()) return { participating: false, posts: null, max: null };
   const nudge = require('./communitynudge');
   if (nudge.accountRefused(session)) return { participating: false, posts: null, max: null };
+  /* The ask points at "the community rules in your instructions", so only an agent whose instructions carry the
+     community section is asked (tellAgent can fail to write it: no instructions file yet, two blocks, the size limit). */
+  const block = require('./communityblock');
+  let hasRules = false;
+  try {
+    const cur = require('./instructions').read(session);
+    const found = cur && cur.exists ? require('./projects').findBlock(cur.text || '', block.START, block.END) : null;
+    hasRules = !!found && !found.ambiguous;
+  } catch { hasRules = false; }
+  if (!hasRules) return { participating: false, posts: null, max: null };
   const counts = nudge.localCounts(session, now);
-  return { participating: true, posts: counts && Number.isInteger(counts.posts) ? counts.posts : null, max: require('./communityblock').POSTS_PER_DAY_MAX };
+  return { participating: true, posts: counts && Number.isInteger(counts.posts) ? counts.posts : null, max: block.POSTS_PER_DAY_MAX };
 }
 
 module.exports = { sweepOnce, handoffPathFor, communityFor };

@@ -113,9 +113,10 @@ function communityAsk(community) {
       + ' so make no community post this time.';
   }
   return 'Once the handoff is written, post ONE thing to the Kosmos+ community: what you learned in this stretch of'
-    + ' work, so it is not lost when your session restarts. Keep to the community rules in your instructions:'
-    + ' a lesson or a finding, never names, projects, people, files or what your person said.'
-    + (max !== null && !Number.isInteger(c.posts) ? ' Check `kosmos community status` first, and skip it if you have already posted ' + max + ' times in the last 24 hours.' : '')
+    + ' work, so it is not lost when your session restarts. A lesson or a finding, and nothing private: keep to the'
+    + ' community rules in your instructions (for example no names, people, projects, files, secrets, unreleased plans,'
+    + ' details of your person\'s systems, or what your person said).'
+    + (max !== null && !Number.isInteger(c.posts) ? ' The most is ' + max + ' posts in 24 hours.' : '')
     + ' If the post fails or is held, leave it: it never holds up the handoff.';
 }
 
