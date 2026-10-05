@@ -585,6 +585,33 @@ test('review 11: a stale attempt that fails late does not undo a newer attempt o
   assert.equal((api.map.get('/p/pip.md') || {}).state, 'added');
 });
 
+test('a stuck attempt that SUCCEEDS late, with nothing newer in flight, records the add', async () => {
+  const t = makeDom();
+  const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+  const field = t.create('input'); field.className = 'tk-inp fr-importinput'; field.value = 'Pip';
+  const btn = t.create('button'); btn.className = 'btn uprime fr-importgo'; btn.textContent = 'Add to Kosmos';
+  const said = t.create('p'); said.className = 'fr-importsaid';
+  row.append(field, btn, said);
+  const noop = { add() {}, remove() {} };
+  row.classList = noop; btn.classList = noop;
+  t.add('import-found').appendChild(row);
+  const held = [];
+  const fetchImpl = async (url) => {
+    if (/agent-import-file/.test(url)) return { ok: true, json: async () => PARSED_NAMELESS };
+    return new Promise((resolve) => held.push(resolve));
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+    + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
+  const a = api.add('/p/pip.md', btn, row);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(held.length, 1, 'CONTROL: the attempt is waiting on its create');
+  api.map.delete('/p/pip.md');                 // a later visit dropped it as stuck (over a minute); nothing replaced it
+  held[0]({ ok: true, json: async () => CREATED });   // it succeeds late: the agent exists
+  await a;
+  assert.equal((api.map.get('/p/pip.md') || {}).state, 'added', 'the made agent is recorded, so the row is not offered again');
+});
+
 test('review 12: a stale attempt that SUCCEEDS late paints nothing while a newer attempt is in flight', async () => {
   const t = makeDom();
   const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');

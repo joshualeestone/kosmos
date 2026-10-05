@@ -3,7 +3,7 @@
 Split from #2461's acceptance (Josh's 0.6.47 test, 2026-09-07): "the empty-name case lets the person type a
 name as part of adding".
 
-## Change (web/index.html only)
+## Change (product code: web/index.html only; tests and browser-check files beside it)
 - `foundImportRowsHtml`: a row with no name gets a labelled Name field (`tk-inp fr-importinput`, the page's own
   field style) and the helper "What should we call it? You can rename it anytime." (the first-run adopt rows'
   words). The field id carries the row index as well as the path, since cssId keeps only 60 characters.

@@ -53358,7 +53358,13 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      found/scan Add rows keep, on a screen where a person is about to press several
      more. Full-opacity settled green with a check, not the half-visible disabled
      state, and the row is marked done. No sentence on success: the button says it. */
-  if (!current()) return;   // review 11/12: a newer attempt owns the row now; a late success paints nothing
+  if (!current()) {
+    /* Review 11/12: a newer attempt owns the row now, and a late success paints nothing over it. But when the
+       attempt was only DROPPED (stuck over a minute) and nothing replaced it, the agent was made all the same:
+       record it, so the row is not offered as "Add to Kosmos" for an agent that exists. */
+    if (!IMPORT_ADDS.has(file)) { IMPORT_ADDS.set(file, { state: 'added', name: typed || name }); importRowsSync(file); }
+    return;
+  }
   btn.textContent = 'Added to Kosmos';
   /* 🔑 THE ACCESSIBLE NAME TRACKS THE VISIBLE ONE. Without this the button keeps its
      "Add to Kosmos, <name>" label, so the visible "Added to Kosmos" would no longer be
@@ -70149,7 +70155,7 @@ document.getElementById('fr-openai-key').addEventListener('keydown', (e) => {
      "does nothing harmful" arm. Two fields inside the wizard have their own Enter
      gesture: the openai-key field stops propagation above, and a found file's Name
      field (.fr-importinput / .fr-adoptinput, kosmos#4962) is kept apart by the early
-     return below plus importNameEnter's defaultPrevented check. */
+     return below. */
 function frEnterSubmit(e) {
   if (e.key !== 'Enter' || e.repeat) return;
   if (e.isComposing || e.keyCode === 229) return;
@@ -70166,8 +70172,8 @@ function frEnterSubmit(e) {
     // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
     // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
     if (tag === 'INPUT' && String(t.type).toLowerCase() === 'search') return;
-    /* kosmos#4962: a row's Name field has its own Enter (it presses that row's Add, the document handler
-       below), so Enter there must not also press Continue and end setup in the middle of the add. The
+    /* kosmos#4962: a row's Name field has its own Enter (importNameEnter presses that row's Add), so Enter
+       there must not also press Continue and end setup in the middle of the add. The
        first-run adopt field had the same problem and gets the same exemption. */
     if (t.closest && (t.closest('.fr-importinput') || t.closest('.fr-adoptinput'))) return;
   }
