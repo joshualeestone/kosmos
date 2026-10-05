@@ -22714,6 +22714,8 @@ let AM_OPENER = null;
    here, early, because setAgentsGrouped and fedGateStamp read them. */
 let PJ_ADDMENU_OPENER = null;
 let PJ_ADDMENU_AGENT = null;
+let PJ_ADDMENU_PROJECT = null;   // the project the open menu belongs to (pjAddMenuSync closes it on a switch)
+let FEDINV_INFLIGHT = false;      // the sheet's Make is being answered (fedInviteClose refuses then; declared early: the gate calls it)
 
 /* #3387: reflect the grouped state onto the TOP rail head. The static HTML keeps
    `railname">Agents` (the layout-picker test asserts that markup); the LABEL is set
@@ -67365,6 +67367,7 @@ function pjAddPlus(opener, openAm) {
   if (sub) sub.textContent = pjAddMenuAgentsLine();
   PJ_ADDMENU_OPENER = opener;
   PJ_ADDMENU_AGENT = openAm;
+  PJ_ADDMENU_PROJECT = PJ_CURRENT;
   menu.hidden = false;
   pjAddMenuPlace();
   opener.setAttribute('aria-expanded', 'true');
@@ -67418,7 +67421,11 @@ function pjAddMenuClose(refocus) {
 /* The opener says it opens a menu only while it does (the gate is "show"; for the rail "+", only
    while it is the project's "+" rather than New agent). Called by fedGateStamp and setAgentsGrouped. */
 function pjAddMenuSync() {
-  const on = fedShow();
+  // A menu left open across a project switch or a tab change (its "+" no longer on screen) closes on the next
+  // stamp rather than coming back stale for another project.
+  const m = document.getElementById('pj-addmenu');
+  if (m && !m.hidden && (PJ_ADDMENU_PROJECT !== PJ_CURRENT || !PJ_ADDMENU_OPENER || !PJ_ADDMENU_OPENER.getClientRects().length)) pjAddMenuClose(false);
+  const on = fedShow() && !!PJ_CURRENT;   // with no project open the + opens the add-agent dialog, not a menu
   const grouped = AGENTS_GROUPED === true;   // declared near the top (a typeof guard would not shield a TDZ read anyway)
   for (const [id, menuy] of [['pj-add-member', on], ['rail-agents-new', on && grouped]]) {
     const b = document.getElementById(id);
@@ -67487,6 +67494,7 @@ let FEDINV_COPY_TIMER = null;
 const FEDINV_TITLE = 'Invite someone outside your Kosmos';
 function fedInviteOpen(opener) {
   if (!fedShow() || !PJ_CURRENT) return;
+  FEDINV_INFLIGHT = false;   // a Make dropped by a forced close never cleared it (its seq no longer matched)
   FEDINV_OPENER = opener || null;
   FEDINV_PROJECT = PJ_CURRENT;
   FEDINV_SEQ++;
@@ -67509,9 +67517,9 @@ function fedInviteOpen(opener) {
 // While Make is being answered the sheet does not close (Cancel, Escape, the backdrop): the board may already have
 // minted and recorded the code, and dropping its reply would leave a pending invite nobody saw. Only federation
 // turning off (force) closes it then.
-let FEDINV_INFLIGHT = false;
 function fedInviteClose(force) {
   if (FEDINV_INFLIGHT && force !== true) return;
+  FEDINV_INFLIGHT = false;   // forced: the in-flight reply is dropped by the seq below, so it will not clear this
   FEDINV_SEQ++;
   document.getElementById('fedinv-modal').hidden = true;
   const back = [FEDINV_OPENER, document.getElementById('pj-add-member')].find((b) => b && b.getClientRects().length);

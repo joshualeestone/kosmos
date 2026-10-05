@@ -22,6 +22,12 @@
  *      set). Errors: a 409 not-owner shows pjFedMessage's sentence, a 502 shows the board's sentence as
  *      given, and the label is kept. Main: no sheet.
  *  A6  393 wide (a phone): the menu and both states of the sheet fit, with no sideways scroll.
+ *  A7  the review's guards: Enter while a Make is answered sends nothing more, Enter while composing sends nothing;
+ *      a scroll keeps the menu, Tab returns to its +; a code survives a passing signup reading, closes on off.
+ *  A8  the sheet's ways out (backdrop and Escape on each step) and its Tab trap.
+ *  A9  the sheet does not close while Make is answered, and shows the minted code.
+ *  A10 a forced close mid-Make (federation off) does not leave the reopened sheet refusing to close; the menu
+ *      closes when its project is switched.
  *
  * HERMETIC: web/index.html over file://, every route answered by the stub below (render-pj-clear-2575's
  * pattern: the stub's own /api/projects carries the seeded project, so a late startup poll cannot wipe
@@ -446,6 +452,33 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__inviteDelay = 0; });
     check('A9 Escape and Cancel while Make is answered leave the sheet open, and the minted code is shown (control: A8, Escape closes an idle asking step)',
       during === true && shown.open && shown.code === CODE, JSON.stringify({ during, shown }));
+    await ctx.close();
+  }
+
+  /* ---------------- A10: a forced close mid-Make, and a stale menu after a project switch ---------------- */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => { window.__inviteDelay = 500; });
+    await page.click('#fedinv-make');
+    await page.evaluate((d) => fedGateStamp(d), OFF);   // forced close while the Make is answered
+    await page.waitForTimeout(700);
+    await page.evaluate((d) => { window.__inviteDelay = 0; fedGateStamp(d); }, SHOW);
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.keyboard.press('Escape');
+    const closed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
+    // The menu, opened, then its project switched: the next stamp closes it.
+    await page.click('#pj-add-member');
+    const openBefore = await page.evaluate(() => !document.getElementById('pj-addmenu').hidden);
+    await page.evaluate((d) => { PJ_CURRENT = 'elsewhere'; fedGateStamp(d); }, SHOW);
+    const openAfter = await page.evaluate(() => !document.getElementById('pj-addmenu').hidden);
+    await page.evaluate(() => { PJ_CURRENT = 'k'; });
+    check('A10 after a forced close mid-Make the reopened sheet closes on Escape; a switched project closes the menu (control: open before)',
+      closed === true && openBefore === true && openAfter === false, JSON.stringify({ closed, openBefore, openAfter }));
     await ctx.close();
   }
 
