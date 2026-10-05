@@ -207,6 +207,9 @@ test('#4649: with the federation switch OFF (live today), every new route answer
     const w = await call('POST', '/api/federation/withdraw', { project: pid, invite_id: 'i' }, SCREEN);
     const i = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'person' }, SCREEN);
     assert.deepEqual([m.status, r.status, w.status, i.status], [404, 404, 404, 404]);
+    // The GATE's own answer on all four (review: a never-shared project 404s on Remove and Withdraw anyway).
+    const off = 'Sharing a project with people outside this computer is not turned on yet.';
+    assert.deepEqual([m.json.error, r.json.error, w.json.error, i.json.error], [off, off, off, off], 'a route answered without the switch gate');
     assert.equal(signedCalls.length, before, 'a route reached the coordinator with the switch off');
     assert.equal(federation.linkFor(pid), null, 'an invite with the switch off made the project a shared one');
     // CONTROL: the create screen's invite path is unchanged (it is the existing feature, shown only when the switch is on).
