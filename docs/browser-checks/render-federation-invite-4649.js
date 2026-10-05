@@ -78,7 +78,8 @@
  *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
  * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text,
- * her Q-M5 owner name). Every C arm fails on origin/main, which has no invite sheet at all, and on slice B, which
+ * her Q-M5 owner name). Every C assertion arm (not the setup line or C3's negative control) fails on origin/main,
+ * which has no invite sheet at all, and on slice B, which
  * has no #fedinv-copy-all. The owner's name is the board's "You" name (/api/you, faked below as __you) and the
  * address is the ACCOUNT's name (owner_name on the owner's members answer, Kitty's follow-up), both read by the
  * page's own loaders (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own address.

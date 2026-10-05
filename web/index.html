@@ -67588,7 +67588,7 @@ let FEDINV_OPENER = null;
 let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
-let FEDINV_COPY_BUSY = false;  // slice C: Copy the invitation is waiting on the clipboard
+let FEDINV_COPY_BUSY = false;  // slice C: either copy (the code, or the invitation) is waiting on the clipboard
 let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project, projectId })
 const FEDINV_TITLE = 'Invite someone outside your Kosmos';
 /* kosmos#4649 slice B: `prefill` ({ label, kind }) is an expired row's "Make a new code" (Mona's Q-M2):
@@ -67697,12 +67697,19 @@ async function fedInviteCopy() {
   const text = codeEl.value;
   if (!text || FEDINV_COPY_BUSY) return;   // the other copy is still asking the clipboard: one answer at a time
   const seq = FEDINV_SEQ;
-  let ok = false;
-  FEDINV_COPY_BUSY = true;   // both copies share one line, so neither answer may wipe the other's
-  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await (async () => navigator.clipboard.writeText(text))(); ok = true; } } catch { ok = false; }
-  finally { if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }
-  if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered (as Copy the invitation)
-  if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  // The invitation's order: select-and-copy first inside the press, then the clipboard with the same 3 s limit, so
+  // a clipboard that never answers can hold the shared busy flag (and the other button) for 3 s at most.
+  let ok = copyTextViaExec(text, btn);
+  if (!ok && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    FEDINV_COPY_BUSY = true;   // both copies share one line, so neither answer may wipe the other's
+    let limit = null;
+    const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
+    try { await Promise.race([(async () => navigator.clipboard.writeText(text))(), late]); ok = true; }
+    catch { ok = false; }
+    finally { if (limit) clearTimeout(limit); if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }
+    if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
+  }
+  if (!ok) { try { codeEl.select(); } catch { /* the line below says what to do */ } }   // ready for the keys named
   fedInviteCopyReset();
   btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
   status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
