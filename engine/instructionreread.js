@@ -171,7 +171,7 @@ function lineFor(sections) {
  *   deliver(s, line, roster)  chat.deliverAutomaticAsync; DELIVERY: chat.DELIVERY
  *   recordSent(s, ms)         recordSent below (optional)   seenMissing  a Set like seenIdle, for agents missing from the roster
  *   stoodDown(s)              replynudge.stoodDown over the projects (optional): true holds the debt
- *   sectionOn(section)        false holds a debt naming that section (the community switch, for 'community')
+ *   sectionOn(section)        false holds that section (the line names only the others; it stays owed)
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
  * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired'.
  */
@@ -192,6 +192,7 @@ async function passOnce(o) {
     if (o.seenIdle instanceof Set) { o.seenIdle.clear(); for (const s of idleNow) o.seenIdle.add(s); }
     let owed = read();
     const cleared = {};
+    const keep = {};
     const end = (session, act) => { cleared[session] = owed[session].n; out.push({ session, act }); };
     const ours = new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
     for (const session of Object.keys(owed)) {
@@ -211,12 +212,14 @@ async function passOnce(o) {
       let down = false;
       if (typeof o.stoodDown === 'function') { try { down = o.stoodDown(session) === true; } catch { down = false; } }
       if (down) { out.push({ session, act: 'stood-down' }); continue; }
-      if (typeof o.sectionOn === 'function' && debt.sections.some((sec) => { try { return o.sectionOn(sec) !== true; } catch { return true; } })) { out.push({ session, act: 'section-off' }); continue; }
+      const on = typeof o.sectionOn === 'function' ? debt.sections.filter((sec) => { try { return o.sectionOn(sec) === true; } catch { return false; } }) : debt.sections;
+      if (!on.length) { out.push({ session, act: 'section-off' }); continue; }
+      const off = debt.sections.filter((sec) => !on.includes(sec));   // stay owed after a line for the others lands
       if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
       if (!ok) break;
-      const line = lineFor(debt.sections);
+      const line = lineFor(on);
       if (!line) { end(session, 'expired'); continue; }
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
@@ -232,6 +235,7 @@ async function passOnce(o) {
       if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
       else {
         end(session, 'sent');
+        if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
       }
     }
@@ -239,7 +243,11 @@ async function passOnce(o) {
       o.seenMissing.clear();
       for (const k of Object.keys(owed)) if (!ours.has(k)) o.seenMissing.add(k);
     }
-    if (Object.keys(cleared).length) write(mergeCleared(read(), cleared));
+    if (Object.keys(cleared).length) {
+      const next = mergeCleared(read(), cleared);
+      for (const [session, debt] of Object.entries(keep)) if (!next[session]) next[session] = debt;
+      write(next);
+    }
   } catch { /* the next pass tries again */ }
   return out;
 }

@@ -255,3 +255,14 @@ test('review 9: a pass that ends nothing does not rewrite the file', async () =>
   await ir.passOnce(p.o);
   assert.equal(writes, 0);
 });
+
+test('review 13: with one section switched off, the line names the others and the off one stays owed; CONTROL: all off holds', async () => {
+  const p = passArgs({ owed: { ida: debt(['community', 'rules']) }, o: { sectionOn: (sec) => sec !== 'community' } });
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['sent']);
+  assert.equal(p.sent.length, 1);
+  assert.equal(p.sent[0][1], ir.lineFor(['rules']), 'the line named a switched-off section');
+  assert.deepEqual(p.file().ida && p.file().ida.sections, ['community'], 'the switched-off section was dropped');
+  const all = passArgs({ owed: { ida: debt(['community']) }, o: { sectionOn: () => false } });
+  assert.deepEqual((await ir.passOnce(all.o)).map((x) => x.act), ['section-off']);
+  assert.deepEqual(all.sent, []);
+});

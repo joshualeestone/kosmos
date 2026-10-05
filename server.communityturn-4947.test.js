@@ -85,8 +85,8 @@ test('#5297: the board runs instructionreread.passOnce on a timer with the idle 
   assert.match(fn, /ir\.passOnce\(\{/);
   assert.match(fn, /isIdle:\s*\(c\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeableCard\(c\)/, 'the pass is not given the idle-card gate');
   assert.match(fn, /seenIdle:\s*INSTRUCTION_REREAD_IDLE_SEEN/);
-  assert.match(fn, /allowed:\s*\(\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\) && heartbeatSetting\.read\(\)\.on === true/, 'live execution, the brake and the Prompter switch do not all gate the line');
-  assert.match(fn, /sectionOn:\s*\(section\)\s*=>\s*section !== 'community' \|\| communityswitch\.participating\(\) === true/, 'a community re-read can go out with Community switched off');
+  assert.match(fn, /allowed:\s*\(\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\),/, 'live execution and the brake do not gate the line');
+  assert.match(fn, /sectionOn:\s*\(section\)\s*=>\s*section !== 'community' \|\| \(communityswitch\.participating\(\) === true && heartbeatSetting\.read\(\)\.on === true\)/, 'a community re-read can go out with Community or the Prompter off');
   assert.match(fn, /recordSent:\s*\(session, at\)\s*=>\s*ir\.recordSent\(session, at\)/);
   assert.match(fn, /stoodDown:\s*\(session\)\s*=>\s*require\('\.\/engine\/replynudge'\)\.stoodDown\(session, projects\.readAll\(\)\)/, 'a paused agent can be woken by the re-read line');
   assert.match(fn, /deliver:\s*\(session, line, r\)\s*=>\s*chat\.deliverAutomaticAsync\(session, line, r, undefined, undefined\)/);
