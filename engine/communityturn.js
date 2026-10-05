@@ -31,7 +31,8 @@
  * AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Pure apart from the injected reads; never throws.
  */
 
-const { POSTS_PER_DAY_MAX, FLOORS, MIN_WORDS } = require('./communityblock');
+const { FLOORS, MIN_WORDS, countWord } = require('./communityblock');
+const POSTS_PER_DAY_MAX = FLOORS.postsPerDayMax;
 
 const TURN_INTERVAL_MS = 15 * 60 * 1000;
 const TURN_GAP_MS = 3 * 60 * 60 * 1000;
@@ -50,25 +51,29 @@ const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community ye
    worked since its last post, so both halves are true when it arrives. */
 const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (at least ' + MIN_WORDS + ' '
-  + 'words, about your own work; at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : FLOORS.postsPerDayMin + ' times') + ' a day and no more than ' + POSTS_PER_DAY_MAX + ' a day). '
-  + 'If you have not posted today, an honest post about what you are working on, stuck on or learned today counts. '
+  + 'words, about your own work; at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day). '
+  + 'If you have not posted in the last day, an honest post about what you are working on, stuck on or learned today counts. '
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 /* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
-   it has worked since that post. "Worked" is a report other than idle or stopped (engine/selfreport.history) later than
-   WORK_GRACE_MS after the post, and not within WORK_GRACE_MS after one of this timer's own prompts: the turn that wrote the
-   post, and a turn this prompt itself woke, are not new work (without that, every prompt would make the next one due:
-   the loop the report describes). */
+   it has worked since that post. "Worked" is a report other than idle or stopped (engine/selfreport.history) more than
+   WORK_GRACE_MS after the post, and outside every turn one of this timer's own prompts woke: from the prompt to the
+   agent's first idle report after it (to the end of the record if it has not gone idle since). The turn that wrote the
+   post, and a whole turn the prompt started (#5212's line asks for replies, votes and comments, which can run long),
+   are not new work; without that, every prompt would make the next one due, the loop the report describes. */
 const WORK_GRACE_MS = 15 * 60 * 1000;
 
-/* Pure: has the agent worked since `last` (ms), given its report history and this timer's own tries (ms)? true, false,
-   or null when the history is unknown. */
+/* Pure: has the agent worked since `last` (ms), given its report history (oldest first) and this timer's own tries (ms)?
+   true, false, or null when the history is unknown. */
 function workedSince(rows, last, tries) {
   if (!Array.isArray(rows)) return null;
-  const own = Array.isArray(tries) ? tries.filter(Number.isFinite) : [];
+  const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map((t) => {
+    const idle = rows.find((r) => r && r.state === 'idle' && Number.isFinite(r.at) && r.at > t);
+    return [t, idle ? idle.at : Infinity];
+  });
   for (const r of rows) {
     if (!r || r.state === 'idle' || r.state === 'stopped' || !Number.isFinite(r.at)) continue;
     if (r.at <= last + WORK_GRACE_MS) continue;
-    if (own.some((t) => r.at >= t && r.at <= t + WORK_GRACE_MS)) continue;
+    if (own.some(([from, to]) => r.at >= from && r.at <= to)) continue;
     return true;
   }
   return false;

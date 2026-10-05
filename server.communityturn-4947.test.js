@@ -69,15 +69,33 @@ test('#5296: the turn is given the agent\'s report history, so a further prompt 
   assert.match(w, /history:\s*\(session\)\s*=>\s*selfreport\.history\(session\)/);
 });
 
-test('#5297: at board start the community block is refreshed in the agents that carry it, and each changed agent is told', () => {
+test('#5297: at board start the community block is refreshed in the agents that carry it, and an agent whose rules changed is owed a re-read', () => {
   const r = SRC.indexOf("require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating())");
   assert.notEqual(r, -1, 'no board-start refresh of the community block');
-  const win = SRC.slice(r, SRC.indexOf('could not refresh what agents know about the Kosmos+ community', r));
-  assert.match(win, /t\.changed === true/, 'agents are told whether or not their block changed');
-  assert.match(win, /liveExecution\.liveExecutionAllowed\(\)/, 'the re-read line is not gated on live execution');
-  assert.match(win, /chat\.deliverAutomaticAsync\(session, reread, safeRoster\(\)/, 'the re-read line does not go through the automatic (quota-held) sender');
-  assert.doesNotMatch(win, /chat\.deliver\(|chat\.deliverAsync\(/);
-  // It sits with the other board-start sweeps (before the language block, which says it is the last).
+  const win = SRC.slice(r, SRC.indexOf('could not refresh what agents know about the Kosmos+ community', r + 300));
+  assert.match(win, /t\.rulesChanged === true/, 'agents are owed a re-read whether or not their rules changed');
+  assert.match(win, /ir\.owe\(owed, t\.agent, 'community'\)/);
+  assert.match(win, /ir\.writeOwed\(owed\)/);
   assert.ok(r < SRC.indexOf("/* #5050: the person's language block, refreshed at boot"), 'the refresh is not among the board-start sweeps');
   assert.ok(r > SRC.indexOf('const told = dmfiles.syncEveryone(safeRoster());'), 'the refresh is not among the board-start sweeps');
+});
+
+test('#5297: the re-read pass checks live execution per send, uses the automatic sender, drops agents no longer ours, and merges onto the file', () => {
+  const a = SRC.indexOf('async function instructionRereadPass()');
+  assert.notEqual(a, -1, 'no re-read pass');
+  const fn = SRC.slice(a, SRC.indexOf('function instructionRereadSoon', a));
+  assert.match(fn, /for \(const session of Object\.keys\(owed\)\) \{[\s\S]*?if \(!liveExecution\.liveExecutionAllowed\(\)\) break;[\s\S]*?chat\.deliverAutomaticAsync\(session, line, safeRoster\(\)/, 'live execution is not checked before each send');
+  assert.doesNotMatch(fn, /chat\.deliver\(|chat\.deliverAsync\(/);
+  assert.match(fn, /if \(!ours\.has\(session\)\)/);
+  assert.match(fn, /const latest = ir\.readOwed\(\);[\s\S]*?ir\.writeOwed\(latest\)/, 'the pass overwrites debts owed during its awaits');
+  // Wired: at boot (a first pass and a 15-minute timer).
+  assert.match(SRC, /setTimeout\(\(\) => \{ instructionRereadPass\(\); \}, 30 \* 1000\)/);
+  assert.match(SRC, /setInterval\(\(\) => \{ instructionRereadPass\(\); \}, 15 \* 60 \* 1000\)/);
+});
+
+test('#5297 / #4890: a consented working-rules refresh (per agent AND fleet) owes the running agent a re-read', () => {
+  assert.match(SRC, /const got = doctrine\.refresh\(name, safeRoster\(\), \{ expectHash: body\.hash \}\);\s*if \(got && got\.state === 'added'\) instructionRereadSoon\(name\);/);
+  assert.match(SRC, /const got = doctrine\.refresh\(name, roster\);\s*if \(got && got\.state === 'added'\) instructionRereadSoon\(name\);/);
+  const soon = SRC.slice(SRC.indexOf('function instructionRereadSoon'), SRC.indexOf('function instructionRereadSoon') + 300);
+  assert.match(soon, /oweNow\(session, 'rules'\)/);
 });
