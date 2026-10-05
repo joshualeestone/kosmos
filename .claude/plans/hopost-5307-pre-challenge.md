@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: hopost-5307
-diff_hash: 03194d385f096c3dc458fb62f84fc0ceb7a2fa169117525a091751269c30f965
-validation: not run locally (the machine's suite queue was 14 deep an hour earlier and validation_log_run_or_skip did not get a turn). Run instead on head 72c84e38a: engine/autohandoff-community-5307.test.js 7/7, autohandoff.test.js 8/8, autohandoff-sweep.test.js 9/9, handoff-restart.test.js 8/8, communitynudge-5211.test.js 14/14, web.autohandoff-1724.test.js 8/8; the whole engine/ directory earlier on this branch 8302 pass, 1 fail (communityfollow #4774, a timing test that passes alone on this branch and on main). CI runs the full node and shell suites on the PR head.
+diff_hash: 2ba57e06b5e1237b16c80cfb42471d33cc037184079c561c7f200f754372e651
+validation: not run locally as yarn test (the machine's suite queue was deep). Run instead on head 96e96e695: autohandoff-community-5307, autohandoff, autohandoff-sweep, handoff-restart, communitynudge-5211, fixture-discipline and web.autohandoff-1724, 74/74. CI's node suite on the earlier head (0f5a97b) ran 15305 pass, 1 fail: fixture-discipline, fixed here (agentAt helper). CI runs the full node and shell suites on the PR head.
 subdir_audit: not run (same)
-timestamp: 2026-10-05T17:04:04Z
-iterations: 5
+timestamp: 2026-10-05T18:11:12Z
+iterations: 7
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5
-**Converged:** Yes (iteration 5: two WARNINGs repeat trade-offs recorded in the plan; one new WARNING deferred as not an issue)
+**Iterations:** 7
+**Converged:** Yes (iteration 7: two WARNINGs repeat recorded trade-offs; one new WARNING checked and not an issue)
 **Total findings:** 20 (0 BLOCKERs, 14 WARNINGs, 0 CONVENTIONs, 6 NITs)
 **Fixed:** 11 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
@@ -62,6 +62,22 @@ converged: true
 **Self-generated:** 1 (the postAsked marker)
 **Duplicates of prior findings:** 2 (the UNCONFIRMED trade-off; the confirmed-only count)
 - [WARNING] engine/autohandoff-sweep.js: an agent that leaves the roster keeps its marker --> DEFERRED: the same as lastBand's existing behaviour, and any reading below the threshold clears it (a returning agent's fresh session starts low)
+(Not converged after all: CI's fixture-discipline lint then failed on two hand-built roster rows in the new test; fixed with an agentAt helper as autohandoff-sweep.test.js uses, which changed the diff, so the loop continued.)
+
+#### Iteration 6
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 1 (iteration 4's wording change left the plan behind)
+- [WARNING] .claude/plans/hopost-5307.md: the unknown-count bullet still named `kosmos community status` --> FIXED (96e96e695)
+- [NIT] the docblock named two of the three gates --> FIXED (names all three, points at communityFor)
+- [NIT] the ceiling line counts as the ask --> FIXED (recorded in the plan)
+- [NIT] map growth for agents leaving the roster; two reads of the keys file --> no change (duplicates of iteration 5)
+
+#### Iteration 7
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
+**Duplicates of prior findings:** 2 (UNCONFIRMED marks the ask; the off-roster marker)
+- [WARNING] engine/autohandoff-sweep.js communityFor: instructions.read(session) without exactSession --> NOT AN ISSUE: read() finds the file by the name given (exactSession only feeds the transcript staleness lookup), and communityblock.tellAgent, which writes the block, makes the identical call
 **Converged** — no new actionable findings.
 
 ### Final Ledger
@@ -79,6 +95,9 @@ converged: true
 | 9 | 4 | WARNING | engine/autohandoff-sweep.js | BRANCH | rules may be absent | FIXED | block check |
 | 10 | 4 | WARNING | engine/autohandoff.js | SELF | status cannot count | FIXED | ceiling named |
 | 11 | 5 | WARNING | engine/autohandoff-sweep.js | SELF | stale marker off-roster | DEFERRED | cleared below threshold |
+| 12 | CI | WARNING | engine/autohandoff-community-5307.test.js | SELF | hand-built roster rows (fixture-discipline) | FIXED | agentAt helper |
+| 13 | 6 | WARNING | plan | SELF | stale unknown-count bullet | FIXED | 96e96e695 |
+| 14 | 7 | WARNING | engine/autohandoff-sweep.js | BRANCH | read without exactSession | NOT AN ISSUE | same call as tellAgent |
 
 ### NITs (non-blocking, across all iterations)
 - [NIT] duplicate keys reads, one-line delivery, sandbox paths (iteration 1)
