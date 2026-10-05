@@ -27,6 +27,9 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   visible corner of the person's own message under it, so a tap meant to close the bar hit Reply
   (render-dm-tapreact-718). Rejected: smaller targets (the room's 36px is #3811's).
 - A row a repaint detached (the menu was open) is in neither thread, so no store is guessed: it copies its own words.
+- The person's own rows in a direct conversation have no hover bar (never had, #4256), so on a touchscreen, where there is
+  no right-click, they copy as before, by the system's long-press selection. Giving them a bar is out of this card.
+- On a touchscreen Copy is named "Copy message or its id" with aria-haspopup="menu"; with a pointer it is "Copy message".
 
 ## Weakest premise
 That a phone user finds Copy message one tap further in (Copy, then Copy message) acceptable. Josh asked for two
