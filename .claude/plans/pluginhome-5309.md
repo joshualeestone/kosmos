@@ -35,12 +35,9 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit and agai
 - "Kosmos does not install provider plugins": `git grep` on origin/main over engine, bin, server.js and install (tests
   excluded) for enabledPlugins, installed_plugins, `plugin install`, `plugin add` and 'plugin': 0 hits (control:
   CLAUDE_CONFIG_DIR, 131 hits in the same scope).
-- `.claude.json`: measured at `~/.claude.json` beside `~/.claude`, and at `<CLAUDE_CONFIG_DIR>/.claude.json` inside an
-  account folder. That MCP servers are recorded there was reported by a reviewer, not measured here (no server is configured on this box); likewise that a
-  `--scope project` server is kept in the project's `.mcp.json` and
-  matches the file's role; no server is configured on this box to show the exact keys.
-- `claude mcp add` defaults to `--scope local` (measured: its `--help`, default "local"); that local scope ties the
-  server to the project folder it was added from was reported by a reviewer, not measured here.
+- `.claude.json`: measured at `~/.claude.json` beside `~/.claude`, and inside an account folder. Its `projects` map is
+  keyed by folder and project entries carry their own `mcpServers` (39 of 405 in `~/.claude.json`, 18 in an account
+  folder; no top-level key), so servers are recorded per project folder. `--scope local` is the default (its `--help`).
 - Codex's folder: `CODEX_HOME`, default `~/.codex` (bin/agent-supervisor.sh defaults it to `$HOME/.codex`; `codex mcp
   --help` names `~/.codex/config.toml`).
 - The commands named first: `claude plugin list` ("List installed plugins"), `claude mcp list`, `claude auth
@@ -51,10 +48,9 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit and agai
   "may", with the account check as the action.
 - "Some plugins can come with the account": both Claude folders here hold `plugins/synced/<id>` folders keyed by an
   account-style id; how they arrive was not measured, so it is worded as a reason to compare accounts, not a rule.
-- `claude mcp list` "starts or contacts each one": its `--help` says approved servers are health-checked.
-- Scope reach: only the measured default is stated (`--scope local`, from `claude mcp add --help`); for the rest the
-  agent runs `claude mcp get <name>` (exists, per its `--help`). The earlier per-scope reach lines were reviewer-reported
-  and kept drawing corrections, so they were deleted rather than reworded.
+- `claude mcp list` and `claude mcp get` "health-check": both `--help` texts say approved servers are health-checked.
+- Scope: the measured default and the per-project record are stated; reach of the other scopes is not, and the agent
+  checks with `claude mcp get <name>`.
 - `enabledPlugins` in `settings.json`: read on this box (`~/.claude/settings.json` has it).
 - The account bullet is limited to Claude: the Codex counterpart (ChatGPT-side connectors) was not measured.
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
