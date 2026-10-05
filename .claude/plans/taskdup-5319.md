@@ -13,7 +13,8 @@ and another as #26, #27 and #29.
   - it is under the SAME parent (top-level with top-level);
   - its sentence and its detail are the SAME text: only case, runs of whitespace and NFC are set aside, and every other
     character counts;
-  - it is given to the same people.
+  - it is given to the same people;
+  - it is not already under way (on hold, due, built, a part closed).
 - server.js POST /api/project/:id/tasks: the task is ADDED as asked. The answer carries `note`, for example "Note: an
   open task with the same text already exists: #1 (Verify Theo AI and Enzo Health). If this is the same ask, close the
   new one: kosmos task close <project> <n>".
@@ -133,3 +134,12 @@ with the strip removed, the row goes red.
   same parent the sibling is named. Control: with the parent dropped from the server's call, it goes red.
 - [N] FIXED: the plan's "change" and "decided" sections describe the rule as it stands.
 - [N] not changed: a hand-edited parent pointing at a missing task is read as stored (only a miss).
+
+## Review round 8 (sonnet)
+- [W] FIXED: an older task already under way is not named. That means on hold, a due date, a built mark or a closed
+  part: the same ask in another state, perhaps last week's run. Test rows with a no-state control.
+- [W] FIXED: the note is computed right after the add, before the route's await (heardBy), so a reopen or re-add in
+  that gap cannot be named.
+- [N] FIXED: the comment header says rounds 1 to 8; the note also strips zero-width characters, line and paragraph
+  separators, the BOM and tag characters (the class is ASCII escapes with the u flag).
+- [N] not changed: a lone surrogate prints as its escape through the macOS sed (cosmetic).

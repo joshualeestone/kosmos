@@ -18166,6 +18166,24 @@ const server = http.createServer(async (req, res) => {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: whoAsked,
             parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
+          // Review 8: read right after the add, before any await below, so nothing changed meanwhile can be named.
+          /* #5319: the task is added as asked (no silent dedup); the answer names OPEN tasks with the same text, so the
+             adder can close one. Both CLIs print the note. It holds no double quote or backslash (the macOS CLI lifts
+             it with sed): the copies' sentences are cut to 60 characters with those characters, control characters and
+             direction overrides taken out (a terminal can act on them). The project id needs none: idFor makes ids of
+             [a-z0-9_-] only. */
+          let note = '';
+          try {
+            const raw = projects.readAll().find((x) => x && x.id === id);
+            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made) }) : [];
+            if (alike.length) {
+              const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]/gu, ' ').replace(/\s+/g, ' ').trim());
+                return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
+              note = 'Note: ' + (alike.length === 1 ? 'an open task with the same text already exists: ' : 'open tasks with the same text already exist: ')
+                + alike.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
+                + '. If this is the same ask, close the new one: kosmos task close ' + id + ' ' + made.number;
+            }
+          } catch { note = ''; }
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
           // recorded. Non-gating, same as every tell: a task that could not
@@ -18197,23 +18215,6 @@ const server = http.createServer(async (req, res) => {
           } else {
             heard = heardBudgetSkipped(made.who);
           }
-          /* #5319: the task is added as asked (no silent dedup); the answer names OPEN tasks with the same text, so the
-             adder can close one. Both CLIs print the note. It holds no double quote or backslash (the macOS CLI lifts
-             it with sed): the copies' sentences are cut to 60 characters with those characters, control characters and
-             direction overrides taken out (a terminal can act on them). The project id needs none: idFor makes ids of
-             [a-z0-9_-] only. */
-          let note = '';
-          try {
-            const raw = projects.readAll().find((x) => x && x.id === id);
-            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made) }) : [];
-            if (alike.length) {
-              const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim());
-                return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
-              note = 'Note: ' + (alike.length === 1 ? 'an open task with the same text already exists: ' : 'open tasks with the same text already exist: ')
-                + alike.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
-                + '. If this is the same ask, close the new one: kosmos task close ' + id + ' ' + made.number;
-            }
-          } catch { note = ''; }
           sendJson(res, 200, note ? { task: made, told, heard, note } : { task: made, told, heard });
         } catch (err) {
           // Three answers for three facts, same split as the member route:
