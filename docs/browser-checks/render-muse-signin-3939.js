@@ -611,7 +611,7 @@ const chk = (ok, label, extra) => {
   await q(() => { CREATE_ACCOUNTS = []; });
 
   /* ---- #3939 3c-3b: Meta Muse in the Create Agent form ---- */
-  const createMeta = () => q(() => { const o = document.querySelector('#create-provider option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '' }; });
+  const createMeta = () => q(() => { const o = document.querySelector('#create-provider option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
   const museRead = async () => { await q(() => museCreateAsk()); await settle(); };
   // Flag off: exactly today's option (disabled, the "Coming soon" pill, no reason).
   await q(() => { window.__museOn = false; window.__museSignedIn = false; CREATE_ACCOUNTS = []; fillCreateAccounts(); });
@@ -627,13 +627,13 @@ const chk = (ok, label, extra) => {
   const readsOn = await q(() => window.__museReads || 0);
   await museRead();
   cm = await createMeta();
-  chk(cm.disabled === true && cm.off === 'Set up in Settings, AI Models', 'create form, on but not signed in: disabled, says where to set it up', JSON.stringify(cm));
+  chk(cm.disabled === true && cm.off === 'Sign in to Meta Muse first' && cm.text === 'Meta Muse \u00b7 sign in first', 'create form, on but not signed in: disabled, says to sign in first (#5316)', JSON.stringify(cm));
   chk(await q((n) => (window.__museReads || 0) > n, readsOn), 'CONTROL: with the flag on, the read is made');
   // On, installed and signed in: offered.
   await q(() => { window.__museSignedIn = true; });
   await museRead();
   cm = await createMeta();
-  chk(cm.disabled === false && cm.off === '', 'create form, signed in: Meta is offered', JSON.stringify(cm));
+  chk(cm.disabled === false && cm.off === '' && cm.text === 'Meta Muse', 'create form, signed in: Meta is offered, and says so (#5316)', JSON.stringify(cm));
   // The agent page never offers a switch ONTO Meta (only its own current provider).
   const dMeta = await q(() => { const s = document.getElementById('d-provider'); paintMuseOption(s, 'anthropic'); const a = s.querySelector('option[value="meta"]').disabled; paintMuseOption(s, 'meta'); const b = s.querySelector('option[value="meta"]').disabled; return [a, b]; });
   chk(dMeta[0] === true && dMeta[1] === false, 'agent page: Meta is selectable only as an agent\'s current provider', JSON.stringify(dMeta));

@@ -25241,9 +25241,12 @@ function paintMuseOption(sel, current) {
   /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): the option was enabled, but its static text still
      said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the same
      state as `disabled`: usable, switched on here but not signed in, or not switched on (still coming soon). */
-  const signIn = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;
-  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : 'Meta Muse \u00b7 coming soon';
-  if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';   // the logo list's pill
+  const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
+  const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
+  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
+  // The logo list's pill.
+  if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';
+  else if (pending) opt.dataset.off = 'Set up in Settings, AI Models';
   else delete opt.dataset.off;
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -29659,12 +29662,12 @@ async function museAsk() {
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
   if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
-  /* Only disabled is toggled: the logo combobox re-reads it on open (syncOpts), and drops its "Coming
-     soon" pill, but its row name is fixed at build, so the option text stays as it is. */
+  /* The logo combobox re-reads `disabled` on open (syncOpts) and drops its pill; its row name is fixed at build. The
+     option's words are set too (#5316), for a plain select: usable, not on this computer yet, or coming soon. */
   const opt = museMetaOption();
   if (opt) {
     opt.disabled = !on;
-    opt.textContent = on ? 'Meta Muse' : 'Meta Muse \u00b7 coming soon';   // #5316: the words follow `disabled`
+    opt.textContent = on ? 'Meta Muse' : missing ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
     if (missing) opt.dataset.off = missing; else delete opt.dataset.off;
     // An open logo list re-reads its options (round 3), as paintAgyOption and paintKeyedProviderOptions do.
     const sel = opt.parentElement;
@@ -49073,9 +49076,10 @@ function enhanceProviderSelect(selectId) {
     const disabled = o.disabled;
     if (disabled) { li.setAttribute('aria-disabled', 'true'); li.classList.add('pcombo-off'); }
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
-    // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first"); strip it,
+    // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or " · set up
+    // first"); strip it,
     // the widget shows a pill instead.
-    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first)\s*$/i, '').trim();
+    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');
     if (disabled) mark.classList.add('dim');
@@ -49132,7 +49136,7 @@ function enhanceProviderSelect(selectId) {
        for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
        trigger must show blank too, not silently present the first option as selected. */
     const cur = opts.find((o) => o.value === select.value) || null;
-    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first)\s*$/i, '').trim() : '';
+    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim() : '';
     trigger.textContent = '';
     if (cur) {
       const mark = providerMarkNode(cur.value, label);
