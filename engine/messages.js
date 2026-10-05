@@ -1011,16 +1011,15 @@ function inFlightTwin(key) {
   return pending;
 }
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
-/* #4926: which of a room's held post ids are too stale to wake a member about (roomhold.withoutStale): the post is older
-   than HELD_TELL_MAX_MS, or the room's loop guard stopped the conversation after it (a 'valve' row with stopped !== false
-   in that project, later than the post). An id not in the record yet (a post still being delivered) is not stale.
-   `member`: whose held ids these are (its quota pause, if any, starts the clock). */
+/* #4926: which of a room's held post ids not to wake a member about (roomhold.withoutStale). A Set of ids that are:
+   - stale: older than HELD_TELL_MAX_MS, or the room's loop guard stopped the conversation after it (a 'valve' row with
+     stopped !== false in that project, later than the post); dropped only when the post does not name the member;
+   - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
+     had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
+     replyTo = that id), or one older than HELD_ASKED_MAX_MS.
+   Ages count from the post, or from the member's quota pause's end when there was one. An id not in the record yet (a
+   post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
-/* #4926 R2 (10-05 user diagnostic, 0.7.22: a session woken on 10-05 for posts from 10-02 and 10-03 it had already
-   handled). The returned Set also carries `evenIfAsked`, ids withoutStale drops even when they name the member:
-   - handled: the member itself posted in this room after the post (it was in the conversation since);
-   - old: older than HELD_ASKED_MAX_MS, counted like the rest (from a quota pause's end when there was one).
-   Both stay in the room (kosmos room shows them). */
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
@@ -1030,11 +1029,11 @@ function staleHeld(projectId, ids, log, now, member) {
     const t = Number.isFinite(now) ? now : Date.now();
     const want = new Set(ids);
     let stoppedAt = 0;
-    let ownAt = -Infinity;
+    const answered = new Set();
     for (const r of rows) {
       if (!r || r.project !== projectId) continue;
       if (r.kind === 'valve' && r.stopped !== false) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > stoppedAt) stoppedAt = v; }
-      if (member && r.kind === 'post' && r.from === member) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > ownAt) ownAt = v; }
+      if (member && r.kind === 'post' && r.from === member && typeof r.replyTo === 'string') answered.add(r.replyTo);
     }
     for (const r of rows) {
       if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
@@ -1046,7 +1045,7 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
-      if (ownAt > at || t - from > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
+      if (answered.has(r.id) || t - from > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
   return out;
@@ -2119,7 +2118,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
-         hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless stale, counted from the pause's end) in one line by the
+         hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it, ages counted from the pause's end) in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */

@@ -23,7 +23,8 @@
  * A held post is never typed later on its own, so a post the room already answered never re-wakes
  * you (the card's third point). #4926: a held post that asks nothing of you and has gone stale (older than
  * messages.HELD_TELL_MAX_MS, counted from a quota pause's end for a quota hold, or the room's loop guard stopped the
- * conversation after it) is dropped from that line instead (withoutStale): it is still in the room.
+ * conversation after it) is dropped from that line instead (withoutStale): it is still in the room. #4926 R2: so is one
+ * that asks something of you, once you have answered it in the room or it is over a day old (messages.staleHeld).
  *
  * Left exactly as before: the person's posts (to the room or to you), any post that @-names you, and
  * every agent whose latest report is neither a fresh `working` nor `idle` (needs_you, blocked, stopped, never
@@ -231,8 +232,8 @@ function clauseFor(projectId, shown, ids) {
    post that asks nothing of the member and has gone stale (stale(projectId, plainIds, member) -> Set of stale plain ids: the
    caller decides, messages.staleHeld says older than HELD_TELL_MAX_MS or the room's loop guard has stopped it since) is
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
-   the person had asked for quiet. A held post that names the member and asks for an answer is told unless the member has posted in that room since,
-   or it is over a day old (#4926 R2, staleHeld's evenIfAsked). The post
+   the person had asked for quiet. A held post that names the member and asks for an answer is told unless the member
+   has answered it in that room, or it is over a day old (#4926 R2, staleHeld's evenIfAsked). The post
    itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
 function withoutStale(projectId, ids, stale, name) {
   if (!ids.length || typeof stale !== 'function') return ids;
@@ -242,7 +243,10 @@ function withoutStale(projectId, ids, stale, name) {
   const asked = gone.evenIfAsked instanceof Set ? gone.evenIfAsked : new Set();   // #4926 R2: handled, or a day old
   const kept = ids.filter((x) => !asked.has(plainId(x)) && (plainId(x) !== x || !gone.has(x)));
   // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
-  if (kept.length < ids.length) { try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' stale held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).join(', ') + ')\n'); } catch { /* never breaks a flush */ } }
+  if (kept.length < ids.length) {
+    const why = (x) => (asked.has(plainId(x)) ? 'answered or a day old' : 'stale');
+    try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).map((x) => x + ': ' + why(x)).join(', ') + ')\n'); } catch { /* never breaks a flush */ }
+  }
   return kept;
 }
 
