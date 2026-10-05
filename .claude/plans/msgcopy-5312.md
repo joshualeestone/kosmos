@@ -14,7 +14,8 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   between them. An outside guest's row (no id) offers Copy message alone.
 - On a touchscreen the bar keeps #4409's seven buttons: its Copy button opens the menu with both items (a phone has
   no right-click, and an eighth button made the DM's open bar cover the person's own message under it).
-- render-msgref-4631.js asserts all of it (C1 to C6) on Windows and Mac platforms, a touchscreen, and real WebKit.
+- render-msgref-4631.js asserts it (C1 to C6) in Chromium as Windows and as a Mac, on a Chromium touchscreen, and in
+  real WebKit for the pointer menu (R12); render-dm-tapreact-718 checks the DM's touch menu.
 
 ## Decided
 - Copy message reads the RECORD (PJ_ROOM_POSTS, DM_ROWS), so what is copied is what was written: a leading
@@ -41,7 +42,8 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   focus to the page, not the message. Accepted: rare, nothing is lost, and the bar it would return to is closed.
 - Checked: the touch menu in the room (render-msgref-4631 C6) and in a direct conversation (render-dm-tapreact-718, four
   phone sizes), in Chromium touch emulation. Real iOS WebKit is not
-  driven here; R12 covers WebKit's pointer menu.
+  driven here. Real WebKit (R12, where installed) checks the pointer menu: Copy message focused first and copying, Copy
+  message id copying. The "Mac" runs C1 to C5 are Chromium with the Mac's platform, not WebKit.
 
 ## Weakest premise
 That a phone user finds Copy message one tap further in (Copy, then Copy message) acceptable. Josh asked for two

@@ -198,6 +198,9 @@ async function paintRoom(page) {
         const c2c = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', 'x-none');
           document.getElementById('pj-room').appendChild(d); msgMenuOpen(d, 20, 20); const m = document.getElementById('msg-menu'); const shown = !m.hidden; d.remove(); return shown; });
         chk(c2c === false, tag + 'C3 a row with nothing to copy opens no (empty) menu', String(c2c));
+        const c2d = await page.evaluate(async () => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', 'x-none'); document.getElementById('pj-room').appendChild(d);
+          await msgTextCopy(d); d.remove(); return msgToast.words; });
+        chk(c2d === 'There is nothing to copy in this message.', tag + 'C3 Copy message on a row with nothing to copy says so, with a pointer too', JSON.stringify(c2d));
       }
 
       // R3: right-click (on a Mac this is also ctrl-click).
@@ -430,6 +433,15 @@ async function paintRoom(page) {
         }
         const r12b = await page.evaluate(() => ({ copied: window.__copied.slice(), hidden: !document.getElementById('msg-menu') || document.getElementById('msg-menu').hidden }));
         chk(r12b.copied[0] === 'message 530 in Kosmos Growth' && r12b.hidden, '[webkit] R12 a real click on the item copies the reference', JSON.stringify(r12b));
+        // #5312: in real WebKit too, the menu opens with Copy message focused, and a real click on it copies the whole message.
+        await page.evaluate(() => { window.__copied.length = 0; });
+        await page.mouse.click(word.x, word.y, { button: 'right' });
+        await page.waitForTimeout(150);
+        const wkFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        const tb = await page.evaluate(() => { const el = document.getElementById('msg-menu-text'); if (!el || el.closest('#msg-menu').hidden) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        if (tb) { await page.mouse.click(tb.x, tb.y); await page.waitForTimeout(150); }
+        const wkText = await page.evaluate(() => window.__copied.slice());
+        chk(!!tb && wkFocus === 'msg-menu-text' && wkText[0] === 'The AtlasGrid deck is ready for review.', '[webkit] C3 Copy message is focused first, and a real click on it copies the whole message', JSON.stringify({ wkFocus, wkText }));
         // Text the person had selected themselves still gets the browser's menu (its Copy).
         await page.evaluate(() => { const bd = document.querySelector('#pj-room .msg[data-mid="m531"] .msg-bd'); const r = document.createRange(); r.selectNodeContents(bd); getSelection().removeAllRanges(); getSelection().addRange(r); });
         const own = await page.evaluate(() => { const b = document.querySelector('#pj-room .msg[data-mid="m531"] .msg-bd').getBoundingClientRect(); return { x: b.left + 30, y: b.top + b.height / 2 }; });
