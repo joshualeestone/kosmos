@@ -617,7 +617,11 @@ async function verbReport(ctx, args, opts) {
      stale by the time it opens. Exit 0, because nothing went wrong. */
   if (ctx.wrongWorld(r)) { ctx.out(ctx.outbox().WRONG_WORLD_SENTENCES.staleReport); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }   // #5333
-  if (r.json && r.json.recorded === true) { ctx.out('Recorded. The board reads it from here.'); return 0; }
+  if (r.json && r.json.recorded === true) {
+    ctx.out('Recorded. The board reads it from here.');
+    if (typeof r.json.note === 'string' && r.json.note) ctx.out(r.json.note);   // #5318: blocked with a person as owner
+    return 0;
+  }
   ctx.err('That was not recorded: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused report is {recorded:false, because}
   return 1;

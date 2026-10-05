@@ -100,7 +100,11 @@ function nudgeText(part) {
   const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId) && /[^.]/.test(part.projectId)) ? part.projectId : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
-    + 'say so with: kosmos report blocked --on <what> --owner <who>'
+    /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only
+       needs_you is escalated (recommender.js, after its grace). Offering blocked alone sent person-blocked work there,
+       where it went inert (0.7.22, a real install). */
+    + 'say so: on another agent, a deploy or a review, kosmos report blocked --on <what> --owner <who>; '
+    + 'on a person (a decision, a meeting, an answer), kosmos report needs_you <your question>, which Kosmos follows up and blocked never is'
     + (id ? '. Only if your person asked in the room to pause this project: kosmos project pause ' + id + ' (the room is told you paused it)' : '');
 }
 

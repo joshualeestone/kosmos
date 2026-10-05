@@ -14332,7 +14332,17 @@ const server = http.createServer(async (req, res) => {
           } catch { projectName = null; }
           phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName });
         }
-        sendJson(res, 200, { recorded: true });
+        /* #5318: a blocked report whose owner is a person is recorded as sent, with a note pointing at needs_you
+           (the only state Kosmos follows up). Both CLIs print the note under "Recorded." */
+        let note = '';
+        try {
+          let personName = '';
+          try { const y = require('./engine/you').read(); if (y.state === 'saved' && y.you && y.you.name) personName = y.you.name; } catch { /* no name */ }
+          const agentNames = [];
+          for (const c of roster || []) for (const n of [c && c.sessionName, c && c.name]) if (typeof n === 'string' && n) agentNames.push(n);
+          note = selfreport.blockedOwnerNote(body.state, body.owner, { personName, agentNames });
+        } catch { note = ''; }
+        sendJson(res, 200, note ? { recorded: true, note } : { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
     return;

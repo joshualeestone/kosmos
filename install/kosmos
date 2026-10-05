@@ -2677,6 +2677,10 @@ cmd_report() {
       # reply's sentence): the report is in the record the board reads.
       # Whether anybody is looking is not ours to say.
       say "Recorded. The board reads it from here."
+      # #5318: a blocked report naming a person as owner comes back with a note pointing at needs_you
+      # (the note holds no quote or backslash; engine/selfreport.js BLOCKED_PERSON_NOTE).
+      note=$(printf '%s' "$body" | sed -n 's/.*"note":"\([^"]*\)".*/\1/p')
+      if [ -n "$note" ]; then say "$note"; fi
       ;;
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
