@@ -686,6 +686,8 @@ function fedKosmosPlusNow() {
       changed from outside, so production needs that one restart; the per-request read is
       why an in-process test flips it without one).
    Fail-safe: any error, and any env value other than the exact "1", is false. */
+/* #4649: what the new outside-sharing routes answer while the federation switch is off. */
+const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
 function federationLiveNow() {
   // Option 2 (the CUSTOMER un-hide): a customer cannot set an env var, so federationLive
   // also comes from a GLOBAL coordinator flag the board caches. Fire its lazy TTL refresh
@@ -17562,6 +17564,10 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         /* #4649: an invite naming an existing project (`project`) goes through fedmembers, which finds or makes the
            project's owner ref and records the owner's label for the Members list. */
+        // Inviting from an EXISTING project (#4649) is behind the federation switch too; the create screen's path is unchanged.
+        if (pathname === '/api/federation/invite' && typeof body.project === 'string' && body.project && !federationLiveNow()) {
+          sendJson(res, 404, { error: FEDERATION_OFF }); return;
+        }
         const out = pathname === '/api/federation/invite'
           ? (typeof body.project === 'string' && body.project
             ? await fedmembers.invite(remote, body, {
@@ -17585,6 +17591,9 @@ const server = http.createServer(async (req, res) => {
   /* #4649: the owner's Members list of people and agents from outside, and removing or withdrawing one. Screen
      only, like invite: these act on the coordinator through this Mac's signature. */
   if (pathname === '/api/federation/members' && req.method === 'GET') {
+    /* Behind the federation switch (federationLiveNow: the coordinator's flag, or the operator override): with it off
+       (live today), nothing here reaches the coordinator, whoever asks. */
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
     if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see who was invited from outside.' }); return; }
     let pid = null;
     try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
@@ -17594,6 +17603,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if ((pathname === '/api/federation/remove' || pathname === '/api/federation/withdraw') && req.method === 'POST') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
     readBody(req)
       .then(async (buf) => {
         let body;
