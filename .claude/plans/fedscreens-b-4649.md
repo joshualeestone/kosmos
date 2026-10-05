@@ -20,7 +20,6 @@ joined, pending and expired outside invites, built from Kitty's GET /api/federat
 - Busy row buttons are aria-disabled (not disabled) so they keep focus; focus is never pulled out of an open dialog.
 - Only a "hidden" gate reading closes an open outside Remove; nothing is removed under a passing "signup" reading.
 - Remove and Withdraw use owner-list wording (pjFedMessage opts.change); other callers keep their own fallbacks.
-- A key ahead of the slug is slice C's/#5150's matter, not this slice's.
 
 ## Known and stated, not changed
 - The could-not-check line for an unchecked answer with no rows depends on the board's `shared` field (Kitty's
