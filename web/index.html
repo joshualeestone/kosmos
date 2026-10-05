@@ -67588,6 +67588,7 @@ let FEDINV_OPENER = null;
 let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
+const FEDINV_BUSY_LINE = 'One moment: Kosmos is still copying. Press again in a few seconds.';
 let FEDINV_COPY_TEXT = '';     // slice C: the text the newest copy press asked for
 let FEDINV_COPY_TOKEN = 0;     // slice C: counts copy presses, so a late write from an earlier press is known as stale
 let FEDINV_COPY_BUSY = false;  // slice C: either copy (the code, or the invitation) is waiting on the clipboard
@@ -67712,7 +67713,12 @@ async function fedCopyText(text, btn, onLate, what) {
     write.then(() => {
       if (seq !== FEDINV_SEQ) return;
       if (token === FEDINV_COPY_TOKEN) { if (onLate) onLate(); return; }
-      if (text === FEDINV_COPY_TEXT) return;   // the newer press copied the same thing: the screen is already right
+      // The newer press copied the same thing. If it said Copied, the screen is right; if it was refused, this write
+      // did copy it, so say so.
+      if (text === FEDINV_COPY_TEXT) {
+        if (onLate && document.getElementById('fedinv-status').textContent.startsWith('Kosmos could not copy')) onLate();
+        return;
+      }
       // A newer press already reported its own copy, and this earlier write has just replaced it. The write cannot
       // be called back, so the line says what the clipboard now holds instead of leaving the newer claim standing.
       fedInviteCopyReset();
@@ -67726,7 +67732,7 @@ async function fedCopyText(text, btn, onLate, what) {
 // elements. It shares one timer and one message line with Copy the invitation (fedInviteCopyReset).
 // After the 3 s limit the busy flag is freed while a held write may still land (holding it would let one unanswered
 // permission prompt silently disable the other button). A write that lands after a newer press cannot be called
-// back, so fedCopyText says what the clipboard now holds (review, 2026-10-04; arm C7).
+// back, so fedCopyText says what the clipboard now holds.
 async function fedInviteCopy() {
   const codeEl = document.getElementById('fedinv-code');
   const btn = document.getElementById('fedinv-copy');
@@ -67734,7 +67740,7 @@ async function fedInviteCopy() {
   const text = codeEl.value;
   if (!text) return;
   if (FEDINV_COPY_BUSY) {   // the other copy is still asking the clipboard: one answer at a time, said rather than silent
-    status.textContent = 'One moment: Kosmos is still copying. Press Copy again in a few seconds.';
+    status.textContent = FEDINV_BUSY_LINE;
     return;
   }
   const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; status.textContent = 'Code copied.'; FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
@@ -67795,9 +67801,10 @@ function fedInviteText(made) {
 // do instead and never throws.
 async function fedInviteCopyAll() {
   const made = FEDINV_MADE;
-  if (!made || FEDINV_COPY_BUSY) return;   // a second press while the clipboard is still being asked would race the first
+  if (!made) return;
   const btn = document.getElementById('fedinv-copy-all');
   const status = document.getElementById('fedinv-status');
+  if (FEDINV_COPY_BUSY) { status.textContent = FEDINV_BUSY_LINE; return; }   // one answer at a time, said rather than silent
   const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; status.textContent = 'Invitation copied.'; FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
   // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if the refusal still shows.
   const ok = await fedCopyText(fedInviteText(made), btn, said, 'the invitation');

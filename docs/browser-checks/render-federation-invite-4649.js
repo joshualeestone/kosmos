@@ -106,6 +106,7 @@
  *      then the late write lands and the line says Copied.
  *  C7  a held write landing after a newer, successful copy on the other button: the line says what the clipboard
  *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
+ *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
  *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
  *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
@@ -130,7 +131,7 @@ catch {
 }
 
 const PAGE = 'file://' + nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-// Chromium reports the host's platform, so a check run on a Mac expects the Mac's copy keys (C4).
+// Chromium reports the host's platform, so a check run on a Mac expects the Mac's copy keys (C4's line).
 const ON_MAC = process.platform === 'darwin';
 const SHOW = { sourceChannel: 'prod', federationLive: true, kosmos_plus: true };
 const OFF = { sourceChannel: 'prod', federationLive: false, kosmos_plus: true };
@@ -1160,7 +1161,7 @@ const closeAll = (page) => page.evaluate(() => {
       const late = await step(pc.page);
       check('C6 a held clipboard: nothing said while it waits, the bare Copy ignored, the 3 s limit says it could not copy, a late write says Copied',
         waiting.status === '' && waiting.allText === 'Copy the invitation'
-        && bareWhileBusy.status === 'One moment: Kosmos is still copying. Press Copy again in a few seconds.' && bareWhileBusy.copyText === 'Copy'
+        && bareWhileBusy.status === 'One moment: Kosmos is still copying. Press again in a few seconds.' && bareWhileBusy.copyText === 'Copy'
         && limit.status.startsWith('Kosmos could not copy the invitation.')
         && late.status === 'Invitation copied.' && late.allText === 'Copied' && late.copied.length === 1 && late.copied[0] === invitation('Maya Chen (' + ADDR + ')'),
         JSON.stringify({ waiting: waiting.status, bare: [bareWhileBusy.status, bareWhileBusy.copyText], limit: limit.status, late: [late.status, late.allText, late.copied.length] }));
@@ -1209,6 +1210,20 @@ const closeAll = (page) => page.evaluate(() => {
       const same = await step(p7.page);
       check('C7b a stale write of the same text leaves the newer "Invitation copied." standing (control: C7 with the other button)',
         same.status === 'Invitation copied.', JSON.stringify({ status: same.status }));
+      // C7c: the same button twice, BOTH refused (both held past the limit), then the stale write lands: it did copy
+      // the invitation, so the refusal gives way to "Invitation copied." (control: C7b, where the newer press said so).
+      await p7.page.evaluate(() => { window.__holds = []; });
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForTimeout(3600);
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForTimeout(3600);
+      const refused = await step(p7.page);
+      await p7.page.evaluate(() => window.__holds[0]());   // the stale write, same text, lands
+      await p7.page.waitForTimeout(150);
+      const landed = await step(p7.page);
+      check('C7c a stale same-text write after a refused newer press says "Invitation copied."',
+        refused.status.startsWith('Kosmos could not copy the invitation.') && landed.status === 'Invitation copied.',
+        JSON.stringify({ refused: refused.status, landed: landed.status }));
       await p7.ctx.close();
     }
 
