@@ -9638,7 +9638,9 @@ html:not([data-fed-ui="show"]) #pjs-own-field { display: none !important; }
 /* kosmos#4649 slice A: the Members "+" menu's outside item and the invite sheet are federation
    content, so they hide exactly when #pj-invite-panel does. The JS gate (pjAddPlus reads fedShow)
    already skips the menu when not "show"; this rule is the belt-and-suspenders, as above. */
-html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]) #fedinv-modal { display: none !important; }
+html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]):not([data-fed-ui="signup"]) #fedinv-modal { display: none !important; }
+/* The sheet is not hidden on "signup": it cannot be OPENED outside "show" (fedInviteOpen), but a code step already on
+   screen survives a passing signup reading (fedGateStamp), since that code cannot be shown again. */
 /* The menu (shot 01): Mona's .m-menu on the app's tokens. Placed by pjAddMenuOpen: right edge on
    the opener's right edge, inside the Members card; at phone width the card's full width. */
 .pj-addmenu { position: fixed; z-index: 45; box-sizing: border-box; width: 250px; max-width: calc(100vw - 32px);
@@ -33981,7 +33983,11 @@ function fedGateStamp(data) {
   if (mode !== 'show') {
     if (typeof pjAddMenuClose === 'function') pjAddMenuClose(false);
     const inv = document.getElementById('fedinv-modal');
-    if (inv && !inv.hidden && typeof fedInviteClose === 'function') fedInviteClose();
+    // A code already made cannot be shown again, so its step survives a passing "signup" (one poll that reads the
+    // entitlement as unknown on prod); only federation turning off ("hidden") closes it. The asking step closes.
+    const done = document.getElementById('fedinv-done');
+    const codeShown = !!(done && !done.hidden);
+    if (inv && !inv.hidden && typeof fedInviteClose === 'function' && (mode === 'hidden' || !codeShown)) fedInviteClose();
   }
   if (typeof pjAddMenuSync === 'function') pjAddMenuSync();
 }
@@ -67440,9 +67446,11 @@ document.addEventListener('click', (e) => {
   pjAddMenuClose(false);
 });
 window.addEventListener('resize', () => pjAddMenuClose(false));
+// A scroll re-places the menu under its "+" (the emoji picker's pattern) rather than closing it: the project room
+// scrolls itself when a post arrives, which would otherwise shut the menu while it is being read.
 document.addEventListener('scroll', (e) => {
   const menu = document.getElementById('pj-addmenu');
-  if (menu && !menu.hidden && !menu.contains(e.target)) pjAddMenuClose(false);
+  if (menu && !menu.hidden && !menu.contains(e.target)) pjAddMenuPlace();
 }, true);
 // Escape closes the menu and returns focus to the "+" (Q-M4); the arrow keys move between the items.
 // Capture phase, so no page-level Escape handler also acts on the same key press.
@@ -67450,7 +67458,9 @@ window.addEventListener('keydown', (e) => {
   const menu = document.getElementById('pj-addmenu');
   if (!menu || menu.hidden) return;
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pjAddMenuClose(true); return; }
-  if (e.key === 'Tab') { pjAddMenuClose(false); return; }
+  // Tab leaves the menu back to its "+" (the menu sits at the end of the panel, so the browser's own Tab would jump
+  // focus far from where the person was).
+  if (e.key === 'Tab') { e.preventDefault(); pjAddMenuClose(true); return; }
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   const items = [...menu.querySelectorAll('.pj-addmenu-it')].filter((b) => b.getClientRects().length);
   if (!items.length) return;
@@ -67559,7 +67569,13 @@ async function fedInviteCopy() {
   FEDINV_COPY_TIMER = setTimeout(() => { FEDINV_COPY_TIMER = null; btn.textContent = 'Copy'; status.textContent = ''; }, 2000);
 }
 document.getElementById('fedinv-make').addEventListener('click', fedInviteMake);
-document.getElementById('fedinv-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fedInviteMake(); } });
+// Enter is a second Make button, so it obeys the same guard (a request in flight disables Make) and does not fire
+// while an input method is composing (Enter there confirms the composition, not the form).
+document.getElementById('fedinv-label').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  if (!document.getElementById('fedinv-make').disabled) fedInviteMake();
+});
 document.getElementById('fedinv-cancel').addEventListener('click', fedInviteClose);
 document.getElementById('fedinv-ok').addEventListener('click', fedInviteClose);
 document.getElementById('fedinv-copy').addEventListener('click', fedInviteCopy);

@@ -62,6 +62,7 @@ function initStub(cfg) {
   window.setInterval = () => 0;   // no background poll repaints under an arm
   window.__fed = cfg.fed;
   window.__posts = [];
+  window.__inviteDelay = 0;
   window.__copied = [];
   window.__invite = { status: 200, body: { code: cfg.code, expires_at: cfg.expires, invite_id: 'inv-1' } };
   window.__project = { id: 'k', name: 'Spring launch', parent: null, archived: false, description: '',
@@ -76,6 +77,7 @@ function initStub(cfg) {
       let body = null;
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window.__posts.push({ url: u, method, body });
+      if (window.__inviteDelay) await new Promise((r) => setTimeout(r, window.__inviteDelay));   // A7a holds one in flight
       return enc(window.__invite.status, window.__invite.body);
     }
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
@@ -324,6 +326,60 @@ const closeAll = (page) => page.evaluate(() => {
     const code = await page.$eval('#fedinv-code', (i) => { const r = i.getBoundingClientRect(); return { r: Math.round(r.right), value: i.value }; });
     check('A6 393 wide: the code step fits (the long code is cut, not the page)', !!s.invBox && s.invBox.r <= s.vw && s.overflowX <= 0
       && code.value === CODE && code.r <= s.invBox.r, JSON.stringify({ inv: s.invBox, code, vw: s.vw, overflowX: s.overflowX }));
+    await ctx.close();
+  }
+
+  /* ---------------- A7: the review round's guards (Enter, IME, scroll, Tab, a passing gate) ---------------- */
+  {
+    const SIGNUP = { sourceChannel: 'prod', federationLive: true, kosmos_plus: false };
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    // A7d: a scroll re-places the open menu instead of closing it; Tab closes it back to its "+".
+    await page.click('#pj-add-member');
+    await page.evaluate(() => document.dispatchEvent(new Event('scroll')));
+    let s = await read(page);
+    const afterScroll = s.menuBox !== null;
+    await page.keyboard.press('Tab');
+    s = await read(page);
+    check('A7d a scroll keeps the menu open (control: Tab then closes it) and Tab returns focus to the "+"',
+      afterScroll && s.menuBox === null && s.focus === 'pj-add-member', JSON.stringify({ afterScroll, menu: s.menuBox, focus: s.focus }));
+    // A7a/b: Enter while a request is in flight sends nothing more; Enter while composing sends nothing.
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.evaluate(() => {
+      window.__posts.length = 0;
+      document.getElementById('fedinv-label').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
+    });
+    const composing = await page.evaluate(() => window.__posts.length);
+    await page.evaluate(() => { window.__inviteDelay = 400; });
+    await page.focus('#fedinv-label');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    const sent = await page.evaluate(() => window.__posts.length);
+    await page.evaluate(() => { window.__inviteDelay = 0; });
+    check('A7a/b Enter three times while one request is asked sends ONE invite; Enter while composing sends none (control: the first Enter sends)',
+      composing === 0 && sent === 1, JSON.stringify({ composing, sent }));
+    // A7c: a passing "signup" reading keeps a code already on screen; federation turning off closes it.
+    await page.evaluate((d) => fedGateStamp(d), SIGNUP);
+    await page.waitForTimeout(100);
+    s = await read(page);
+    const keptOnSignup = s.invBox !== null;
+    await page.evaluate((d) => fedGateStamp(d), OFF);
+    await page.waitForTimeout(100);
+    s = await read(page);
+    check('A7c a code on screen survives a passing signup reading, and closes when federation turns off (control)',
+      keptOnSignup && s.invBox === null, JSON.stringify({ keptOnSignup, inv: s.invBox }));
+    // A7c control: the ASKING step does close on a signup reading.
+    await page.evaluate((d) => fedGateStamp(d), SHOW);
+    await page.click('#pj-add-member');
+    await page.click('#pj-addmenu-outside');
+    await page.evaluate((d) => fedGateStamp(d), SIGNUP);
+    await page.waitForTimeout(100);
+    s = await read(page);
+    check('A7c the asking step closes on a signup reading', s.invBox === null, JSON.stringify({ inv: s.invBox }));
     await ctx.close();
   }
 
