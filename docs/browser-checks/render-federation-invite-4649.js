@@ -1054,7 +1054,7 @@ const closeAll = (page) => page.evaluate(() => {
     await ctx.close();
   }
 
-  /* B15: consolidated, a board with no agents of its own. */
+  /* B17: consolidated, a board with no agents of its own. */
   {
     const { ctx, page } = await newPage(1280, SHOW);
     await page.evaluate((a) => { window.__members = a; window.__agents = []; }, answer([DANA, LEE]));

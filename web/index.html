@@ -66476,7 +66476,7 @@ function pjFedMessage(body, fallback, opts) {
     'self-join': 'That is your own project, so there is nothing to join.',
     'double-join': 'You are already on that project.',
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
-    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',   // (Remove/Withdraw: below)
+    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
     'not-owner': 'Only the owner of this project can invite people to it.',   // kosmos#4649 invite sheet, Kitty's 409
     'joined': 'Someone already joined with this code. Remove them instead.',   // kosmos#4649 slice B: Withdraw's 409, when the board gave no sentence
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
@@ -67962,7 +67962,14 @@ function fedOutsidePaint(tabOnly) {
   if ((AGENTS_GROUPED || PJ_CURRENT) && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
     && fedOutsidePaint.rail !== html) { fedOutsidePaint.rail = html; paintAgentList(); }
 }
-function fedMembersReset() { FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++; }
+// The list starts over: no answer, no sentences, a new generation (answers to the last visit's Remove or Withdraw
+// are dropped), any members ask still in flight dropped too (FED_MEMBERS_SEQ), and the rail's markup memo cleared
+// so the next answer repaints the rail even if it matches what the last visit showed.
+function fedMembersReset() {
+  FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++;
+  FED_MEMBERS_SEQ++; FED_MEMBERS_ASKING = null;
+  fedOutsidePaint.rail = undefined;
+}
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;
   if (!FED_MEMBERS || FED_MEMBERS.project !== project) fedMembersReset();
@@ -68109,7 +68116,11 @@ async function fedRemoveGo() {
   }
   FED_BUSY.delete(f.key);
   // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
-  if (PJ_CURRENT !== f.project || gen !== FED_GEN) { if (MEM_PENDING === p) memConfirmClose(); return; }
+  if (PJ_CURRENT !== f.project || gen !== FED_GEN) {
+    if (MEM_PENDING === p) memConfirmClose();
+    if (PJ_CURRENT === f.project) fedOutsidePaint(false);   // reopened: the row's Remove is live again now, not at the next poll
+    return;
+  }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   // Given up on: the list is being asked again (above), so the dialog closes and the sentence is said beside the
@@ -68187,7 +68198,7 @@ async function fedWithdraw(r) {
     said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
   }
   FED_BUSY.delete(key);
-  if (PJ_CURRENT !== project || gen !== FED_GEN) return;
+  if (PJ_CURRENT !== project || gen !== FED_GEN) { if (PJ_CURRENT === project) fedOutsidePaint(false); return; }   // as Remove
   if (!said && res.ok) {
     // As Remove: the kept answer must not show the code again if the refetch fails, and the row goes now.
     const fm = FED_MEMBERS;
