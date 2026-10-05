@@ -748,7 +748,7 @@ token_refused_hint() {   # <token-sent> <board-answer>
     'we could not match that to one of your agents'|'we could not match that to one of your agents'$'\n') ;;
     *) return 0 ;;
   esac
-  # On stderr, as the Windows CLI says it: a script capturing \`kosmos whoami\` or \`kosmos inbox\` gets the board's
+  # On stderr, as the Windows CLI says it: a script capturing `kosmos whoami` or `kosmos inbox` gets the board's
   # answer alone, as before.
   {
     say ""
