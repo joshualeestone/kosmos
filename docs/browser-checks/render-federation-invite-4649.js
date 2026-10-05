@@ -23,7 +23,8 @@
  *      given, and the label is kept. Main: no sheet.
  *  A6  393 wide (a phone): the menu and both states of the sheet fit, with no sideways scroll.
  *  A7  the review's guards: Enter while a Make is answered sends nothing more, Enter while composing sends nothing;
- *      a scroll keeps the menu, Tab returns to its +; a code survives a passing signup reading, closes on off.
+ *      a scroll keeps the menu, Tab returns to its +; a passing signup reading closes nothing (the code step stays,
+ *      the asking step stays and Make refuses there); federation off closes the sheet.
  *  A8  the sheet's ways out (backdrop and Escape on each step) and its Tab trap.
  *  A9  the sheet does not close while Make is answered, and shows the minted code.
  *  A12 the abort landing during the body read (headers in, body stalled) gives the same message.
@@ -412,7 +413,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate((d) => fedGateStamp(d), SIGNUP);
     await page.waitForTimeout(100);
     s = await read(page);
-    check('A7c the asking step closes on a signup reading', s.invBox === null, JSON.stringify({ inv: s.invBox }));
+    const askMsg = await page.evaluate(() => { fedInviteMake(); return document.getElementById('fedinv-msg').textContent; });
+    check('A7c a signup reading keeps the asking step open (a label being typed is not lost) and Make refuses there',
+      s.invBox !== null && askMsg === 'Inviting is not available just now. Try again in a moment.', JSON.stringify({ inv: s.invBox, askMsg }));
     await ctx.close();
   }
 
