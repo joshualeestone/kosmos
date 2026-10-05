@@ -17,10 +17,12 @@
  * signal instead (removes itself and sends the signal again, as engine/remote.js does so
  * that it never seizes the exit code), the process dies by the signal's default action
  * and 'exit' never fires (kosmos#5334, measured: thread-server left 3 `kosmos-bc-home-`
- * folders and its `aw-thread-config-` folder on every browser-check run). So when this
- * handler stands aside it listens ONCE more: on the re-raised signal it is the only
- * listener left, and it sweeps and re-raises in turn. A foreign handler that keeps the
- * process alive leaves the folders in place, as before.
+ * folders and its `aw-thread-config-` folder on every browser-check run). So this handler
+ * re-arms itself each time it stands aside: on a re-raised signal it is the only listener
+ * left, and it sweeps and re-raises in turn. A foreign handler that keeps the process
+ * alive leaves the folders in place, as before. One more case changed with it: a foreign
+ * handler that swallows the first signal and then removes itself now gets the sweep (and
+ * the re-raise) on the next one, where the process used to die unswept.
  *
  * The registry lives on the process under a global symbol, so two copies of this file
  * (two paths to it) still share one handler. It never throws.
