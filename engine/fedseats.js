@@ -158,6 +158,8 @@ function handleEvent(projectId, line, heldAt) {
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
     sayHello(projectId, s);
     sendRotates(projectId, s);
+    // #5285: someone did join; a post held for that check now waits as any held post does (for the key, the hour).
+    for (const h of s.outbox || []) if (h.msg && h.msg.joinWait) h.msg = Object.assign({}, h.msg, { joinWait: false });
     flushHeld(projectId, s);   // a post held for the room id, or for a key that arrived meanwhile
     return;
   }
@@ -760,8 +762,9 @@ async function memberEdgeCheck(projectId, ask, seat) {
   const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
   if (e && e.status === 'revoked') endRevokedMember(projectId, s, link);
 }
-function sharedEdges(now) {
-  if (macEdges && isFresh(macEdges.askedAt, now)) return macEdges;
+function sharedEdges(now, notBefore) {
+  // #5285: `notBefore` refuses a cached answer asked before then (it cannot know of a later join).
+  if (macEdges && isFresh(macEdges.askedAt, now) && macEdges.askedAt >= (notBefore || 0)) return macEdges;
   const ask = { askedAt: now, promise: null };
   try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_EDGES, {})); } catch (err) { ask.promise = Promise.reject(err); }
   ask.promise.catch(() => {});   // each caller sees the failure as "not checked"
@@ -1043,8 +1046,11 @@ async function ensureAll() {
   for (const id of [...seats.keys()]) if (!Object.prototype.hasOwnProperty.call(links, id)) stop(id);
   for (const id of Object.keys(links)) {
     try {
-      const st = await ensure(id, edges);
-      if (st === 'waiting') dropJoinWait(id, seats.get(id));   // #5285: a check that could not ask is settled here
+      let askedHere = false;
+      const st = await ensure(id, () => { askedHere = true; return edges(); });
+      // #5285: a check that could not ask is settled here, but only by an answer this pass asked for, and only
+      // for posts held before it was asked (a later one may have been joined since).
+      if (st === 'waiting' && askedHere) dropJoinWait(id, seats.get(id), pendingAt);
     } catch { /* one project's seat never blocks another's */ }
   }
   // #3728: a member still waiting for the room key says hello again (a dropped hello is
@@ -1279,20 +1285,26 @@ function joinCheckWanted(s) {
   if (s.joinCheck) return true;   // one in flight: this post waits on it too
   return !(s.joinCheckNoneAt && Date.now() - s.joinCheckNoneAt < JOIN_CHECK_MS);
 }
-/** Release only the posts held for a join that did not come, with the sentence a refusal would have had. */
-function dropJoinWait(projectId, s) {
+/** Release only the posts held for a join that did not come, with the sentence a refusal would have had.
+    `askedAt`: when the answer that found nobody was ASKED for; a post held after that is not answered by it. */
+function dropJoinWait(projectId, s, askedAt) {
   if (!s || !s.outbox) return;
-  const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait));
+  const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait && h.at <= askedAt));
   const n = s.outbox.length - keep.length;
   s.outbox = keep;
   if (n) say(projectId, n === 1 ? NOBODY_JOINED : n + ' messages stayed on this computer: nobody outside has joined this shared project yet.');
 }
 function kickJoinCheck(projectId, s) {
   if (s.joinCheck) return;
+  const heldAt = Date.now();
+  let ask = null;
   s.joinCheck = Promise.resolve()
-    .then(() => ensure(projectId, () => deps.macRequest('POST', MAC_EDGES, {})))
+    // The Mac's one shared edges request (#5193), but never an answer asked before this post was held.
+    .then(() => ensure(projectId, () => { ask = sharedEdges(Date.now(), heldAt); return ask.promise; }))
     .then((status) => {
-      if (status === 'waiting') { s.joinCheckNoneAt = Date.now(); dropJoinWait(projectId, s); }
+      // An ensure that returned without asking (a start or a pass already under way) answers nothing.
+      if (!ask) return;
+      if (status === 'waiting') { s.joinCheckNoneAt = Date.now(); dropJoinWait(projectId, s, ask.askedAt); }
       // Anything else: the seat is starting or connected, and its connect flushes what is held.
       else if (s.status === 'connected') flushHeld(projectId, s);
     })

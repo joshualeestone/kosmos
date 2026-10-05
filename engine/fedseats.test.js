@@ -3329,3 +3329,111 @@ test('#5285: when the check cannot ask, the post stays held; the next pass that 
   await tick();
   assert.match(said()[said().length - 1], /nobody outside has joined/, 'the pass did not settle the held post: ' + JSON.stringify(said()));
 });
+
+test('#5285: in a SEALED room the gap post waits for the member\'s key and leaves only sealed', async () => {
+  const inv = newInvite('gs');
+  fedseal.stashInvite('ref-gap-s', inv);
+  federation.recordLink('proj-gap-s', { role: 'owner', ref: 'ref-gap-s' });
+  const h = harness({ edges: [] });
+  assert.strictEqual(await fedseats.ensure('proj-gap-s'), 'waiting');
+  h.edges = [{ id: 'edge-inv-gs', project_ref: 'ref-gap-s', status: 'active', invite_id: inv.invite }];
+  fedseats.post('proj-gap-s', { from: 'Josh', kind: 'person', text: 'sealed welcome' });
+  await settle();
+  const seat = h.spawned[0];
+  assert.ok(seat, 'the post did not bring the seat up');
+  say(seat, { event: 'connected', room: 'room-gs', expires_at: 9 });
+  await settle();
+  assert.ok(!seat.written.join('').includes('sealed welcome'), 'the post left in the clear before the member had a key');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-gs') });
+  await settle();
+  const out = lines(seat);
+  const share = out.find((l) => l.t === 'key-share');
+  const got = fedseal.openShare(inv.s, inv.code, member, share, 'room-gs');
+  const sealedPost = out.filter((l) => fedseal.isSealed(l)).pop();
+  assert.ok(sealedPost, 'the held post was never sent: ' + JSON.stringify(h.notes.map((n) => n.text)));
+  assert.strictEqual(fedseal.open({ [got.epoch]: got.roomKey }, 'room-gs', sealedPost).m.text, 'sealed welcome');
+  assert.ok(!h.notes.some((n) => /nobody outside has joined/.test(n.text)), JSON.stringify(h.notes.map((n) => n.text)));
+});
+
+test('#5285: a post whose check could not ask (a pass already under way) stays held, and so does the next post', async () => {
+  federation.recordLink('proj-gap4', { role: 'owner', ref: 'ref-gap4' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap4');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const passDone = fedseats.ensureAll();   // the pass is asking; its request waits on the gate
+  await tick();
+  fedseats.post('proj-gap4', { from: 'Josh', kind: 'person', text: 'first' });   // its check finds the pass under way
+  await tick(); await tick();
+  fedseats.post('proj-gap4', { from: 'Josh', kind: 'person', text: 'second' });
+  await tick();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap4').map((n) => n.text);
+  assert.ok(!said().some((x) => /nobody outside has joined/.test(x)), 'a check that never asked was taken as "nobody joined": ' + JSON.stringify(said()));
+  h.edges = [{ id: 'edge-gap4', project_ref: 'ref-gap4', status: 'active' }];
+  release(); h.gate = null;
+  await passDone; await settle();
+  say(h.spawned[0], { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  const out = h.spawned[0].written.join('');
+  assert.ok(/first/.test(out) && /second/.test(out), 'not both sent once the seat connected: ' + out);
+});
+
+test('#5285: once someone joined, a post re-held for the key is not later released as "nobody joined"', async () => {
+  const inv = newInvite('gk');
+  fedseal.stashInvite('ref-gap-k', inv);
+  federation.recordLink('proj-gap-k', { role: 'owner', ref: 'ref-gap-k' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap-k');
+  h.edges = [{ id: 'edge-inv-gk', project_ref: 'ref-gap-k', status: 'active', invite_id: inv.invite }];
+  fedseats.post('proj-gap-k', { from: 'Josh', kind: 'person', text: 'for the key' });
+  await settle();
+  say(h.spawned[0], { event: 'connected', room: 'room-gk', expires_at: 9 });
+  await settle();
+  // The edge is refused for good before the member's hello: the seat falls back to waiting, and a pass finds nobody.
+  h.spawned[0].emit('exit', 3);
+  await settle();
+  assert.strictEqual(await fedseats.ensure('proj-gap-k'), 'waiting', 'CONTROL: the seat is waiting again');
+  await fedseats.ensureAll(); await settle();
+  assert.ok(!h.notes.some((n) => /nobody outside has joined/.test(n.text)), 'a post held after someone joined was released as nobody joined: ' + JSON.stringify(h.notes.map((n) => n.text)));
+});
+
+test('#5285: a check releases only posts held before it asked; a post made after waits for the next answer', async () => {
+  federation.recordLink('proj-gap5', { role: 'owner', ref: 'ref-gap5' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap5');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  fedseats.post('proj-gap5', { from: 'Josh', kind: 'person', text: 'before' });   // its check asks now
+  await tick();
+  await new Promise((r) => setTimeout(r, 5));   // a later millisecond
+  fedseats.post('proj-gap5', { from: 'Josh', kind: 'person', text: 'after' });   // held on the check in flight
+  release(); h.gate = null;
+  await settle();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap5').map((n) => n.text);
+  assert.strictEqual(said().filter((x) => /nobody outside has joined/.test(x)).length, 1, 'not exactly the earlier post released: ' + JSON.stringify(said()));
+  // The member is there by the next pass: the later post goes.
+  h.edges = [{ id: 'edge-gap5', project_ref: 'ref-gap5', status: 'active' }];
+  await fedseats.ensureAll(); await settle();
+  say(h.spawned[h.spawned.length - 1], { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  const out = h.spawned[h.spawned.length - 1].written.join('');
+  assert.ok(/after/.test(out) && !/before/.test(out), 'expected only the later post to be sent: ' + out);
+});
+
+test('#5285: another project\'s fresh "nobody" answer is not reused for a post made after this project\'s member joined', async () => {
+  federation.recordLink('proj-gapA', { role: 'owner', ref: 'ref-gapA' });
+  federation.recordLink('proj-gapB', { role: 'owner', ref: 'ref-gapB' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gapA');
+  await fedseats.ensure('proj-gapB');
+  fedseats.post('proj-gapA', { from: 'Josh', kind: 'person', text: 'A?' });   // asks; the answer is "nobody"
+  await settle();
+  await new Promise((r) => setTimeout(r, 5));
+  h.edges = [{ id: 'edge-gapB', project_ref: 'ref-gapB', status: 'active' }];   // B's member joins
+  fedseats.post('proj-gapB', { from: 'Josh', kind: 'person', text: 'B welcome' });
+  await settle();
+  assert.ok(!h.notes.some((n) => n.projectId === 'proj-gapB' && /nobody outside has joined/.test(n.text)), 'B reused A\'s older answer: ' + JSON.stringify(h.notes.map((n) => n.text)));
+  const seatB = h.spawned.find((c) => c.edge === 'edge-gapB');
+  assert.ok(seatB, 'B\'s seat did not come up');
+});
