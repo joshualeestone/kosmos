@@ -757,7 +757,7 @@ token_refused_hint() {   # <token-sent> <board-answer>
     say "token by itself, so ask your person to restart you from Kosmos (your page, Restart; \"Write a handoff, then"
     say "restart\" keeps what you were doing). The new session starts with a fresh token. \`kosmos adopt\` does not"
     say "help: its token never reaches a running session. If you have no page in Kosmos at all, your person can add"
-    say "you from New agent."
+    say "you from New agent. If it still happens after a restart, tell your person: then it is not this session."
   } >&2
 }
 

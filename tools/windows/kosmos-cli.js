@@ -640,7 +640,7 @@ function tokenRefusedHint(ctx, r) {
   ctx.err('token by itself, so ask your person to restart you from Kosmos (your page, Restart; "Write a handoff, then');
   ctx.err('restart" keeps what you were doing). The new session starts with a fresh token. `kosmos adopt` does not');
   ctx.err('help: its token never reaches a running session. If you have no page in Kosmos at all, your person can add');
-  ctx.err('you from New agent.');
+  ctx.err('you from New agent. If it still happens after a restart, tell your person: then it is not this session.');
 }
 
 async function verbWhoami(ctx) {
