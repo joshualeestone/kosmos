@@ -67588,6 +67588,8 @@ let FEDINV_OPENER = null;
 let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
+// Said while the other button's copy is still answering; it stays (no revert) because that copy's own outcome, due
+// within the 3 s limit, always replaces it.
 const FEDINV_BUSY_LINE = 'One moment: Kosmos is still copying. Press again in a few seconds.';
 let FEDINV_COPY_TEXT = '';     // slice C: the text the newest copy press asked for
 let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is known to have put on the clipboard

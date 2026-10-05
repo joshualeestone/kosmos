@@ -111,6 +111,7 @@
  *      C7d: the other direction: a held bare-code write landing after a newer invitation copy names the code alone.
  *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
  *      second Copied.)
+ *  C9e the stubbed select-and-copy fires the copy event as a real one does; the record survives its own event.
  *  C9  the clipboard-holds record through its real listeners (blur, copy events) and an in-time write, and a held
  *      write from a closed sheet landing under a new code.
  *  C8  the sheet's own type inside #panel-projects: its title is the size of another dialog's .rm-title (the add-
@@ -174,14 +175,18 @@ function initStub(cfg) {
   window.__answerDelay = 0;
   window.__computers = null;    // slice C's C2 plants this computer's address here, to prove it is never printed
   /* Slice C's Copy the invitation tries select-and-copy FIRST. A real execCommand would copy past the stubbed
-     clipboard, so it is stubbed too: it records what it would copy and fails unless an arm sets __execOk. */
+     clipboard, so it is stubbed too: it records what it would copy and fails unless an arm sets __execOk. A copy
+     that succeeds fires the copy event first, as a real one does, so the page's copy listener runs in its real
+     order (C9e pins that order). */
   window.__execOk = false;
   window.__execTexts = [];
   document.execCommand = (cmd) => {
     if (cmd !== 'copy') return false;
     const a = document.activeElement;
     window.__execTexts.push(a && typeof a.value === 'string' ? a.value : null);
-    return window.__execOk === true;
+    if (window.__execOk !== true) return false;
+    document.dispatchEvent(new Event('copy', { bubbles: true }));
+    return true;
   };
   window.__you = null;          // slice C: /api/you's `you` ({ name }); null leaves it to the catch-all (no name)
   window.__unhandled = [];
@@ -1309,6 +1314,17 @@ const closeAll = (page) => page.evaluate(() => {
         return press(p9.page);
       };
       const a = await run(null), b = await run('blur'), cc = await run('copy');
+      // (e) the same as (a) by select-and-copy, whose copy event fires inside the press: the record is set AFTER it,
+      // so the sheet's own copy survives its own event. Recording before the copy (or after an await) fails here.
+      await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
+      await setClip(p9.page, 'no');
+      await p9.page.evaluate(() => { window.__execOk = true; });
+      const eFirst = await press(p9.page);
+      await p9.page.waitForTimeout(2100);
+      await setClip(p9.page, 'no');   // both ways refuse now
+      const e = await press(p9.page);
+      check('C9e a select-and-copy survives its own copy event: a refused press of the same text after it says Copied (control: c, a copy event after)',
+        eFirst === 'Invitation copied.' && e === 'Invitation copied.', JSON.stringify({ eFirst, e }));
       check('C9 a refused press after an in-time copy of the same text says Copied; after a blur or a copy event it is refused (controls)',
         a === 'Invitation copied.' && b.startsWith('Kosmos could not copy the invitation.') && cc.startsWith('Kosmos could not copy the invitation.'),
         JSON.stringify({ a, b, cc }));
