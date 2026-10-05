@@ -267,9 +267,9 @@ function tellAgent(sessionName, roster, opts) {
     const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer
     if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
     /* Unchanged is TOLD, not a failure: the block already says this. */
-    if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
+    if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
-    return { state: projects.TOLD.TOLD, because: null };
+    return { state: projects.TOLD.TOLD, because: null, changed: true };   // kosmos#5304: the running agent is owed a re-read
   } catch (err) {
     const raw = (err && err.message) || '';
     return {

@@ -180,10 +180,10 @@ function tellAgent(sessionName, roster, opts) {
     let profile = {};
     try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
     const next = projects.spliceBlock(current.text || '', blockBody(profile), START, END);
-    if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
+    if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const who = profile.reportsTo ? managerName(profile.reportsTo) : personName();
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY.to(who) });
-    return { state: projects.TOLD.TOLD, because: null };
+    return { state: projects.TOLD.TOLD, because: null, changed: true };   // kosmos#5304: the running agent is owed a re-read
   } catch (err) {
     const raw = (err && err.message) || '';
     return {

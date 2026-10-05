@@ -216,9 +216,9 @@ function tellAgent(sessionName, roster, opts) {
     // heal, and the equality short-circuit below still protects the
     // one-deep .previous undo on a no-drift file.
     next = projects.healColleagues(next);
-    if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
+    if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
-    return { state: projects.TOLD.TOLD, because: null };
+    return { state: projects.TOLD.TOLD, because: null, changed: true };   // kosmos#5304: the running agent is owed a re-read
   } catch (err) {
     const raw = (err && err.message) || '';
     return {
