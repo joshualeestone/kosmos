@@ -301,6 +301,17 @@ function tellAgent(sessionName, participating, opts = {}) {
   }
 }
 
+/* A connected agent: its folder is the person's own, recorded outside Kosmos's workers folder. Unknown reads as
+   connected, so the doubt never adds text to someone's project. */
+function connected(sessionName) {
+  try {
+    const path = require('node:path');
+    const c = require('./create');
+    const rel = path.relative(c.workersDir(), c.workerDir(sessionName));
+    return rel === '' || rel.startsWith('..') || path.isAbsolute(rel);
+  } catch { return true; }
+}
+
 /**
  * kosmos#5297: write today's block into every agent of ours that has an instructions file, adding it where there is
  * none, so a change to its text reaches agents that are running. Never removes it (restart and the switch do that), and
@@ -336,6 +347,8 @@ function refreshEveryone(roster, participating) {
     try { cur = instructions.read(a.sessionName); } catch { cur = null; }
     if (cur && !cur.exists && cur.editable === true) continue;   // no file yet: tellAgent never creates one
     if (cur && cur.exists) before = innerOf(cur.text);   // otherwise tellAgent reports why it cannot write
+    // Splinter 11:37: a connected agent's file is the person's own (often a repo file); refresh it, never add to it.
+    if (before === null && connected(a.sessionName)) continue;
     const posted = posts === null ? null : posts.has(String(a.sessionName).trim().toLowerCase());
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
     const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true });

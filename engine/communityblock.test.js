@@ -577,3 +577,26 @@ test('#5297 Splinter 11:16: an agent with no instructions file is skipped, never
   assert.deepEqual(r.map((t) => [t.agent, t.state, t.changed]), [['wyn', projects.TOLD.COULD_NOT, false]]);
   assert.equal(fs.existsSync(dir), false, 'a folder was created');
 });
+
+test('#5297 Splinter 11:37: a CONNECTED agent (its folder is the person\'s own) is refreshed but never added to; CONTROL: a made one is added to', () => {
+  const fleet = require('../test-support/fleet');
+  const status = require('./status');
+  const board = fleet.install([fleet.agent('xia', { state: 'idle' }), fleet.agent('yul', { state: 'idle' })]);
+  let roster;
+  try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const own = fs.mkdtempSync(path.join(SANDBOX, 'persons-repo-'));
+  store.writeProfile('xia', { displayName: 'xia', dir: own });
+  const fx = path.join(own, 'CLAUDE.md');
+  fs.writeFileSync(fx, '# My project\n\nThe person\'s own repo file.\n');
+  const fy = agentFile('yul', '# Yul\n');
+  const before = fs.readFileSync(fx, 'utf8');
+  const told = cb.refreshEveryone(roster, true);
+  assert.equal(fs.readFileSync(fx, 'utf8'), before, 'the block was ADDED to a connected agent\'s own file');
+  assert.ok(!told.some((t) => t.agent === 'xia'), 'a connected agent with no block was reported as written');
+  assert.equal(count(fs.readFileSync(fy, 'utf8'), cb.START), 1, 'CONTROL: a made agent did not get the block');
+  // A connected agent that already carries an old block IS refreshed.
+  fs.writeFileSync(fx, before + '\n' + cb.START + '\n## The Kosmos+ community\n\nAt most one post a day.\n' + cb.END + '\n');
+  const again = cb.refreshEveryone(roster, true);
+  assert.deepEqual(again.filter((t) => t.agent === 'xia').map((t) => [t.changed, t.rulesChanged]), [[true, true]]);
+  assert.ok(!fs.readFileSync(fx, 'utf8').includes('At most one post a day.'));
+});
