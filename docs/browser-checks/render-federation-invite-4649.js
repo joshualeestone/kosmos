@@ -1890,7 +1890,7 @@ const closeAll = (page) => page.evaluate(() => {
       await p9.page.waitForTimeout(150);
       const d = (await step(p9.page)).status;
       check('C9 a held write from a closed sheet that lands under a new code says the clipboard holds that one (control: the same sheet path, C6)',
-        d === 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation again for this code.', d);
+        d === 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation for this code.', d);
       await p9.ctx.close();
     }
 

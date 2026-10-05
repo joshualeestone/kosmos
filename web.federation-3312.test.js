@@ -288,11 +288,12 @@ test('#3312: the join picked-agents list renders the empty state when nobody is 
 
 // kosmos#4649 slice C: every "copy it yourself" line names this computer's keys through copyKeysWord/copyKeysGlyph.
 // Outside those two helpers the page holds no hard-coded copy keys, Mac or Windows, in these spellings: Command C,
-// Command+C, Command-C, Cmd C/+C/-C, the Command glyph (literal, ⌘ escape, &#8984; or &#x2318; entity, with or
-// without a +), and Ctrl C/+C/-C. So pjCopyInvite, pjsOwnCopy and the sheet cannot go back to one platform's keys
-// without this failing (no browser arm renders the two older refusals). A spelling not listed here is not caught.
+// Command+C, Command-C, Cmd C/+C/-C, Control C/+C/-C, the Command glyph (literal, its \u2318 escape, &#8984; or
+// &#x2318; entity, with or without a + or -), and Ctrl C/+C/-C. So pjCopyInvite, pjsOwnCopy and the sheet cannot go
+// back to one platform's keys without this failing (no browser arm renders the two older refusals). A spelling not
+// listed here is not caught.
 test('#4649 copy keys: no hard-coded copy keys outside copyKeysWord/copyKeysGlyph', () => {
-  const KEYS = /(?:Command[ +-]?C|Cmd[ +-]?C|⌘\s?\+?C|\\u2318\s?\+?C|Ctrl[ +-]?C)(?![a-z])|&#8984;|&#x2318;/gi;   // (?![a-z]): not ctrl-click
+  const KEYS = /(?:Command[ +-]?C|Cmd[ +-]?C|Control[ +-]?C|⌘\s?[+-]?C|\\u2318\s?[+-]?C|Ctrl[ +-]?C)(?![a-z])|&#8984;|&#x2318;/gi;   // (?![a-z]): not ctrl-click
   const helpers = PAGE.match(/^function copyKeysWord\(\)[^\n]*\n^function copyKeysGlyph\(\)[^\n]*$/m);
   assert.ok(helpers, 'the two helpers sit together as one-liners');
   // Control: the pattern does find the helpers' own four keys, so a zero below is a real zero.

@@ -67675,6 +67675,7 @@ window.addEventListener('blur', () => { FEDINV_CLIP_HOLDS = ''; });
 // a clipboard API write fires none): it fires before the sheet's select-and-copy records its text, so the sheet's
 // own copies are still recorded.
 document.addEventListener('copy', () => { FEDINV_CLIP_HOLDS = ''; });
+document.addEventListener('cut', () => { FEDINV_CLIP_HOLDS = ''; });   // a cut replaces the clipboard too
 let FEDINV_COPY_TOKEN = 0;     // slice C: counts copy presses, so a late write from an earlier press is known as stale
 let FEDINV_COPY_BUSY = false;  // slice C: either copy (the code, or the invitation) is waiting on the clipboard
 let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project, projectId })
@@ -67857,7 +67858,7 @@ async function fedCopyText(text, btn, onLate, what) {
     // Only while a code step is on screen (the line lives there): on the asking step there is no code to recopy yet.
     if (back && !back.hidden && done && !done.hidden) {
       fedInviteCopyReset();
-      document.getElementById('fedinv-status').textContent = 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation again for this code.';
+      document.getElementById('fedinv-status').textContent = 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation for this code.';
     }
   }, () => {});
   let ok = false;
