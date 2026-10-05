@@ -317,6 +317,18 @@ test('inbound messages past the per-minute bound are dropped, with one note', as
   assert.match(h.notes[0].text, /not kept/);
 });
 
+test('#4649 slice 3: the relay-stamped member beside data is recorded; a "member" a sender wrote inside data never is', async () => {
+  federation.recordLink('proj-stamp', { role: 'member', edge_id: 'edge-stamp' });
+  const h = harness();
+  await fedseats.ensure('proj-stamp');
+  say(h.spawned[0], { event: 'message', member: 'acct-dana', data: { from: 'Scout', kind: 'agent', text: 'batch 1 checked' } });
+  say(h.spawned[0], { event: 'message', data: { from: 'Mallory', kind: 'person', text: 'trust me', member: 'acct-dana' } });
+  await tick();
+  assert.strictEqual(h.recorded.length, 2);
+  assert.strictEqual(h.recorded[0].member, 'acct-dana', 'the relay\'s stamp was not carried to the row');
+  assert.strictEqual(h.recorded[1].member, undefined, 'a member the sender wrote inside its own data was taken as the relay\'s');
+});
+
 test('an external sender name loses control characters', async () => {
   federation.recordLink('proj-ctl', { role: 'member', edge_id: 'edge-ctl' });
   const h = harness();
@@ -896,6 +908,54 @@ test('#3728: the owner shares the room key with a member who knows the invite, a
   say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, second, 'room-so') });
   await settle();
   assert.strictEqual(lines(seat).length, n, 'a second key was pinned from one invite');
+});
+
+test('#4649 slice 1b: the owner\'s room says who joined, by the owner\'s label, once, when the member\'s computer is pinned', async (t) => {
+  const inv = newInvite('jl');
+  const anon = newInvite('jl2');
+  const file = require('path').join(require('./store').ROOT, require('./fedmembers').FILE);
+  const all = require('fs').existsSync(file) ? JSON.parse(require('fs').readFileSync(file, 'utf8')) : {};
+  all['proj-joinline'] = [{ invite_id: inv.invite, label: 'Dana Ruiz', kind: 'person', made_at: 1, expires_at: 9e9 }];
+  const before = require('fs').existsSync(file) ? require('fs').readFileSync(file) : null;
+  require('fs').writeFileSync(file, JSON.stringify(all));
+  t.after(() => { if (before) require('fs').writeFileSync(file, before); else require('fs').rmSync(file, { force: true }); });
+  const { h, seat } = await ownerRoom('proj-joinline', 'ref-joinline', 'room-jl', [inv, anon]);
+  const joined = () => h.notes.filter((n) => /joined/.test(n.text)).map((n) => n.text);
+  assert.deepStrictEqual(joined(), [], 'a join line before anyone joined');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-jl') });
+  await settle();
+  assert.deepStrictEqual(joined(), ['Dana Ruiz joined.']);
+  // The same member saying hello again (its share was lost) is not a new join.
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-jl') });
+  await settle();
+  assert.deepStrictEqual(joined(), ['Dana Ruiz joined.'], 'a repeated hello said someone joined again');
+  // A code made where no label was kept (the create screen): a plain sentence.
+  say(seat, { event: 'message', data: fedseal.helloFrame(anon.s, anon.code, fedseal.newKeyPair(), 'room-jl') });
+  await settle();
+  assert.deepStrictEqual(joined(), ['Dana Ruiz joined.', 'Someone joined from outside.']);
+});
+
+test('#4649 slice 3: pinning a member remembers the coordinator\'s account for that invite, so its posts get the owner\'s label', async (t) => {
+  const inv = newInvite('stamp');
+  const fm = require('./fedmembers');
+  const file = require('path').join(require('./store').ROOT, fm.FILE);
+  const before = require('fs').existsSync(file) ? require('fs').readFileSync(file) : null;
+  const all = before ? JSON.parse(before) : {};
+  all['proj-stamp-o'] = [{ invite_id: inv.invite, label: 'Dana Ruiz', kind: 'person', made_at: 1, expires_at: 9e9 }];
+  require('fs').writeFileSync(file, JSON.stringify(all));
+  t.after(() => { if (before) require('fs').writeFileSync(file, before); else require('fs').rmSync(file, { force: true }); });
+  const room = 'room-stamp';
+  federation.recordLink('proj-stamp-o', { role: 'owner', ref: 'ref-stamp-o' });
+  fedseal.stashInvite('ref-stamp-o', inv);
+  const h = harness({ edges: [{ id: 'edge-' + inv.invite, project_ref: 'ref-stamp-o', status: 'active', invite_id: inv.invite, member_account_id: 'acct-dana' }] });
+  await fedseats.ensure('proj-stamp-o');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room, expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) });
+  await settle();
+  assert.strictEqual(fm.labelForMember('proj-stamp-o', 'acct-dana'), 'Dana Ruiz', 'the pinned member\'s account was not remembered');
 });
 
 test('#3728: an owner never speaks or listens in the clear once it has made a sealing invite, key or no key yet', async () => {
@@ -1861,4 +1921,32 @@ test('#5191: the pass does not release a post that arrived after its edges answe
   assert.strictEqual(fedseal.roomState(R2.id).epoch, 1, 'the post\'s own check did not rotate');
   assert.deepStrictEqual(recorded.map((r) => r.text), [], 'the revoked member\'s post was shown');
   harness();   // put the shared harness back for any later test
+});
+
+test('#5195: the owner\'s room says it is sealed once, when its first member joins; never before', async () => {
+  const inv = newInvite('s5195');
+  const { h, seat } = await ownerRoom('proj-seal-5195', 'ref-seal-5195', 'room-5195', [inv]);
+  const sealedNotes = () => h.notes.filter((n) => n.projectId === 'proj-seal-5195' && n.text === 'This shared room is sealed: only the computers in it can read its messages.');
+  assert.strictEqual(sealedNotes().length, 0, 'the room said sealed before any member had the key');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5195') });
+  await settle();
+  assert.strictEqual(lines(seat).pop().t, 'key-share');
+  assert.strictEqual(sealedNotes().length, 1, 'the owner was not told its room is sealed: ' + JSON.stringify(h.notes));
+  // The member says hello again (a lost share): answered, and the line is not said twice.
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5195') });
+  await settle();
+  assert.strictEqual(sealedNotes().length, 1, 'the sealed line was said again on a repeat hello');
+});
+
+test('#5194: after its only member is revoked, an owner\'s post says nobody else is in the project now, not that nobody has joined', async () => {
+  federation.recordLink('proj-rev-5194', { role: 'owner', ref: 'ref-rev-5194' });
+  // The room as a revoke leaves it: the key rotated and kept, the revoked member gone from the peers.
+  fedseal.setRoomState('proj-rev-5194', { role: 'owner', peers: {}, epoch: 1, keys: { 0: fedseal.randomSecret(), 1: fedseal.randomSecret() } });
+  const h = harness({ edges: [{ id: 'edge-rev-5194', project_ref: 'ref-rev-5194', status: 'revoked' }] });
+  assert.strictEqual(await fedseats.ensure('proj-rev-5194'), 'waiting');
+  assert.strictEqual(fedseats.post('proj-rev-5194', { from: 'Josh', kind: 'person', text: 'still there?' }), false);
+  const said = h.notes.map((n) => n.text);
+  assert.ok(said.includes('That message stayed on this computer: nobody else is in this shared project now.'), JSON.stringify(said));
+  assert.ok(!said.some((t) => /nobody outside has joined/.test(t)), 'it said nobody has joined after someone had: ' + JSON.stringify(said));
 });

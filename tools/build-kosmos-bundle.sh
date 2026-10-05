@@ -631,6 +631,42 @@ case "$_mode_out" in
 esac
 echo "==> native app: it reads this computer's mode, and a connect computer keeps to Kosmos Plus (#4356)"
 
+# ---- a download the page asks for is saved (kosmos#5167) ----------------------
+# Over Kosmos+ the page hands files over as downloads (#4930's attachments, #5165's Files lists).
+# WebKit saves nothing without the app's download delegate, and no browser check can reach that
+# seam. This measures it in a real WKWebView: same-origin downloads land as files with the
+# quarantine mark, and another origin (by link, attachment or redirect) saves nothing.
+# Needs a window server, like the file-picker gate above: skipped LOUDLY on a box with no console.
+# The verdict is the output, not the exit status; a timeout is the gate's fault, tested first.
+if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
+  _dl_rc=0
+  _dl_out="$(perl -e 'alarm 360; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-download-selftest 2>&1)" || _dl_rc=$?
+  printf '%s\n' "$_dl_out" | sed 's/^/    /'
+  case "$_dl_out" in
+    *"download selftest PAGE NEVER LOADED"*)
+      echo "the #5167 download gate's probe page never loaded. Every page load passes this app's download response policy, so this can be the product, not only the gate. Look at the output above." >&2
+      exit 1 ;;
+    *"download selftest TIMED OUT"*)
+      echo "the #5167 download gate did not finish (exit $_dl_rc). It could not judge downloads either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2
+      exit 1 ;;
+    *"rows ran, so this proved nothing"*)
+      echo "the #5167 download gate ran short, so it could not judge downloads either way. This is the gate, not a verdict on the product." >&2
+      exit 1 ;;
+    *"download-check: all good"*)
+      [ "$_dl_rc" -eq 0 ] || { echo "the #5167 download gate reported all good but exited $_dl_rc. Treat that as the gate being broken." >&2; exit 1; } ;;
+    *"download-check:"*)
+      echo "the native app does not save a download the page asks for, or saves one it must not (#5167). Its own rows are above." >&2
+      exit 1 ;;
+    *)
+      [ "$_dl_rc" -eq 142 ] && { echo "the #5167 download gate was stopped by the build's own alarm (360s): it timed out, so it could not judge downloads either way." >&2; exit 1; }
+      echo "the #5167 download gate did not finish (exit $_dl_rc): a crash, a missing binary, a drifted hatch flag, or no local listener. It printed no verdict, so it could not judge downloads." >&2
+      exit 1 ;;
+  esac
+  echo "==> native app: a download the page asks for is saved, and only from the page's own origin (#5167)"
+else
+  echo "==> SKIPPED (no console session): the #5167 download gate needs a window server. Downloads in the app were NOT checked by this build." >&2
+fi
+
 # ---- a connect computer's update look (kosmos#4382) ---------------------------
 # A connect computer runs no board, so the app runs `kosmos update --if-newer` and reads its last
 # line. The reading is pure, with its own rows: an answer it cannot read is unknown, never current.

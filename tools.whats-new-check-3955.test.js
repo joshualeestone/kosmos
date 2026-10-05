@@ -14,11 +14,11 @@ const { spawnSync } = require('node:child_process');
 
 const CHECK = path.join(__dirname, 'tools', 'whats-new-check.js');
 const GOOD = { version: '0.6.98', highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] };
-function run(version, obj) {
+function run(version, obj, extra = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wncheck-'));
   const f = path.join(dir, 'whats-new.json');
   if (obj !== undefined) fs.writeFileSync(f, typeof obj === 'string' ? obj : JSON.stringify(obj));
-  const args = [CHECK].concat(version === undefined ? [] : [version, f]);
+  const args = [CHECK].concat(version === undefined ? [] : [version, f], extra);
   const r = spawnSync(process.execPath, args, { encoding: 'utf8' });
   fs.rmSync(dir, { recursive: true, force: true });
   return r;
@@ -44,6 +44,35 @@ test('#3955: a missing, broken or undrawable file is refused', () => {
   assert.equal(run('0.6.98', { ...GOOD, highlights: [{ icon: 'rocket', title: 'x', line: 'y' }] }).status, 3);
 });
 
+test('#5224: per-platform counts; a cut for a platform with no highlight of its own stops; untagged files say nothing more', () => {
+  const macOnly = { version: '0.6.98', highlights: [{ icon: 'shield', title: 'Stops', line: 'On a Mac, it says so.', platforms: ['mac'] }] };
+  let r = run('0.6.98', macOnly);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /1 highlight\(s\) for 0\.6\.98 \(mac 1, windows 0\)/);
+  assert.match(r.stderr, /so windows shows no "Kosmos has been updated" window/);
+  r = run('0.6.98', macOnly, ['--platform=windows']);
+  assert.equal(r.status, 3, 'a Windows cut with nothing for Windows passed');
+  assert.match(r.stderr, /no highlight for windows.*KOSMOS_CUT_NO_WHATS_NEW=1/);
+  assert.equal(run('0.6.98', macOnly, ['--platform=mac']).status, 0, 'CONTROL: the Mac cut has its highlight');
+  assert.equal(run('0.6.98', GOOD, ['--platform=linux']).status, 2, 'an unknown platform is a usage error');
+  assert.equal(run('0.6.98', macOnly, ['--platform', 'windows']).status, 2, 'a flag without "=" ran with no platform');
+  assert.match(run('0.6.98', macOnly).stderr, /a windows cut of this file will stop/);
+  r = run('0.6.98', GOOD, ['--platform=windows']);
+  assert.equal(r.status, 0);
+  assert.equal(r.stderr, '', 'CONTROL: an untagged file prints no note');
+  assert.match(r.stdout, /\(mac 1, windows 1\)/);
+});
+
+test('#5224: the Mac cut and the Windows build each name their platform to the check', () => {
+  const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
+  const win = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+  const calls = (s) => s.split('\n').filter((l) => /^\s*node .*whats-new-check\.js/.test(l));
+  assert.equal(calls(rel).length, 3);
+  for (const l of calls(rel)) assert.match(l, /--platform=mac\b/, l);
+  assert.equal(calls(win).length, 1);
+  for (const l of calls(win)) assert.match(l, /--platform=windows\b/, l);
+});
+
 test('#3955: a usage error is its own exit (2), not a verdict', () => {
   assert.equal(run(undefined).status, 2);
   assert.equal(spawnSync(process.execPath, [CHECK, 'latest'], { encoding: 'utf8' }).status, 2);
@@ -57,7 +86,7 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   const bump = at('step "== 2. the version, in one place ==');
   assert.ok(b < mine && mine < bump, 'the check does not sit between the versions entry and the bump');
   const block = sh.slice(mine, sh.indexOf('step "== 1c.', mine));
-  assert.match(block, /node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" \|\| exit 1/, 'a refusal does not stop the cut');
+  assert.match(block, /node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" --platform=mac \|\| exit 1/, 'a refusal does not stop the cut');
   assert.match(block, /if \[ "\$\{KOSMOS_CUT_NO_WHATS_NEW:-\}" = "1" \]; then/, 'no hotfix opt-out');
   /* Twice (round 6): at 1b-ii before the bump, and at 2b-ii on the frozen tree (the shared checkout can
      move between them). Counted over the whole file, so a respelled third call cannot slip in. Round 11
@@ -65,9 +94,9 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   assert.equal((sh.match(/whats-new-check\.js[^\n]*\|\| exit 1/g) || []).length, 2, 'the cut checks the highlights some other number of times than twice');
   assert.equal((sh.match(/whats-new-check\.js/g) || []).length, 3, 'a call to the check appeared or went that is neither the two refusals nor the opt-out message');
   // The opt-out's one call informs and never refuses, and is said at both steps (round 12).
-  assert.match(sh, /node "\$1\/tools\/whats-new-check\.js" "\$V" "\$1\/web\/whats-new\.json" >\/dev\/null 2>&1 \|\| rc=\$\?/, 'the opt-out message call can refuse');
+  assert.match(sh, /node "\$1\/tools\/whats-new-check\.js" "\$V" "\$1\/web\/whats-new\.json" --platform=mac >\/dev\/null 2>&1 \|\| rc=\$\?/, 'the opt-out message call can refuse');
   assert.equal((sh.match(/whats_new_optout_note "\$(REPO|BUILD)"/g) || []).length, 2, 'the opt-out is not said at both 1b-ii and 2b-ii');
-  const frozen = at('node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1');
+  const frozen = at('node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" --platform=mac || exit 1');
   const freeze = at('REPO="$BUILD"');
   const suite = at('step "== 3.');
   assert.ok(freeze < frozen && frozen < suite, 'the frozen-tree check does not sit between the freeze and the suite');

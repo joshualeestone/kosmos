@@ -929,6 +929,43 @@ _busy_person_hint() {
   _invoked_by_agent && return 0
   say "If it stays like this for several minutes it may be stuck rather than busy: 'kosmos restart' frees it."
 }
+# kosmos#2600: a board launched DIRECTLY (the nohup path below) runs in the security session of whatever started it,
+# and a remote (SSH) session normally cannot use the login Keychain. `claude auth status` there answers
+# loggedIn:false, so the board shows Claude accounts that keep their sign-in in the Keychain as not signed in while
+# they are signed in on the Mac itself (measured on Mortals 2026-09-30, three arms; cost 14 hours on 09-29). A
+# SUPERVISED start is not affected: launchd starts the login job in the person's desktop session. So this is called
+# only on the direct path, just before it launches.
+# The signal is the question itself, asked read-only of the DEFAULT keychain (the one `claude` reads):
+# `security show-keychain-info`. Measured 2026-10-02 (keychain UNLOCKED in the desktop arms): over SSH it fails with
+# "User interaction is not allowed", rc 36; in the agents' tmux server and in a desktop session it answers, rc 0; a
+# missing keychain is rc 50. Only rc 36 gives the note: any other failure is not this cause, and a wrong note sends a
+# person to fix something that is not broken. A LOCKED keychain, measured 2026-10-04 on a throwaway keychain on a Mac
+# whose screen was locked: rc 152 ("Unable to obtain authorization") in 0.21 s, so no note; SecurityAgent started and
+# exited by itself within seconds. NOT measured: an awake desktop with a person at the screen, where SecurityAgent may
+# draw a password dialog that outlives a cut probe (kosmos#5246, needs a device). The probe is still cut at 3 s, and a
+# cut probe says nothing.
+# Rejected: the SSH variables (tmux copies them into windows of a session that CAN read the Keychain) and
+# `launchctl managername` (it says Background in all three contexts). Advice, never a refusal: a board that is up and
+# wrong beats one that is down. KOSMOS_NO_KEYCHAIN_NOTE=1 silences it (the installer: the board it starts on the
+# direct path is handed to launchd a few steps later, so the note would be wrong). KOSMOS_UNAME and
+# KOSMOS_SECURITY_BIN let a test stand in for macOS and for `security`.
+keychain_note() {
+  [ -n "${KOSMOS_NO_KEYCHAIN_NOTE:-}" ] && return 0
+  [ "${KOSMOS_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ] || return 0
+  local _sec="${KOSMOS_SECURITY_BIN:-security}" _rc=0
+  command -v "$_sec" >/dev/null 2>&1 || return 0
+  { [ -f /usr/bin/perl ] && [ -x /usr/bin/perl ]; } || return 0   # the 3 s cut needs it; a macOS without it simply gets no note (the safe side)
+  # The braces send bash's OWN "killed by a signal" report (on a cut) to /dev/null too, not only the probe's output.
+  { /usr/bin/perl -e 'alarm 3; exec @ARGV' "$_sec" show-keychain-info >/dev/null 2>&1; } 2>/dev/null || _rc=$?
+  [ "$_rc" = 36 ] || return 0
+  if _invoked_by_agent; then
+    say "Note: this Kosmos is starting in a session that cannot read this computer's Keychain, so it may show Claude accounts that are signed in on this computer as not signed in. Tell the person who runs this computer: running \`kosmos restart\` in Terminal on the Mac itself fixes it."
+  else
+    say "Note: this Kosmos is starting in a session that cannot read this computer's Keychain (a remote SSH session is the usual reason), so it may show Claude accounts that are signed in on this computer as not signed in. To fix that, run \`kosmos restart\` in Terminal on the Mac itself."
+  fi
+  return 0
+}
+
 # A DETERRENT, not access control: it stops an agent that follows the CLI's own advice into a restart
 # loop. An agent that passes --force or clears its markers gets through, and so does one launched before
 # #4466 with none of the markers. Never rely on it as a security boundary.
@@ -1168,6 +1205,7 @@ cmd_start() {
     _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
   fi
+  keychain_note   # kosmos#2600: only on this direct path; the supervised start above runs in the desktop session
   say "Bringing the board up."
   _mark_board_started
   # Detached from this terminal, with everything it prints kept in a log so a
@@ -1191,7 +1229,7 @@ cmd_start() {
   # starts the child with SIGINT/SIGQUIT ignored; the board handles SIGINT itself, and in its own group a
   # Ctrl-C in the terminal cannot reach it anyway.
   set -m
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   set +m
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
@@ -1284,7 +1322,7 @@ cmd_board_run() {
   _mark_board_started
   # #4466: the same scrub as cmd_start's nohup launch, so a board-run typed in an agent's pane does not hand
   # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" "$NODE" "$APP"
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" "$NODE" "$APP"
 }
 
 cmd_stop() {

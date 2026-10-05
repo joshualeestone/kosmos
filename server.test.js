@@ -11509,13 +11509,51 @@ test('kosmos#4648: /api/remote/computers is served, and when no signed list can 
   assert.match(body.because, /\w/, 'no reason given');
 });
 
+test('kosmos#4794: the pairing routes are served: GET join answers not-held when not enrolled, HEAD answers, confirm checks the code first', async () => {
+  const st = await req('/api/remote/join');
+  assert.equal(st.status, 200, st.body);
+  assert.deepEqual(JSON.parse(st.body), { supported: true, held: false }, 'an unenrolled board is not joining');
+  const head = await req('/api/remote/join', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  const bad = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ code: 'AB-12' }) });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.parse(bad.body).error, /not the code on this screen/);
+  /* A six-digit code reaches joinConfirm's own gate (this board is not enrolled), which proves the route is wired to it. */
+  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ code: '482 915' }) });
+  assert.equal(wired.status, 400);
+  assert.match(JSON.parse(wired.body).error, /finish the Plus sign-up first/);
+});
+
+test('kosmos#4794 (review): confirming a code and allowing a device are screen-only; deny and remove are not', async () => {
+  /* The code exists for a person to compare. A caller that is not a browser page (no Sec-Fetch-Site, no page
+     Origin), or one presenting an agent token even with the page header, is refused before the code is looked at. */
+  const notPage = { 'content-type': 'application/json' };
+  const agentPage = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'f'.repeat(64) };
+  const pageHeader = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+  /* Third shape: the page header with the agent token in the BODY, which isViaScreen also reads as an agent. */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const c = await req('/api/remote/join/confirm', { method: 'POST', headers, body: JSON.stringify({ code: '482 915', ...extra }) });
+    assert.equal(c.status, 403, 'join/confirm let a process through: ' + c.body);
+    assert.match(JSON.parse(c.body).error, /Only a person at the Kosmos screen can confirm the code/);
+    const a = await req('/api/remote/devices/allow', { method: 'POST', headers, body: JSON.stringify({ device_id: 'dev1', code: '482 915', ...extra }) });
+    assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
+    assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
+  }
+  /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route.
+     The 400 is the bad-id refusal (the id is deliberately invalid), not a success. */
+  for (const verb of ['deny', 'remove']) {
+    const r = await req('/api/remote/devices/' + verb, { method: 'POST', headers: notPage, body: JSON.stringify({ device_id: '../evil' }) });
+    assert.equal(r.status, 400, verb + ' was refused as not-a-person: ' + r.body);
+  }
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');
   assert.equal(pending.snapshot, false);
   for (const verb of ['allow', 'deny', 'remove']) {
     const r = await req('/api/remote/devices/' + verb, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ device_id: '../evil' }),
     });
     assert.equal(r.status, 400, verb + ' accepted an id that is not an id');
@@ -14196,6 +14234,38 @@ test('#4928: a platform number in "also" shows the highlights once; the same wor
   // CONTROL: new words (another main version) are offered.
   fs2.writeFileSync(file, JSON.stringify({ version: '0.0.8', also: [current], highlights: h }));
   assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');
+});
+
+test('#5224: /api/whats-new serves only this platform\'s highlights; all for the other platform is none, and a dismissal keeps the earlier record', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const store2 = require('./engine/store');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-plat-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  const seenFile = nodePath.join(store2.ROOT, 'seen-version.json');
+  let before = null;
+  try { before = fs2.readFileSync(seenFile, 'utf8'); } catch { before = null; }
+  whatsnew.setFileForTests(file);
+  t.after(() => {
+    whatsnew.setFileForTests(null);
+    fs2.rmSync(dir, { recursive: true, force: true });
+    if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
+  });
+  fs2.writeFileSync(seenFile, JSON.stringify({ version: '0.0.1' }) + '\n');   // a known record: no earlier dismissal hides these words
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const other = whatsnew.platformOf(process.platform) === 'windows' ? 'mac' : 'windows';
+  const elsewhere = { icon: 'shield', title: 'Elsewhere', line: other === 'mac' ? 'On a Mac, it says so.' : 'On a Windows PC, it says so.', platforms: [other] };
+  const everywhere = { icon: 'spark', title: 'A thing', line: 'It does a thing.' };
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [elsewhere, everywhere] }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, [everywhere], 'the other platform\'s highlight was served here');
+  // The earlier record, then a file whose every highlight is for the other platform: none, and the record is kept.
+  fs2.writeFileSync(seenFile, JSON.stringify({ version: '0.0.1', highlightsFor: '0.0.5' }) + '\n');
+  fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [elsewhere] }));
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a window would open with nothing for this platform');
+  const r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.5', 'words never shown here replaced the record');
 });
 
 /* ------------------------------------------------------------------------- *

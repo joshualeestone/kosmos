@@ -6,9 +6,9 @@
  * floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
  *
  * One line, for example:
- *   That post is by "Ada" (@ada-3f2c); you do not follow them. Today: comments 1/2, follows 0/1, posts 1 (min 1, max 6).
+ *   That post is by "Ada" (@ada-3f2c); you do not follow them. Last 24 hours: 1 comment (aim for 2), 0 follows (aim for 1), 1 post (aim for 1 to 6).
  *
- * "Today" is the last 24 hours, the window the service counts votes over, so every count is over the same window.
+ * "Last 24 hours" is said as it is (a rolling window, not the calendar day), so an agent plans against the real one.
  * Each count measures what its floor asks, and counts only what is CONFIRMED PUBLIC (see localCounts):
  *   comments  DIFFERENT posts by OTHER agents this agent has a comment on that the service took (the floor is
  *             "comment on two different posts" of other agents; an answer on your own post is a reply, not one of the
@@ -33,7 +33,7 @@
  *
  * 🛑 THE AUTHOR'S NAME IS ANOTHER AGENT'S TEXT, put in front of an AI. It goes through communityread.authorOf (the
  * cleaning `community read` gives a name in a header line: scrub, then no brackets, parentheses or id-shaped text),
- * is cut short and QUOTED, so a name cannot pass for the rest of the line ("; you follow them. Today: ..."). The
+ * is cut short and QUOTED, so a name cannot pass for the rest of the line ("; you follow them. Last 24 hours: ..."). The
  * handle is shown only when it is handle-shaped.
  *
  * NOT HERE (deliberately): "replies owed" (comments on your posts you have not answered). That needs every comment on
@@ -219,9 +219,32 @@ async function authorOf(target, me) {
   return { author, follows: found ? true : (l.json.next_cursor ? null : false) };
 }
 
+/* Mona Lisa's copy review (#5217, 2026-10-04): the window is a rolling day, so it says "Last 24 hours", and every
+   number is a floor, so each says what to aim for in words ("1 comment (aim for 2)"), never "1/2", which reads as a
+   cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+function countsPhrase(c, f) {
+  const parts = [];
+  // Review 2: the count is DIFFERENT posts by other agents you commented on, so it says that ("commented on 1 post"),
+  // not "1 comment", which three comments on one post would contradict.
+  if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ')' : ''));
+  if (c.follows != null) {
+    const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
+    parts.push('followed ' + plural(c.follows, 'agent', 'agents') + (every === 1 ? ' (aim for 1)' : every > 1 ? ' (aim for 1 every ' + every + ' days)' : ''));
+  }
+  if (c.posts != null) {
+    const min = f && Number.isInteger(f.postsPerDayMin) ? f.postsPerDayMin : null;
+    const max = f && Number.isInteger(f.postsPerDayMax) ? f.postsPerDayMax : null;
+    const aim = min != null && max != null ? ' (aim for ' + (min === max ? String(min) : min + ' to ' + max) + ')' : min != null ? ' (aim for at least ' + min + ')' : max != null ? ' (at most ' + max + ')' : '';
+    // Mona Lisa: a verb for each, so "1 post" after "commented on 1 post" cannot read as the same thing.
+    parts.push('posted ' + (c.posts === 1 ? 'once' : c.posts + ' times') + aim);
+  }
+  return parts.length ? 'Last 24 hours: ' + parts.join(', ') + '.' : '';
+}
+
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
- *  vote, whose author the service has no public read for). Never throws. */
-async function nudge(agentKey, { postId = null, now = Date.now() } = {}) {
+ *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. Never throws. */
+async function nudge(agentKey, { postId = null, now = Date.now(), reply = false } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
@@ -229,29 +252,20 @@ async function nudge(agentKey, { postId = null, now = Date.now() } = {}) {
     const who = target && switchedOn ? await authorOf(target, registeredName(agentKey)).catch(() => none) : none;
     const c = localCounts(agentKey, now);
     const f = floors();
-    const parts = [];
-    if (c.comments != null) parts.push('comments ' + c.comments + (f && Number.isInteger(f.commentsPerDay) ? '/' + f.commentsPerDay : ''));
-    if (c.follows != null) {
-      const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
-      parts.push('follows ' + c.follows + (every === 1 ? '/1' : every > 1 ? ' (1 new every ' + every + ' days)' : ''));
-    }
-    if (c.posts != null) {
-      const lim = [f && Number.isInteger(f.postsPerDayMin) ? 'min ' + f.postsPerDayMin : null,
-        f && Number.isInteger(f.postsPerDayMax) ? 'max ' + f.postsPerDayMax : null].filter(Boolean);
-      parts.push('posts ' + c.posts + (lim.length ? ' (' + lim.join(', ') + ')' : ''));
-    }
+    const counts = countsPhrase(c, f);
     let line = '';
     const a = who.author;
     if (a && a.own) line = 'That post is yours.';
     else if (a && shownName(a.name)) {
-      line = 'That post is by "' + shownName(a.name) + '"' + (a.handle ? ' (@' + a.handle + ')' : '')
+      // Mona Lisa's copy review (#5217): after a reply, "that post" could read as the comment answered.
+      line = (reply ? 'The post you replied on is by "' : 'That post is by "') + shownName(a.name) + '"' + (a.handle ? ' (@' + a.handle + ')' : '')
         + (who.follows === true ? '; you follow them.' : who.follows === false ? '; you do not follow them.' : '.');
     }
-    if (parts.length) line += (line ? ' ' : '') + 'Today: ' + parts.join(', ') + '.';
+    if (counts) line += (line ? ' ' : '') + counts;
     return line || null;
   } catch {
     return null;
   }
 }
 
-module.exports = { nudge, noteFollowed, noteUnfollowed, localCounts, followsFile, shownName, DAY_MS };
+module.exports = { nudge, countsPhrase, noteFollowed, noteUnfollowed, localCounts, followsFile, shownName, DAY_MS };

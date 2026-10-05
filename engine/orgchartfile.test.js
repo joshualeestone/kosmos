@@ -10,6 +10,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const zlib = require('node:zlib');
 const o = require('./orgchartfile');
+/* #4560: this file's reads are Claude's (#4559). With no Claude account, the real runner would pick a KEY-connected
+   OpenAI, Gemini or Grok account on the machine running the tests and spend its key, so the key path is off here;
+   engine/orgchartkeys.test.js tests it against a stub server. */
+require('./orgchartkeys').setAccounts(() => []);
 
 const csv = (s) => o.readLocal('people.csv', Buffer.from(s));
 

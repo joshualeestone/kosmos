@@ -355,7 +355,8 @@ async function invite(remote, body) {
   try { fedseal.stashInvite(body.project_ref, { s, code: r.data.code, invite: r.data.invite_id }); } catch (err) {
     return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
   }
-  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at } };
+  // #4649: invite_id lets the owner's Members list tie this code to the connection redeemed from it.
+  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at, invite_id: r.data.invite_id } };
 }
 
 /** Redeem a code into a connection and show the owner's read-only snapshot. */

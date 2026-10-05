@@ -7,6 +7,7 @@
  * ruled, user-facing wording. Its shape:
  *
  *   {"version":"0.6.98","highlights":[{"icon":"spark","title":"...","line":"..."}]}
+ *   (a highlight about one platform adds "platforms":["mac"] or ["windows"], #5224 below)
  *
  * #4928: a platform cut on another number from the same work (Windows on 0.7.13 while the Mac is on
  * 0.7.16) is named in an optional "also": ["0.7.13"], so the same highlights show on both. Without it
@@ -16,6 +17,12 @@
  * One definition of "a file the window can show", used twice: by the board (read, below, which
  * serves nothing it cannot draw) and by the cut (tools/whats-new-check.js, which refuses a cut
  * whose file is not for the version being cut).
+ *
+ * #5224: a highlight that is about one platform carries "platforms": ["mac"] (or ["windows"]), and
+ * the board shows it only on that platform. A title or line that names a platform (PLATFORM_WORDS) must
+ * carry a tag listing exactly the platforms it names, so a Windows user is never told about their Mac. A
+ * highlight with no tag shows everywhere. The words are a list, not a guarantee: "Finder" or "Start menu"
+ * name no platform here, so whoever writes the file still reads it as each platform's user.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -32,6 +39,28 @@ const MAX_LINE = 140;    // one sentence of about 90 to 120
 const EM_DASH = /\u2014|&mdash;|&#8212;|&#x2014;/i;
 /* A version like 0.6.98: the one pattern for this module and tools/whats-new-check.js (round 12). */
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
+/* #5224: the platforms a highlight can be for, and the words that name each. */
+const PLATFORMS = Object.freeze(['mac', 'windows']);
+/* Matched in any case ("macos", "MacOS", "PCS", and "MAC" too), except the all-lower-case words in
+   NOT_PLATFORM_WORDS. So a careless "on a mac" or "on windows" is NOT caught. "OS X" is matched as a pair. */
+const PLATFORM_WORDS = Object.freeze({
+  mac: ['Mac', 'Macs', 'macOS', 'MacOSX', 'Macintosh', 'MacBook', 'MacBooks', 'iMac', 'iMacs', 'OSX'],
+  windows: ['Windows', 'PC', 'PCs'],
+});
+const NOT_PLATFORM_WORDS = Object.freeze(['mac', 'macs', 'windows']);
+
+/** #5224: the platforms a text names, in PLATFORMS order (runs of ASCII letters: "Mac's" and "MacOS" are Mac, "mac" is not). */
+function platformsNamed(text) {
+  const s = String(text);
+  const words = new Set(s.split(/[^A-Za-z]+/).filter((w) => !NOT_PLATFORM_WORDS.includes(w)).map((w) => w.toLowerCase()));
+  if (/\bOS[\s\u00a0]+X\b/i.test(s)) words.add('osx');   // callers pass the title and the line separately, so they cannot join into "OS X"
+  return PLATFORMS.filter((p) => PLATFORM_WORDS[p].some((w) => words.has(w.toLowerCase())));
+}
+
+/** #5224: the board's platform as a PLATFORMS value, or null on any other (only untagged highlights show there). */
+function platformOf(nodePlatform) {
+  return nodePlatform === 'darwin' ? 'mac' : nodePlatform === 'win32' ? 'windows' : null;
+}
 
 /** Every problem with a parsed file, as sentences; an empty list means it is good for `version`. */
 function problems(obj, version) {
@@ -58,6 +87,23 @@ function problems(obj, version) {
       if (v.length > max) out.push(n + '\'s ' + key + ' is ' + v.length + ' characters (at most ' + max + ')');
       if (EM_DASH.test(v)) out.push(n + '\'s ' + key + ' has an em dash');
     }
+    const tag = x.platforms;
+    if (tag !== undefined && (!Array.isArray(tag) || tag.length < 1 || tag.some((p) => !PLATFORMS.includes(p))
+        || new Set(tag).size !== tag.length)) {
+      out.push(n + '\'s "platforms" is not a list drawn from ' + PLATFORMS.join(', '));
+      return;
+    }
+    const named = PLATFORMS.filter((p) => [x.title, x.line].some((t) => typeof t === 'string' && platformsNamed(t).includes(p)));
+    if (named.length && tag === undefined) {
+      out.push(n + ' names ' + named.join(' and ') + ' but has no "platforms", so it would show on every platform:'
+        + ' tag it with the platforms it is about, or reword it if it is not about one');
+    } else if (named.length && named.some((p) => !tag.includes(p))) {
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names ' + named.join(' and ')
+        + ': reword it to name only the platforms it is for');
+    } else if (named.length && tag.some((p) => !named.includes(p))) {
+      out.push(n + ' is for ' + tag.join(' and ') + ' but names only ' + named.join(' and ')
+        + ': take the other platform out of its "platforms", or name it in the line');
+    }
   });
   return out;
 }
@@ -66,13 +112,23 @@ function problems(obj, version) {
  * The highlights to show for `version`, or null: null when there is no file, it cannot be read,
  * it is for another version (last release's text can never appear), or it has any problem.
  */
-function read(version, file) {
-  const got = readFull(version, file);
+function read(version, file, nodePlatform) {
+  const got = readFull(version, file, nodePlatform);
   return got && got.highlights;
 }
 
-/** read(), with the file's main "version" from the same parse (#4928): { key, highlights } or null. */
-function readFull(version, file) {
+/** #5224: how many highlights each platform shows, e.g. { mac: 5, windows: 3 } (for the cut's report). Takes a file problems() passed. */
+function countsByPlatform(obj) {
+  const out = {};
+  for (const p of PLATFORMS) out[p] = obj.highlights.filter((x) => x.platforms === undefined || x.platforms.includes(p)).length;
+  return out;
+}
+
+/**
+ * read(), with the file's main "version" from the same parse (#4928): { key, highlights } or null.
+ * #5224: only the highlights for `nodePlatform` (default: this process's), and null when none are left.
+ */
+function readFull(version, file, nodePlatform = require('./platform').describe().platform) {   // the platform server.js stamps on the page
   const at = file || fileForTests || FILE;
   let raw;
   try { raw = fs.readFileSync(at, 'utf8'); } catch (e) {
@@ -88,7 +144,10 @@ function readFull(version, file) {
     if (!(bad.length === 1 && /^it is for /.test(bad[0]))) logOnce(at + ': ' + bad[0]);
     return null;
   }
-  return { key: obj.version, highlights: obj.highlights.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() })) };
+  const here = platformOf(nodePlatform);
+  const shown = obj.highlights.filter((x) => x.platforms === undefined || x.platforms.includes(here));
+  if (!shown.length) return null;
+  return { key: obj.version, highlights: shown.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() })) };
 }
 
 /**
@@ -96,8 +155,8 @@ function readFull(version, file) {
  * file's "also" show the SAME words, so the board records this key when a window is dismissed and does not
  * open the same words again on the next number (Windows on 0.7.13, then 0.7.16, from one file).
  */
-function key(version, file) {
-  const got = readFull(version, file);
+function key(version, file, nodePlatform) {
+  const got = readFull(version, file, nodePlatform);
   return got ? got.key : null;
 }
 
@@ -111,4 +170,4 @@ function logOnce(line) {
 }
 function setFileForTests(f) { fileForTests = f || null; lastLogged = null; }
 
-module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, readFull, key, setFileForTests };
+module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, PLATFORMS, PLATFORM_WORDS, platformsNamed, platformOf, countsByPlatform, problems, read, readFull, key, setFileForTests };
