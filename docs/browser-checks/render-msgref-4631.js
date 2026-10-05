@@ -87,20 +87,35 @@ async function paintRoom(page) {
         bd.dispatchEvent(ev); return { taken: ev.defaultPrevented, touch: matchMedia('(hover: none)').matches };
       });
       chk(touchTaken.touch && touchTaken.taken === false, '[touch] R11 a long-press on a touchscreen keeps the system menu', JSON.stringify(touchTaken));
-      // C6: both copy buttons on a thumb's bar, each a room-sized target, and the bar inside the phone's width. Opened by
-      // a real tap on the message, so the page's own placement runs (a class added by hand skips it).
+      /* C6: on a touchscreen the bar keeps #4409's seven buttons (an eighth covered the corner of the message under it, so a
+         tap meant to close the bar hit Reply): Copy opens the menu with both, and a phone has no right-click to reach it
+         otherwise. Opened by a real tap on the message, so the page's own placement runs. */
+      await page.evaluate(() => { window.__copied = []; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
       const tp = await page.evaluate(() => { const bd = document.querySelector('#pj-room .msg[data-mid="m530"] .msg-bd'); const r = bd.getBoundingClientRect(); return { x: r.right - 12, y: r.bottom - 6 }; });
       await page.touchscreen.tap(tp.x, tp.y);
       await page.waitForTimeout(250);
       const c6 = await page.evaluate(() => {
-        const row = document.querySelector('#pj-room .msg[data-mid="m530"]');
+        const row = document.querySelector('#pj-room .msg[data-mid="m530"]'); const room = document.getElementById('pj-room');
         const q = row.querySelector('.rxn-quick'); const qr = q.getBoundingClientRect();
-        const b = (sel) => { const r = q.querySelector(sel).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
-        return { open: row.classList.contains('rxn-show'), copy: b('.rxn-copy'), id: b('.rxn-ref'), barW: Math.round(qr.width), barH: Math.round(qr.height),
-          left: Math.round(qr.left), right: Math.round(qr.right), vw: innerWidth };
+        const inL = room.getBoundingClientRect().left + room.clientLeft; const inR = inL + room.clientWidth;
+        const shown = [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]);
+        const cp = q.querySelector('.rxn-copy').getBoundingClientRect();
+        return { open: row.classList.contains('rxn-show'), shown: shown.join(','), copy: [Math.round(cp.width), Math.round(cp.height)], barH: Math.round(qr.height),
+          inside: qr.left >= inL - 0.5 && qr.right <= inR + 0.5, bar: [Math.round(qr.left), Math.round(qr.right)], thread: [Math.round(inL), Math.round(inR)] };
       });
-      chk(c6.open && c6.copy[0] >= 36 && c6.copy[1] >= 36 && c6.id[0] >= 36 && c6.id[1] >= 36 && c6.left >= 0 && c6.right <= c6.vw && c6.barH < 50,
-        '[touch] C6 a tapped-open bar has both copy buttons as room-sized targets, on one line, inside the phone', JSON.stringify(c6));
+      chk(c6.open && c6.shown === 'rxn-copy,rxn-pick,rxn-pick,rxn-pick,rxn-more,rxn-speak,rxn-reply' && c6.copy[0] >= 36 && c6.copy[1] >= 36 && c6.barH < 50 && c6.inside,
+        '[touch] C6 a tapped-open bar keeps seven buttons (Copy, no Copy message id), Copy a room-sized target, on one line inside the thread', JSON.stringify(c6));
+      await page.locator('#pj-room .msg[data-mid="m530"] .rxn-copy').tap();
+      await page.waitForTimeout(150);
+      const c6m = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return m ? { shown: !m.hidden, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|'),
+        open: !!document.querySelector('#pj-room .msg.rxn-show'), copied: window.__copied.slice() } : null; });
+      chk(c6m && c6m.shown && c6m.items === 'Copy message|Copy message id' && c6m.copied.length === 0,
+        '[touch] C6 Copy opens the menu with Copy message and Copy message id (and copies nothing yet)', JSON.stringify(c6m));
+      if (c6m && c6m.shown) {
+        await page.locator('#msg-menu-copy').tap(); await page.waitForTimeout(150);
+        const idCopied = await page.evaluate(() => window.__copied.slice());
+        chk(idCopied[0] === 'message 530 in Kosmos Growth', '[touch] C6 Copy message id in that menu copies the reference', JSON.stringify(idCopied));
+      }
       await ctx.close();
     }
     for (const platform of ['Win32', 'MacIntel']) {
@@ -310,6 +325,11 @@ async function paintRoom(page) {
           const row = t.lastElementChild; const out = msgCopyText(row); row.remove(); DM_ROWS = new Map(); return out;
         }, at(5));
         chk(c5 === 'April: the record says this\nand this', tag + 'C5 a direct-conversation row copies its record\'s words', JSON.stringify(c5));
+        /* A row a repaint detached while the menu was open is in neither thread: it copies its own words, never a DM record
+           that happens to share its id. */
+        const c5d = await page.evaluate(() => { const row = document.querySelector('#pj-room .msg[data-mid="m530"]'); const clone = row.cloneNode(true);
+          DM_ROWS = new Map([['x', { id: 'm530', at: 'x', text: 'A DIFFERENT MESSAGE' }]]); const out = msgCopyText(clone); DM_ROWS = new Map(); return out; });
+        chk(c5d === 'The AtlasGrid deck is ready for review.', tag + 'C5 a detached room row copies its own words, not a DM record with the same id', JSON.stringify(c5d));
         const dmTaken = await page.evaluate(() => { const row = document.querySelector('#d-dmthread .msg.you .msg-bd'); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }); row.dispatchEvent(ev); return ev.defaultPrevented; });
         chk(dmTaken === true, tag + "R6 right-click works on the person's own DM row too (it has no hover bar)", String(dmTaken));
         await page.keyboard.press('Escape');

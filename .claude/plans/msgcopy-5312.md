@@ -12,7 +12,8 @@ are Josh's words; a long message copies in full; attachments copy as their file 
 - Copy message id copies #4631's reference ("message 530 in Kosmos Growth"), unchanged.
 - Right-click (and ctrl-click on Windows) opens a menu with both, Copy message first and focused; the arrow keys move
   between them. An outside guest's row (no id) offers Copy message alone.
-- On a 375px phone the touch bar stays one line inside the thread.
+- On a touchscreen the bar keeps #4409's seven buttons: its Copy button opens the menu with both items (a phone has
+  no right-click, and an eighth button made the DM's open bar cover the person's own message under it).
 - render-msgref-4631.js asserts all of it (C1 to C6) on Windows and Mac platforms, a touchscreen, and real WebKit.
 
 ## Decided
@@ -21,10 +22,12 @@ are Josh's words; a long message copies in full; attachments copy as their file 
   what the row shows, without its name, tag, time and buttons.
 - The copy icon (two sheets) moved to Copy message; Copy message id wears a # with its faint number.
 - A failed copy's toast never shows the words (a message can be long); it says to select and copy instead.
-- Touch bar gap 4px to 2px, and read aloud's 4px margin dropped on touch: eight 36px buttons are 308px, inside a 375px
-  phone's 311px thread. Rejected: smaller targets (the room's 36px is #3811's), and hiding a button on a phone (Josh
-  asked for both on the phone page too).
+- On a touchscreen Copy opens the menu (Copy message, Copy message id) and Copy message id is not in the bar. Tried
+  first: eight buttons with the gap at 2px (308px, one line in a 375px thread), but the DM's open bar then covered the
+  visible corner of the person's own message under it, so a tap meant to close the bar hit Reply
+  (render-dm-tapreact-718). Rejected: smaller targets (the room's 36px is #3811's).
+- A row a repaint detached (the menu was open) is in neither thread, so no store is guessed: it copies its own words.
 
 ## Weakest premise
-That 308px in a 311px thread is enough margin. A 360px phone's thread is narrower, and there the bar wraps to two rows
-(pjRxnFitWidth's existing behaviour), which is usable but taller.
+That a phone user finds Copy message one tap further in (Copy, then Copy message) acceptable. Josh asked for two
+buttons; on a phone it is one button and a two-item menu, so the bar does not cover the message under it.

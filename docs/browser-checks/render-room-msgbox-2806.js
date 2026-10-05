@@ -1271,7 +1271,7 @@ function tapProbe4663(skip) {
         const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
         const size = (el) => { const r = el.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); };
         return { tapPx: parseFloat(getComputedStyle(room).getPropertyValue('--room-tap')), inside: Q.left >= R.left && Q.right <= R.right + 1 && Q.top >= R.top, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)],
-          buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
+          /* shown ones (#5312: Copy message id is not in a touch bar) */ buttons: [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
       });
       chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
       chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 6 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
