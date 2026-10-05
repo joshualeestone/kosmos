@@ -100,6 +100,9 @@
  *      invitation. ...", the button keeps its words, the sheet stays open, and nothing throws. Control: C1 says Copied.
  *  C5  a page loaded as Windows (navigator.platform Win32) names Ctrl C and Ctrl+C in the copy-yourself lines;
  *      control: the same page loaded as a Mac (MacIntel) names Command C and the Command glyph.
+ *  C5b on a Windows page the bare Copy's real refusal renders "Press Ctrl+C to copy" and "... press Ctrl C.".
+ *  C6  a clipboard that never answers: nothing said while it waits, the bare Copy ignored, the 3 s limit's refusal,
+ *      then the late write lands and the line says Copied.
  *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
  *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
@@ -1097,9 +1100,8 @@ const closeAll = (page) => page.evaluate(() => {
     check('C3 control: the same finder finds nothing for a phrase the page does not have', none === null, String(none));
     await ctx.close();
 
-    /* C5: a Windows page names Ctrl C (Mona: Command C is wrong on Windows). The helper serves all four copy-yourself
-       lines (the invite sheet's two, pjCopyInvite's and the create form's), so this arm covers them. Control: a Mac
-       page (MacIntel) names Command C, whatever the runner is. */
+    /* C5: the helper names Ctrl C on a Windows page (Mona: Command C is wrong on Windows). Control: a Mac page
+       (MacIntel) names Command C, whatever the runner is. C5b then checks a real refusal line renders it. */
     {
       const words = {};
       for (const plat of ['Win32', 'MacIntel']) {
@@ -1110,6 +1112,55 @@ const closeAll = (page) => page.evaluate(() => {
       check('C5 Windows names Ctrl C and Ctrl+C; the Mac names Command C and \u2318C (control)',
         words.Win32.word === 'Ctrl C' && words.Win32.glyph === 'Ctrl+C' && words.MacIntel.word === 'Command C' && words.MacIntel.glyph === '\u2318C',
         JSON.stringify(words));
+      // C5b: on a Windows page, the bare Copy's real refusal (clipboard and select-and-copy both failing) renders
+      // Windows keys in its button and line, so a site that went back to a hard-coded Command C fails here.
+      const pw = await newPage(1280, SHOW, 'Win32');
+      await openProjectIn(pw.page, 'tabs');
+      await makeCode(pw.page, 'Dana Ruiz');
+      await pw.page.evaluate(() => {
+        window.__execOk = false;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } });
+      });
+      await pw.page.click('#fedinv-copy');
+      await pw.page.waitForTimeout(100);
+      const win = await step(pw.page);
+      check('C5b a Windows page\'s bare Copy refusal says Ctrl+C and Ctrl C (control: C5\'s Mac page names Command C)',
+        win.copyText === 'Press Ctrl+C to copy' && win.status === 'Kosmos could not copy it. Select the code and press Ctrl C.',
+        JSON.stringify({ copy: win.copyText, status: win.status }));
+      await pw.ctx.close();
+    }
+
+    /* C6: the clipboard that never answers. Select-and-copy fails, the clipboard is held: the line says nothing for the
+       first 3 s, the bare Copy is ignored while it waits (one answer at a time), then the 3 s limit says it could not
+       copy; when the held write finally lands, the line says Copied (plusCopyAddress's rule). */
+    {
+      const pc = await newPage(1280, SHOW);
+      await openProjectIn(pc.page, 'tabs');
+      await owner(pc.page, 'Maya Chen', 'maya');
+      await makeCode(pc.page, 'Dana Ruiz');
+      await pc.page.evaluate(() => {
+        window.__execOk = false;
+        window.__copied.length = 0;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (txt) => new Promise((ok) => { window.__releaseClip = () => { window.__copied.push(txt); ok(); }; }) } });
+      });
+      await pc.page.click('#fedinv-copy-all');
+      await pc.page.waitForTimeout(300);
+      const waiting = await step(pc.page);
+      await pc.page.click('#fedinv-copy');   // ignored while Copy the invitation waits
+      await pc.page.waitForTimeout(100);
+      const bareWhileBusy = await step(pc.page);
+      await pc.page.waitForTimeout(3000);
+      const limit = await step(pc.page);
+      await pc.page.evaluate(() => window.__releaseClip());
+      await pc.page.waitForTimeout(150);
+      const late = await step(pc.page);
+      check('C6 a held clipboard: nothing said while it waits, the bare Copy ignored, the 3 s limit says it could not copy, a late write says Copied',
+        waiting.status === '' && waiting.allText === 'Copy the invitation'
+        && bareWhileBusy.status === '' && bareWhileBusy.copyText === 'Copy'
+        && limit.status.startsWith('Kosmos could not copy the invitation.')
+        && late.status === 'Invitation copied.' && late.allText === 'Copied' && late.copied.length === 1 && late.copied[0] === invitation('Maya Chen (' + ADDR + ')'),
+        JSON.stringify({ waiting: waiting.status, bare: [bareWhileBusy.status, bareWhileBusy.copyText], limit: limit.status, late: [late.status, late.allText, late.copied.length] }));
+      await pc.ctx.close();
     }
 
     // C0 with a label that is not a name: they/their, never "my's".

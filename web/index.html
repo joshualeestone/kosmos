@@ -67725,9 +67725,10 @@ function fedInviteCopyReset() {
    Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
   // One line each: a name or project with a newline or a control character must not break the invitation's lines.
-  // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, zero-width
-  // characters, the BOM), so a name cannot visually reorder or hide text in the paste.
-  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b-\u200f\u061c\ufeff]/g, '').replace(/[\u0080-\u009f]/g, ' ').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+  // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, the zero-width
+  // space, the BOM), so a name cannot visually reorder or hide text in the paste. ZWNJ and ZWJ stay: some Persian
+  // and Indic names and emoji sequences need them.
+  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b\u200e\u200f\u061c\ufeff]/g, '').replace(/[\u0080-\u009f]/g, ' ').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
   const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '');
   const fm = FED_MEMBERS;
   const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
@@ -67778,7 +67779,7 @@ async function fedInviteCopyAll() {
         }
       }, () => {});
     }
-    finally { if (limit) clearTimeout(limit); FEDINV_COPY_BUSY = false; }
+    finally { if (limit) clearTimeout(limit); if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }   // not a reopened sheet's flag
     if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
   }
   fedInviteCopyReset();
