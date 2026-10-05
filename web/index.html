@@ -34078,7 +34078,7 @@ function fedGateStamp(data) {
   /* kosmos#4649 slice B: the "From outside" section. A gate that leaves "show" closes an open outside
      removal. On "show" (every status poll) it asks for the members answer when there is none for the open
      project or it is stale (30 s unchecked or failed, 60 s checked), and otherwise repaints the section. */
-  if (typeof fedGateMembers === 'function') fedGateMembers(mode === 'show');
+  if (typeof fedGateMembers === 'function') fedGateMembers(mode === 'show', mode);
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
    no hardcoded domain (Josh's ruling: the Plus section owns where sign-up goes). */
@@ -67920,7 +67920,12 @@ function fedOutsideHtml() {
   const fm = FED_MEMBERS;
   if (!fm || fm.project !== PJ_CURRENT || !PJ_CURRENT || !fedShow()) return '';
   const body = fm.body || {};
-  if (fm.ok && (body.owner !== true || body.self_shared === true)) return '';
+  if (fm.ok && (body.owner !== true || body.self_shared === true)) {
+    // Not the owner's list (any more): no section. A sentence a Remove or Withdraw left (its not-owner or
+    // self-shared refusal, which asked the list again) is still shown, alone, rather than vanishing with it.
+    const left = Object.values(FED_MSGS).filter(Boolean);
+    return left.length ? '<p class="fmsg fedout-msg">' + esc(left.join(' ')) + '</p>' : '';
+  }
   const rows = fm.ok ? fedOutsideRows(body) : [];
   // A failed REFRESH that kept an answer with no rows says nothing: there is nothing on screen to be out of date,
   // and the line would appear for every owner who never invited anyone whenever one poll fails. A failed FIRST
@@ -67972,7 +67977,8 @@ function fedMembersReset() {
 }
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;
-  if (!FED_MEMBERS || FED_MEMBERS.project !== project) fedMembersReset();
+  // Another project's answer: start over (openProject has already done so on entry; this covers any other caller).
+  if (FED_MEMBERS && FED_MEMBERS.project !== project) fedMembersReset();
   const seq = ++FED_MEMBERS_SEQ;
   FED_MEMBERS_ASKING = project;
   let entry;
@@ -68006,9 +68012,11 @@ async function fedMembersLoad(project) {
   fedOutsidePaint(false);
 }
 // Called by fedGateStamp on every gate stamp.
-function fedGateMembers(show) {
+function fedGateMembers(show, mode) {
   if (!show) {
-    if (MEM_PENDING && MEM_PENDING.fed) memConfirmClose();
+    // Only "hidden" closes an open outside Remove: a passing "signup" reading is one poll, and closing the dialog
+    // under the person (its request going on) for that would be the opposite of the invite sheet's rule.
+    if (MEM_PENDING && MEM_PENDING.fed && mode !== 'signup') memConfirmClose();
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
     return;
   }

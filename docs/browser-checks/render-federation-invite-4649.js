@@ -1143,6 +1143,18 @@ const closeAll = (page) => page.evaluate(() => {
     const openAfter = (await modal(page)).open;
     check('B11b the gate leaving "show" closes an open outside Remove (control: open just before)', openBefore === true && openAfter === false,
       JSON.stringify({ openBefore, openAfter }));
+    // B11c: a passing "signup" reading leaves an open outside Remove open (control: B11b, "hidden" closes it).
+    await page.evaluate((d) => { fedGateStamp(d); paintAgentList(); }, SHOW);   // the poll's own rail paint
+    await page.waitForTimeout(150);
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
+    await page.waitForTimeout(100);
+    const sBefore = (await modal(page)).open;
+    await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: true, kosmos_plus: false }));
+    await page.waitForTimeout(100);
+    const sAfter = (await modal(page)).open;
+    await page.click('#mem-keep');
+    check('B11c a passing signup reading leaves an open outside Remove open (control: B11b, hidden closes it)', sBefore === true && sAfter === true,
+      JSON.stringify({ sBefore, sAfter }));
     await ctx.close();
   }
 
@@ -1301,6 +1313,17 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(250);
     const mNo = await modal(page);
     f = await readFed(page, '#pj-fed-outside');
+    // B18h: the same refusal when the list asked again says this board is not the owner: no section, but the
+    // sentence still shows, alone (it does not vanish with the section).
+    await setMembers(page, answer(ALL, { owner: false }));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const fh = await readFed(page, '#pj-fed-outside');
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    check('B18h a not-owner refusal whose reload hides the section still shows its sentence, alone (control: no heading, no rows)',
+      fh.heads.length === 0 && fh.rows.length === 0 && fh.msgs.includes('Only the owner of this project can change who is in it.'), JSON.stringify(fh));
     check('B18c Remove not-owner: the dialog closes, the owner-list sentence beside the list, the list asked again',
       !mNo.open && f.msgs.includes('Only the owner of this project can change who is in it.') && (await gets(page)) > c0, JSON.stringify({ open: mNo.open, msgs: f.msgs }));
     await page.evaluate(() => { window.__withdraw = 'throw'; });
