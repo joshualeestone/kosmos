@@ -68975,17 +68975,19 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     const total = Number(body.members) || 0, reached = Number(body.reached) || 0, notUpdated = Number(body.notUpdated) || 0;
     if (PJ_CURRENT !== p.id) return;   // left during the reload too
     const head = PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.';
+    const agents = (n) => n + (n === 1 ? ' agent' : ' agents');   // review 5: "1 of 1 agents" read wrong
     let line;
     if (total === 0) line = head + ' Kosmos now uses the new location.';
     /* Review 4: when an agent's instructions could not be updated, nothing is promised about the others: the counts only. */
-    else if (notUpdated > 0) line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project.'
+    else if (notUpdated > 0) line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + agents(total) + ' on this project.'
       + ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';   // Mona Lisa's wording
     else if (reached >= total) line = PJ_READ_FAILED ? head + ' Kosmos and this project\'s agents now use the new location.' : 'Done. Kosmos and this project\'s agents now use the new location.';
-    else line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project; the others will see it when they next start.';   // Mona Lisa's wording
+    else line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + agents(total) + ' on this project; the others will see it when they next start.';   // Mona Lisa's wording
     said.textContent = line;
     // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
     if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
   } catch (e) {
+    if (PJ_CURRENT !== p.id) return;   // review 5: a late refusal stays with its project too
     const t = String((e && e.message) || 'we could not move it');
     said.textContent = 'Not changed: ' + t + '.';
     box.focus();   // review 3: the disabled button dropped the keyboard; it goes back to the path to correct it

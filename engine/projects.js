@@ -2708,7 +2708,7 @@ function edit(id, fields = {}) {
 /**
  * kosmos#5340: point a project at its folder's new place (the folder was moved on this computer). The same checks a new
  * project's folder passes (create): a full path, a folder that is there and readable, not a temporary folder, not
- * another project's folder. Moving to the folder it already has is refused, not answered "moved". The members'
+ * another project's folder. A project whose folder is still there is not re-pointed (its brief and work are there). The members'
  * instructions name the folder, so the caller re-tells them. The board can check only that IT can read the folder:
  * an agent's own access (a sandbox or a privacy grant) is not something it can see from here.
  */

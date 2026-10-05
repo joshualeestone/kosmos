@@ -6,20 +6,20 @@ the folder is not on this computer instead of handing agents a dead path, but of
 
 ## Change
 - engine/projects.js moveFolder(id, folder): the checks a new project's folder passes (create): a full path, a folder
-  that is there, a folder not a file, readable, not a temporary folder, not another project's folder. The folder the
-  project already has is refused ("already this project's folder"), not answered "moved". One write (mutate).
+  that is there, a folder not a file, readable, not a temporary folder, not another project's folder; and a project
+  whose own folder is still there is not re-pointed (round 1). One write (mutate).
 - server.js PUT /api/project/<id> {folder}: the person's own act from the page (isViaScreen, as community release and
   #5293's apply: an agent token is refused, browser headers required; a speed bump, not a wall, until #4491), and on
   its own (mixed with other fields is refused, so it is one write that happened or did not). Then every member is
   re-told (syncAgent: the managed block names the folder) and the room gets a note with the new place.
 - web/index.html: under the folder warning in the project's settings, a "Move project folder" form, shown only when the
-  recorded folder is missing (moved, removed, or on a drive that is not connected). A refusal shows the board's
-  sentence ("Not moved: there is no folder at that path."); a success says the agents were told.
+  recorded folder is missing or a file is in its place. A refusal shows the board's sentence ("Not changed: there is
+  no folder at that path."); a success says only what happened, by the counts the route returns (rounds 1, 3, 4).
 
 ## Tests
 server.project-movefolder-5340.test.js: a moved folder is re-pointed from the screen (control: it read missing first),
 the room is told; an agent token and a request with no browser headers are refused; a file, a missing path, a relative
-path, another project's folder and its own folder are refused; a move mixed with a rename is refused and changes
+path, another project's folder, a working project and a non-string path are refused; a move mixed with a rename is refused and changes
 nothing. Mutation: the screen-only check off reds it. Browser check render-movefolder-5340.js: the form shows only for
 the missing folder (control: a present folder offers none), a wrong path is refused in plain words, the right one
 saves and the warning goes, and the project reads its new folder.
@@ -67,6 +67,11 @@ saves and the warning goes, and the project reads its new folder.
 - NIT accepted: a member with NO instructions file counts as not updated (tellAgent's could_not, "we will not create
   one"). Its file names no old folder, so the sentence slightly overstates; telling the cases apart would key on an
   error string.
+
+## Review 5 (opus, blind): converged (no BLOCKER, WARNING or CONVENTION)
+- NITs fixed: a late refusal stays with its project; "1 of 1 agent"; the plan and the engine docstring describe the
+  rules as they are now. NIT accepted: when syncAgent THROWS (a store write error), the agent is counted but its page
+  has no stored reason; rare, and the count is still true.
 
 ## Weakest premise
 That a person knows where they moved the folder. If not, "Show me where it is" (beside it) cannot help, since the old
