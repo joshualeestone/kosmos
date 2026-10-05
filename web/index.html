@@ -28065,7 +28065,10 @@ async function oaRound(again) {
     oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
     /* Once a minute at most, even while no list is known (signed out, a 5xx, a cut): the route probes every computer.
        OA_COMPUTERS_AT starts at 0, so the first round still asks. */
-    const need = Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
+    /* Once a list is known, it is not refreshed while nothing can use it: "This computer only" is ticked, or this page
+       is not this computer's own Kosmos+ address (the route probes every computer, up to 24 s of board work). */
+    const useful = !OA_COMPUTERS || (!oaThisOnly() && oaEligible(OA_COMPUTERS, location));
+    const need = useful && Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
     const refresh = need ? oaRefreshComputers() : null;
     /* The round waits only for its reads. The computers refresh runs on its own (it can take 24 s), so it neither
        holds OA_BUSY nor makes later ticks drop, and no list ages past OA_STALE_MS behind it. Only the first round,
@@ -28104,7 +28107,7 @@ function oaRefreshComputers() {
         for (const a of [...OA_SEEN.keys()]) if (!keep.has(a)) OA_SEEN.delete(a);
       } else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
     } catch { /* keep the last good list */ }
-    finally { OA_REFRESHING = false; oaPaint(); }
+    finally { OA_REFRESHING = false; try { oaPaint(); } catch { /* next paint */ } }
   })();
 }
 function oaStart() {
@@ -33947,7 +33950,7 @@ document.addEventListener('change', (e) => {
   const ordered = sortAgents(shown, AGENT_SORT, PROJECTS);
   document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
   paintAgentList();
-  if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: the other computers' groups follow the sort at once
+  if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: and the other computers' groups
 });
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */

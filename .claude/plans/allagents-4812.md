@@ -27,7 +27,7 @@ account, with CORS and its board token, only for a browser it already lets in).
   - Repaints are per group and only when what the group shows changed; a note's time words are written in place.
   - "This computer only" checkbox, remembered per browser (`kosmos.agents.thisOnly`), hides the section.
   - Reads: computers every 60 s (the route probes each computer), each other computer's status every 15 s,
-    each read (the computers route too) cut at 10 s, only while the tab is visible and the grid is on screen.
+    each read cut at 10 s and the computers route at 30 s (OA_COMPUTERS_LIMIT_MS), only while the tab is visible and the grid is on screen.
 
 ## Decided, and rejected
 - Rejected merging into `LAST`/the main grid: wrong-computer actions (above). The cost: other computers' agents
@@ -94,7 +94,7 @@ W1 per-group keys without time words (oaGroupKey), notes updated in place; W2 st
 and a read at once when the grid comes back; W3 grid-only recorded above as a decision. Nits taken: dead lastSeen
 field removed; catch comment says the probe can be a minute old; a round asked for mid-round runs after it
 (OA_AGAIN); the key uses a fixed agent order; the sort claim corrected; S4 waits out OA_BUSY and asserts
-oaGridShown directly; the computers fetch is cut at 10 s. Review 1's third nit (catch comment) is the one taken here.
+oaGridShown directly; the computers fetch is cut (10 s then; 30 s since review 3). Review 1's third nit (catch comment) is the one taken here.
 Unit 13/13; 7 sabotages RED-OK (time words in key, never stale, unsorted key, stale not greyed, projection,
 gridShown, fetch headers).
 
