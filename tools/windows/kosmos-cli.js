@@ -1096,7 +1096,9 @@ async function feedbackWrite(ctx, args) {
   let fbs;
   try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Saved the product-feedback report on this computer.'); return 0; }
   let r;
-  try { r = await fbs.sendNow(date); } catch { r = { state: 'failed' }; }
+  // review 2: no date back means no report we can name, so nothing is sent (a stub engine returns none).
+  if (!date) r = { state: 'none' };
+  else { try { r = await fbs.sendNow(date); } catch { r = { state: 'failed' }; } }
   ctx.out(fbs.writeMessage(r && r.state));
   return 0;
 }

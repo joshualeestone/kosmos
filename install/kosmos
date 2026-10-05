@@ -3629,7 +3629,7 @@ cmd_feedback() {
       # floor as the board's hourly sweep) and print the one sentence for what happened. Before this it printed
       # "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), and a user's agent took
       # that to mean the report never reached the team. Exit 3 is "not saved"; anything after the save cannot be.
-      local fb_msg
+      local fb_msg fb_rc
       fb_msg="$(KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
         const app = process.argv[1];
         let d;
@@ -3639,7 +3639,10 @@ cmd_feedback() {
         try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Saved the product-feedback report on this computer."); process.exit(0); }
         fbs.sendNow(d).then((r) => process.stdout.write(fbs.writeMessage(r && r.state)),
           () => process.stdout.write(fbs.writeMessage("failed")));
-      ' "$KOSMOS_HOME/app")" || { say "We could not save that report."; exit 1; }
+      ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?   # under set -e, a plain `; fb_rc=$?` would never run (see :392)
+      # review 2: only exit 3 means NOT saved. Any other failure came after the save, so the report is safe on disk.
+      [ "$fb_rc" -eq 3 ] && { say "We could not save that report."; exit 1; }
+      [ "$fb_rc" -ne 0 ] && fb_msg="Saved the product-feedback report on this computer. Kosmos could not check whether it was sent."
       say "$fb_msg"
       exit 0
       ;;

@@ -854,8 +854,32 @@ test('#5294 review 1: "later" only after a version was DELIVERED today, never af
   feedbacksend.setSender(() => Promise.resolve({ ok: false }));
   assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
   feedback.write('v2', { date: '2026-09-04' });
-  const r = await feedbacksend.sendNow('2026-09-04', 2000);
-  assert.notEqual(r.state, 'later', '"later" told the agent a report reached the team when none did');
+  const r = await feedbacksend.sendNow('2026-09-04', 1000 + feedbacksend.RETRY_MIN_MS);
+  assert.equal(r.state, 'failed', '"later" (or anything but a retry) after a send that never reached the team');
+});
+
+test('#5294 review 2: a retry under a minute after a FAILED send is "soon", and nothing is POSTed (no flood)', async () => {
+  feedback.write('v1', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: false }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+  feedback.write('v2', { date: '2026-09-04' });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + 10 * 1000)).state, 'soon');
+  assert.equal(calls, 1, 'a retry 10 s after a failure hit the collector again');
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + feedbacksend.RETRY_MIN_MS)).state, 'failed');   // CONTROL
+  assert.equal(calls, 2);
+});
+
+test('#5294 review 2: a data root under the temp directory counts as a test, even without the runner', () => {
+  // This file's data root is a mkdtemp sandbox, like every fixture's. With the runner signal removed, the temp-folder
+  // rule alone must still say sandboxed, so a CLI test file run directly cannot reach installkosmos.com.
+  const prev = process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_CONTEXT;
+  try {
+    assert.equal(feedbacksend.underTest(), false, 'setup: the runner signal is still set');
+    assert.equal(feedbacksend.sandboxed(), true, 'a temp-folder data root was not treated as a test');
+  } finally { if (prev !== undefined) process.env.NODE_TEST_CONTEXT = prev; }
 });
 
 test('#5294 review 1: an unreadable setting file is "unreadable", not "off", and nothing is sent', async () => {
@@ -903,8 +927,8 @@ test('#5294 a test run never phones home: a real endpoint is "blocked"; only loo
   }
 });
 
-test('#5294 every state has its own sentence, and only "sent" says the report left this computer', () => {
-  const states = ['sent', 'already', 'later', 'off', 'unreadable', 'none', 'failed', 'unsent', 'blocked'];
+test('#5294 every state has its own sentence; only sent, already and later say a version reached the team', () => {
+  const states = ['sent', 'already', 'later', 'off', 'unreadable', 'none', 'failed', 'soon', 'unsent', 'blocked'];
   for (const s of states) assert.ok(feedbacksend.writeMessage(s) && feedbacksend.writeMessage(s).startsWith('Saved'), s);
   assert.equal(new Set(states.map((s) => feedbacksend.writeMessage(s))).size, states.length, 'two states share a sentence');
   assert.match(feedbacksend.writeMessage('sent'), /sent it to the Kosmos team \(installkosmos\.com\)/);
