@@ -106,8 +106,9 @@ function writerKey(from) {
   if (from == null) return '';
   return String(from).replace(/[\r\n]/g, ' ').replace(/-->/g, '').trim().slice(0, 64);
 }
-/** Who is writing, for the CLIs: the agent its launch token names, else the agent whose tmux window this is (the
- *  same resolver a kept message uses, engine/outbox.js resolveKeepSender), else null (a person, or unknown). */
+/** Who is writing, for the CLIs: the agent its launch token names, else (with NO token) the agent whose tmux window
+ *  this is (the resolver a kept message uses, engine/outbox.js resolveKeepSender), else null. A token that is present
+ *  and names nobody is null too, never the pane: the no-downgrade rule. null writes the unnamed section. */
 function writer(env) {
   try {
     const r = require('./outbox').resolveKeepSender(env || process.env);
@@ -119,7 +120,8 @@ function writer(env) {
  *  agent with neither is still a name, so the headings carry none at all. The local file keeps the names. */
 function forSend(body) {
   const secs = sections(body);
-  if (secs.length < 2) return body;
+  if (secs.length === 0) return body;
+  if (secs.length === 1) return secs[0].text + '\n';   // exactly what readBody gives a one-writer day
   return secs.map((x, i) => '## Report ' + (i + 1) + '\n\n' + x.text + '\n').join('\n');
 }
 /* Two writers at once must not lose each other's section: the read-modify-write runs under a lock directory. */
@@ -129,8 +131,15 @@ function withLock(dest, fn) {
   for (;;) {
     try { fs.mkdirSync(lock); break; } catch (err) {
       if (!err || err.code !== 'EEXIST') throw err;
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) { fs.rmdirSync(lock); continue; } } catch { continue; }
       if (Date.now() > until) throw new Error('feedback: another write of this report is still running');
+      /* review 1: a stale lock (a writer that crashed) is taken over by RENAMING it first, which only one waiter can
+         win, so two waiters cannot both remove it and both write. */
+      try {
+        if (Date.now() - fs.statSync(lock).mtimeMs > 30000) {
+          const gone = lock + '.stale-' + process.pid + '-' + Date.now();
+          fs.renameSync(lock, gone); fs.rmdirSync(gone); continue;
+        }
+      } catch { /* another waiter took it, or it was just released: try again */ }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
@@ -172,7 +181,7 @@ function write(body, opts) {
       if (!err || err.code !== 'ENOENT') throw err;
     }
     const mine = { key, text: neutral(String(body == null ? '' : body).replace(/\s*$/, '')) };
-    const at = prior.findIndex((x) => x.key === key);
+    const at = prior.findIndex((x) => x.key.toLowerCase() === key.toLowerCase());   // review 1: Mara and mara are one agent
     if (at >= 0) prior[at] = mine; else prior.push(mine);
     const content = header + (prior.length === 1 && prior[0].key === ''
       ? prior[0].text + '\n'
@@ -234,7 +243,16 @@ function readBody(date) {
   // kosmos#5317: a day ONE writer wrote reads as exactly what it wrote (no heading, no name), as before sections; the
   // headings appear only once two writers share the day.
   const secs = sections(body);
-  return secs.length === 1 ? secs[0].text + '\n' : body;
+  if (secs.length === 1) return secs[0].text + '\n';
+  // review 1: the marker lines are storage, never shown: two writers read as their headings and text.
+  return secs.map((x) => sectionHeading(x.key) + '\n\n' + x.text + '\n').join('\n');
+}
+/** kosmos#5317: what leaves the computer for a day, built from the STORED sections (never from a rendered body, so a
+ *  heading an agent pasted back into its own report is just its text). */
+function sendBody(date) {
+  const raw = read(date);
+  if (raw == null) return null;
+  return forSend(stripFrontmatter(raw));
 }
 
 /** True when a report exists for the day. */
@@ -297,4 +315,4 @@ function reportsForTriage(opts) {
   return { ok: true, reports, notes };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };

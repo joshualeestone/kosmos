@@ -380,7 +380,7 @@ function payload(date) {
     install: install || 'unknown',
     date: d,
     generated_at: generatedAt(raw) || new Date().toISOString(),
-    body: scrub(feedback.forSend(feedback.readBody(d))),   // kosmos#5317: no writer names in the headings
+    body: scrub(feedback.sendBody(d)),   // kosmos#5317: no writer names in the headings, built from the stored sections
     consent: { given: true, version: CONSENT_VERSION },
   };
 }
@@ -513,6 +513,26 @@ function sendDailyOnce(date, now) {
   } catch { /* nothing here may reach the caller */ }
 }
 
+/**
+ * kosmos#5317 review 1: the board's hourly sweep. Today's report, as before, and FIRST the day before when it was the
+ * last day sent and its report changed since (a second agent wrote at 22:30 after the first one's report went at
+ * 22:00: the resend is due at 01:30, when "today" is already the next day). Only while the send record still names
+ * that day, so it cannot repeat: once today's report is sent, the record names today and the day before is done.
+ */
+function sweepTick(now) {
+  try {
+    const t = Number.isFinite(now) ? now : Date.now();
+    const n = new Date(t);
+    const prev = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
+    const st = read();
+    if (st.ok && st.sent === prev) {
+      const body = feedback.readBody(prev);
+      if (body != null && bodyHash(body) !== st.sentHash) sendDailyOnce(prev, t);
+    }
+    sendDailyOnce(feedback.dateKey(n), t);
+  } catch { /* nothing here may reach the caller */ }
+}
+
 function markSent(date, hash, at) {
   return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null });
 }
@@ -615,7 +635,7 @@ function sendNow(date, now) {
 const WRITE_MESSAGES = Object.freeze({
   sent: 'Saved today\'s product-feedback report and sent it to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
   already: 'Saved today\'s product-feedback report. It is the same as the one already sent to the Kosmos team today, so nothing new was sent.',
-  later: 'Saved today\'s product-feedback report. An earlier version from today already reached the Kosmos team, and Kosmos sends an updated one at most every three hours, so this version has not been sent yet.',
+  later: 'Saved today\'s product-feedback report. A report from today (this one or another agent\'s) already reached the Kosmos team, and Kosmos sends the updated day at most every three hours, so this one goes with the next send.',
   off: 'Saved today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
   unreadable: 'Saved today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
   none: 'Saved today\'s product-feedback report on this computer.',
@@ -630,6 +650,7 @@ function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.no
 function setSender(f) { sender = f; }
 
 module.exports = {
+  sweepTick,
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
   sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294
