@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0724
-diff_hash: ee0fe15dc8959adbf7940d7212018aee38924f4b6a1c4db1a2498e268f8fc00f
+diff_hash: e14877fc7ad37fc7bcb62e2ae1e66dd21ae93e1fa1a4bbd2e126815b1f402c5d
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-05T22:25:00Z
-iterations: 3
+timestamp: 2026-10-05T22:31:00Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3
-**Converged:** Yes (iteration 3, Opus: NITs only)
+**Iterations:** 4
+**Converged:** Yes (iteration 3, Opus: NITs only; iteration 4 reviewed Mona Lisa's copy edit, NIT only)
 **Total findings:** 3 WARNINGs, 0 BLOCKERs, 0 CONVENTIONs, 7 NITs
 **Fixed:** 3 | **Deferred:** 0 | **Asked:** 0
 
@@ -54,6 +54,13 @@ converged: true
 - [NIT] web/whats-new.json:6 — a computer on a Kosmos older than 0.7.21 shows "It may need the latest Kosmos" (the page explains it)
 - [NIT] web/whats-new.json:11 — a file changed by a command counts as a command, not a file
 - [NIT] plan — the Token Usage line names providers, not keys; no change needed
+
+#### Iteration 4 (after the merge of PR #5348: Mona Lisa's copy check, commit 8adf1f849)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
+**Self-generated:** 0
+- [NIT] web/whats-new.json:12 — "while they worked on it" paraphrases the receipt's "while it held this task"; acceptable plain language (kept, per Mona: "held" is our word for a claim)
+- [STRENGTH] "by day, model and agent" is literal: Usage history (day, model), the per-model table, and By agent all take the #5158 providers
 
 ### Final Ledger
 
