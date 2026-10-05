@@ -129,7 +129,7 @@ function settle(owed, session, verdict, DELIVERY, now = Date.now()) {
 /* Pure: has the agent started a session since the debt began? `rows` is engine/selfreport.history (oldest first); a
    'started' report is written at every session start. true, false, or null when the history is unknown (keep the debt). */
 function startedSince(rows, at) {
-  if (!Array.isArray(rows)) return null;
+  if (!Array.isArray(rows)) return null;   // a cut history (rows.truncated) can only miss a start: one extra line, never a lost one
   return rows.some((r) => r && r.state === 'started' && Number.isFinite(r.at) && r.at > at);
 }
 

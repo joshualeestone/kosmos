@@ -536,18 +536,18 @@ test('#5297 review 1: the introduction line coming or going is never a change of
   let roster;
   try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
   const cs = require('./communitystore');
-  const real = cs.postedBy;
+  const real = cs.postTimesAll;
   const withIntro = cb.blockBody({ introduce: true });
   assert.ok(withIntro.includes(cb.INTRO_LINES[0]), 'fixture: the introduction line is not in the block');
   const f = agentFile('uma', '# Uma\n\n' + cb.START + '\n' + withIntro + '\n' + cb.END + '\n');
   try {
     // The store cannot say (null): the line stays, nothing is written, nobody is told.
-    cs.postedBy = () => null;
+    cs.postTimesAll = () => null;
     let r = cb.refreshEveryone(roster, true);
     assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['uma', false, false]]);
     assert.ok(fs.readFileSync(f, 'utf8').includes(cb.INTRO_LINES[0]), 'an unreadable store took the introduction away');
     // She has posted: the line goes, the file changes, but the rules did not, so she is not told.
-    cs.postedBy = () => true;
+    cs.postTimesAll = () => new Map([['uma', ['2026-10-05T10:00:00.000Z']]]);
     r = cb.refreshEveryone(roster, true);
     assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['uma', true, false]]);
     assert.ok(!fs.readFileSync(f, 'utf8').includes(cb.INTRO_LINES[0]));
@@ -555,7 +555,7 @@ test('#5297 review 1: the introduction line coming or going is never a change of
     fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('no more than ' + cb.POSTS_PER_DAY_MAX + ' times a day', 'no more than 1 times a day'));
     r = cb.refreshEveryone(roster, true);
     assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['uma', true, true]]);
-  } finally { cs.postedBy = real; }
+  } finally { cs.postTimesAll = real; }
 });
 
 
