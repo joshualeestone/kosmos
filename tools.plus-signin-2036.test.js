@@ -1,6 +1,7 @@
 'use strict';
 // kosmos#2036 / #1591: the first Kosmos+ sign-in record, its gate, and the agent-run procedure,
 // driven against a fake board. Temp dirs only; nothing reaches a real board or coordinator.
+require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

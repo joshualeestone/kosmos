@@ -6,6 +6,7 @@
    the gemini pair: an idempotent write of our own file, never a merge into a shared
    one. */
 
+require('../test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

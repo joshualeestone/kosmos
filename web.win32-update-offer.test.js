@@ -16,6 +16,7 @@
  * bundle, the numbered manual steps for a refused location.
  */
 
+require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

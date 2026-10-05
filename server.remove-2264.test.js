@@ -6,6 +6,7 @@
  * route to confirm remove reaches removeAccount and the account is gone from
  * disk (and that WITHOUT the flag the route still only disconnects).
  */
+require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

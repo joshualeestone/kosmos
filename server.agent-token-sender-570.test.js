@@ -9,6 +9,7 @@
  *
  *   node --test server.agent-token-sender-570.test.js
  */
+require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

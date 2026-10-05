@@ -16,6 +16,7 @@
  * of those are the defect, so the arms below drive the real script and read the
  * value out of a CHILD PROCESS.
  */
+require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

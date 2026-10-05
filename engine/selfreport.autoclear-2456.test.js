@@ -14,6 +14,7 @@
 
 // Sandbox the store BEFORE requiring anything (store.js resolves its root at
 // module load), the same rule the sibling suite states at its own top.
+require('../test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

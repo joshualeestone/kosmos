@@ -1715,6 +1715,8 @@ test('the bundled tmux\'s serverless voice reads as a clean machine, and ONLY wi
     }
   } finally {
     if (prev === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = prev;
+    // kosmos#5334: not tmpscope here (a longer temp path would push tmux's socket past the OS's length limit).
+    fs.rmSync(sockDir, { recursive: true, force: true });
   }
 });
 

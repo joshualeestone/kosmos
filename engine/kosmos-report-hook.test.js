@@ -7,6 +7,7 @@
  * test touches the network. The event->word table here is checked against the
  * bash hook's table verbatim; if the two ever drift, one of these fails.
  */
+require('../test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

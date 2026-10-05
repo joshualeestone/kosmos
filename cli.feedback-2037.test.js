@@ -10,6 +10,7 @@
  * for the store. KOSMOS_PORT=9 (dead) proves the verb needs no board: a network
  * verb would print "not running"; feedback must not.
  */
+require('./test-support/tmpscope'); // kosmos#5334: this process's temp folders, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
