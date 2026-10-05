@@ -188,6 +188,7 @@ function chk(ok, label, extra) {
         chk(pv.open && /report\.pdf$/.test(pv.name || '') && opened.length === before, `${tag} #4997: a plain click on a PDF row opens the preview, not the opener`, JSON.stringify({ pv, opened: opened.slice(before) }));
         await page.keyboard.press('Escape');
         await page.waitForTimeout(300);
+        chk(!(await page.$('#pv-preview')), `${tag} #4997: Escape closes the preview`, '');
         // The opener is still a modifier-click away (the preview leaves modified clicks to the row).
         before = opened.length;
         await page.click('#d-files-list .pj-doc[data-doc="report.pdf"]', { modifiers: ['Meta'] });
