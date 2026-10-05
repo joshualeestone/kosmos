@@ -23,6 +23,7 @@
  *   - #5333: a running agent whose run token is no longer on file (it lost its link to Kosmos) gets the notice
  *     under its pill, naming it, with a Restart that opens the shared restart confirm (and its "Write a handoff,
  *     then restart"); once its run's token is on file the notice is gone. Control: the notice is hidden before.
+ *     A partly removed agent (removal could not stop it, token revoked on purpose) is never told to Restart.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-agent-pill-3958.js
  */
@@ -218,13 +219,23 @@ async function read(page) {
         setState('working', { tokenInstance: 'abcdef123456' });   // a run whose token is not on file
         await page.waitForTimeout(6500);
         const lost = await linkNote();
-        chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot read your messages or answer you\./.test(lost.text) && lost.target === 'beatrix',
+        chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot answer you\./.test(lost.text) && lost.target === 'beatrix',
           `${engineName} -> link lost: the notice names the agent and its Restart is for that agent`, JSON.stringify(lost));
         await page.click('#d-linklost-restart');
         await page.waitForTimeout(300);
         const dlg = await page.evaluate(() => { const h = document.getElementById('rst-handoff-go'); return !!(h && h.getClientRects().length); });
         chk(dlg, `${engineName} -> link lost: Restart opens the shared confirm, with "Write a handoff, then restart"`, String(dlg));
         await page.click('#rst-keep').catch(() => {});   // Leave it running: nothing is restarted here
+        /* A removal that could not stop the session revokes its token on purpose and keeps the card (hidesCard false):
+           that agent must not be told to Restart. The record goes; the token stays gone. */
+        const REMOVED_FILE = require('../../engine/remove').REMOVED_FILE;
+        fs.writeFileSync(REMOVED_FILE, JSON.stringify([{ name: 'beatrix', removedAt: new Date().toISOString(), stopped: false }]));
+        await page.waitForTimeout(6500);
+        const removing = await linkNote();
+        fs.rmSync(REMOVED_FILE, { force: true });
+        chk(!removing.shown, `${engineName} -> removed but still running: no Restart notice for an agent being removed`, JSON.stringify(removing));
+        await page.waitForTimeout(6500);
+        chk((await linkNote()).shown, `${engineName} -> removal record gone, token still gone: the notice is back (the guard, not the poll, hid it)`);
         const minted = sendertoken.mint('beatrix');
         setState('working', { tokenInstance: minted.instance });   // its run's token is on file
         await page.waitForTimeout(6500);

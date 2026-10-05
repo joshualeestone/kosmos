@@ -327,7 +327,8 @@ function live(sessionName) {
  * agent runs is refused). Three answers, because "we could not read the store" must never read as "gone":
  *   'held'     the file holds a token with this instance
  *   'gone'     the file is readable and does not, or there is no file at all (the store lost every token)
- *   'unknown'  the file is there and cannot be read or parsed, or no instance was given
+ *   'unknown'  the file is there and cannot be read or parsed, is in the old single-token shape, or no instance was
+ *              given
  * Instances are labels, not secrets (the supervisor stamps them on the session), so nothing here touches a token.
  */
 function instanceState(sessionName, instance) {

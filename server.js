@@ -5068,7 +5068,11 @@ const server = http.createServer(async (req, res) => {
       // every five-second poll. `removal.hidesCard` is the ONE predicate
       // `isHidden` uses too (#2651), so this filter and the per-agent check
       // cannot diverge -- they read the same function over the same record.
-      const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
+      const removedRecs = removal.removedAgents();
+      const gone = new Set(removedRecs.filter((r) => removal.hidesCard(r)).map((r) => r.name));
+      /* #5333: removing an agent revokes its token, so a removal that could not stop the session leaves a card whose
+         token is gone on purpose. That card must not be told to Restart; any removal record keeps linkLost false. */
+      const removing = new Set(removedRecs.map((r) => r.name));
       /**
        * What an agent's job will START it on, for the agents whose live model
        * we could not read.
@@ -5213,6 +5217,7 @@ const server = http.createServer(async (req, res) => {
       const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
         ...a,
         runner: runnerOfCard(a),
+        linkLost: a.linkLost === true && !removing.has(a.sessionName),   // #5333: never for an agent being removed
         /* 🔑 STATED ON EVERY ROW, and it was stated on only half. The board
            branches on `running === false`, and the not-running rows below set
            it while these did not: so for every live agent the page was reading
