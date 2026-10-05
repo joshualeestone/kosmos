@@ -16,7 +16,7 @@
  *
  * 🔑 THE CATALOG IS DERIVED, NOT SHIPPED. `apply_patch` and the code-mode tool have no switch: they are per-model
  * fields of Codex's model catalog. `model_catalog_json` REPLACES that catalog, so each read copies the account's own
- * `models_cache.json` (what this Codex fetched) and clears only those two fields. A checked-in copy would drift.
+ * `models_cache.json` (what this Codex fetched) and hardens it: see deriveCatalog. A checked-in copy would drift.
  *
  * The picture goes in the request (`-i`, sent as base64), the answer is schema JSON (`--output-schema`), nothing is
  * saved (`--ephemeral`, measured: no session or thread file, the prompt in no file under the account's folder), and
@@ -104,16 +104,25 @@ function deriveCatalog(accountDir) {
 const BUILTIN_TOOL_TYPES = new Set(['local_shell', 'shell', 'web_search', 'web_search_preview', 'computer_use_preview',
   'computer_use', 'image_generation', 'mcp', 'file_search', 'code_interpreter', 'apply_patch']);
 /* Every tool a request offers the model, wherever it sits: Codex nests its tools in a developer message as a
-   namespace, not in a top-level `tools`, so a look at `body.tools` alone reads empty (#5346). A named function or
-   custom tool counts by its name, a built-in by its type. */
+   namespace, not in a top-level `tools`, so a look at `body.tools` alone reads empty (#5346). FAILS CLOSED: every
+   entry of any `tools` array counts (by name, else by type, else as 'unknown'), with a namespace opened rather than
+   counted, so a tool of a kind this list has never seen still shows up. A known built-in type counts wherever it is. */
 function offeredTools(body) {
   const names = [];
+  const listed = (arr) => {
+    for (const e of arr) {
+      if (e && e.type === 'namespace' && Array.isArray(e.tools)) { listed(e.tools); continue; }
+      names.push((e && typeof e.name === 'string' && e.name) || (e && typeof e.type === 'string' && e.type) || 'unknown');
+    }
+  };
   const walk = (o) => {
     if (Array.isArray(o)) { o.forEach(walk); return; }
     if (!o || typeof o !== 'object') return;
-    if ((o.type === 'function' || o.type === 'custom') && typeof o.name === 'string') names.push(o.name);
-    else if (BUILTIN_TOOL_TYPES.has(o.type)) names.push(o.type);
-    for (const k of Object.keys(o)) walk(o[k]);
+    if (BUILTIN_TOOL_TYPES.has(o.type)) names.push(o.type);
+    for (const k of Object.keys(o)) {
+      if (k === 'tools' && Array.isArray(o[k])) listed(o[k]);
+      else walk(o[k]);
+    }
   };
   walk(body);
   return names;
@@ -178,6 +187,9 @@ function managedConfig() {
   return systemConfigPaths().some((p) => { try { fs.lstatSync(p); return true; } catch { return false; } });
 }
 const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has Codex settings an administrator manages, which Kosmos cannot switch off. A CSV or Excel export works with any provider, and so does typing the list.';
+/* Windows: the flags, the catalog and the capture were measured on a Mac only, and no administrator-managed layer is
+   known there to check. Off until measured, as an unknown is everywhere else in this file. */
+const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. A CSV or Excel export works with any provider, and so does typing the list.';
 const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. A CSV or Excel export works with any provider, and so does typing the list.';
 
@@ -187,10 +199,13 @@ function pickWithWhy() {
   if (!bin) return { reader: null, offWhy: null };
   let rows = [];
   try { rows = accountsFn() || []; } catch { rows = []; }
+  // Only the default ChatGPT account (else the first) is considered: the one an agent on this computer uses. A second
+  // account is not tried when the first cannot be used, so the reason given is about the account the person uses.
   const subs = rows.filter((r) => r && r.authMode === 'chatgpt' && r.dir)
     .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
   const r = subs[0];
   if (!r) return { reader: null, offWhy: null };
+  if (process.platform === 'win32') return { reader: null, offWhy: WHY_WINDOWS };
   const want = pinnedVersion();
   const have = versionFn(bin);
   if (!want || have !== want) return { reader: null, offWhy: whyVersion(have, want || 'unknown') };
@@ -255,7 +270,9 @@ function read(reader, prompt, media, buf, signal) {
   const bin = binFn();
   if (!bin) return Promise.resolve({ ok: false, unavailable: true, because: 'no ChatGPT connection on this computer' });
   if (!READS[media]) return Promise.resolve({ ok: false, because: cannotRead(media) });
-  // Asked again at the moment of the read: a file made while the consent box was open must not ride along.
+  // Asked again at the moment of the read: a file made, or a Codex upgraded, while the consent box was open.
+  if (process.platform === 'win32') return Promise.resolve({ ok: false, because: WHY_WINDOWS });
+  { const want = pinnedVersion(); const have = versionFn(bin); if (!want || have !== want) return Promise.resolve({ ok: false, because: whyVersion(have, want || 'unknown') }); }
   if (personalInstructions(reader.dir)) return Promise.resolve({ ok: false, because: WHY_INSTRUCTIONS });
   if (managedConfig()) return Promise.resolve({ ok: false, because: WHY_MANAGED });
   const catalog = deriveCatalog(reader.dir);
@@ -305,6 +322,7 @@ function read(reader, prompt, media, buf, signal) {
       resolve(v);
     };
     const onAbort = () => finish({ ok: false, because: 'the read was stopped' });
+    if (signal && signal.aborted) { onAbort(); return; }   // stopped before it started: no model call at all
     try {
       child = spawnFn(bin, codexArgs({ dir: work, catalog: catalogFile, schema, image, prompt }), { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'], detached: GROUPS });
     } catch { finish({ ok: false, because: 'ChatGPT did not answer' }); return; }
@@ -320,7 +338,8 @@ function read(reader, prompt, media, buf, signal) {
       let ev;
       try { ev = JSON.parse(l); } catch { return; }
       const item = ev && ev.item;
-      if (item && typeof item.type === 'string' && !QUIET_ITEMS.has(item.type)) {
+      // An item with no readable type is refused too: the tripwire fails closed.
+      if (item && (typeof item.type !== 'string' || !QUIET_ITEMS.has(item.type))) {
         console.warn('[orgchart] codex used a tool (' + String(item.type).slice(0, 40) + '); the read is refused');
         finish({ ok: false, because: 'ChatGPT tried to use a tool, so the answer was not used' });
         return;
@@ -350,6 +369,8 @@ function read(reader, prompt, media, buf, signal) {
       if (done) return;
       // A turn that failed is refused even if a message came before the failure: that text may be a partial answer.
       if (failed === null && errored !== null && !completed) failed = errored;
+      // An answer counts only from a turn that completed: a message followed by a crash is not one.
+      if (failed === null && !completed) failed = 'the turn did not complete';
       if (last === null || failed !== null) {
         const said = (failed || String(stderr).split('\n').map((s) => s.trim()).find(Boolean) || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
         if (said) console.warn('[orgchart] codex ended without an answer: ' + said);
@@ -363,4 +384,4 @@ function read(reader, prompt, media, buf, signal) {
   });
 }
 
-module.exports = { WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

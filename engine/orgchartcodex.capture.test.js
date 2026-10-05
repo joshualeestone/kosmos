@@ -29,7 +29,16 @@ let bin = null;
 try { const r = require('./runners').resolveBin('openai'); bin = r && r.present ? r.bin : null; } catch { bin = null; }
 const realHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 const cache = path.join(realHome, 'models_cache.json');
-const why = !bin ? 'no Kosmos Codex on this computer' : !fs.existsSync(cache) ? 'Codex has never fetched a model catalog here (' + cache + ')' : null;
+/* Skips BY NAME unless this computer has exactly what the reader would run: the pinned Codex and a catalog it wrote.
+   Certifying another version's tools would certify a Codex the reader refuses to start. */
+const pinned = require('./runners').MANIFEST.openai.version;
+const binVersion = () => { try { return (/(\d+\.\d+\.\d+)/.exec(require('node:child_process').execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 10000 })) || [])[1] || null; } catch { return null; } };
+const cacheVersion = () => { try { return JSON.parse(fs.readFileSync(cache, 'utf8')).client_version || null; } catch { return null; } };
+const why = !bin ? 'no Kosmos Codex on this computer'
+  : !fs.existsSync(cache) ? 'Codex has never fetched a model catalog here (' + cache + ')'
+    : binVersion() !== pinned ? 'the Codex here is not the pinned version ' + pinned
+      : cacheVersion() !== pinned ? 'the model catalog here was written by a Codex other than ' + pinned
+        : null;
 
 /* A server that saves each POST body and refuses it, so Codex gives up at once. */
 function captureServer() {
@@ -48,12 +57,13 @@ function captureServer() {
 
 /* One Codex run against the capture server; resolves the captured bodies. `args` is the full argv. */
 async function capture(argsFor, plant = {}) {
+  // `plant` may be a function of the run's root folder, for files that must name a path inside it.
   const cap = await captureServer();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5346-cap-'));
   const home = path.join(root, 'codex-home');
   const work = path.join(root, 'work');
   fs.mkdirSync(home); fs.mkdirSync(work);
-  for (const [f, text] of Object.entries(plant)) { fs.mkdirSync(path.dirname(path.join(home, f)), { recursive: true }); fs.writeFileSync(path.join(home, f), text); }
+  for (const [f, text] of Object.entries(typeof plant === 'function' ? plant(root) : plant)) { fs.mkdirSync(path.dirname(path.join(home, f)), { recursive: true }); fs.writeFileSync(path.join(home, f), text); }
   fs.copyFileSync(cache, path.join(home, 'models_cache.json'));
   const catalog = path.join(root, 'catalog.json');
   fs.writeFileSync(catalog, JSON.stringify(c.deriveCatalog(home)));
@@ -72,7 +82,9 @@ async function capture(argsFor, plant = {}) {
     child.on('error', () => { clearTimeout(t); resolve(); });
   });
   cap.server.close();
-  return cap.bodies.filter((b) => b && Array.isArray(b.input));
+  const out = cap.bodies.filter((b) => b && Array.isArray(b.input));
+  out.root = root;
+  return out;
 }
 
 /* Every model in the catalog, not only the default: a read runs on whichever one Codex picks, and each model carries
@@ -137,4 +149,24 @@ test('#5346 CONTROL: the same planted folder WITHOUT the reader\'s flags does se
   { 'skills/decoy/SKILL.md': '---\nname: decoy\ndescription: MARKER-SKILL-5346\n---\nbody', 'config.toml': 'developer_instructions = "MARKER-CONFIG-5346"\n' });
   const sent = JSON.stringify(bodies);
   assert.ok(sent.includes('MARKER-SKILL-5346') || sent.includes('MARKER-CONFIG-5346'), 'the control saw none of the planted context, so the main test proves nothing');
+});
+
+/* A command the person's own config would RUN leaves no trace in a request, so it is caught by what it does: each
+   planted command writes a marker file in the run's folder. */
+const runners = (root) => ({
+  'config.toml': '[mcp_servers.decoy]\ncommand = "/bin/sh"\nargs = ["-c", "touch ' + root + '/MCP-RAN"]\n',
+  'hooks.json': JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'touch ' + root + '/HOOK-RAN' }] }] } }),
+});
+const ran = (root) => ['MCP-RAN', 'HOOK-RAN'].filter((f) => fs.existsSync(path.join(root, f)));
+
+test('#5346: under the reader\'s flags, no MCP server or hook from the account folder runs', { skip: why || false, timeout: 120000 }, async () => {
+  const bodies = await capture(({ dir, catalog, schema, image, base }) => c.codexArgs({ dir, catalog, schema, image, prompt: 'Read this org chart.', extra: [base] }), runners);
+  assert.ok(bodies.length >= 1, 'Codex sent no model request to the capture server');
+  assert.deepEqual(ran(bodies.root), []);
+});
+
+test('#5346 CONTROL: without the reader\'s flags, the same planted commands do run', { skip: why || false, timeout: 120000 }, async () => {
+  const bodies = await capture(({ dir, schema, image, base }) => ['exec', '--json', '--ephemeral', '--skip-git-repo-check',
+    '--sandbox', 'read-only', '-C', dir, '-c', base, '--output-schema', schema, '-i', image, '--', 'Read this org chart.'], runners);
+  assert.ok(ran(bodies.root).length >= 1, 'neither planted command ran without the flags, so the main test proves nothing');
 });

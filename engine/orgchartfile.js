@@ -599,7 +599,9 @@ let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
     null restores the real one. */
 function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
-function currentReader() {
+/* `name`, when known, is the file about to be read: a reader that cannot take that kind (ChatGPT and a PDF) is passed
+   over for the next one that can, rather than chosen and then refused (#5346 review). */
+function currentReader(name) {
   lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from
   if (readerOverride) return readerOverride();
   if (claudeHere()) {
@@ -612,9 +614,12 @@ function currentReader() {
      because a key read is billed per call and the subscription is already paid for. */
   let sub = { reader: null, offWhy: null };
   try { sub = require('./orgchartcodex').pickWithWhy(); } catch { sub = { reader: null, offWhy: null }; }
-  if (sub.reader) return sub.reader;
+  const codexTakes = !name || !forModel(name) || !require('./orgchartcodex').cannotRead(MODEL_TYPES[extOf(name)].media);
+  if (sub.reader && codexTakes) return sub.reader;
   let got = { reader: null, offWhy: null };
   try { got = require('./orgchartkeys').pick(); } catch { got = { reader: null, offWhy: null }; }
+  // No key either: ChatGPT is still the reader, and readerProblem then says it cannot take this kind of file.
+  if (!got.reader && sub.reader) return sub.reader;
   // No reader: the reason (a switched-off provider, or a ChatGPT account that cannot be used) travels on a
   // null-shaped answer the caller can read, from the same look at the accounts (see whyNoReader).
   lastWhy = got.offWhy || sub.offWhy;
@@ -624,8 +629,8 @@ function currentReader() {
 function whyNoReader() { return lastWhy; }
 /* The reader and, when there is none, why, as ONE value from one look (what the route uses, so no state is shared
    between two calls). */
-function readerAndWhy() {
-  const reader = currentReader();
+function readerAndWhy(name) {
+  const reader = currentReader(name);
   return { reader, why: reader ? null : lastWhy };
 }
 const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);

@@ -7289,7 +7289,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         // #4560: who reads it is worked out ONCE for this request, and every answer below is about that reader.
-        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy();
+        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy(name);
         if (!orgchartfile.modelAvailable(reader)) {
           // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
           sendJson(res, 200, { unavailable: true, problems: [noReaderWhy || orgchartfile.NO_MODEL] });

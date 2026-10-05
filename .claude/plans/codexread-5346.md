@@ -35,7 +35,12 @@ stay off (measured reasons on the card).
   in from CODEX_HOME alone and writes nothing there.
 - **A computer with administrator-managed Codex settings is not used** (`/etc/codex`, or a com.openai.codex
   managed-preferences profile): those layers may not be covered by `--ignore-user-config` and could add a tool.
-  Windows: no such layer is known, so none is checked; a stated gap.
+- **Windows: off.** Nothing here was measured on Windows and no managed layer is known there, so the reader is not
+  offered on Windows, with a sentence saying so, until it is measured.
+- **A PDF passes ChatGPT over** for a key account that can read it (the choice knows the file's kind); with no such
+  key, ChatGPT stays the reader and the person is told it cannot take a PDF.
+- **At the read, every gate is asked again** (Windows, version, instructions file, managed config), so a change while
+  the consent box was open is caught before Codex starts. An answer counts only from a turn that completed.
 - **Pictures only.** `-i` attaches images; a PDF gets the same "use a picture or an export" sentence as Grok.
 - **Answer:** the last `agent_message` in the JSON event stream, parsed and validated by orgchartfile.fromModel.
   **Tripwire:** any event item that is not a message, reasoning, a to-do list (what update_plan produces) or an error
@@ -47,7 +52,7 @@ stay off (measured reasons on the card).
 - **Consent:** "OpenAI (ChatGPT, <email>)", "using your plan", and what OpenAI does with it (orgchartcodex.KEEPS):
   on a personal plan, "Improve the model for everyone" in ChatGPT's Data Controls decides whether it trains on it;
   business plans do not by default (OpenAI's Data Controls FAQ). Codex sends `store: false` (captured). Retention
-  is not stated by OpenAI for this path, so it is not claimed. Reader id `codex:<hash of the account folder>`.
+  is not stated by OpenAI for this path, so it is not claimed. Reader id `codex:<hash of the account folder and email>`.
 - **The schema is the strict one** (orgchartkeys.STRICT_SCHEMA): measured, Codex sends `--output-schema` in OpenAI's
   strict mode, which refuses orgchartfile.SCHEMA ("additionalProperties is required to be ... false").
 - **Condition (a) as a test:** `engine/orgchartcodex.capture.test.js` runs the pinned Codex with the real flags

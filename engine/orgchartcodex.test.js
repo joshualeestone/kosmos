@@ -209,7 +209,7 @@ test('a hung Codex ends at the timeout; a stopped read ends at once', async () =
 });
 
 test('an answer that is not JSON, and no answer at all, are refusals', async () => {
-  events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: 'Here is your chart!' } });
+  events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: 'Here is your chart!' } }, { type: 'turn.completed' });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /not the list asked for/);
   await grandchildGone();
   events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.failed', error: { message: 'stream cut' } });
@@ -306,4 +306,60 @@ test('a reconnect error followed by a completed turn is still an answer; one wit
   events({ type: 'error', message: 'Reconnecting... 5/5' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } });
   assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).ok, false);
   await grandchildGone();
+});
+
+test('a PDF with ChatGPT and a key account goes to the key; with no key, ChatGPT is the reader and says it cannot', () => {
+  keys.setAccounts(() => [{ provider: 'openai', dir: '/k', account: 'work' }]);
+  try {
+    assert.equal(o.currentReader('chart.pdf').kind, 'key');
+    assert.equal(o.currentReader('chart.png').kind, 'codex', 'CONTROL: a picture still goes to ChatGPT first');
+    assert.equal(o.readerAndWhy('chart.pdf').reader.kind, 'key');
+  } finally { keys.setAccounts(() => []); }
+  const r = o.currentReader('chart.pdf');
+  assert.equal(r.kind, 'codex');
+  assert.match(o.readerProblem('chart.pdf', r), /^ChatGPT cannot read a PDF/);
+});
+
+test('Windows: ChatGPT is not used to read org charts, and the person is told why', async () => {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), c.WHY_WINDOWS);
+    fs.rmSync(record, { force: true });
+    assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: c.WHY_WINDOWS });
+    assert.equal(fs.existsSync(record), false);
+  } finally { Object.defineProperty(process, 'platform', real); }
+  assert.equal(o.currentReader().kind, 'codex', 'CONTROL: on this platform it reads');
+});
+
+test('a Codex upgraded after the consent is caught at the read: Codex is never started', async () => {
+  const r = o.currentReader();
+  c.setVersion(() => '9.9.9');
+  fs.rmSync(record, { force: true });
+  try {
+    const got = await c.read(r, 'p', 'image/png', PNG, null);
+    assert.equal(got.ok, false);
+    assert.match(got.because, /version 9\.9\.9/);
+    assert.equal(fs.existsSync(record), false);
+  } finally { c.setVersion(() => PINNED); }
+});
+
+test('a read stopped before it starts never starts Codex', async () => {
+  const ctl = new AbortController();
+  ctl.abort();
+  fs.rmSync(record, { force: true });
+  assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, ctl.signal), { ok: false, because: 'the read was stopped' });
+  assert.equal(fs.existsSync(record), false);
+});
+
+test('tripwire: an item with no readable type is refused too', async () => {
+  events({ type: 'item.started', item: { id: 'x' } }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.completed' });
+  assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /tried to use a tool/);
+  await grandchildGone();
+});
+
+test('offeredTools fails closed: a tool of a kind never seen before, in any tools list, is counted', () => {
+  const body = { tools: [{ type: 'tool_search' }, {}], input: [{ role: 'developer', tools: [{ type: 'namespace', name: 'functions', tools: [{ type: 'web_fetch' }, { type: 'function', name: 'update_plan' }] }] }] };
+  assert.deepEqual(c.offeredTools(body).sort(), ['tool_search', 'unknown', 'update_plan', 'web_fetch'].sort());
 });
