@@ -17,8 +17,9 @@ stay off (measured reasons on the card).
   `agents.enabled=false`, `history.persistence="none"`, skills/apps/environment/permissions/collaboration
   instructions off, `project_doc_max_bytes=0`, `model_catalog_json=<derived catalog>`, `--output-schema <file>`,
   the picture with `-i <file>`. CODEX_HOME is always set to the account's folder (for the default account that is
-  the folder Codex reads anyway), and every inherited OPENAI_* and CODEX_* variable is removed first, so a key or a
-  base URL in the board's environment cannot take over the read the consent named.
+  the folder Codex reads anyway). The rest of the environment is an ALLOWLIST (orgchartcodex.childEnv): what a
+  program needs to run, plus the person's proxy and CA settings, without which a company network cannot reach OpenAI.
+  No key, board token, base URL or NODE_OPTIONS reaches Codex.
 - **Codex runs in its own process group** (not on Windows) and every ending kills the group. Measured in review:
   `/opt/homebrew/bin/codex` is an npm launcher whose native child survives a SIGKILL to the launcher; the group kill
   removes both (measured on the real binary).
@@ -40,7 +41,8 @@ stay off (measured reasons on the card).
   strict mode, which refuses orgchartfile.SCHEMA ("additionalProperties is required to be ... false").
 - **Condition (a) as a test:** `engine/orgchartcodex.capture.test.js` runs the pinned Codex with the real flags
   against a local capture server (`openai_base_url` to 127.0.0.1, answers 400, no subscription used) and fails on
-  any function definition other than the two, found by walking the WHOLE request body (Codex puts its tools in a
+  any function definition other than the two, ON EVERY MODEL in the catalog (a read runs on whichever one Codex
+  picks, and each model carries its own tool fields), found by walking the WHOLE request body (Codex puts its tools in a
   developer message, not a top-level `tools`). Control: the same run with the default flags must show `exec`.
   It needs the Codex binary; where none is installed it says so by name, and runs on any Mac with Kosmos's Codex.
 - **Condition (b), MEASURED 2026-10-05 17:43, real ChatGPT read, n=2:** a prompt ordering the model to call
