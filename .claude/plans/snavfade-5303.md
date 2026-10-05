@@ -19,5 +19,19 @@ was there, but too weak to read as "more" (a fading word reads as clipped text, 
   outranks one id and a class.
 - The fade stops just before the chevron's 44px so the chevron itself is not faded.
 
+## Decided in review (iterations 1 to 7)
+- The chevron's box is a solid SQUARE with its ring drawn inside (::before): a round box let the next pill's outline
+  show in its corners, which the fade cannot reach.
+- Its colour is the ground under the row (--k-bg; checked against the nearest painted ancestor in every look). On
+  Kosmos+ it is #172546, the body gradient's colour where it sits, measured at 360, 375 and 430px. Rejected: painting
+  the gradient itself (iOS draws fixed as scroll, squeezing the whole gradient into 44px) and a shared token for it.
+- margin-left: -50px keeps it out of the scroll range, so showing or hiding it never moves the row.
+- scroll-padding-inline: 88px always, symmetric: per-edge padding re-snapped the row in a loop, uneven padding moved
+  #718's centred pill.
+- Pointer-only (tabindex -1, aria-hidden), and a press never focuses it (mousedown preventDefault): it hides itself at
+  the end, and focus there would drop to the page. Every pill stays reachable by keyboard and switch.
+- The script re-marks on scroll, resize, the nav resizing, a pill's data-dot, hidden or class changing, and fonts.
+- Deferred: a custom property for the 44/32/6px geometry (each outcome is asserted by the check).
+
 ## Weakest premise
 That one small chevron is not over-illustration (Josh prefers subtle). It shows only on a phone, only while there is more.

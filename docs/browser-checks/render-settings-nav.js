@@ -311,6 +311,23 @@ function chk(ok, label, extra) {
       const nlBg = await page.evaluate(() => { const root = document.documentElement; const was = root.dataset.look; root.dataset.look = 'new';
         const bg = getComputedStyle(document.getElementById('s-nav-more')).backgroundColor; if (was === undefined) delete root.dataset.look; else root.dataset.look = was; return bg; });
       chk(!/rgba\(0, 0, 0, 0\)|transparent/.test(nlBg), `[${theme}] at 375px the chevron stays solid in the new look too (#5303)`, nlBg);
+      /* Solid is not enough: it must be the ground the row sits on (a solid colour of the wrong shade is the visible square
+         this branch fixed on Kosmos+). The nearest painted ancestor's colour, in the classic look, the new look and the
+         consolidated layout. */
+      const grounds = await page.evaluate(() => {
+        const root = document.documentElement; const wasLook = root.dataset.look; const out = [];
+        for (const [look, cls] of [['', ''], ['new', ''], ['', 'consolidated'], ['new', 'consolidated']]) {
+          if (look) root.dataset.look = look; else delete root.dataset.look;
+          document.body.classList.toggle('consolidated', !!cls);
+          const chev = getComputedStyle(document.getElementById('s-nav-more')).backgroundColor;
+          let ground = null;
+          for (let el = document.getElementById('s-nav'); el; el = el.parentElement) { const c = getComputedStyle(el).backgroundColor; if (!/rgba\(0, 0, 0, 0\)|transparent/.test(c)) { ground = c; break; } }
+          out.push({ look: look || 'classic', cls, chev, ground, same: chev === ground });
+        }
+        document.body.classList.remove('consolidated'); if (wasLook === undefined) delete root.dataset.look; else root.dataset.look = wasLook;
+        return out;
+      });
+      chk(grounds.every((g) => g.same), `[${theme}] at 375px the chevron is the colour of the ground under the row, in every look and layout (#5303)`, JSON.stringify(grounds));
       /* On Kosmos+ the page's ground is a navy radial gradient: a --k-bg chevron showed as a square. Its colour must be the
          gradient's own where it sits, worked out here from the body's computed gradient (its ellipse, centre and first two
          stops), and solid, not the gradient (iOS draws a fixed background as scroll, squeezing the gradient into the box). */
