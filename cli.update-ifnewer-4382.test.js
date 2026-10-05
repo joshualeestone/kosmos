@@ -44,10 +44,13 @@ function layout() {
   fs.mkdirSync(DIST, { recursive: true });
   // The only computer the verb serves: one set to connect elsewhere (the app writes this word).
   fs.writeFileSync(path.join(HOME, 'mode'), 'connect\n');
-  // The stand-in installer: records the three variables beginInstall hands it, then exits as told.
-  fs.writeFileSync(path.join(T, 'setup'),
-    'printf "base=%s pointer=%s channel=%s\\n" "$KOSMOS_RELEASE_BASE" "$KOSMOS_UPDATE_CHANNEL" "$KOSMOS_SOURCE_CHANNEL" >> "' + RAN + '"\n'
-    + 'echo "installer output"\nexit "${FAKE_SETUP_RC:-0}"\n');
+  // The stand-in installers: each records its own name and the three variables beginInstall hands it, then exits
+  // as told. Two of them, because a box on the staging pointer runs /setup-staging, prod's /setup otherwise (#5032).
+  for (const name of ['setup', 'setup-staging']) {
+    fs.writeFileSync(path.join(T, name),
+      'printf "installer=' + name + ' base=%s pointer=%s channel=%s\\n" "$KOSMOS_RELEASE_BASE" "$KOSMOS_UPDATE_CHANNEL" "$KOSMOS_SOURCE_CHANNEL" >> "' + RAN + '"\n'
+      + 'echo "installer output"\nexit "${FAKE_SETUP_RC:-0}"\n');
+  }
 }
 layout();
 
@@ -92,7 +95,7 @@ test('#4382: newer with no Updates file (consent on, as on a connect Mac) instal
   const r = await run(['--if-newer']);
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.equal(r.last, 'updated 1.2.0');
-  assert.equal(ran(), 'base=file://' + DIST + ' pointer=prod channel=prod\n');
+  assert.equal(ran(), 'installer=setup base=file://' + DIST + ' pointer=prod channel=prod\n');
   // The record a board started later reads (update.js readStatusRecord): code 0, and no in-flight marker left.
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.status'), 'utf8'), /^0 \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n$/);
   assert.equal(fs.existsSync(path.join(HOME, 'logs', 'install.started')), false);
@@ -107,7 +110,7 @@ test('#4382: Updates switched off offers and installs nothing; --install install
   assert.equal(ran(), '', 'consent off must not run the installer');
   r = await run(['--if-newer', '--install']);
   assert.equal(r.last, 'updated 1.2.0');
-  assert.equal(ran(), 'base=file://' + DIST + ' pointer=prod channel=prod\n');
+  assert.equal(ran(), 'installer=setup base=file://' + DIST + ' pointer=prod channel=prod\n');
 });
 
 test('#4382: an Updates file that cannot be read is OFF, never consent (autoupdate.js)', async () => {
@@ -124,11 +127,11 @@ test('#4382: a staging install follows its stamp, and takes a newer prod build w
   reset({ prod: '1.1.0', staging: '1.3.0', stamp: 'staging' });
   let r = await run(['--if-newer']);
   assert.equal(r.last, 'updated 1.3.0');
-  assert.equal(ran(), 'base=file://' + DIST + ' pointer=staging channel=staging\n');
+  assert.equal(ran(), 'installer=setup-staging base=file://' + DIST + ' pointer=staging channel=staging\n');
   reset({ prod: '1.4.0', staging: '1.3.0', stamp: 'staging' });
   r = await run(['--if-newer']);
   assert.equal(r.last, 'updated 1.4.0');
-  assert.equal(ran(), 'base=file://' + DIST + ' pointer=prod channel=staging\n');
+  assert.equal(ran(), 'installer=setup base=file://' + DIST + ' pointer=prod channel=staging\n');
   // CONTROL: with no stamp the same files are prod's 1.1.0 vs 1.0.0, never staging's.
   reset({ prod: '1.1.0', staging: '1.3.0' });
   assert.equal((await run(['--if-newer'])).last, 'updated 1.1.0');
