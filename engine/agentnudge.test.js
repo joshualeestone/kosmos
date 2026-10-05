@@ -327,7 +327,8 @@ test('a task in a project where the agent is switched off is not nudged; control
 test('the words are one safe line: control characters and quotes out, cut on a character boundary', () => {
   const text = nudge.nudgeText({ n: 7, project: 'Proj\u0007ect', sentence: 'line one\nline "two"\u0000' + '\u{1F600}'.repeat(200) });
   assert.doesNotMatch(text, /[\u0000-\u001f\u007f-\u009f]/, 'a control character reached the typed line');
-  assert.equal((text.match(/"/g) || []).length, 2, 'only the two quotes around the sentence');
+  // #5320: two around the sentence and two in the fixed needs_you template; the words themselves add none.
+  assert.equal((text.match(/"/g) || []).length, 4, 'only the quotes around the sentence and the template\'s own two');
   assert.doesNotMatch(text, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, 'a surrogate pair was split');
   assert.match(text, /^Kosmos here, from the Prompter: /);
 });
@@ -335,12 +336,22 @@ test('the words are one safe line: control characters and quotes out, cut on a c
 test('#4771 review 2: the nudge names the pause verb with the project id, so a running agent learns it when it matters', () => {
   const text = nudge.nudgeText({ n: 3, projectId: 'kosmosgrowth', project: 'Kosmos Growth', sentence: 'grow' });
   assert.match(text, /Only if your person asked in the room to pause this project: kosmos project pause kosmosgrowth \(the room is told you paused it\)$/);
-  assert.equal((text.match(/"/g) || []).length, 2, 'the hint added a quote');
+  assert.equal((text.match(/"/g) || []).length, 4, 'the hint added a quote');
   // CONTROL: a part with no project id (an older caller) gets the old text, with no half-written hint.
   assert.doesNotMatch(nudge.nudgeText({ n: 3, project: 'Kosmos Growth', sentence: 'grow' }), /project pause/);
   // Review 3: an id the CLIs would not take as it is gets no hint, never a rewritten one.
   assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: 'bad id!', project: 'X', sentence: 'grow' }), /project pause/);
   assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: '..', project: 'X', sentence: 'grow' }), /project pause/);
+});
+
+test('#5320: the nudge names needs_you for a wait on the person, and blocked only for other agents, deploys and reviews', () => {
+  const text = nudge.nudgeText({ n: 20, projectId: 'relayforge', project: 'RelayForge', sentence: 'gross margin re-check' });
+  assert.match(text, /another agent, a deploy or a review: kosmos report blocked --on <what> --owner <who>; /);
+  assert.match(text, /your person's answer or decision: kosmos report needs_you "<your question>"/);
+  // The one-line contract holds with the longer text.
+  assert.doesNotMatch(text, /[\u0000-\u001f\u007f-\u009f]/);
+  // CONTROL: blocked is no longer offered for every wait.
+  assert.doesNotMatch(text, /if you are waiting on something, say so with: kosmos report blocked/);
 });
 
 test('the Prompter must read the agent as idle too: a card that says idle but a low-confidence reading (toAsk to unknown) is not nudged', () => {
