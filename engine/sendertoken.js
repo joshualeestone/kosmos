@@ -322,6 +322,25 @@ function live(sessionName) {
 }
 
 /**
+ * #5333: is this run's token still on file? For the board to tell a person that a RUNNING agent has lost its link
+ * (its session carries the run's instance, @kosmos_token_instance, and the token behind it is gone, so every verb the
+ * agent runs is refused). Three answers, because "we could not read the store" must never read as "gone":
+ *   'held'     the file holds a token with this instance
+ *   'gone'     the file is readable and does not, or there is no file at all (the store lost every token)
+ *   'unknown'  the file is there and cannot be read or parsed, or no instance was given
+ * Instances are labels, not secrets (the supervisor stamps them on the session), so nothing here touches a token.
+ */
+function instanceState(sessionName, instance) {
+  if (typeof instance !== 'string' || !/^[0-9a-f]+$/.test(instance)) return 'unknown';
+  let raw;
+  try { raw = fs.readFileSync(fileFor(sessionName), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? 'gone' : 'unknown'; }
+  let kept;
+  try { kept = JSON.parse(raw); } catch { return 'unknown'; }
+  if (!kept || typeof kept !== 'object' || !Array.isArray(kept.tokens)) return 'unknown';
+  return kept.tokens.some((t) => t && typeof t.token === 'string' && t.instance === instance) ? 'held' : 'gone';
+}
+
+/**
  * Every agent this store currently holds a token for, by safeKey'd name.
  *
  * 🔑 WHY THE STORE AND NOT A NEW LIST. The token store is already a roster of
@@ -553,5 +572,5 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
+  mint, revoke, retire, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
   NO_MATCH };   // #5333: exported so the CLIs' recovery hint is pinned to the one sentence (cli.token-refused-5333.test.js)

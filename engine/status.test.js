@@ -1573,6 +1573,9 @@ test('every declared column reaches the parsed pane, not just the ones we rememb
   PANE_COLUMNS.forEach(function (c, i) { values[c.key] = 'v' + i; });
   values.session = 'zeta-discord';
   values.pane = '0.0';
+  /* #5333: a run's token instance is hex (as minted), and the parser keeps only hex, so it gets a hex value here
+     and is still checked by VALUE below rather than excused as normalised. */
+  values.tokenInstance = 'ab12cd34ef56';
 
   const line = PANE_COLUMNS.map((c) => values[c.key]).join('\t');
   const [got] = parsePanes(line);

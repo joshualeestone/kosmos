@@ -966,6 +966,10 @@ const PANE_COLUMNS = [
      on the first live codex agent this machine ran. Empty for every pane
      that predates the option, which correctly means claude. */
   { key: 'runner', fmt: '#{@kosmos_runner}' },
+  /* #5333: which run's sender token this session started with (the supervisor stamps it beside the claim; an
+     instance is a label, not a secret). The board asks the token store whether that run's token is still on file,
+     so a person can be told when a running agent has lost its link. Empty for a session that predates it. */
+  { key: 'tokenInstance', fmt: '#{@kosmos_token_instance}' },
   { key: 'title', fmt: '#{pane_title}', rest: true },
 ];
 
@@ -1148,6 +1152,7 @@ function parsePanes(out) {
          words the classifier dispatches on (codex, gemini, grok, antigravity;
          empty is claude), so a truncated line cannot invent a runner. */
       runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : raw.runner === 'antigravity' ? 'antigravity' : raw.runner === 'muse' ? 'muse' : '',
+      tokenInstance: /^[0-9a-f]+$/.test(raw.tokenInstance || '') ? raw.tokenInstance : '',   // #5333: hex only, as minted
       title: raw.title || '',
     };
   /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
@@ -6867,6 +6872,17 @@ function paneRoster() {
   }));
 }
 
+/**
+ * #5333: has this RUNNING agent lost its link to Kosmos? True only when Kosmos launched the session (it is ours by
+ * name, and carries the run's token instance) and the token store, read by this board, no longer holds that run's
+ * token: every whoami, inbox, reply, msg, post and report the agent runs is then refused, and nothing else would say
+ * so. An unreadable store ('unknown') is never read as lost. Whatever removed the token, this sees it.
+ */
+function linkLostFor(pane) {
+  if (!pane || !pane.tokenInstance || !isNamedOurs(pane)) return false;
+  try { return sendertoken.instanceState(pane.name, pane.tokenInstance) === 'gone'; } catch { return false; }
+}
+
 /* Five minutes. A genuinely working agent heartbeats through its tool calls,
    so a `working` older than this is a claim nobody is standing behind. */
 const REPORT_WORKING_DECAY_MS = 5 * 60 * 1000;
@@ -7640,6 +7656,9 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        we minted it, and `retire`/`revoke` take it back. A stranger cannot
        arrive on this list by naming a tmux session after one of ours. */
     isNamedOurs: true,
+    /* #5333: a paneless card has no session to carry a run's instance, so nothing to compare. Carried so every card
+       answers the question. */
+    linkLost: false,
     /* ⭐ The one field that tells a consumer this card has no pane behind it.
        Only paneless cards carry it, so a pane card is untouched and every
        existing reader sees exactly what it saw before. Test `=== true`. */
@@ -8326,6 +8345,7 @@ function snapshot() {
       // claim to have destroyed the record, because those belong to whoever
       // owns the NAME and this pane has not proven it is them.
       isNamedOurs: isNamedOurs(pane),
+      linkLost: linkLostFor(pane),   // #5333
       /* ⭐ This card HAS a pane, and saying so is not redundant (#1112 phase 1).
          The board now also holds cards for agents with no pane at all, and the
          fixture's own rule is that a field only some cards carry is read as
