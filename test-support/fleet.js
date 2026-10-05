@@ -165,6 +165,7 @@ function agent(name, opts = {}) {
     claim: ours === 'claim' ? key : (opts.claim || ''),
     /* #245/#246: the runner the supervisor records; empty means claude. */
     runner: opts.runner || '',
+    tokenInstance: opts.tokenInstance || '',   // #5333
     title: opts.title || '',
     screen: opts.screen !== undefined ? opts.screen : SCREEN[state],
     state,
@@ -210,6 +211,9 @@ function line(spec) {
        the default and means claude, exactly as it does for every real pane
        that predates the option; a test building a codex agent names it. */
     runner: spec.runner || '',
+    /* #5333: the run's sender-token instance the supervisor stamps on the session. Empty (a session that predates it)
+       unless a test names one, so no fleet the suite builds changes: linkLost needs an instance to compare. */
+    tokenInstance: spec.tokenInstance || '',
     title: spec.title || '',
   };
   return status.PANE_COLUMNS.map((col) => {
