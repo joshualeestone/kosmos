@@ -55,6 +55,9 @@ test('#5333: a run whose ONLY token is retired is lost (the file stays, empty), 
     assert.deepEqual(sendertoken.live('fay'), []);
     assert.equal(sendertoken.resolve(minted.token, board.roster).ok, false, 'the retired token is refused');
     assert.equal(board.snapshot().find((a) => a.sessionName === 'fay').linkLost, true, 'and the running agent reads as lost');
+    sendertoken.retire('fay', minted.instance);   // round 8: a duplicate retire (a second run end, the next launch)
+    assert.ok(fs.existsSync(path.join(sendertoken.DIR, 'fay.json')), 'a second retire leaves the empty list in place');
+    assert.equal(sendertoken.instanceState('fay', minted.instance), 'gone', 'so the agent still reads as lost, not unknown');
     sendertoken.retire('nobody-at-all', 'abcdef123456');
     assert.equal(fs.existsSync(path.join(sendertoken.DIR, 'nobody-at-all.json')), false, 'CONTROL: a retire never creates a file');
   } finally { board.restore(); }

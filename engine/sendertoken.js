@@ -208,6 +208,12 @@ function mint(sessionName, opts = {}) {
 
 /* The whole-file unlink, WITHOUT the lock. `retire` calls this while it already
    holds the lock; `revoke` (public) takes the lock around it. */
+/* #5333 round 8: true only for a token file that reads as exactly an empty list (what retire leaves). */
+function heldEmptyList(sessionName) {
+  try { const kept = JSON.parse(fs.readFileSync(fileFor(sessionName), 'utf8')); return !!kept && Array.isArray(kept.tokens) && kept.tokens.length === 0; }
+  catch { return false; }
+}
+
 function revokeUnlocked(sessionName) {
   try { fs.unlinkSync(fileFor(sessionName)); return { ok: true }; } catch (e) {
     if (e && e.code === 'ENOENT') return { ok: true };
@@ -267,7 +273,10 @@ function retire(sessionName, instance) {
          #4530 each agent's file holds only its live run's token, so this is the usual case, not an edge. A file that
          held nothing is left as it was (a retire never creates one). revoke still removes the file: a deliberate cut-off. */
       if (left.length === 0) {
-        if (had.length === 0) return revokeUnlocked(sessionName);
+        /* round 8: a second retire of a run already retired must leave the empty list in place, or the agent reads
+           unknown again. Only a file that IS an empty list: an unreadable or corrupt one still goes to revoke, whose
+           failure is reported (win32launch #570). */
+        if (had.length === 0) return heldEmptyList(sessionName) ? { ok: true } : revokeUnlocked(sessionName);
         writeTokens(sessionName, []);
         return { ok: true };
       }
