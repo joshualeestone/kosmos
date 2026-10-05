@@ -99,14 +99,13 @@ for (const args of VERBS) {
       await withStub(NO_MATCH, async (port) => {
         const got = await run(CLI, args, envFor(port, home, TOKEN));
         assert.ok(got.out.includes(NO_MATCH), `the board's sentence is kept: ${got.out}`);
-        assert.ok(got.out.includes(HINT), `the way back is said: ${got.out}`);
-        // The Mac CLI says both on stdout, so their order on it is the order a reader sees.
-        assert.ok(got.stdout.indexOf(NO_MATCH) >= 0 && got.stdout.indexOf(NO_MATCH) < got.stdout.indexOf(HINT), 'after the board\'s words, never instead');
-        assert.match(got.out, /If your person removed you from Kosmos, that is expected/);
-        assert.match(got.out, /restart you from Kosmos \(your page, Restart\)/);
-        assert.match(got.out, /`kosmos adopt` does not help/);
-        // whoami exits 0 as before (the board answers its refusal with a 200); the others exit non-zero, as before.
-        if (args[0] !== 'whoami') assert.notEqual(got.code, 0, 'still a failure');
+        assert.ok(got.stderr.includes(HINT), `the way back is said, on stderr: ${got.out}`);
+        assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone, as before (a script captures it)');
+        assert.match(got.stderr, /If your person removed you from Kosmos, that is expected/);
+        assert.match(got.stderr, /restart you from Kosmos \(your page, Restart; "Write a handoff, then\s+restart" keeps what you were doing\)/);
+        assert.match(got.stderr, /`kosmos adopt` does not\s+help/);
+        // Exit codes as before: whoami 0 (the board answers its refusal with a 200), the others non-zero.
+        if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.notEqual(got.code, 0, 'still a failure');
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
@@ -140,6 +139,8 @@ for (const args of VERBS) {
         assert.ok(got.out.includes(NO_MATCH), `the board's sentence is kept: ${got.out}`);
         assert.ok(got.stderr.includes(HINT), `the way back is said, on stderr: ${got.out}`);
         if (got.stderr.includes(NO_MATCH)) assert.ok(got.stderr.indexOf(NO_MATCH) < got.stderr.indexOf(HINT), 'after the board\'s words on the same stream');
+        assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone');
+        if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.notEqual(got.code, 0, 'still a failure');
         const none = await run(process.execPath, [WIN, ...args], envFor(port, home, null));
         assert.ok(none.out.includes(NO_MATCH), `CONTROL: the stub answered without a token: ${none.out}`);
         assert.ok(!none.out.includes(HINT), 'CONTROL: no token sent, no hint');

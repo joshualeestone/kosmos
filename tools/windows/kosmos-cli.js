@@ -631,13 +631,15 @@ function tokenRefusedHint(ctx, r) {
   /* The refusal itself, never the sentence quoted inside another answer: the JSON's own because or error, a delivery's
      because (msg, post), or a plain-text answer that is exactly the sentence (inbox, as=text). */
   const j = (r && r.json) || {};
-  const said = [j.because, j.error, j.delivery && j.delivery.because, j.json ? null : String((r && r.text) || '').trim()];
+  // j.error is defensive: no route answers an unmatched sender that way today.
+  const said = [j.because, j.error, j.delivery && j.delivery.because, r && r.json ? null : String((r && r.text) || '').trim()];
   if (!said.some((x) => x === TOKEN_REFUSED)) return;
   ctx.err('');
   ctx.err('Kosmos could not match the agent token this session started with to one of your running agents.');
   ctx.err('If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new');
-  ctx.err('token by itself, so ask your person to restart you from Kosmos (your page, Restart); the new session');
-  ctx.err('starts with a fresh token. `kosmos adopt` does not help: its token never reaches a running session.');
+  ctx.err('token by itself, so ask your person to restart you from Kosmos (your page, Restart; "Write a handoff, then');
+  ctx.err('restart" keeps what you were doing). The new session starts with a fresh token. `kosmos adopt` does not');
+  ctx.err('help: its token never reaches a running session.');
 }
 
 async function verbWhoami(ctx) {

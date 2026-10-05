@@ -21,7 +21,8 @@ after `kosmos adopt --confirm` and exporting, by hand, a token found in the send
   no-match sentence, the Mac CLI (install/kosmos) and the Windows CLI print, after the board's words: that Kosmos
   could not match the token to a running agent (no cause named: a removed agent, a key clash and a lost token read the
   same), that a removed agent should expect it, that a running session cannot take a new token, the recovery (ask your
-  person to restart you from Kosmos: your page, Restart), and that `kosmos adopt` does not help a running session.
+  person to restart you from Kosmos: your page, Restart, where "Write a handoff, then restart" keeps its context), and
+  that `kosmos adopt` does not help a running session. On stderr on both CLIs: stdout is the board's answer alone.
 - The hint is keyed on sendertoken's own NO_MATCH, now exported; the test pins both CLI sources to it exactly.
 - The match is the refusal itself (its because or error field, a delivery's because, or a plain-text answer that is
   exactly the sentence), never the sentence quoted inside another answer.

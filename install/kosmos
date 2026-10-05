@@ -740,19 +740,24 @@ kosmos_engine_module() {
 # reaches it, so the recovery is a restart from Kosmos. Printed after the board's words, never instead of them.
 token_refused_hint() {   # <token-sent> <board-answer>
   [ -n "${1:-}" ] || return 0
-  # The refusal itself, never the sentence quoted inside some other answer: a JSON answer's own "because" or "error"
-  # (a msg or post refusal is a delivery whose "because" it is), or a plain-text answer that is exactly the sentence
-  # (inbox, as=text).
+  # The refusal itself, never the sentence quoted inside some other answer: a JSON answer's own "because" (a msg or
+  # post refusal is a delivery whose "because" it is), or a plain-text answer that is exactly the sentence (inbox,
+  # as=text). The "error" arm is defensive: no route answers an unmatched sender that way today.
   case "${2:-}" in
     *'"because":"we could not match that to one of your agents"'*|*'"error":"we could not match that to one of your agents"'*) ;;
     'we could not match that to one of your agents'|'we could not match that to one of your agents'$'\n') ;;
     *) return 0 ;;
   esac
-  say ""
-  say "Kosmos could not match the agent token this session started with to one of your running agents."
-  say "If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new"
-  say "token by itself, so ask your person to restart you from Kosmos (your page, Restart); the new session"
-  say "starts with a fresh token. \`kosmos adopt\` does not help: its token never reaches a running session."
+  # On stderr, as the Windows CLI says it: a script capturing \`kosmos whoami\` or \`kosmos inbox\` gets the board's
+  # answer alone, as before.
+  {
+    say ""
+    say "Kosmos could not match the agent token this session started with to one of your running agents."
+    say "If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new"
+    say "token by itself, so ask your person to restart you from Kosmos (your page, Restart; \"Write a handoff, then"
+    say "restart\" keeps what you were doing). The new session starts with a fresh token. \`kosmos adopt\` does not"
+    say "help: its token never reaches a running session."
+  } >&2
 }
 
 # #1970: run curl with the board/agent auth tokens delivered OFF the command
