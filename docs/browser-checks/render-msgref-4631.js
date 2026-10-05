@@ -5,7 +5,7 @@
  *
  *   R1  a room post's hover bar starts with Copy reference, showing the number faintly; Reply stays last (#4358)
  *   R2  clicking it copies "message 530 in Kosmos Growth" and says so in a toast
- *   R3  right-clicking the post opens the menu (Copy message reference), and its item copies the same words
+ *   R3  right-clicking the post opens the menu, and its Copy message id (once Copy message reference) copies the same words
  *   R4  ctrl-click (Windows) opens the same menu; on a Mac ctrl-click is the right-click of R3
  *   R5  a right-click on a LINK, or with text selected, keeps the browser's own menu (the page does not take it)
  *   R6  a direct-conversation row (no number) copies "April's message to me at <time> on <day>", and the
@@ -179,6 +179,11 @@ async function paintRoom(page) {
           tag + 'C2 a long message copies in full, line breaks kept, with no [cut]', c2[0].length + ' ' + JSON.stringify(c2[0].slice(-20)));
         chk(c2[1] === 'Here are both.\nBrief.pdf\nLogo.png', tag + 'C2 attachments copy as their file names, each on its own line', JSON.stringify(c2[1]));
         chk(c2[2] === 'Deck.pptx', tag + 'C2 a post that is only a file copies its name once', JSON.stringify(c2[2]));
+        const c2b = await page.evaluate(() => msgCopyWords({ text: '\n\n  indented first line\nlast  \n\n' }));
+        chk(c2b === '  indented first line\nlast', tag + 'C2 blank lines come off both ends, and the first line keeps its indent', JSON.stringify(c2b));
+        const c2c = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', 'x-none');
+          document.getElementById('pj-room').appendChild(d); msgMenuOpen(d, 20, 20); const m = document.getElementById('msg-menu'); const shown = !m.hidden; d.remove(); return shown; });
+        chk(c2c === false, tag + 'C3 a row with nothing to copy opens no (empty) menu', String(c2c));
       }
 
       // R3: right-click (on a Mac this is also ctrl-click).
