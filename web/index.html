@@ -31812,7 +31812,7 @@ const PICTURE_REFIT_TRIED = new Set();
 let PICTURE_REFIT_RUNNING = false;
 async function refitOldPictures(items) {
   if (PICTURE_REFIT_RUNNING) return;
-  const todo = items.filter((it) => it && typeof it.name === 'string' && it.name && Number.isFinite(it.ver) && !PICTURE_REFIT_TRIED.has(it.name));
+  const todo = items.filter((it) => it && typeof it.name === 'string' && it.name && Number.isFinite(it.ver) && it.ver > 0 && !PICTURE_REFIT_TRIED.has(it.name));
   if (!todo.length) return;
   PICTURE_REFIT_RUNNING = true;
   let saved = 0;

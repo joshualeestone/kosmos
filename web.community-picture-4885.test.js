@@ -228,3 +228,13 @@ test('#5302 review 1: each save names the version it read; no re-read over an in
   assert.equal(busy.calls.length, 2, 'fixture: the picture was not saved');
   assert.equal(busy.rereads, 0, 'a re-read over an industry save in flight drops its Saved.');
 });
+
+test('#5302 review 5: an item with version 0 (no picture, or unreadable) is never fetched or saved', async () => {
+  const calls = [];
+  const fetch = async (url, opts = {}) => { calls.push(opts.method || 'GET'); return { ok: true, blob: async () => ({}) }; };
+  // eslint-disable-next-line no-new-func
+  const run = new Function('fetch', 'fitPicture', 'PICTURE_FITS', 'refreshIndustry', 'PICTURE_REFIT_TRIED', 'INDUSTRY_SAVING',
+    'let PICTURE_REFIT_RUNNING = false;\nasync ' + lift('refitOldPictures') + '\nreturn refitOldPictures;')(fetch, async (b) => b, new Set(), () => {}, new Set(), false);
+  await run([{ name: 'ava', ver: 0 }]);
+  assert.deepEqual(calls, []);
+});
