@@ -16025,6 +16025,12 @@ window.kosmosMeasureScrollbarWidth();
              furniture, and an agent-made project is the one a person needs to
              be able to tell apart at a glance. -->
         <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
+        <!-- kosmos#5287: a project joined from another account says who shared it and what THEY wrote about it, as
+             theirs. Their words are never this project's own description (the brief its agents get), so they live here. -->
+        <div id="pj-one-shared" style="margin:6px 0 0;" hidden>
+          <p class="dhint" id="pj-one-shared-by" style="margin:0;"></p>
+          <p class="dhint" id="pj-one-shared-desc" style="margin:2px 0 0; white-space:pre-line;"></p>
+        </div>
       </div>
     </div>
 
@@ -61378,6 +61384,22 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   }
 });
 
+/* kosmos#5287: who shared a joined project and what they wrote about it, from p.shared (GET /api/projects; members
+   only). The owner names come from Kosmos+ (the join screen's wording when there is none yet); the description is
+   the owner's text, so it is shown as theirs, in quotes, never as this project's own. textContent only. */
+function pjPaintShared(p) {
+  const box = document.getElementById('pj-one-shared');
+  if (!box) return;
+  const sh = p && p.shared && typeof p.shared === 'object' ? p.shared : null;
+  if (!sh) { box.hidden = true; return; }
+  document.getElementById('pj-one-shared-by').textContent = 'Shared by '
+    + (typeof sh.owner === 'string' && sh.owner ? sh.owner + '.kosmosplus.com' : 'a Kosmos+ account with no name yet') + '.';
+  const d = document.getElementById('pj-one-shared-desc');
+  const words = typeof sh.description === 'string' && sh.description.trim() ? sh.description.trim() : '';
+  d.textContent = words ? 'They describe it as: \u201c' + words + '\u201d' : 'They did not add a description.';
+  box.hidden = false;
+}
+
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
@@ -61468,6 +61490,7 @@ function paintOneProject() {
     madeLine.textContent = '';
     madeLine.hidden = true;
   }
+  pjPaintShared(p);
   /* The raw-path element retired with the pack cut ("~/" is a squiggle to
      this reader): the folder facts live on #pjs-folder-name and
      #pjs-folder-where in Project settings. */
