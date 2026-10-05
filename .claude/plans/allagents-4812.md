@@ -203,3 +203,6 @@ still shows #grid in the consolidated Agents view; org hides it and the section 
   is 'blocked' (keeps the last list), since signing in cannot fix a missing route.
 - Review round 3 after #5106 (opus): the shared fake DOM now lets a node made focusable with a tabindex ATTRIBUTE
   take focus (the page's usual way), tested. The 'may need the latest Kosmos' inference is the premise above (kept).
+- Round 4 (sonnet): CONVERGED. Its redirect concern is unreachable: the sibling gate never redirects (kosmos-relay
+  crates/tunnel/src/proxy.rs on main, ~693-720: a script fetch gets 401 JSON, anything else the gate page at 200, which
+  oaClassify reads as not let in). The shared fake-DOM change is checked by running all four suites that use it.
