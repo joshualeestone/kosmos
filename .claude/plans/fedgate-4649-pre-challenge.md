@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fedgate-4649
-diff_hash: 7fce0e93cbce457a8f24669d31dae2b9d75537c0d262e8893bf47b629aee4b37
+diff_hash: 4daeac8f9ef60eb41099fd8a8879b811aa013d9d243c17507e94ea25a5ac30d0
 validation: server.fedmembers-4649 + server.federation-3311 + server.guide-secrets-3769 56/56 at the final code. Mutations, each red: the Members gate removed; the Remove/Withdraw gate removed. Mortals full run and FULL browser checks (server.js): queued.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-05T07:39:12Z
