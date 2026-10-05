@@ -46,3 +46,15 @@ advice.
   - the Windows CLI's main() with and without a note.
   - Control: with the server's note removed, the route test goes red.
 - 259 related and audit files: 5806 tests, 0 fail.
+
+## Review round 1 (opus)
+- [W] FIXED: two close-together adds could both be told to close themselves (each named the other). Only OPEN tasks
+  numbered BELOW the new one are named now, so the newest copy is the one told to close. Test: #40 and #41 at once.
+- [W] FIXED: false matches that would close a real task. "Release 0.7.23" matched "Release 0.7.22" (the version split
+  into words), "Fix this" matched "Fix it" (one shared word), and "Enable dark mode" matched "Do not enable dark mode on
+  login". Now a dotted or dashed number is one word; numbers on both sides must agree; the same-words rule needs two or
+  more words; the inside rule allows at most two extra words. Test rows for all three.
+- [N] FIXED: closest first (exact copies before loose matches), then the oldest.
+- [N] FIXED: a subtask never names its own parent.
+- [N] FIXED: the note also strips C1 controls and direction overrides from the look-alikes' sentences.
+- [N] not changed: the macOS test runs the CLI's own sed line, not the whole command (the repo's pattern).

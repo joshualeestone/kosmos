@@ -18199,13 +18199,14 @@ const server = http.createServer(async (req, res) => {
           }
           /* #5319: the task is added as asked (no silent dedup); the answer names OPEN tasks with similar text, so the
              adder can close one. Both CLIs print the note. It holds no double quote or backslash (the macOS CLI lifts
-             it with sed): the look-alikes' sentences are cut to 60 characters with those characters taken out. */
+             it with sed): the look-alikes' sentences are cut to 60 characters with those characters, control characters and
+             direction overrides taken out (a terminal can act on them). */
           let note = '';
           try {
             const raw = projects.readAll().find((x) => x && x.id === id);
-            const alike = raw ? tasks.similarOpen(raw, made.sentence, made.number) : [];
+            const alike = raw ? tasks.similarOpen(raw, made.sentence, made.number, { parent: made.parent || null }) : [];
             if (alike.length) {
-              const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim());
+              const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim());
                 return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
               note = 'Note: ' + (alike.length === 1 ? 'an open task with similar text already exists: ' : 'open tasks with similar text already exist: ')
                 + alike.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')

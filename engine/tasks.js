@@ -1291,34 +1291,50 @@ function tasksTabShown() {
 /* #5319: a task added with the same ask as an OPEN task is still added (no silent dedup: two asks can look alike and
    be different, and the agent or person adding it knows), but the answer names the open look-alikes so the adder can
    close one. Seen on 0.7.22: one ask added as #1 and #11, another as #26, #27 and #29.
-   Similar means, on lowercase words with punctuation and a few filler words dropped: the same words; a word-overlap
-   (Jaccard) of 0.6 or more with at least two words each side; or every word of the shorter (three or more) in the
-   other. Open tasks only, at most three, never the task itself. A pure function of the project record. */
+   The note tells the adder to close the NEW task, and the reader is usually an agent that will, so a false match costs
+   a real task. Hence, on lowercase words (punctuation and a few filler words dropped; a dotted or dashed number such as
+   0.7.23 is ONE word):
+   - numbers: when both sides carry numbers, they must be the same numbers ("Release 0.7.23" is not "Release 0.7.22");
+   - the same words, two or more of them ("Fix this" is not "Fix it");
+   - or a word overlap (Jaccard) of 0.6 or more, two or more words each side;
+   - or every word of the shorter (three or more) in the other, which has at most two more ("Enable dark mode" is not
+     "Do not enable dark mode on login").
+   Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
+   told to close, never both (round 1). Never the task's own parent (a subtask may repeat its parent's words).
+   At most three, closest first. A pure function of the project record. */
 const SIMILAR_FILLER = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'with', 'at', 'by', 'is',
   'it', 'this', 'that', 'be', 'as', 'from', 'our', 'my', 'we', 'i']);
 function similarWords(sentence) {
-  return new Set(String(sentence == null ? '' : sentence).toLowerCase().split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w && !SIMILAR_FILLER.has(w)));
+  const words = String(sentence == null ? '' : sentence).toLowerCase().match(/\p{N}+(?:[.-]\p{N}+)*|[\p{L}\p{N}]+/gu) || [];
+  return new Set(words.filter((w) => !SIMILAR_FILLER.has(w)));
 }
-function similarOpen(p, sentence, exceptNumber) {
+function similarOpen(p, sentence, beforeNumber, { parent = null } = {}) {
   const mine = similarWords(sentence);
   if (mine.size === 0) return [];
-  const out = [];
+  const numbersOf = (set) => [...set].filter((w) => /^\p{N}/u.test(w)).sort().join(' ');
+  const myNumbers = numbersOf(mine);
+  const found = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
-    if (!t || t.closedAt || t.number === exceptNumber) continue;
+    if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
+    if (Number.isInteger(beforeNumber) && t.number >= beforeNumber) continue;
+    if (parent !== null && t.number === parent) continue;
     const theirs = similarWords(t.sentence);
     if (theirs.size === 0) continue;
+    const theirNumbers = numbersOf(theirs);
+    if (myNumbers && theirNumbers && myNumbers !== theirNumbers) continue;
     let both = 0;
     for (const w of mine) if (theirs.has(w)) both += 1;
     const union = mine.size + theirs.size - both;
     const small = Math.min(mine.size, theirs.size);
-    const same = both === mine.size && both === theirs.size;
-    const overlap = mine.size >= 2 && theirs.size >= 2 && both / union >= 0.6;
-    const inside = small >= 3 && both === small;
-    if (same || overlap || inside) out.push({ number: t.number, sentence: t.sentence });
-    if (out.length === 3) break;
+    const big = Math.max(mine.size, theirs.size);
+    const same = both === mine.size && both === theirs.size && both >= 2;
+    const ratio = both / union;
+    const overlap = mine.size >= 2 && theirs.size >= 2 && ratio >= 0.6;
+    const inside = small >= 3 && both === small && big - small <= 2;
+    if (same || overlap || inside) found.push({ number: t.number, sentence: t.sentence, score: same ? 2 : ratio });
   }
-  return out;
+  found.sort((a, b) => (b.score - a.score) || (a.number - b.number));
+  return found.slice(0, 3).map(({ number, sentence: s2 }) => ({ number, sentence: s2 }));
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
