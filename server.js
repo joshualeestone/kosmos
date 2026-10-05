@@ -17052,14 +17052,11 @@ const server = http.createServer(async (req, res) => {
           /* Review 1: each member separately (one failure skips nobody else): its instructions rewritten, then told on its
              screen, as joining and leaving are. The page says how many were reached, never more. */
           const members = moved.agents || [];
-          let reached = 0;
-          for (const a of members) {
-            try { projects.syncAgent(a, rosterM); } catch { /* its row's told verdict reports it */ }
-            try {
-              const r = await projects.speakOfMembershipAsync(a, moved, 'moved', rosterM);
-              if (r && r.state === require('./engine/chat').DELIVERY.PLACED) reached += 1;
-            } catch { /* not reached */ }
-          }
+          for (const a of members) { try { projects.syncAgent(a, rosterM); } catch { /* its row's told verdict reports it */ } }
+          // Review 2: told in parallel, as project create tells its members, so the answer waits for the slowest pane, not
+          // the sum of them (each tmux call has its own 5 s bound).
+          const said = await Promise.all(members.map((a) => projects.speakOfMembershipAsync(a, moved, 'moved', rosterM).catch(() => null)));
+          const reached = said.filter((r) => r && r.state === require('./engine/chat').DELIVERY.PLACED).length;
           try { messages.roomNote(id, 'This project\'s folder is now at ' + moved.folder + '. Work there from now on.'); } catch { /* best effort */ }
           let projectM = null;
           try { projectM = projects.get(id, rosterM); } catch { projectM = null; }

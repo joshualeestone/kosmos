@@ -92,7 +92,8 @@ const PORT = freePort();
     await p.click('#pjs-move-btn');
     await p.waitForFunction(() => /^Done/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
     const said = (await shown(p.locator('#pjs-move-msg'))).trim();
-    chk(said === 'Done. Kosmos now uses the new location.',   // no agents on this fixture project 'the move is confirmed', JSON.stringify(said));
+    // No agents on this fixture project, so the sentence is the no-agents one.
+    chk(said === 'Done. Kosmos now uses the new location.', 'the move is confirmed', JSON.stringify(said));
     await p.waitForFunction(() => document.getElementById('pjs-move').hidden === true, null, { timeout: 8000 });
     chk(true, 'the move form is gone once the folder is there');
     chk((await shown(p.locator('#pj-one-folder-state'))).trim() === '', 'the folder warning is gone');

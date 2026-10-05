@@ -45,6 +45,11 @@ saves and the warning goes, and the project reads its new folder.
   "already this project's folder" check became unreachable and is removed); a file in the folder's place is offered the
   form too; a non-string path is refused.
 
+## Review 2 (sonnet, blind)
+- BLOCKER fixed: a `//` comment I put mid-call stopped the browser check parsing (node --check now run on it).
+- Noted, then changed: members were told one after another; now in parallel as project create does, each tmux call
+  bounded at 5 s, so the answer waits for the slowest pane. Mona Lisa's "Told N of M agents" wording applied.
+
 ## Weakest premise
 That a person knows where they moved the folder. If not, "Show me where it is" (beside it) cannot help, since the old
 place is gone; the form's sentence is the honest limit.
