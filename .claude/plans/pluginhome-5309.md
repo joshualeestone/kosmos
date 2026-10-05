@@ -8,13 +8,10 @@ for the default account), and a Codex agent reads `CODEX_HOME`. Each config fold
 
 ## Change
 `engine/connections.js` `blockBody()`: a new section, "A plugin the person installed in their own app", placed before
-the Connections tab section. It names the two things that decide whether an agent gets a plugin, both checkable by the
-agent itself:
-- **its folder**: Claude `CLAUDE_CONFIG_DIR` or `.claude` in the home folder; Codex `CODEX_HOME` or `.codex` (Windows:
-  the user's own folder). A second-account agent runs from its own folder.
-- **its account**: claude.ai connectors come with the signed-in Claude account, not a folder; never on an API key.
-Then it says to name which one it is plainly, rules out a restart for the other-folder/account case only, and lists the
-in-folder causes (switched off, one project only, added after start where a restart IS the fix, a sign-in still needed).
+the Connections tab section. It lists where a plugin the agent cannot use may be, each checkable by the agent itself:
+its folder (compare actual folders, not the account), its account (claude.ai connectors), and the app it was added in
+(the desktop app's chat side). Then: say which one plainly, no restart for those, the in-folder causes to look at, and
+"say you do not know yet" when none fits.
 
 Knowledge only: the block stays constant (no argument, no machine state), as its tests require. It deliberately names no
 file inside a provider folder: where Codex records an enabled plugin, and how account-synced Claude plugins arrive, were
@@ -28,6 +25,14 @@ Related files (`node --test server.connections-refresh-1649.test.js engine/conne
 engine/create.test.js`, from the worktree): 263/263 at the first commit. Full validation: Mortals, at the final head.
 - A default agent's folder is not always `~/.claude`: bin/agent-supervisor.sh passes a tmux-global CLAUDE_CONFIG_DIR into
   the pane when one is set (EFFECTIVE_CCD), so the text tells the agent to compare folders, not infer from the account.
+
+## What each claim rests on (connections.js's own rule: only what was read off the product)
+- Measured on Agent1s: each Claude config folder has its own `plugins/installed_plugins.json` (two folders, different
+  files); each record carries a `scope` field (`user` here), so a narrower scope exists; the desktop app keeps
+  `claude_desktop_config.json` under `~/Library/Application Support/Claude/`, apart from any Claude Code folder; Codex
+  0.149.1 keeps `plugins/` inside its home. Read from code: CLAUDE_CONFIG_DIR / CODEX_HOME / EFFECTIVE_CCD.
+- Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
+  and not an API key; that a reload picks up a late-added plugin.
 
 ## Rejected
 - Copying or linking the person's plugins into agent folders: a second account's folder is separate by design (its
