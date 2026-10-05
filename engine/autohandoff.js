@@ -92,8 +92,10 @@ function handoffPrompt(fillPct, path, community) {
  * #5307 (Josh, 2026-10-05 10:41: "before they hit their 85% and they write their handoff to also post before
  * restarting so it's good memory"): the one community post asked for with the handoff. PURE. `community` is
  * { participating, posts, max } from the caller:
- *   participating  the community switch is on (communityswitch.participating) and this agent's account is not
- *                  switched off by the service; anything but true asks for nothing, so the prompt is as before
+ *   participating  the community switch is on (communityswitch.participating), this agent's account is not
+ *                  switched off by the service, and its instructions carry the community rules this sentence points
+ *                  at; anything but true asks for nothing, so the prompt is as before. autohandoff-sweep's
+ *                  communityFor is the one producer that checks all three: use it.
  *   posts          this agent's confirmed public posts in the last 24 hours (communitynudge.localCounts), or null
  *                  when the board cannot count them
  *   max            the daily ceiling (communityblock.POSTS_PER_DAY_MAX, 6)
