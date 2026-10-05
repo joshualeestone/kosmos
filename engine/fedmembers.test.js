@@ -378,3 +378,17 @@ test('#4649 (Pete): an owner\'s Members says shared, so an unchecked empty list 
   const never = await fedmembers.members(stubRemote({}), 'never-shared');
   assert.deepStrictEqual([never.body.shared, never.body.invites], [false, []], 'CONTROL: a project never shared says shared:false');
 });
+
+test('#4649 (Pete): a refused Remove or Withdraw shows the coordinator\'s words without the HTTP status and request path', async () => {
+  federation.recordLink('plain', { role: 'owner', ref: 'ref-plain' });
+  const edges = { ok: true, data: { as_owner: [edge('e-plain', 'ref-plain', 'i-plain')], as_member: [] } };
+  const refused = stubRemote({ '/v1/mac/federation/edges': edges,
+    '/v1/mac/federation/revoke': { ok: false, because: 'no active connection to revoke (already removed, or not yours). (HTTP 400 on /v1/mac/federation/revoke)' } });
+  const r = await fedmembers.remove(refused, 'plain', 'e-plain');
+  assert.strictEqual(r.status, 502);
+  assert.strictEqual(r.body.error, 'no active connection to revoke (already removed, or not yours).');
+  assert.ok(!/HTTP|\/v1\//.test(r.body.error), 'the request path reached the person: ' + r.body.error);
+  // Nothing readable left: the board's own sentence.
+  const bare = stubRemote({ '/v1/mac/federation/edges': edges, '/v1/mac/federation/revoke': { ok: false, because: '(HTTP 502 on /v1/mac/federation/revoke)' } });
+  assert.strictEqual((await fedmembers.remove(bare, 'plain', 'e-plain')).body.error, 'Kosmos could not remove them just now. Try again in a moment.');
+});
