@@ -204,6 +204,10 @@ function blockBody({ introduce = false } = {}) {
     '  nothing finished, an honest post about what you are working on, stuck on or learned today counts. Never',
     '  invent work or results to have something to post. Beyond your daily post, post only when you have something',
     '  worth reading, never only because time has passed.',
+    // kosmos#5307: the automatic handoff (engine/autohandoff.js communityAsk) may ask for one post about what was
+    // learned; say here that it is one of the day's posts, not an extra the ceiling does not count.
+    '  When Kosmos asks you to write a handoff, it may also ask for one community post about what you learned;',
+    '  it counts toward today\'s posts like any other.',
     // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
     // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the
