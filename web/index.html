@@ -9654,7 +9654,6 @@ html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]
 .pj-addmenu-it:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
 /* The invite sheet (shots 02, 03). The person/agent choice is the .pj-mode segmented control
    (Mona's #178 radios ruling), without its page-level outer margin. */
-.fedinv-box { max-width: 32rem; }
 .fedinv-box .rm-title { overflow-wrap: anywhere; }
 .fedinv-seg { margin: var(--space-3) 0 0; }
 .fedinv-can { font-size: .8125rem; color: var(--label-2); line-height: 1.5; border: 1px solid var(--k-rule);
@@ -67401,6 +67400,7 @@ function pjAddMenuPlace() {
   const menu = document.getElementById('pj-addmenu');
   const opener = PJ_ADDMENU_OPENER;
   if (!menu || menu.hidden || !opener) return;
+  if (!opener.getClientRects().length) { pjAddMenuClose(false); return; }   // its + is gone (scrolled away, a tab change): no zero-rect jump
   const r = opener.getBoundingClientRect();
   const host = opener.closest('.pjcard-members') || opener.closest('#rail-agents');
   const vw = document.documentElement.clientWidth || window.innerWidth;
@@ -67432,6 +67432,8 @@ function pjAddMenuClose(refocus) {
 }
 /* The opener says it opens a menu only while it does (the gate is "show"; for the rail "+", only
    while it is the project's "+" rather than New agent). Called by fedGateStamp and setAgentsGrouped. */
+// Reads PJ_CURRENT (declared far below): safe because every caller runs after load, and setAgentsGrouped's early
+// call short-circuits on fedShow() being false before the first stamp. Keep it that way if this moves.
 function pjAddMenuSync() {
   // A menu left open across a project switch or a tab change (its "+" no longer on screen) closes on the next
   // stamp rather than coming back stale for another project.
@@ -67451,15 +67453,19 @@ function pjAddMenuSync() {
     }
   }
 }
+// Both items act only for the project the menu was opened on: a switch since then (a notification, a route) closes
+// the menu instead of adding to, or inviting into, a project the person did not pick it for.
 document.getElementById('pj-addmenu-agent').addEventListener('click', () => {
   const openAm = PJ_ADDMENU_AGENT;
-  pjAddMenuClose(false);
-  if (openAm) openAm();
+  const same = PJ_ADDMENU_PROJECT === PJ_CURRENT;
+  pjAddMenuClose(!same);
+  if (same && openAm) openAm();
 });
 document.getElementById('pj-addmenu-outside').addEventListener('click', () => {
   const opener = PJ_ADDMENU_OPENER;
-  pjAddMenuClose(false);
-  fedInviteOpen(opener);
+  const same = PJ_ADDMENU_PROJECT === PJ_CURRENT;
+  pjAddMenuClose(!same);
+  if (same) fedInviteOpen(opener);
 });
 // A click anywhere else, a resize or a scroll closes it (it is placed once, from the "+"'s rect).
 document.addEventListener('click', (e) => {
@@ -67556,11 +67562,18 @@ async function fedInviteMake() {
   msg.textContent = 'Making a code…';
   const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
   try {
-    const res = await fetch('/api/federation/invite', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }),
-    });
-    const body = await res.json().catch(() => null);
+    // A board or coordinator that never answers must not hold the sheet shut (it refuses to close while Make is in
+    // flight): after 30 s the request is given up and falls into "could not reach", with Make live again.
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 30000) : 0;
+    let res, body;
+    try {
+      res = await fetch('/api/federation/invite', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }), signal: ctl ? ctl.signal : undefined,
+      });
+      body = await res.json().catch(() => null);
+    } finally { if (timer) clearTimeout(timer); }
     if (seq !== FEDINV_SEQ) return;
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
@@ -67611,8 +67624,14 @@ document.getElementById('fedinv-cancel').addEventListener('click', () => fedInvi
 document.getElementById('fedinv-ok').addEventListener('click', () => fedInviteClose());
 document.getElementById('fedinv-copy').addEventListener('click', fedInviteCopy);
 // The backdrop closes the asking step only: once a code is shown, a stray click must not lose it.
+// The press must START on the backdrop too: a drag-select in the label that is released over the backdrop fires a
+// click there, and must not discard what was typed.
+let FEDINV_DOWN_ON_BACK = false;
+document.getElementById('fedinv-modal').addEventListener('mousedown', (e) => { FEDINV_DOWN_ON_BACK = e.target.id === 'fedinv-modal'; });
 document.getElementById('fedinv-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'fedinv-modal' && !document.getElementById('fedinv-ask').hidden) fedInviteClose();
+  const fromBack = FEDINV_DOWN_ON_BACK;
+  FEDINV_DOWN_ON_BACK = false;
+  if (fromBack && e.target.id === 'fedinv-modal' && !document.getElementById('fedinv-ask').hidden) fedInviteClose();
 });
 // Escape closes either step (#1316: every dialog's keyboard way out). Unlike a stray backdrop click it is deliberate,
 // so it may close the code step; not while an input method is composing (Escape there cancels the composition).
