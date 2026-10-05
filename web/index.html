@@ -37845,10 +37845,13 @@ function paintDetailState(card) {
   /* #5333: the link notice follows the poll like the re-auth button. Written only when it changes (this runs every poll). */
   const lost = document.getElementById('d-linklost');
   if (lost) {
-    const on = a.linkLost === true;
+    /* Not beside "Start this agent": a stopped agent already has its remedy, and two buttons would do one job. */
+    const on = a.linkLost === true && a.state !== 'stopped';
     if (lost.hidden === on) lost.hidden = !on;
     if (on) {
-      const words = a.name + ' has lost its link to Kosmos, so it cannot read your messages or answer you. Restart it to fix'
+      /* "Answer", not "read": a message still reaches it (the board types it into its window, no token involved);
+         what fails is everything it sends back through Kosmos. */
+      const words = a.name + ' has lost its link to Kosmos, so it cannot answer you. Restart it to fix'
         + ' this: \u201cWrite a handoff, then restart\u201d keeps what it was doing.';
       const t = document.getElementById('d-linklost-text');
       if (t && t.textContent !== words) t.textContent = words;

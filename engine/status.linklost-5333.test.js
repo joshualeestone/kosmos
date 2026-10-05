@@ -65,13 +65,15 @@ test('#5333 CONTROLS: no instance on the session, an unreadable store, or a sess
   const board = fleet.install([
     fleet.agent('cy', { state: 'idle' }),                                         // predates the instance: nothing to compare
     fleet.agent('di', { state: 'idle', tokenInstance: 'abcdef123456' }),          // its token is not on file: lost
-    fleet.agent('ed', { state: 'idle', tokenInstance: minted.instance, ours: 'none' }),   // not ours by name
+    fleet.agent('ed', { state: 'idle', tokenInstance: minted.instance, ours: false }),    // not ours by name
   ]);
   try {
     assert.equal(cardOf(board, 'cy').linkLost, false, 'no instance stamped');
     assert.equal(cardOf(board, 'di').linkLost, true, 'CONTROL: the same check does fire for an ours session whose token is gone');
     const ed = cardOf(board, 'ed');
-    if (ed) assert.equal(ed.linkLost, false, 'a session Kosmos did not launch is not ours to judge');
+    assert.ok(ed, 'CONTROL: the not-ours session has a card to judge');
+    assert.equal(ed.isNamedOurs, false, 'precondition: it is not ours by name');
+    assert.equal(ed.linkLost, false, 'a session Kosmos did not launch is not ours to judge');
     fs.mkdirSync(sendertoken.DIR, { recursive: true });
     fs.writeFileSync(path.join(sendertoken.DIR, 'di.json'), '{not json');
     assert.equal(board.snapshot().find((a) => a.sessionName === 'di').linkLost, false, 'an unreadable store says nothing');
