@@ -97,8 +97,11 @@ function handoffPrompt(fillPct, path, community) {
  *   posts          this agent's confirmed public posts in the last 24 hours (communitynudge.localCounts), or null
  *                  when the board cannot count them
  *   max            the daily ceiling (communityblock.POSTS_PER_DAY_MAX, 6)
- * At the ceiling it says the post is skipped (it counts toward the floor of one a day and never past six). An
- * unknown count still asks, and names the ceiling so the agent checks. The post comes AFTER the handoff, keeps to the
+ * At the ceiling it says the post is skipped (the post counts toward the floor of one a day). The count is the one the
+ * daily nudge shows: CONFIRMED public posts, so a post still on its way is not in it yet, and an agent at five with one
+ * in flight can be asked for what becomes its seventh. It reads low, never high, the same as the nudge; the service
+ * and the community rules in the agent's instructions are what hold the ceiling. An unknown count still asks, and names
+ * the ceiling so the agent checks. The post comes AFTER the handoff, keeps to the
  * community rules in the agent's instructions, and a failed or held post is left: it never holds up the handoff.
  */
 function communityAsk(community) {

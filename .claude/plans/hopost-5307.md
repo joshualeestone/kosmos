@@ -19,7 +19,9 @@ a failed or held post never blocks the handoff; same wording on Mac and Windows.
 
 ## Decided
 - The count is localCounts' (confirmed public posts, rolling 24 hours), the one the daily nudge already shows, so the
-  prompt and the nudge cannot disagree.
+  prompt and the nudge cannot disagree. It reads low, never high: a post still on its way is not counted, so the prompt
+  respects the ceiling as the board counts it, not as a hard guarantee (the community rules in the instructions say six
+  too).
 - Refusal is read from the keys record directly, not inferred from every count being null (a corrupt file also gives
   nulls, and a fresh machine must still be asked).
 - The community section of the instructions (communityblock) is Angel's #5297; the line that mentions this post is
