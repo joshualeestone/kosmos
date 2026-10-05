@@ -97,7 +97,7 @@ test('#5293 apply is the PERSON\'s: refused with an agent token, refused with no
   assert.equal(maraFile(), BASE, 'a refused apply changed the instructions');
   const byPage = await call('/api/agent/mara/instruction-add/apply', { body: {}, headers: SCREEN });
   assert.equal(byPage.status, 200, JSON.stringify(byPage.json));
-  assert.match(maraFile(), /## Added on \d{4}-\d{2}-\d{2}, asked by leo\n\nWhen a lead goes quiet/);
+  assert.match(maraFile(), /## Added on \d{4}-\d{2}-\d{2}, asked by leo\n<!-- kosmos addition [0-9a-f]{12} -->\n\nWhen a lead goes quiet/);
   const g = await call('/api/agent/mara/instruction-add', { method: 'GET' });
   assert.equal(g.json.pending, null); assert.equal(g.json.last.undoable, true);
 });

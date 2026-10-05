@@ -59,7 +59,10 @@ function readForWrite() {
   try {
     const aside = file() + '.unreadable-' + new Date().toISOString().replace(/[:.]/g, '-');
     fs.renameSync(file(), aside);
-    return { agents: Object.create(null), movedAside: path.basename(aside), movedAt: new Date().toISOString() };
+    /* Review 4: record the move at once, whatever the calling write goes on to do, so the page can always name it. */
+    const fresh = { agents: Object.create(null), movedAside: path.basename(aside), movedAt: new Date().toISOString() };
+    try { writeAll(fresh); } catch { /* the caller's own write retries it */ }
+    return fresh;
   } catch { return BUSY; }
 }
 function failedRead(all) { return all === BUSY || all === UNREADABLE; }
@@ -79,10 +82,12 @@ function writeAll(all) {
 function keyFor(agent) { return instructions.registryKey(agent); }
 
 /** The line Apply writes above the added text: who asked and when, in the instructions themselves. */
-function headingLine(askedBy, askedAt) {
+function headingLine(askedBy, askedAt, id) {
   const d = new Date(askedAt);
   const day = Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : 'an unknown date';
-  return `## Added on ${day}, asked by ${askedBy}`;
+  /* Review 4: the proposal's own id, in a comment the agent's reader ignores, so "this exact addition is already at the
+     end" can only ever mean THIS proposal (a re-proposal of the same words the same day is a different one). */
+  return `## Added on ${day}, asked by ${askedBy}` + (id ? `\n<!-- kosmos addition ${id} -->` : '');
 }
 
 /** The pending addition for this agent, or null. */
@@ -111,7 +116,8 @@ function propose(agent, text, askedBy, now) {
   if (failedRead(all)) return { ok: false, code: 'bad', because: failSaid(all) };
   const rec = recOf(all, k) || {};
   if (rec.pending) return { ok: false, code: 'pending', pending: rec.pending, because: 'an addition is already waiting' };
-  rec.pending = { text: body, askedBy: who, askedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString() };
+  rec.pending = { text: body, askedBy: who, askedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(),
+    id: require('node:crypto').randomBytes(6).toString('hex') };
   all.agents[k] = rec;
   writeAll(all);
   return { ok: true, pending: rec.pending };
@@ -156,7 +162,7 @@ function apply(agent, now) {
   const cur = instructions.read(agent);
   if (!cur || !cur.exists) return { ok: false, because: (cur && cur.because) || 'these instructions could not be read' };
   const p = rec.pending;
-  const block = '\n\n' + headingLine(p.askedBy, p.askedAt) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
+  const block = '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
   const curText = String(cur.text == null ? '' : cur.text);
   /* Review 3: IDEMPOTENT. If the file already ends with exactly this addition (an earlier press wrote it but could not
      record it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail. */
@@ -181,7 +187,7 @@ function apply(agent, now) {
   try {
     writeAll(all);
   } catch {
-    return { ok: false, code: 'unrecorded', because: 'The addition is in the instructions, but Kosmos could not record it. Press Apply again to finish; it will not be added twice' };
+    return { ok: false, code: 'unrecorded', because: 'The addition is in the instructions, but Kosmos could not record it. Press Apply again to finish; as long as the instructions are not changed first, it is not added a second time' };
   }
   return { ok: true, last: publicLast(agent, rec.last) };
 }

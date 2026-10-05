@@ -74,7 +74,7 @@ test('apply appends who-asked-and-when then the text at the END, keeps everythin
   assert.equal(r.ok, true, r.because);
   const t = fileText('sally');
   assert.ok(t.startsWith(BASE.trimEnd()), 'the existing instructions were not kept in front');
-  assert.match(t, /\n\n## Added on 2026-10-05, asked by Ops lead\n\nWhen a lead goes quiet/);
+  assert.match(t, /\n\n## Added on 2026-10-05, asked by Ops lead\n<!-- kosmos addition [0-9a-f]{12} -->\n\nWhen a lead goes quiet/);
   assert.ok(t.trimEnd().endsWith(ADD), 'the addition is not at the end');
   assert.equal(adds.pending('sally'), null);
   assert.equal(r.last.askedBy, 'Ops lead'); assert.equal(r.last.undoable, true);
@@ -250,4 +250,22 @@ test('review 1: the store is private (mode 600): it holds the agent\'s earlier i
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   assert.equal(fs.statSync(adds.FILE).mode & 0o777, 0o600);
+});
+
+test('review 4: the same words proposed AGAIN after being applied are added again, not skipped as "already there"', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead', 1000);
+  adds.apply('sally');
+  adds.propose('sally', ADD, 'Ops lead', 2000);
+  assert.equal(adds.apply('sally').ok, true);
+  assert.equal((fileText('sally').match(/## Added on/g) || []).length, 2, 'a real second apply was skipped');
+});
+
+test('review 4: moving a corrupt store aside is recorded at once, even by a write that then changes nothing', () => {
+  makeAgent('sally');
+  fs.mkdirSync(path.dirname(adds.FILE), { recursive: true });
+  fs.writeFileSync(adds.FILE, '{"agents": {"bob"');
+  adds.forget('nobody-here');
+  assert.ok(adds.state('sally').movedAside, 'the kept file is not named, so the page can never mention it');
+  for (const f of fs.readdirSync(path.dirname(adds.FILE)).filter((x) => x.includes('.unreadable-'))) fs.rmSync(path.join(path.dirname(adds.FILE), f));
 });

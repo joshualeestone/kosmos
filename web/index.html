@@ -40053,7 +40053,7 @@ function instrAddPaint(sessionName, data) {
     line.style.margin = '0';
     line.textContent = data.busy
       ? 'Kosmos could not read the additions waiting for you just now. Open this agent again in a moment.'
-      : 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. It is kept as it is, and Kosmos starts a new one the next time an addition is proposed.';
+      : 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. It is kept as it is, and Kosmos starts a new one the next time anything here changes.';
     li.append(line);
   } else if (p) {
     const who = p.askedBy || 'another agent';

@@ -74,6 +74,15 @@ the person pasted it in on the colleague's page.
   real sha256 version can guard an Undo. The page names the actual reason Undo is not offered (edited / too short /
   unknown), never "edited" when nobody edited.
 
+## Review 4 (sonnet, blind)
+- W fixed: idempotency matched on day + asker only, so a same-day re-proposal of the same words was skipped and its
+  first Undo record lost. Each proposal now has an id, written in a comment under the heading; only that proposal
+  matches. Test: the same words proposed again after an apply are added again.
+- W fixed: moving a corrupt store aside is recorded at once (the fresh store names the kept file), whatever the calling
+  write does next. W fixed: the 'unrecorded' sentence states its condition (the instructions not changed first).
+- NITs accepted: in the rare finished-retry path, Undo restores the earlier text with one trailing newline (the exact
+  original trailing whitespace is not known there); a hand-edit back to the earlier text reads as undone.
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.

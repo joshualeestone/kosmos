@@ -121,7 +121,7 @@ function readAdd(page) {
     await page.click('#d-instr-add button:has-text("Apply")');
     await page.waitForFunction(() => /## Added on .*asked by Leo/.test(document.getElementById('d-instr').value), null, { timeout: 8000 });
     const file = fs.readFileSync(fileOf('mara'), 'utf8');
-    chk(file.startsWith(BASE.trimEnd()) && /## Added on \d{4}-\d{2}-\d{2}, asked by Leo\n\nWhen a lead goes quiet/.test(file) && file.trimEnd().endsWith('thousand dollars.'),
+    chk(file.startsWith(BASE.trimEnd()) && /## Added on \d{4}-\d{2}-\d{2}, asked by Leo\n<!-- kosmos addition [0-9a-f]{12} -->\n\nWhen a lead goes quiet/.test(file) && file.trimEnd().endsWith('thousand dollars.'),
       'Apply appended the addition at the end of the file, under who asked and when', JSON.stringify(file.slice(-160)));
     await page.waitForFunction(() => /Added on .*, asked by Leo\./.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
     const applied = await readAdd(page);
