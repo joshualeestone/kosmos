@@ -22,7 +22,7 @@ not measured (review iteration 1).
 section, and no em dash. Red-capable: with origin/main's connections.js substituted in (`git show origin/main:engine/connections.js`), `node --test
 engine/connections.test.js` gives 10 pass, 1 fail; with the change 11/11.
 Related files (`node --test server.connections-refresh-1649.test.js engine/connections.test.js engine/discover.adopt.test.js
-engine/create.test.js`, from the worktree): 263/263 at the first commit. Full validation: Mortals, at the final head.
+engine/create.test.js`, from the worktree): 263/263 at the first commit and again after review iteration 6. Full validation: Mortals, at the final head.
 - A default agent's folder is not always `~/.claude`: bin/agent-supervisor.sh passes a tmux-global CLAUDE_CONFIG_DIR into
   the pane when one is set (EFFECTIVE_CCD), so the text tells the agent to compare folders, not infer from the account.
 
@@ -35,7 +35,8 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit. Full va
   excluded) for enabledPlugins, installed_plugins, `plugin install`, `plugin add` and 'plugin': 0 hits (control:
   CLAUDE_CONFIG_DIR, 131 hits in the same scope).
 - `.claude.json`: measured at `~/.claude.json` beside `~/.claude`, and at `<CLAUDE_CONFIG_DIR>/.claude.json` inside an
-  account folder. That MCP servers are recorded there (and per project for local scope) is from review iteration 5 and
+  account folder. That MCP servers are recorded there is from review iteration 5 (a project-scope server is in the project's
+  `.mcp.json` instead, per iteration 6, which is why the text no longer says anything narrower) and
   matches the file's role; no server is configured on this box to show the exact keys.
 - The account bullet is limited to Claude: the Codex counterpart (ChatGPT-side connectors) was not measured.
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
