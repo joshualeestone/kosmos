@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: tabcenter-2624
-diff_hash: 622db64cf173430749641dfe6ec762a91ac353ec4968e4965055e46fe2ea2c1c
+diff_hash: ed3ccb52b5a862eecd9a8b289368d3f93352a4e7689fd8dc8add4169a3b1f238
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-04T13:07:13Z
+timestamp: 2026-10-05T01:41:36Z
 iterations: 8
 converged: true
 ---
@@ -17,13 +17,14 @@ converged: true
 **Total findings:** 9 (1 BLOCKER, 7 WARNINGs, 1 CONVENTION)
 **Fixed:** 6 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
-Validation on the exact head 9b12ba791 (rebased onto main 10-04 02:4x, after #5018 and #5116):
-- Full validation through validation-log: 15014 tests, 14790 pass, 0 fail, 0 cancelled, clean worktree, hash 622db64cf173
-  (matches this proof). Coarse and surface browser-check gates green inside it.
-- FULL tools/browser-checks.sh: all page checks passed, 0 FAIL lines, EXIT 0. render-tophead-stable-2624: OK.
-- Before the full runs: render-tophead-stable-2624 OK headless and headed; mutation (the header's old flex rule) reds
-  it with "move 90.5px"; web.layout-picker 13/13.
-- Merge-tree against current main (1 commit ahead of the merge base, touching none of these files): clean.
+Validation on the exact head 6d4439a56 (rebased onto main 2026-10-04 12:1x, after main changed web/index.html):
+- Full validation on Mortals through validation-log: 15052 tests, 0 fail, 0 cancelled, status clean (a real run).
+  Hash ed3ccb52b5a8, matching this proof.
+- FULL tools/browser-checks.sh: 316 checks, all page checks passed, 0 FAIL lines, EXIT 0. render-tophead-stable-2624: OK.
+- Earlier, on the pre-rebase head 9b12ba791: the same two runs green; mutation (the header's old flex rule) reds the
+  check with "move 90.5px"; web.layout-picker 13/13.
+- Merged onto current main without a re-run under Splinter's 19:29 ruling; the overlap evidence (including a
+  touch-emulated run of the check on the merged tree) is on the PR.
 
 Design: Mona Lisa approved 10-02 17:44; later commits change no rendered pixel (measured).
 
