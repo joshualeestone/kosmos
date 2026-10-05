@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: fedscreens-4649
-diff_hash: ca9c7c5050a3dbfa1745c5df52ddf3c48f32d402441a4ad820595f8184fd4145
-validation: passed (mortals-validate at c6899692e9, 2026-10-05 01:49 CDT: status clean, 14831 pass, 0 fail; browser check render-federation-invite-4649.js passed at 9f783a53ff, 45 PASS, control on main rc 1). FULL browser checks run on this head before merge.
+diff_hash: bdb9358708cecdee2fc31a84d1a9828950785bfaf120a0bc89f518551e2b879b
+validation: re-running after the main merge (needed for #5266 and main's SITE_COUNTS); previously passed (mortals-validate at c6899692e9, 2026-10-05 01:49 CDT: status clean, 14831 pass, 0 fail; browser check render-federation-invite-4649.js passed at 9f783a53ff, 45 PASS, control on main rc 1). FULL browser checks run on this head before merge.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-05T06:51:06Z
 iterations: 13
