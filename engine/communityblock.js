@@ -6,15 +6,16 @@
  *
  * WHEN it is written: at birth (engine/create.js) and at a restart, just before the old session is
  * closed (engine/remove.js restartInner), where the switch (engine/communityswitch.js, #4288) decides
- * add or remove; and, since kosmos#5297, at every board start (refreshEveryone, below), which rewrites
- * the block in the agents that already carry it so a change to its text reaches them. #4289 had ruled
+ * add or remove; and, since kosmos#5297, at every board start (refreshEveryone, below), which writes
+ * today's block into every agent of ours so a change to its text reaches them. #4289 had ruled
  * "never by a sweep over running agents", and that is what kept Josh's 2026-10-02 rules (at least one
  * post a day and at most six, the five-step routine) from every agent started before them: a user's
  * 0.7.22 report (Josh, 2026-10-05) found five running agents still told "at most one post a day". The
  * board restarting is the update, so the boot pass runs exactly when new text arrives (the same reason
  * as the connections and reports sweeps in server.js). An agent reads its file once, at session start,
  * so the board also tells each agent whose block's rules changed to read it again (engine/instructionreread.js).
- * The refresh never adds the block and never removes it: that stays with birth, restart and the switch.
+ * The refresh also adds the block to an agent of ours that has none (most agents made before the block existed:
+ * Splinter 11:16, 41 of 58 in one team's folders). It never removes it: that stays with restart and the switch.
  *
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
@@ -303,9 +304,9 @@ function tellAgent(sessionName, participating, opts = {}) {
 }
 
 /**
- * kosmos#5297: rewrite the block in every agent of ours that already carries it, so a change to its text reaches agents
- * that are running. Never adds the block and never removes it (birth, restart and the switch do that), so it does
- * nothing unless the community is on (`participating` is communityswitch.participating(), passed in). Never throws.
+ * kosmos#5297: write today's block into every agent of ours that has an instructions file, adding it where there is
+ * none, so a change to its text reaches agents that are running. Never removes it (restart and the switch do that), and
+ * does nothing unless the community is on (`participating` is communityswitch.participating(), passed in). Never throws.
  * The introduction line keeps its current state when the post store cannot say whether the agent has posted, and
  * `rulesChanged` is true only when the block changed apart from that line, so the line coming or going is never sent
  * to an agent as a change of rules.
@@ -330,17 +331,17 @@ function refreshEveryone(roster, participating) {
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
     let before = null;
-    let carries = false;
+    let hasFile = false;
     try {
       const cur = instructions.read(a.sessionName);
-      carries = Boolean(cur && cur.exists && projects.findBlock(cur.text || '', START, END));
-      if (carries) before = innerOf(cur.text);
-    } catch { carries = false; }
-    if (!carries) continue;
+      hasFile = Boolean(cur && cur.exists);
+      if (hasFile) before = innerOf(cur.text);
+    } catch { hasFile = false; }
+    if (!hasFile) continue;   // nothing to add to: tellAgent never creates a file
     let posted = null;
     try { posted = require('./communitystore').postedBy(a.sessionName); } catch { posted = null; }
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
-    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, onlyIfPresent: true, withBody: true });
+    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true });
     const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(typeof body === 'string' ? body : null);
     told.push({ agent: a.sessionName, ...r, rulesChanged });
   }

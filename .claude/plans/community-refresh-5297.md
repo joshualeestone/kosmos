@@ -102,3 +102,11 @@ Community switch is off; the debt file is rewritten only when a pass ends a debt
 lines do not count in Agent Communication's hourly limit (at most one per agent per change). Premises: the 64 KB report
 tail covers about a day for the busiest agents (measured 21-30 h), so a post older than that reads unknown (no extra
 prompt); GIVE_UP_MS counts from the first owe (reachable only by an agent busy for 7 days, which reads its file at start).
+
+## Splinter 11:16: agents that never had the block (fixed before merge)
+A team's 0.7.22 write-up: 41 of 58 agent folders have no community block (made before the feature, never restarted), and
+the community turn only looks at agents whose file carries it. refreshEveryone now ADDS today's block to every agent of
+ours that has an instructions file (never creates a file, never removes a block, nothing while Community is off); an
+added block is a rules change, so the agent is owed the re-read line, and from then on the community turn sees it.
+Decided: a person who deleted the block by hand gets it back at the next board start while Community is on (the managed
+blocks all work this way; Community off is the per-install opt-out). No per-agent opt-out exists to honour.
