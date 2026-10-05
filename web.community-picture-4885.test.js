@@ -177,23 +177,25 @@ test('#4885: the agent page says when a chosen picture could not be fitted for t
 });
 
 /* kosmos#5302: refitOldPictures with stand-ins for fetch, fitPicture and the Settings re-read. */
-async function refit(names, { fits = () => true, getOk = () => true, putOk = () => true, tried } = {}) {
+async function refit(names, { fits = () => true, getOk = () => true, putOk = () => true, tried, saving = false } = {}) {
   const calls = [];
+  const heads = [];
   const PICTURE_FITS = new Set();
   const fitPicture = async (blob) => { const out = { type: 'image/webp', from: blob }; if (fits(blob.name)) PICTURE_FITS.add(out); return out; };
   const fetch = async (url, opts = {}) => {
     const name = decodeURIComponent(url.split('/')[3]);
     calls.push([opts.method || 'GET', name]);
+    if (opts.method === 'PUT') heads.push(opts.headers || {});
     if ((opts.method || 'GET') === 'GET') return { ok: getOk(name), blob: async () => ({ name }) };
     return { ok: putOk(name) };
   };
   let rereads = 0;
   const refreshIndustry = () => { rereads += 1; };
   // eslint-disable-next-line no-new-func
-  const run = new Function('fetch', 'fitPicture', 'PICTURE_FITS', 'refreshIndustry', 'PICTURE_REFIT_TRIED',
-    'let PICTURE_REFIT_RUNNING = false;\nasync ' + lift('refitOldPictures') + '\nreturn refitOldPictures;')(fetch, fitPicture, PICTURE_FITS, refreshIndustry, tried || new Set());
-  await run(names);
-  return { calls, rereads, run };
+  const run = new Function('fetch', 'fitPicture', 'PICTURE_FITS', 'refreshIndustry', 'PICTURE_REFIT_TRIED', 'INDUSTRY_SAVING',
+    'let PICTURE_REFIT_RUNNING = false;\nasync ' + lift('refitOldPictures') + '\nreturn refitOldPictures;')(fetch, fitPicture, PICTURE_FITS, refreshIndustry, tried || new Set(), saving);
+  await run(names.map((n, i) => ({ name: n, ver: 1000 + i })));
+  return { calls, rereads, run, heads };
 }
 
 test('#5302: each listed picture is fetched, fitted and saved back, and Settings re-reads once after', async () => {
@@ -203,7 +205,7 @@ test('#5302: each listed picture is fetched, fitted and saved back, and Settings
 });
 
 test('#5302: one that cannot be fitted is never saved; nothing saved means no re-read; a failed read is skipped', async () => {
-  const r = await refit(['ava', 'bo'], { fits: (n) => n === 'bo', getOk: (n) => n !== 'cy' });
+  const r = await refit(['ava', 'bo'], { fits: (n) => n === 'bo' });
   assert.deepEqual(r.calls, [['GET', 'ava'], ['GET', 'bo'], ['PUT', 'bo']], 'an unfitted picture was written over the original');
   const none = await refit(['ava'], { fits: () => false });
   assert.equal(none.rereads, 0, 're-read with nothing saved (a loop with the paint that called it)');
@@ -217,4 +219,12 @@ test('#5302: an agent is tried once per page load, so a picture that will not fi
   assert.equal(first.calls.length, 1);
   const again = await refit(['ava'], { fits: () => false, tried });
   assert.deepEqual(again.calls, [], 'tried again on the next paint');
+});
+
+test('#5302 review 1: each save names the version it read; no re-read over an industry save in flight', async () => {
+  const r = await refit(['ava', 'bo']);
+  assert.deepEqual(r.heads.map((h) => h['x-kosmos-refit-of']), ['1000', '1001']);
+  const busy = await refit(['ava'], { saving: true });
+  assert.equal(busy.calls.length, 2, 'fixture: the picture was not saved');
+  assert.equal(busy.rereads, 0, 'a re-read over an industry save in flight drops its Saved.');
 });

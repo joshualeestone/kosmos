@@ -4,7 +4,7 @@ Card: kosmos#5302 (bug). Owner: Angel. Built to Baron's recommendation on the ca
 
 ## Finished looks like
 An agent picture saved before #4885 (too big for the community's 60,000-byte cap, or a type it cannot take) is fitted
-the next time Settings reads the community setting, saved back, and goes to the community; the Settings warning clears
+the next time the page reads the community setting (at page load, and when Settings' Automation section opens), saved back, and goes to the community; the Settings warning clears
 itself. A picture that cannot be fitted is left as it is and the warning keeps telling the person to choose another.
 
 ## Changes
@@ -19,7 +19,9 @@ itself. A picture that cannot be fitted is left as it is and the warning keeps t
 
 ## Decided
 - In the page, not the engine (Node has no image codec, no image dependency; #4885 rejected engine resizing).
-- Overwrite the stored picture (what choosing it again does); no separate community copy.
+- Overwrite the stored picture (what choosing it again does), but KEEP THE ORIGINAL first (review 1: otherwise the
+  person's only copy is lost at page load with no click): store.keepAvatarOriginal copies it to avatar-originals/ (the
+  first one kept, never replaced), and the PUT carries the version it read, refused (409) if the picture changed since.
 - Not the community's own refusals (avatarRefused): fitting would not change those.
 - No new browser check: the canvas work is fitPicture (render-picture-fit-4885.js); the flow is node-tested with
   stand-ins. Override trailer on the branch; the full browser-checks run is still required before merge.
@@ -33,3 +35,8 @@ listed but its GET would 404, and it is skipped (tried once per load).
 ## Validation
 web.* (2520), engine/communityavatar.test.js, server.community-picture-4885.test.js, the #2762 pin (23 -> 25), the file
 guards; both browser-check gates; full browser-checks on the final head (queued).
+
+## Review 1 (fixed)
+Original kept before the overwrite; version-gated refit PUT (no race with the chooser); no re-read over an industry save in
+flight. Decided NITs: a paint during a running refit drops its list until the next paint; pictureToFit is called twice per
+read (small, flagged agents only).
