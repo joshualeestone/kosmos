@@ -143,8 +143,12 @@ test('a wrong secret and an unknown id answer the same 404, and add nothing', as
 test('the board-token exemption is ONLY the exact /hooks/<id>/<secret> shape', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Shape' } });
   const [, id, secret] = made.json.url.match(/\/hooks\/([0-9a-f]{16})\/(.+)$/);
+  // #5351: an id with no a-f letter is unchanged by toUpperCase(), which made that probe the REAL link (about 1 run
+  // in 1,850). Put an uppercase hex letter in it instead, so it still differs from the real id only by case.
+  const upperId = /[a-f]/.test(id) ? id.toUpperCase() : 'A' + id.slice(1);
+  assert.notEqual(upperId, id, 'the uppercase probe must differ from the real id');
   for (const bad of [made.json.url + '/extra', made.json.url + '/', made.json.url.slice(0, -1),
-    base + '/hooks/' + id.toUpperCase() + '/' + secret, base + '/hooks/abc/def', base + '/hooks/' + '0'.repeat(16)]) {
+    base + '/hooks/' + upperId + '/' + secret, base + '/hooks/abc/def', base + '/hooks/' + '0'.repeat(16)]) {
     assert.equal((await call(bad, { title: 'x' })).status, 403, bad);
   }
   // A query string is not part of the path: the same link with one still works (control: the
