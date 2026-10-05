@@ -590,3 +590,19 @@ test('pictureUnsendable counts pictures that cannot go as they are, and stops co
   await cs.sweep();
   assert.equal(cs.pictureUnsendable(), 1, 'a picture the community refused is not counted');
 });
+
+test('#5302 pictureToFit names the agents whose picture is too big or the wrong type, judged on the file as it is now', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/gif', GIF);
+  await cs.sweep();
+  const key = keyOf(readKeys());
+  assert.deepEqual(cs.pictureToFit(), [key]);
+  assert.equal(cs.pictureUnsendable(), 1);
+  // The page fits it and saves a PNG; before any sweep re-marks it, it no longer counts.
+  store.saveAvatar('ava', 'image/png', png(3));
+  assert.deepEqual(cs.pictureToFit(), [], 'a picture already fitted still listed until the next sweep');
+  assert.equal(cs.pictureUnsendable(), 0);
+  // CONTROL: the mark is still there (only the live read cleared it).
+  assert.match(readKeys()[key].avatarSkipLogged, /^type:/);
+});

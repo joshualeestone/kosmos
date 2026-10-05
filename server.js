@@ -8559,7 +8559,11 @@ const server = http.createServer(async (req, res) => {
     // #4885: pictures saved before Kosmos fitted them that cannot go as they are (too big, not a still picture, refused).
     let picturesUnsendable = 0;
     try { picturesUnsendable = typeof communitysend.pictureUnsendable === 'function' ? communitysend.pictureUnsendable() : 0; } catch { picturesUnsendable = null; }
-    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable };
+    // kosmos#5302: which agents those are (too big or the wrong type), so the page can fit them with the picture chooser's
+    // own fitPicture and save them back; null when it cannot tell.
+    let picturesToFit = [];
+    try { picturesToFit = typeof communitysend.pictureToFit === 'function' ? (communitysend.pictureToFit() || []).slice(0, 100) : []; } catch { picturesToFit = null; }
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable, picturesToFit };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, industryBody()); }

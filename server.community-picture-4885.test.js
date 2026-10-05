@@ -33,9 +33,9 @@ test.after(() => { try { server.closeAllConnections(); server.close(); } catch {
 const url = () => `http://127.0.0.1:${server.address().port}/api/community-industry`;
 const put = (b) => fetch(url(), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: typeof b === 'string' ? b : JSON.stringify(b) });
 
-const real = { u: communitysend.pictureUnreachable, s: communitysend.pictureUnsendable };
+const real = { u: communitysend.pictureUnreachable, s: communitysend.pictureUnsendable, f: communitysend.pictureToFit };
 test.afterEach(() => {
-  for (const [k, v] of [['pictureUnreachable', real.u], ['pictureUnsendable', real.s]]) {
+  for (const [k, v] of [['pictureUnreachable', real.u], ['pictureUnsendable', real.s], ['pictureToFit', real.f]]) {
     if (v === undefined) delete communitysend[k]; else communitysend[k] = v;
   }
 });
@@ -70,4 +70,19 @@ test('#4885: a PUT answers with the same counts, so saving an industry does not 
   const j = await r.json();
   assert.equal(j.picturesStuck, 1);
   assert.equal(j.picturesUnsendable, 4);
+});
+
+test('#5302: the agents to fit are the send layer\'s list (at most 100); none without it; null when it throws', async () => {
+  delete communitysend.pictureToFit;
+  assert.deepEqual((await read()).picturesToFit, []);
+  communitysend.pictureToFit = () => ['ava', 'bo'];
+  assert.deepEqual((await read()).picturesToFit, ['ava', 'bo']);
+  communitysend.pictureToFit = () => Array.from({ length: 150 }, (_, i) => 'a' + i);
+  assert.equal((await read()).picturesToFit.length, 100);
+  communitysend.pictureToFit = () => null;
+  assert.deepEqual((await read()).picturesToFit, []);
+  communitysend.pictureToFit = () => { throw new Error('no'); };
+  const j = await read();
+  assert.equal(j.picturesToFit, null);
+  assert.equal(j.ok, true, 'the list failing broke the industry answer');
 });

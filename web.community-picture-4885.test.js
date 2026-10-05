@@ -40,7 +40,9 @@ test('#4885: every path that stores an agent\'s picture passes it through fitPic
   assert.match(HTML, /blob = await fitPicture\(blob\);[^\n]*\n\s*const res = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(name\) \+ '\/avatar', \{ method: 'PUT'/);
   // A tripwire, not a proof: it counts PUTs written in this one form, so a fourth written the same way trips it.
   const puts = HTML.match(/'\/api\/agent\/' \+ encodeURIComponent\([a-zA-Z]+\) \+ '\/avatar',\s*\{\s*method: 'PUT'/g) || [];
-  assert.equal(puts.length, 3, 'a new place stores an agent\'s picture without fitPicture: ' + puts.length);
+  // kosmos#5302: the fourth, refitOldPictures, fits before it stores.
+  assert.match(lift('refitOldPictures'), /const pic = await fitPicture\(await got\.blob\(\)\);\n\s*if \(!PICTURE_FITS\.has\(pic\)\) continue;\n\s*const put = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(name\) \+ '\/avatar', \{ method: 'PUT'/);
+  assert.equal(puts.length, 4, 'a new place stores an agent\'s picture without fitPicture: ' + puts.length);
 });
 
 test('#4885: the create flow clears its pending picture before it waits, and still knows a chosen file from the mark', () => {
@@ -172,4 +174,47 @@ test('#4885: the agent page says when a chosen picture could not be fitted for t
   // fitPicture vouches for what it returns kept or redrawn, and only that.
   const fit = lift('fitPicture');
   assert.equal((fit.match(/PICTURE_FITS\.add\(/g) || []).length, 2, 'fitPicture vouches for something other than a kept or redrawn picture');
+});
+
+/* kosmos#5302: refitOldPictures with stand-ins for fetch, fitPicture and the Settings re-read. */
+async function refit(names, { fits = () => true, getOk = () => true, putOk = () => true, tried } = {}) {
+  const calls = [];
+  const PICTURE_FITS = new Set();
+  const fitPicture = async (blob) => { const out = { type: 'image/webp', from: blob }; if (fits(blob.name)) PICTURE_FITS.add(out); return out; };
+  const fetch = async (url, opts = {}) => {
+    const name = decodeURIComponent(url.split('/')[3]);
+    calls.push([opts.method || 'GET', name]);
+    if ((opts.method || 'GET') === 'GET') return { ok: getOk(name), blob: async () => ({ name }) };
+    return { ok: putOk(name) };
+  };
+  let rereads = 0;
+  const refreshIndustry = () => { rereads += 1; };
+  // eslint-disable-next-line no-new-func
+  const run = new Function('fetch', 'fitPicture', 'PICTURE_FITS', 'refreshIndustry', 'PICTURE_REFIT_TRIED',
+    'let PICTURE_REFIT_RUNNING = false;\nasync ' + lift('refitOldPictures') + '\nreturn refitOldPictures;')(fetch, fitPicture, PICTURE_FITS, refreshIndustry, tried || new Set());
+  await run(names);
+  return { calls, rereads, run };
+}
+
+test('#5302: each listed picture is fetched, fitted and saved back, and Settings re-reads once after', async () => {
+  const r = await refit(['ava', 'bo']);
+  assert.deepEqual(r.calls, [['GET', 'ava'], ['PUT', 'ava'], ['GET', 'bo'], ['PUT', 'bo']]);
+  assert.equal(r.rereads, 1);
+});
+
+test('#5302: one that cannot be fitted is never saved; nothing saved means no re-read; a failed read is skipped', async () => {
+  const r = await refit(['ava', 'bo'], { fits: (n) => n === 'bo', getOk: (n) => n !== 'cy' });
+  assert.deepEqual(r.calls, [['GET', 'ava'], ['GET', 'bo'], ['PUT', 'bo']], 'an unfitted picture was written over the original');
+  const none = await refit(['ava'], { fits: () => false });
+  assert.equal(none.rereads, 0, 're-read with nothing saved (a loop with the paint that called it)');
+  const gone = await refit(['cy'], { getOk: () => false });
+  assert.deepEqual(gone.calls, [['GET', 'cy']]);
+});
+
+test('#5302: an agent is tried once per page load, so a picture that will not fit is not fetched at every paint', async () => {
+  const tried = new Set();
+  const first = await refit(['ava'], { fits: () => false, tried });
+  assert.equal(first.calls.length, 1);
+  const again = await refit(['ava'], { fits: () => false, tried });
+  assert.deepEqual(again.calls, [], 'tried again on the next paint');
 });

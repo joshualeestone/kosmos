@@ -31796,12 +31796,41 @@ function industryPaint(r, keepMsg) {
   unsendable.hidden = !nu;
   unsendable.textContent = !nu ? '' : (nu === 1 ? 'One agent\u2019s picture' : nu + ' agents\u2019 pictures')
     + ' cannot go to the community as ' + (nu === 1 ? 'it is' : 'they are') + '. Choose a different picture, or the same one again, on the agent\u2019s page and Kosmos will fit it if it can.';
+  // kosmos#5302: the older pictures behind that sentence are fitted here, the way choosing them again would.
+  if (r && Array.isArray(r.picturesToFit) && r.picturesToFit.length) refitOldPictures(r.picturesToFit);
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
   // Said by case: with the list here, any choice sets it again; without it, only None is offered.
   document.getElementById('community-industry-msg').textContent = !unread ? ''
     : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
       : 'We could not read which business your profiles show just now. Try again in a moment.');
+}
+/* kosmos#5302: pictures saved before #4885 fitted every new one are over the community's cap or a type it cannot take.
+   Each is fitted with fitPicture, once per agent per page load, and saved through the same route the picture chooser
+   uses (overwriting it, as choosing it again would). One that cannot be fitted is left as it is, and the sentence above
+   keeps telling the person to choose another. */
+const PICTURE_REFIT_TRIED = new Set();
+let PICTURE_REFIT_RUNNING = false;
+async function refitOldPictures(names) {
+  if (PICTURE_REFIT_RUNNING) return;
+  const todo = names.filter((n) => typeof n === 'string' && n && !PICTURE_REFIT_TRIED.has(n));
+  if (!todo.length) return;
+  PICTURE_REFIT_RUNNING = true;
+  let saved = 0;
+  try {
+    for (const name of todo) {
+      PICTURE_REFIT_TRIED.add(name);
+      try {
+        const got = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { cache: 'no-store' });
+        if (!got.ok) continue;
+        const pic = await fitPicture(await got.blob());
+        if (!PICTURE_FITS.has(pic)) continue;
+        const put = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': pic.type }, body: pic });
+        if (put.ok) saved += 1;
+      } catch { /* left as it is: the sentence says what to do */ }
+    }
+  } finally { PICTURE_REFIT_RUNNING = false; }
+  if (saved) refreshIndustry(false, true);
 }
 /* #4885: `quiet` (a re-read when Settings' Automation section opens) leaves what is on screen alone when the read
    fails, rather than turning a readable setting into "could not be read" over a momentary blip. Only when something
