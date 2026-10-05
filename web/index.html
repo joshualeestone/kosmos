@@ -67690,29 +67690,39 @@ async function fedInviteMake() {
 }
 // Copy the code: pjCopyInvite's pattern ("Copied", the copy-keys fallback, one revert timer),
 // on this sheet's own elements and timer so the two screens never revert each other.
+/* The sheet's one way to copy (both buttons): select-and-copy first, synchronously inside the press, then the clipboard
+   with a 3 s limit while holding the shared busy flag (so neither button's answer can wipe the other's line). A write
+   that lands after the limit calls onLate, if the sheet is still the same one. Returns null when the sheet was closed
+   or reopened meanwhile (say nothing), else whether it copied. writeText goes through an async function, so a web
+   view that THROWS instead of rejecting still reaches the finally and cannot leave the flag set. */
+async function fedCopyText(text, btn, onLate) {
+  const seq = FEDINV_SEQ;
+  if (copyTextViaExec(text, btn)) return true;
+  if (!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function')) return false;
+  FEDINV_COPY_BUSY = true;
+  let limit = null;
+  const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
+  const write = (async () => navigator.clipboard.writeText(text))();
+  let ok = false;
+  try { await Promise.race([write, late]); ok = true; }
+  catch { ok = false; write.then(() => { if (seq === FEDINV_SEQ && onLate) onLate(); }, () => {}); }
+  finally { if (limit) clearTimeout(limit); if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }   // not a reopened sheet's flag
+  return seq === FEDINV_SEQ ? ok : null;
+}
 async function fedInviteCopy() {
   const codeEl = document.getElementById('fedinv-code');
   const btn = document.getElementById('fedinv-copy');
   const status = document.getElementById('fedinv-status');
   const text = codeEl.value;
   if (!text || FEDINV_COPY_BUSY) return;   // the other copy is still asking the clipboard: one answer at a time
-  const seq = FEDINV_SEQ;
-  // The invitation's order: select-and-copy first inside the press, then the clipboard with the same 3 s limit, so
-  // a clipboard that never answers can hold the shared busy flag (and the other button) for 3 s at most.
-  let ok = copyTextViaExec(text, btn);
-  if (!ok && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    FEDINV_COPY_BUSY = true;   // both copies share one line, so neither answer may wipe the other's
-    let limit = null;
-    const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
-    try { await Promise.race([(async () => navigator.clipboard.writeText(text))(), late]); ok = true; }
-    catch { ok = false; }
-    finally { if (limit) clearTimeout(limit); if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }
-    if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
-  }
-  if (!ok) { try { codeEl.select(); } catch { /* the line below says what to do */ } }   // ready for the keys named
+  const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; status.textContent = 'Code copied.'; FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
+  const ok = await fedCopyText(text, btn, () => { if (status.textContent.startsWith('Kosmos could not copy it.')) said(); });
+  if (ok === null) return;
+  if (ok) { said(); return; }
+  try { codeEl.select(); } catch { /* the line below says what to do */ }   // ready for the keys named
   fedInviteCopyReset();
-  btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
-  status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
+  btn.textContent = 'Press ' + copyKeysGlyph() + ' to copy';
+  status.textContent = 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
   FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
 }
 // Both copy buttons share one revert timer and one message line, so a press on one never leaves the other
@@ -67730,8 +67740,8 @@ function fedInviteCopyReset() {
    address is the one the invitee's Verify shows, the ACCOUNT's name (coordinator fed.rs owner_handle). The board
    learns it only from the owner's members answer (`owner_name`, Ice Cream Kitty's follow-up on #4649); until that
    field arrives the name stands alone. It is never taken from this computer's own address: a second computer, or
-   a first one retired, has an address that is not the account's name. The step words are the page's own labels ("+ Add
-   Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
+   a first one retired, has an address that is not the account's name. The step words are the page's own labels
+   ("+ Add Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
   // One line each: a name or project with a newline or a control character must not break the invitation's lines.
   // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, the zero-width
@@ -67761,47 +67771,18 @@ function fedInviteText(made) {
 // do instead and never throws.
 async function fedInviteCopyAll() {
   const made = FEDINV_MADE;
-  if (!made) return;
-  const seq = FEDINV_SEQ;
+  if (!made || FEDINV_COPY_BUSY) return;   // a second press while the clipboard is still being asked would race the first
   const btn = document.getElementById('fedinv-copy-all');
   const status = document.getElementById('fedinv-status');
-  if (FEDINV_COPY_BUSY) return;   // a second press while the clipboard is still being asked would race the first
-  const text = fedInviteText(made);
-  let ok = copyTextViaExec(text, btn);
-  if (!ok && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    FEDINV_COPY_BUSY = true;
-    let limit = null;
-    const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
-    // Called through an async function, so a web view whose writeText THROWS (rather than rejecting) still reaches
-    // the catch and the finally below, and the busy flag cannot be left set.
-    const write = (async () => navigator.clipboard.writeText(text))();
-    try { await Promise.race([write, late]); ok = true; }
-    catch {
-      ok = false;
-      // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if this sheet still
-      // shows the refusal.
-      write.then(() => {
-        if (seq !== FEDINV_SEQ) return;
-        if (status.textContent.startsWith('Kosmos could not copy the invitation.')) {
-          fedInviteCopyReset();
-          btn.textContent = 'Copied';
-          status.textContent = 'Invitation copied.';
-          FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
-        }
-      }, () => {});
-    }
-    finally { if (limit) clearTimeout(limit); if (seq === FEDINV_SEQ) FEDINV_COPY_BUSY = false; }   // not a reopened sheet's flag
-    if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
-  }
+  const said = () => { fedInviteCopyReset(); btn.textContent = 'Copied'; status.textContent = 'Invitation copied.'; FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000); };
+  // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if the refusal still shows.
+  const ok = await fedCopyText(fedInviteText(made), btn, () => { if (status.textContent.startsWith('Kosmos could not copy the invitation.')) said(); });
+  if (ok === null) return;   // the sheet was closed or reopened while the clipboard answered
+  if (ok) { said(); return; }
   fedInviteCopyReset();
-  if (!ok) {
-    // Kept on screen (no revert timer): a refusal that vanished after two seconds could be missed.
-    status.textContent = 'Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ' to copy the code alone, then paste it into your message.';
-    return;
-  }
-  btn.textContent = 'Copied';
-  status.textContent = 'Invitation copied.';
-  FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
+  // The code is selected so the line is true as read; kept on screen (no revert timer) so it cannot be missed.
+  try { document.getElementById('fedinv-code').select(); } catch { /* the line still says what to do */ }
+  status.textContent = 'Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ' to copy the code alone, then paste it into your message.';
 }
 document.getElementById('fedinv-make').addEventListener('click', fedInviteMake);
 document.getElementById('fedinv-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fedInviteMake(); } });
