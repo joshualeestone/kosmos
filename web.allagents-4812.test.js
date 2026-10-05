@@ -120,6 +120,9 @@ test('classify: an agents list, a gate, or no answer', () => {
   assert.equal(api.oaClassify(200, { agents: 'x' }), 'notin');
   assert.equal(api.oaClassify(401, { error: 'not signed in' }), 'notin');
   assert.equal(api.oaClassify(403, null), 'notin');
+  assert.equal(api.oaClassify(404, null), 'blocked', 'a connector without the route: signing in cannot fix it');
+  assert.equal(api.oaClassify(405, { error: 'x' }), 'blocked');
+  assert.equal(api.oaClassify(302, null), 'blocked');
   assert.equal(api.oaClassify(502, null), 'out');
   assert.equal(api.oaClassify(undefined, null), 'out');
 });
