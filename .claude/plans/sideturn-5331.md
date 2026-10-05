@@ -28,4 +28,4 @@ CONTROL arm went BAD once under load (passed on re-run): a timing-sensitive cont
 
 ## Validation
 The test file: 85/85 (twice; one run had the unrelated #5064 control flake). Perturbation: without the pid KILL the #5331
-arm goes BAD while its control still hangs. Watchdog: QH_FILE_DEADLINE=8 stops the file with exit 124 and leaves nothing.
+arm goes BAD while its control still hangs. Watchdog: QH_FILE_DEADLINE=8 stops the file with exit 124 when it is between foreground commands; a hung foreground command is stopped by the KILL step 15 s later (children and this run's sleeps first; exit 137, and $S can be left: stated in the file).

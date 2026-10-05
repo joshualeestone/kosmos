@@ -16,14 +16,22 @@ BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 3: by PARENTAGE (a reused pid cannot be this shell's child unless this shell made it) and by THIS tree's path.
 ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
   case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*"$REAL_QH"*) return 0;; *) return 1;; esac; }
-trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait above is bounded, and the watchdog goes last
+trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do reap $p 40; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"; [ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }' EXIT   # #5331: every wait in this trap is bounded, and the watchdog goes last
 # #5331: a whole-file deadline that outlives anything this file runs: past it the file stops itself and FAILS, so a hang
 # in here can never hold the canary, a full validation or CI that runs it (one held Agent1s 1 h 43 min on 10-05).
 QH_FILE_DEADLINE="${QH_FILE_DEADLINE:-900}"
 trap 'exit 124' TERM
-( trap - EXIT TERM; sleep "$QH_FILE_DEADLINE" </dev/null >/dev/null 2>&1
+# It checks every 5 s that this file is still running (its pid, its own command line) and ends with it, so it never
+# signals a pid reused after the file was killed from outside. A TERM reaches the file only between foreground commands;
+# when one is hung, the KILL 15 s later stops the file's children, this run's sleeps and then the file (its EXIT trap does
+# not run then, so $S can be left behind: the limit).
+( trap - EXIT TERM; me=$$; t0=$(date +%s)
+  alive() { case "$(ps -o command= -p "$me" 2>/dev/null)" in *test-queued-heavy-4977*) return 0;; *) return 1;; esac; }
+  while [ $(( $(date +%s) - t0 )) -lt "$QH_FILE_DEADLINE" ]; do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done
   echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
-  kill -TERM $$ 2>/dev/null; sleep 15; kill -KILL $$ 2>/dev/null ) & WD=$!
+  kill -TERM "$me" 2>/dev/null; sleep 15; alive || exit 0
+  pkill -KILL -P "$me" 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done
+  kill -KILL "$me" 2>/dev/null ) & WD=$!
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SIDE_MIN_HOLD_S KOSMOS_LIGHT_SIDE_COOKIE \

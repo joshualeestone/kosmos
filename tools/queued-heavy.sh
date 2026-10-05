@@ -244,13 +244,19 @@ _qh_kill_desc() {
 # #5331: stop the capper and reap it WITHOUT ever blocking. Once the group kill missed it (one fitting explanation: it was
 # not a group leader) and the unbounded `wait` after it held a side turn's claim, and the canary that ran it, for
 # 1 h 43 min. A KILL to its own pid lands even on a stopped process, and it is waited on only once it has died (a zombie
-# or gone), so a capper that somehow lives is left behind rather than blocking the release. Signalled by pid only while
-# it is still this script's child: one that exited and was reaped may have its pid reused by someone else's process.
+# or gone), so a capper that somehow lives is left behind rather than blocking the release. Its own pid and its children
+# are signalled only while it is still this script's child (a parent-pid match, not a command-line check): one that
+# exited and was reaped may have its pid reused by someone else's process. The capper first, then the children seen
+# before it died, so it cannot fork a new sleep in between.
 _qh_child() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ]; }
 _qh_stop_capper() {
   [ -n "$CAPPER" ] || return 0
   kill -KILL -- "-$CAPPER" 2>/dev/null
-  if _qh_child "$CAPPER"; then pkill -KILL -P "$CAPPER" 2>/dev/null; kill -KILL "$CAPPER" 2>/dev/null; fi
+  if _qh_child "$CAPPER"; then
+    local kids; kids="$(pgrep -P "$CAPPER" 2>/dev/null | tr '\n' ' ')"
+    kill -KILL "$CAPPER" 2>/dev/null
+    [ -n "${kids// /}" ] && kill -KILL $kids 2>/dev/null
+  fi
   local i=0
   while [ "$i" -lt 40 ]; do
     _qh_child "$CAPPER" || { CAPPER=""; return 0; }   # gone and reaped already
