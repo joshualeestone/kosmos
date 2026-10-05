@@ -993,6 +993,8 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       /* #4004: whether Gemini's usage-limit question is on screen, and whether its limit is the daily one. Two
          booleans the board reads off the agent's own screen; nothing identifying, and false on every non-Gemini card. */
       'quotaDialog', 'quotaDaily',
+      /* #5333: whether a running agent's run token is no longer on file. One boolean, nothing identifying. */
+      'linkLost',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
