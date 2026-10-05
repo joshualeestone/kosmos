@@ -67721,9 +67721,11 @@ async function fedCopyText(text, btn, onLate, what) {
     // holds THAT code, not this sheet's. Say so on whatever sheet is open, rather than dropping it silently.
     FEDINV_CLIP_HOLDS = '';
     const back = document.getElementById('fedinv-modal');
-    if (back && !back.hidden) {
+    const done = document.getElementById('fedinv-done');
+    // Only while a code step is on screen (the line lives there): on the asking step there is no code to recopy yet.
+    if (back && !back.hidden && done && !done.hidden) {
       fedInviteCopyReset();
-      document.getElementById('fedinv-status').textContent = 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy again for this code.';
+      document.getElementById('fedinv-status').textContent = 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation again for this code.';
     }
   }, () => {});
   let ok = false;

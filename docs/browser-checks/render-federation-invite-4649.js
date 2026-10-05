@@ -110,6 +110,8 @@
  *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
  *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
  *      second Copied.)
+ *  C9  the clipboard-holds record through its real listeners (blur, copy events) and an in-time write, and a held
+ *      write from a closed sheet landing under a new code.
  *  C8  the sheet's own type inside #panel-projects: its title is the size of another dialog's .rm-title (the add-
  *      agent dialog's), and its fields carry no hairline (border-top-width 0). Control: a .field outside the sheet
  *      keeps its hairline.
@@ -1252,6 +1254,48 @@ const closeAll = (page) => page.evaluate(() => {
         css.ref !== null && css.title === css.ref && css.fields.length > 0 && css.fields.every((w) => parseFloat(w) === 0) && css.outside,
         JSON.stringify(css));
       await p8.ctx.close();
+    }
+
+    /* C9: the clipboard-holds record through its REAL listeners, and a write that lands after the sheet was reopened.
+       (a) an in-time clipboard write, then a refused press of the same text: Copied (the record);
+       (b) the same with a window blur in between: refused (control for a); (c) with a copy event in between: refused;
+       (d) a held write from a closed sheet lands while a new code is on screen: the line says so. */
+    {
+      const p9 = await newPage(1280, SHOW);
+      await openProjectIn(p9.page, 'tabs');
+      await makeCode(p9.page, 'Dana Ruiz');
+      const setClip = (page, mode) => page.evaluate((m) => {
+        window.__execOk = false;
+        const w = m === 'ok' ? async () => {} : m === 'no' ? async () => { throw new Error('denied'); } : () => new Promise((ok) => { window.__releaseClip = ok; });
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: w } });
+      }, mode);
+      const press = async (page) => { await page.click('#fedinv-copy-all'); await page.waitForTimeout(120); return (await step(page)).status; };
+      const run = async (between) => {
+        await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
+        await setClip(p9.page, 'ok');
+        await press(p9.page);
+        await p9.page.waitForTimeout(2100);   // past the Copied revert
+        if (between === 'blur') await p9.page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        if (between === 'copy') await p9.page.evaluate(() => document.dispatchEvent(new Event('copy')));
+        await setClip(p9.page, 'no');
+        return press(p9.page);
+      };
+      const a = await run(null), b = await run('blur'), cc = await run('copy');
+      check('C9 a refused press after an in-time copy of the same text says Copied; after a blur or a copy event it is refused (controls)',
+        a === 'Invitation copied.' && b.startsWith('Kosmos could not copy the invitation.') && cc.startsWith('Kosmos could not copy the invitation.'),
+        JSON.stringify({ a, b, cc }));
+      // (d): hold a write, close the sheet, make a new code, then let the old write land.
+      await setClip(p9.page, 'hold');
+      await p9.page.click('#fedinv-copy-all');
+      await p9.page.waitForTimeout(100);
+      await p9.page.click('#fedinv-ok');
+      await makeCode(p9.page, 'Lee Park');
+      await p9.page.evaluate(() => window.__releaseClip());
+      await p9.page.waitForTimeout(150);
+      const d = (await step(p9.page)).status;
+      check('C9 a held write from a closed sheet that lands under a new code says the clipboard holds that one (control: the same sheet path, C6)',
+        d === 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation again for this code.', d);
+      await p9.ctx.close();
     }
 
     // C0 with a label that is not a name: they/their, never "my's".
