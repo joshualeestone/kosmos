@@ -50,6 +50,7 @@ const FIELD = {
   PROMPT_TOKENS: 2,
   CACHED_PROMPT_TOKENS: 5,
   REPLY_TOKENS: 9,
+  THOUGHT_TOKENS: 10,
 };
 /* How many of the newest generations one read decodes: enough to find the newest that reported
    usage and named its model, without re-reading a long conversation (blobs run to ~80 KB) on every
@@ -142,6 +143,24 @@ function decodeGeneration(blob) {
   return { model, prompt, reply };
 }
 
+/** #5158: one generation's tokens for Token Usage, the four parts kept apart: { model, uncached, cached, reply,
+    thoughts }, each a number (0 when absent: proto3 leaves a zero off the wire). `found` is false when the blob has no
+    usage message (a failed call), so it adds nothing. */
+function generationUsage(blob) {
+  const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob || []);
+  const { model } = decodeGeneration(buf);
+  const usage = messageAt(buf, FIELD.USAGE);
+  const at = (f) => (usage ? numberAt(usage, [f]) || 0 : 0);
+  return {
+    found: !!usage,
+    model,
+    uncached: at(FIELD.PROMPT_TOKENS),
+    cached: at(FIELD.CACHED_PROMPT_TOKENS),
+    reply: at(FIELD.REPLY_TOKENS),
+    thoughts: at(FIELD.THOUGHT_TOKENS),
+  };
+}
+
 /** The conversation id agy recorded for a workdir, trying the path as given and resolved. */
 function conversationFor(dir, home = HOME()) {
   let map;
@@ -216,4 +235,4 @@ function read(dir, home = HOME()) {
   };
 }
 
-module.exports = { HOME, FIELD, NEWEST_GENS, decodeGeneration, conversationFor, read };
+module.exports = { HOME, FIELD, NEWEST_GENS, decodeGeneration, generationUsage, conversationFor, read, messageAt, numberAt };

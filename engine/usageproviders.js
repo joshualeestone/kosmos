@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #5158: token usage for the providers that are not Claude (Codex, Gemini CLI, Grok), in the SAME shape as
+ * #5158: token usage for the providers that are not Claude (Codex, Gemini CLI, Grok, Antigravity), in the SAME shape as
  * usage.js's Claude scan: `{ days: { [day]: { [model]: buckets } }, folders: { [day]: { [launchCwd]: buckets } } }`,
  * so the per-day, per-model and per-agent views take them without a second code path.
  *
@@ -90,9 +90,10 @@ async function touchedSince(file, sinceDay, acc = null) {
    stayed bad (a zero-byte file from a crashed session, a permanent permission error) is skipped and said once, or it
    would keep every day in the window unfrozen and re-read on every request (review 2). */
 const FRESH_MS = 10 * 60 * 1000;
-async function badFile(acc, file, why) {
+async function badFile(acc, file, why, lastWriteMs = null) {
   let fresh = true;
-  try { fresh = Date.now() - (await fsp.stat(file)).mtimeMs < FRESH_MS; } catch { fresh = true; }
+  /* `lastWriteMs`: a caller that knows a later write than the file's own mtime (an Antigravity -wal) passes it. */
+  try { fresh = Date.now() - Math.max((await fsp.stat(file)).mtimeMs, lastWriteMs || 0) < FRESH_MS; } catch { fresh = true; }
   if (fresh) acc.incomplete = true;
   else console.error('usage: skipping an unreadable ' + why + ': ' + file);
 }
@@ -265,6 +266,142 @@ async function scanGrok(acc, grokHomes) {
   }
 }
 
+/* ---------- Antigravity: <agy home>/conversations/<id>.db (SQLite, one per conversation) ---------- */
+/* Read raw and checked on 25 conversations (109 model calls) on this Mac, 2026-10-03; agysession.js has the field map.
+   A model call (`gen_metadata`, one protobuf per call, keyed by idx) carries NO time. Its time is on the STEP the call
+   produced: `steps.metadata` 1.1 is a protobuf Timestamp's seconds, and the step of type 15 carries the call's idx at
+   20.3 (absent = 0). The folder is `trajectory_metadata_blob` 1.1, a file:// URI (`last_conversations.json` names only
+   a folder's latest conversation, so it cannot place older ones). */
+const AGY_STEP = { CALL_TYPE: 15, TIME: [1, 1], CALL_IDX: [20, 3] };
+const AGY_WORKSPACE = [[1, 1], [7]];
+
+/* The calls already decoded, per conversation file (review 1: today is never frozen, and decoding every call blob of a
+   long conversation on every request held the board up). Each read lists every call's idx and size (no blobs) and
+   decodes only a call that is new or changed size; a call no longer in the file is dropped. So a call committed late
+   below others, or rewritten, reads exactly as a cold read would (review 2). `size` is agy's own byte length of the
+   blob (equal to it in 109 of 109 calls measured). Steps are small and are read in full every time, so a step's time
+   is never cached. Keyed by the file's inode and creation time, so a replaced file starts over; a file gone from the
+   folder is forgotten. */
+const agyCache = new Map();
+
+function agyWorkspace(agy, blob) {
+  if (!blob) return '';
+  const buf = Buffer.from(blob);
+  for (const at of AGY_WORKSPACE) {
+    const b = agy.messageAt(buf, at);
+    const s = b ? b.toString('utf8') : '';
+    if (s.startsWith('file://')) { try { return require('node:url').fileURLToPath(s); } catch { /* not a file path */ } }
+  }
+  return '';
+}
+
+/* A table agy has not written is absent (the call still counts); any other error (busy, corrupt) is not, so the scan is
+   not marked complete over a wrong day or folder (review 1). */
+function unlessAbsent(read, absentValue) {
+  try { return read(); } catch (err) { if (/no such table/i.test(String(err && err.message))) return absentValue; throw err; }
+}
+
+async function scanAntigravity(acc, agyHomes) {
+  const agy = require('./agysession');
+  const since = acc.sinceDay ? Date.parse(acc.sinceDay + 'T00:00:00Z') : -Infinity;
+  const seenFiles = new Set();
+  const listedHomes = [];
+  for (const home of agyHomes) {
+    let files;
+    try { files = (await fsp.readdir(path.join(home, 'conversations'))).filter((f) => /^[0-9a-f-]{8,64}\.db$/i.test(f)).sort(); }
+    catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
+    listedHomes.push(path.join(home, 'conversations') + path.sep);
+    for (const name of files) {
+      const file = path.join(home, 'conversations', name);
+      seenFiles.add(file);
+      /* Both stats BEFORE opening: opening a WAL db makes an empty -wal beside it, and an EMPTY -wal is not a write
+         (agysession.js). agy commits into a -wal that holds bytes and leaves the db's own mtime alone. */
+      let st;
+      try { st = await fsp.stat(file); } catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
+      let walMs = 0;
+      try { const w = await fsp.stat(file + '-wal'); if (w.size > 0) walMs = w.mtimeMs; }
+      catch (err) { if (err && err.code !== 'ENOENT') { acc.incomplete = true; walMs = Date.now(); } }   // unknown: read it
+      if (Math.max(st.mtimeMs, walMs) < since) continue;
+      /* A call with no dated step takes the day the conversation file was CREATED (its mtime where the filesystem keeps
+         no creation time): fixed for the file's life, so a call's day never moves after its day is frozen (review 1).
+         It is never later than the call; at worst it is the conversation's first day. Where the filesystem keeps no
+         creation time the mtime moves with every write, so an undated call there is shown but never frozen (review 3). */
+      const hasBirth = st.birthtimeMs > 0;
+      const born = hasBirth ? st.birthtimeMs : st.mtimeMs;
+      const key = st.ino + ':' + born;
+      const c = agyCache.get(file) && agyCache.get(file).key === key ? agyCache.get(file) : { key, cwd: '', calls: new Map() };
+      let listed;
+      const decoded = new Map();
+      let steps;
+      let meta = null;
+      let db = null;
+      try {
+        const { DatabaseSync } = require('node:sqlite');
+        db = new DatabaseSync(file, { readOnly: true });   // agy's live file: read-only, no write lock (agysession.js)
+        db.exec('BEGIN');   // one snapshot for the three reads
+        listed = db.prepare('SELECT idx, size FROM gen_metadata ORDER BY idx').all();
+        const one = db.prepare('SELECT data FROM gen_metadata WHERE idx = ?');
+        const newest = listed.length ? listed[listed.length - 1].idx : null;
+        for (const { idx, size } of listed) {
+          const had = c.calls.get(idx);
+          /* The newest call is decoded every time: it is the one agy may still be writing. An older call rewritten in
+             place at exactly the same byte length is the one change this cannot see (none measured; agy writes a call
+             when it completes). */
+          if (!had || had.size !== size || idx === newest) decoded.set(idx, { size, usage: agy.generationUsage((one.get(idx) || {}).data) });
+        }
+        steps = unlessAbsent(() => db.prepare('SELECT step_type, metadata FROM steps ORDER BY idx').all(), []);
+        if (!c.cwd) meta = unlessAbsent(() => db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id = 'main'").get(), null);
+        db.exec('COMMIT');
+      } catch {
+        await badFile(acc, file, 'Antigravity conversation', walMs);   // busy mid-write: the -wal is the write (review 3)
+        continue;
+      } finally {
+        try { if (db) db.close(); } catch { /* already closed */ }
+      }
+      if (!c.cwd) c.cwd = agyWorkspace(agy, meta && meta.data);
+      /* A call's time: its type-15 step's, else the earliest step naming its idx at 20.3. A step with no 20.3 names no
+         call except through type 15 (where absent means 0, proto3). */
+      const byCall = new Map();
+      const anyStep = new Map();
+      for (const s of steps) {
+        const m = Buffer.from(s.metadata || []);
+        const secs = agy.numberAt(m, AGY_STEP.TIME);
+        if (!secs) continue;
+        const named = agy.numberAt(m, AGY_STEP.CALL_IDX);
+        const into = (map, idx) => { if (!map.has(idx) || secs < map.get(idx)) map.set(idx, secs); };
+        if (s.step_type === AGY_STEP.CALL_TYPE) into(byCall, named || 0);
+        if (named !== null) into(anyStep, named);
+      }
+      const present = new Set(listed.map((r) => r.idx));
+      for (const idx of [...c.calls.keys()]) if (!present.has(idx)) c.calls.delete(idx);
+      for (const [idx, v] of decoded) c.calls.set(idx, v);
+      agyCache.set(file, c);
+      seenFiles.add(file);
+      const recent = Date.now() - Math.max(st.mtimeMs, walMs) < FRESH_MS;
+      for (const [idx, { usage: u }] of c.calls) {
+        /* A failed call has no usage, or a usage message with no tokens in it (measured: 1 of 109, its steps of type 17
+           and none of type 15): nothing to count, and nothing to date. */
+        if (!u.found || !(u.uncached || u.cached || u.reply || u.thoughts)) continue;
+        const secs = byCall.get(idx) || anyStep.get(idx);
+        /* A call whose step is not written yet would be filed on the fallback day and move once its step lands: while
+           the conversation is being written, such a scan is shown but not frozen (review 2). */
+        if (!secs && (recent || !hasBirth)) acc.incomplete = true;
+        acc.add(utcDay(new Date(secs ? secs * 1000 : born).toISOString()), u.model, c.cwd, {
+          input_tokens: u.uncached,
+          output_tokens: u.reply + u.thoughts,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: u.cached,
+        });
+      }
+      await new Promise((resolve) => setImmediate(resolve));   // let the board answer between conversations
+    }
+  }
+  /* A conversation deleted from a folder that was listed is forgotten (one skipped by date is kept). */
+  for (const file of [...agyCache.keys()]) {
+    if (!seenFiles.has(file) && listedHomes.some((h) => file.startsWith(h))) agyCache.delete(file);
+  }
+}
+
 /* The homes each provider's sessions live under. Lazy requires, so this module loads without the account modules
    (and a test can pass its own homes). */
 function defaultHomes(problems = []) {
@@ -280,27 +417,30 @@ function defaultHomes(problems = []) {
     gemini: homesByPrefix(home, geminiDefault, [gemini.DIR_PREFIX, gemini.FORGOTTEN_PREFIX],
       (d) => (path.resolve(d) === geminiDefault ? d : path.join(d, '.gemini')), problems),
     grok: homesByPrefix(home, grok.defaultDir(), [grok.DIR_PREFIX, grok.FORGOTTEN_PREFIX], undefined, problems),
+    /* agy keeps one home (no per-account folders): agytrust.agyHome, the one derivation a sandbox moves. */
+    antigravity: [require('./agytrust').agyHome()],
   };
 }
 
 /**
- * Codex, Gemini CLI and Grok usage between sinceDay and untilDay (UTC, inclusive), as usage.js's scan returns it.
- * `opts.homes` = { codex: [...], gemini: [...], grok: [...] } overrides discovery (tests). Never throws.
+ * Codex, Gemini CLI, Grok and Antigravity usage between sinceDay and untilDay (UTC, inclusive), as usage.js's scan returns it.
+ * `opts.homes` = { codex: [...], gemini: [...], grok: [...], antigravity: [...] } overrides discovery (tests). Never throws.
  */
 async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   const acc = new Acc(sinceDay, untilDay);
   let hs = h;
   if (!hs) {
     const problems = [];
-    try { hs = defaultHomes(problems); } catch { hs = { codex: [], gemini: [], grok: [] }; acc.incomplete = true; }
+    try { hs = defaultHomes(problems); } catch { hs = { codex: [], gemini: [], grok: [], antigravity: [] }; acc.incomplete = true; }
     if (problems.length) acc.incomplete = true;   // a home directory that could not be listed: do not freeze zeros
   }
   try { await scanCodex(acc, hs.codex || []); } catch { acc.incomplete = true; }   // one provider failing keeps the others
   try { await scanGemini(acc, hs.gemini || []); } catch { acc.incomplete = true; }
   try { await scanGrok(acc, hs.grok || []); } catch { acc.incomplete = true; }
+  try { await scanAntigravity(acc, hs.antigravity || []); } catch { acc.incomplete = true; }
   /* `complete: false` when anything could not be read: the caller shows these numbers but must not FREEZE them, or a
      passing error on the first read after an update would fix a past day's provider usage at zero forever (review 1). */
   return { days: acc.days, folders: acc.folders, homesRead: hs, complete: !acc.incomplete };
 }
 
-module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS };
+module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS, _agyCache: agyCache }; // _agyCache: tests only

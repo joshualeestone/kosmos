@@ -42,9 +42,18 @@ function generation({ model = 'gemini-3.8-flash', prompt, cached, reply, thought
 }
 
 let seq = 0;
+/** #5158: one step's metadata as agy writes it: the time at 1.1 (seconds), the call's idx at 20.3 (left off for 0). */
+function stepMeta({ secs, idx = 0 }) {
+  const parts = [msg(1, num(1, secs))];
+  if (idx) parts.push(msg(20, num(3, idx)));
+  return Buffer.concat(parts);
+}
+
 /** Write a conversation db for `dir` under `home`, mapped in last_conversations.json. `wal` puts it
-    in WAL mode, as agy's real dbs are. */
-function writeConversation(home, dir, gens, { wal = false } = {}) {
+    in WAL mode, as agy's real dbs are. #5158: `steps` = [{ type, secs, idx }] writes the steps table
+    (type 15 is a model call's step), and `workspace` writes the folder as a file:// URI at 1.1 of
+    trajectory_metadata_blob. */
+function writeConversation(home, dir, gens, { wal = false, steps = null, workspace = null } = {}) {
   seq += 1;
   const id = String(seq).padStart(8, '0') + '-aaaa-bbbb-cccc-dddddddddddd';
   fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
@@ -56,6 +65,16 @@ function writeConversation(home, dir, gens, { wal = false } = {}) {
   db.exec('CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0)');
   const put = db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)');
   gens.forEach((g, i) => put.run(i, g, g.length));
+  if (steps) {
+    db.exec('CREATE TABLE steps (idx integer PRIMARY KEY, step_type integer NOT NULL DEFAULT 0, metadata blob)');
+    const st = db.prepare('INSERT INTO steps (idx, step_type, metadata) VALUES (?, ?, ?)');
+    steps.forEach((s, i) => st.run(i, s.type, stepMeta(s)));
+  }
+  if (workspace) {
+    db.exec('CREATE TABLE trajectory_metadata_blob (id text PRIMARY KEY DEFAULT "main", data blob)');
+    const uri = require('node:url').pathToFileURL(workspace).href;
+    db.prepare("INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)").run(Buffer.concat([msg(1, msg(1, uri)), msg(7, uri)]));
+  }
   db.close();
   const mapFile = path.join(home, 'cache', 'last_conversations.json');
   let map = {};
