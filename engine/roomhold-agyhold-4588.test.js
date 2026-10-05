@@ -414,7 +414,7 @@ test('#4926 R2: flushReleased (the quota-release flush) drops an ask held over a
     const r = rosterOf(board, null);
     const at = (later) => ({ ...releasedDeps(r, Date.now()), stale: (p, ids, who) => messages.staleHeld(p, ids, undefined, Date.now() + later, who) });
     let tmux = arm();
-    // A day and an hour after the pause ended (heldUntil): the ask is dropped, nothing is typed.
+    // A day and an hour after the post: the ask is dropped, nothing is typed.
     const late = await roomhold.flushReleased(r, at(messages.HELD_ASKED_MAX_MS + 3600000));
     assert.deepEqual(typedTo(tmux, 'mara'), [], 'an ask held over a day was typed after the quota released');
     assert.deepEqual(late, [], 'a flush that told nothing reported a result');

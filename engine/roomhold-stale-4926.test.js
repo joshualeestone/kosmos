@@ -180,5 +180,5 @@ test('#4926 R2 review 4: every staleHeld call in server.js passes the member (wi
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const calls = src.match(/messages\.staleHeld\(([^)]*)\)/g) || [];
   assert.ok(calls.length >= 2, 'fixture: fewer than the two server flush call sites found: ' + calls.length);
-  for (const c of calls) assert.equal(c.split(',').length, 5, 'a server call passes no member: ' + c);
+  for (const c of calls) assert.match(c, /^messages\.staleHeld\(p, ids, undefined, undefined, who2\)$/, 'a server call does not pass the flush\'s member: ' + c);
 });

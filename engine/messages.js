@@ -1013,7 +1013,7 @@ function inFlightTwin(key) {
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
 /* #4926: which of a room's held post ids not to wake a member about (roomhold.withoutStale). A Set of ids that are:
    - stale: older than HELD_TELL_MAX_MS, or the room's loop guard stopped the conversation after it (a 'valve' row with
-     stopped !== false in that project, later than the post); dropped only when the post does not name the member;
+     stopped !== false in that project, later than the post); dropped only when it is not addressed to the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
      replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
@@ -2119,7 +2119,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
-         hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it, ages counted from the pause's end) in one line by the
+         hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it) in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
