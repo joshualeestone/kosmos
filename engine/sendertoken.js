@@ -553,4 +553,5 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
+  NO_MATCH };   // #5333: exported so the CLIs' recovery hint is pinned to the one sentence (cli.token-refused-5333.test.js)

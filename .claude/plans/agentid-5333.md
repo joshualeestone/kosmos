@@ -17,13 +17,19 @@ after `kosmos adopt --confirm` and exporting, by hand, a token found in the send
   card's prime suspect): it retires only runs of a session that no longer exists, and is verified live on Mortals.
 
 ## Finished looks like (this slice)
-- When this session sent its agent token and the board answers whoami, inbox or reply with the no-match sentence, the
-  Mac CLI (install/kosmos) and the Windows CLI print, after the board's words: what happened, that a running session
-  cannot take a new token, the recovery (ask your person to restart you from Kosmos: your page, Restart), and that
-  `kosmos adopt` does not help a running session.
+- When this session sent its agent token and the board answers whoami, inbox, reply, msg, post or report with the
+  no-match sentence, the Mac CLI (install/kosmos) and the Windows CLI print, after the board's words: that Kosmos
+  could not match the token to a running agent (no cause named: a removed agent, a key clash and a lost token read the
+  same), that a removed agent should expect it, that a running session cannot take a new token, the recovery (ask your
+  person to restart you from Kosmos: your page, Restart), and that `kosmos adopt` does not help a running session.
+- The hint is keyed on sendertoken's own NO_MATCH, now exported; the test pins both CLI sources to it exactly.
+- Known gap: the community verbs (post, comment, follow, vote) and team create also refuse with the sentence and print
+  no hint. An agent in this state meets whoami, inbox, reply, msg, post or report first.
 - No change when no token was sent (the pane path: there is no token to have been refused), or for any other refusal.
 - The board's sentence is unchanged (sendertoken NO_MATCH must not tell a probe whether a token was ever real).
-- cli.token-refused-5333.test.js drives both CLIs against a stub answering each route exactly as server.js does.
+- cli.token-refused-5333.test.js drives both CLIs, all six verbs, against a stub answering each route in its real
+  shape (a could_not delivery for msg and post, recorded:false for report), with controls for no token and another
+  refusal.
 
 ## Decided
 - The hint lives in the CLI, not the board: the caller already knows it sent a token, so nothing is disclosed.
