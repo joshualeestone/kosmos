@@ -30,7 +30,9 @@ function enclosing(src) {
   return src.split('\n').map((line) => {
     const m = TOP_FN.exec(line);
     if (m) fn = m[1];
-    else if (/^(?:const|let|var|module\.exports|class)\b/.test(line)) fn = null;   // a top-level statement ends it
+    // Any other unindented code line (a const, exports, if, try, a call...) ends the function: a writer after an
+    // allowed function cannot borrow its name. Closing braces and comment lines do not end it.
+    else if (/^[^\s}/*]/.test(line)) fn = null;
     return { line, fn };
   });
 }
@@ -42,8 +44,10 @@ test('#5191: only revokeCheck, ownerHello and onKeyFrame write a room\'s key sta
   const found = {};
   for (const f of engineFiles) {
     enclosing(fs.readFileSync(path.join(ENGINE, f), 'utf8')).forEach(({ line, fn }) => {
-      if (!/setRoomState\s*\(/.test(code(line))) return;
-      if (f === 'fedseal.js' && /^function setRoomState\s*\(/.test(line)) return;   // its definition
+      // Any mention, not only a call: an alias (const set = fedseal.setRoomState) is a writer too.
+      if (!/\bsetRoomState\b/.test(code(line))) return;
+      // In fedseal.js, its definition and the top-level export list are not writers (a use inside any function is).
+      if (f === 'fedseal.js' && (/^function setRoomState\s*\(/.test(line) || fn === null)) return;
       (found[f] = found[f] || new Set()).add(fn || '(top level)');
     });
   }
@@ -68,7 +72,8 @@ test('#5191: the one epoch advance is inside revokeCheck', () => {
 test('#5191: graceAfter does not branch on why a room rotated, and still gives the revoke grace', () => {
   const lines = enclosing(fs.readFileSync(path.join(ENGINE, 'fedseats.js'), 'utf8')).filter((l) => l.fn === 'graceAfter');
   assert.ok(lines.length > 0, 'graceAfter is gone: update this guard');
-  const grace = lines.map((l) => code(l.line)).join('\n');
+  // Block comments removed too: the next function's doc comment (which the slice reaches) must not trip this.
+  const grace = lines.map((l) => code(l.line)).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.doesNotMatch(grace, /reason|why|kind|cause/i, 'graceAfter branches on why a room rotated; re-decide #5191 and #5197 together');
   assert.match(grace, /REVOKE_GRACE_MS/, 'graceAfter no longer gives the revoke grace');
 });
