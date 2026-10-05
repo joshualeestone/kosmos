@@ -122,9 +122,9 @@ test('#5318: the macOS CLI lifts the note from a real answer and prints it only 
   assert.equal(run(JSON.stringify({ recorded: true })), '', 'CONTROL: no note, nothing printed');
 });
 
-test('#5318: the question survives zsh only quoted, as the nudge and the note write it', () => {
+test('#5318: the question survives zsh only quoted, as the nudge and the note write it', (t) => {
   const zsh = '/bin/zsh';
-  if (!fs.existsSync(zsh)) return;
+  if (!fs.existsSync(zsh)) { t.skip('no zsh here'); return; }
   const quoted = "print -r -- needs_you 'Can Josh pick the cover?'";
   assert.equal(execFileSync(zsh, ['-c', quoted]).toString().trim(), 'needs_you Can Josh pick the cover?');
   let unquotedFailed = false;

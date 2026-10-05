@@ -60,3 +60,12 @@ narrow PERSON_WORDS, not to drop the note.
 - [N] FIXED: the CLI tests RUN the code: the macOS CLI's own sed line on real answers, and the Windows CLI's main()
   with a stubbed fetch, each with a no-note control.
 - [N] not changed: the person test's width (Josh (sign-off), the team, a bot's email) is the plan's decided trade-off.
+
+## Review round 2 (sonnet): no B/W, converged
+- [N] FIXED: the zsh test skips (t.skip) where there is no zsh, rather than passing with no assertion.
+- [N] NOT CHANGED, deliberately: engine/defaults.js:124 still teaches `needs_you "<your question>"` (double quotes)
+  while the nudge and the note use single quotes. Changing it is a doctrine change: a doctrine version bump and the
+  past-versions table (tools/doctrine-past.js), and it rewrites every agent's managed instructions. The residual hazard
+  of double quotes is small: agents run commands non-interactively (no `!` history expansion), and only `$` or a
+  backtick in a question to a person would expand. Both forms work for a `?` or an apostrophe, which is what this card
+  is about. Worth doing with the next doctrine change, not on its own.
