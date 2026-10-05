@@ -122,6 +122,8 @@ catch {
 }
 
 const PAGE = 'file://' + nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+// Chromium reports the host's platform, so a check run on a Mac expects the Mac's copy keys (C4).
+const ON_MAC = process.platform === 'darwin';
 const SHOW = { sourceChannel: 'prod', federationLive: true, kosmos_plus: true };
 const OFF = { sourceChannel: 'prod', federationLive: false, kosmos_plus: true };
 // Sunday, October 11, 2026, 12:00 UTC (the page runs in UTC, below).
@@ -1040,8 +1042,11 @@ const closeAll = (page) => page.evaluate(() => {
     });
     await copyAll(page);
     st = await step(page);
+    // The keys are this computer's (Mona: Command C is wrong on Windows), read from the page's one helper.
+    const keys = await page.evaluate(() => copyKeysWord());
+    check('C4 the keys named are this platform\'s', keys === (ON_MAC ? 'Command C' : 'Ctrl C'), 'keys=' + keys);
     check('C4 a refused clipboard says so in the message line, keeps the button\'s words and the sheet, and throws nothing (control: C1 said Copied)',
-      st.status === 'Kosmos could not copy the invitation. Select the code above and press Command C, then paste it into your message.'
+      st.status === 'Kosmos could not copy the invitation. Select the code above and press ' + keys + ', then paste it into your message.'
       && st.allText === 'Copy the invitation' && st.open && st.copied.length === 0 && st.unhandled.length === 0,
       JSON.stringify({ status: st.status, all: st.allText, open: st.open, unhandled: st.unhandled }));
     await page.waitForTimeout(2300);

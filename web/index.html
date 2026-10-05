@@ -58913,7 +58913,7 @@ async function pjsOwnCopy() {
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(code.value); ok = true; } } catch { ok = false; }
   if (!ok) { try { code.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+  msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
 }
 document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
 document.getElementById('pjs-own-copy').addEventListener('click', pjsOwnCopy);
@@ -62215,6 +62215,10 @@ document.addEventListener('mousedown', (e) => {
   MSG_PRESS = (e.button === 2 || (e.button === 0 && e.ctrlKey)) ? { at: Date.now(), selected: msgHasSelection() } : null;
 }, true);
 const MSG_MENU_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+/* kosmos#4649 (Mona's review of slice C): the copy fallbacks named Command C, which is wrong on Windows (Ctrl C).
+   One place says which keys this computer copies with, for every "copy it yourself" line. */
+function copyKeysWord() { return MSG_MENU_MAC ? 'Command C' : 'Ctrl C'; }
+function copyKeysGlyph() { return MSG_MENU_MAC ? '\u2318C' : 'Ctrl+C'; }
 document.addEventListener('contextmenu', (e) => {
   /* Not on a touchscreen: a long-press there is how text is selected, and the hover bar's button is how a thumb
      copies a reference. */
@@ -66530,11 +66534,11 @@ async function pjCopyInvite() {
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
   if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  btn.textContent = ok ? 'Copied' : 'Press ⌘C to copy';
+  btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
   // A button text swap is not announced to a screen reader unless it is focused there, so also say
   // it in the aria-live status region. ONE cancellable timer reverts both, cleared on reset so a
   // reopen within the 2s window cannot fire onto a different project's fresh state.
-  if (status) status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+  if (status) status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
   if (PJ_COPY_TIMER) clearTimeout(PJ_COPY_TIMER);
   PJ_COPY_TIMER = setTimeout(() => {
     PJ_COPY_TIMER = null;
@@ -67676,7 +67680,7 @@ async function fedInviteMake() {
     if (seq === FEDINV_SEQ) make.disabled = false;
   }
 }
-// Copy the code: pjCopyInvite's pattern ("Copied", the Command C fallback, one revert timer),
+// Copy the code: pjCopyInvite's pattern ("Copied", the copy-keys fallback, one revert timer),
 // on this sheet's own elements and timer so the two screens never revert each other.
 async function fedInviteCopy() {
   const codeEl = document.getElementById('fedinv-code');
@@ -67690,8 +67694,8 @@ async function fedInviteCopy() {
   if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered (as Copy the invitation)
   if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
   fedInviteCopyReset();
-  btn.textContent = ok ? 'Copied' : 'Press ⌘C to copy';
-  status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+  btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
+  status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
   FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
 }
 // Both copy buttons share one revert timer and one message line, so a press on one never leaves the other
@@ -67762,7 +67766,7 @@ async function fedInviteCopyAll() {
   fedInviteCopyReset();
   if (!ok) {
     // Kept on screen (no revert timer): a refusal that vanished after two seconds could be missed.
-    status.textContent = 'Kosmos could not copy the invitation. Select the code above and press Command C, then paste it into your message.';
+    status.textContent = 'Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ', then paste it into your message.';
     return;
   }
   btn.textContent = 'Copied';
