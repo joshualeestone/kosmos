@@ -40,8 +40,8 @@ const HELLO = 'Meta Muse, run by Kosmos. Messages typed here go to Muse one turn
 function sessionFile(workspace) { return path.join(workspace, '.kosmos', 'muse-session'); }
 
 /* #4603 N12 (0.7.15 diagnostic, a Meta agent): whoami and the board could not name a Muse agent's model, because Muse
-   says it only inside each turn (muserun: run.model.configured). The front keeps the latest one here, beside the
-   session id, and engine/status.js readMuseSession reads it as every other runner's own record is read. */
+   says it only inside each turn (muserun: run.model.configured). The front keeps it here, beside the session id, as
+   soon as a turn names it (#4603 R7), and engine/status.js readMuseSession reads it as every other runner's own record is read. */
 function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-model'); }
 
 /** Keep the model a turn named, when it changed. Never throws: a model that cannot be kept is only not shown. */
@@ -299,7 +299,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         const startedAt = takeReceived(prompt) || new Date().toISOString();
         try {
           for (let tries = 0; ; tries++) {
-            r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
+            // #4603 (10-05 R7): kept when the stream names it, so whoami can name it during this turn too.
+            r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; }, onModel: (m) => keepModel(workspace, m) });
             stopTurn = null;   // that turn is over: nothing is running during the wait (review round 6)
             if (!(isNote && stopNoteRunning && r && !r.ok && r.because === MUSE_BUSY && tries < BUSY_RETRIES)) break;
             await new Promise((ok) => setTimeout(ok, busyRetryMs));

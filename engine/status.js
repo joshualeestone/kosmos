@@ -6092,7 +6092,7 @@ function geminiLastCompletionAt(agentName) {
  * the Gemini ring landed before the Gemini launcher.
  * ------------------------------------------------------------------------- */
 
-/* #4603 N12: a Muse (Meta) agent's model, as its front kept it from the last turn that named one (engine/musefront.js
+/* #4603 N12: a Muse (Meta) agent's model, as its front kept it from the latest turn to name one (engine/musefront.js
    keepModel, `.kosmos/muse-model` in its folder). { found, model }; never throws. Read through readWorkerFile (review
    1): the agent can write that file, so a fifo, a link or a huge file must not hang or flood the board's tick. */
 function readMuseSession(agentName) {

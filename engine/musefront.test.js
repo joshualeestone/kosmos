@@ -42,9 +42,10 @@ test('one Enter is one message: chunked bytes before it are one turn, on this ag
   h.f.feed('.txt\r');
   await h.f.drained();
   assert.equal(h.calls.length, 1);
-  const { onStop, ...sent } = h.calls[0];
+  const { onStop, onModel, ...sent } = h.calls[0];
   assert.deepEqual(sent, { workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', prompt: 'Append a line to hello.txt', approvalMode: 'never' });
   assert.equal(typeof onStop, 'function', 'the front cannot stop the turn');
+  assert.equal(typeof onModel, 'function', 'the front cannot keep the model while the turn runs (#4603 R7)');
   assert.match(h.out(), /DONE\n> $/);
   assert.deepEqual(h.reports, ['working', 'idle']);
 });
@@ -860,4 +861,19 @@ test('#4603 N12 review 3: startup forgets the last life\'s model (main\'s real s
   assert.deepEqual(fs.readdirSync(outside), [], 'a model was written through a linked .kosmos');
   // A relative workspace is refused outright.
   assert.equal(front.keepModel('', 'muse-spark-1'), false);
+});
+
+test('#4603 R7: the front keeps the model while the turn still runs, so whoami can name it in the first turn of a life', async () => {
+  const ws = mkTemp('muse-model-live-');
+  front.startup(ws, {});   // a new life: no model kept
+  const kept = () => { try { return fs.readFileSync(front.modelFile(ws), 'utf8').trim(); } catch { return null; } };
+  assert.equal(kept(), null, 'CONTROL: nothing kept at start');
+  let named = false;
+  const h = harness((input) => { if (input.onModel) { input.onModel('muse-spark-7'); named = true; } return 'hold'; }, { workspace: ws });
+  h.f.feed('first\r');
+  await within(new Promise((ok) => { const t = setInterval(() => { if (h.pending.length) { clearInterval(t); ok(); } }, 5); }), 'the turn never started');
+  assert.ok(named, 'the front passed no onModel to runTurn');
+  assert.equal(kept(), 'muse-spark-7', 'the model was not kept until the turn ended');
+  h.pending[0]({ ok: true, text: 'done', model: 'muse-spark-7' });
+  await h.f.drained();
 });
