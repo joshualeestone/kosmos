@@ -9651,14 +9651,16 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 /* Mona's .m-sec heading and .m-mem rows (mock.html) on the app's tokens. */
 .fedout-h { font: 600 .6875rem var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--label-2);
             margin: 14px 0 4px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
-.fedout-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; min-width: 0; }
+.fedout-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 0; min-width: 0; }
 .fedout-row .msg-av { width: 28px; height: 28px; flex: 0 0 28px; font-size: .75rem; }
 /* A pending or expired invite: nobody is in the room yet, so the disc is fainter (mock .m-av.wait). */
 :root .fedout-row .msg-av.ext-av.fedout-wait { color: var(--label-3); border-color: var(--label-3); }
-.fedout-b { flex: 1 1 auto; min-width: 0; }
+/* Mona's review: the text keeps a readable width (a name or "Expired Oct 1" never breaks mid-phrase), and an
+   action that does not fit beside it drops under the text instead of squeezing it. */
+.fedout-b { flex: 1 1 120px; min-width: 0; }
 .fedout-nm { display: block; font-size: .875rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
-.fedout-sub { display: block; font-size: .75rem; color: var(--label-2); line-height: 1.3; }
-.fedout-act { flex: none; font: inherit; font-size: .75rem; color: var(--label-2); background: none; border: 0; padding: 4px 0;
+.fedout-sub { display: block; font-size: .75rem; color: var(--label-2); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fedout-act { flex: none; margin-left: auto; font: inherit; font-size: .75rem; color: var(--label-2); background: none; border: 0; padding: 4px 0;
               text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .fedout-act:hover { color: var(--label); }
 .fedout-act:disabled { opacity: .55; cursor: default; }

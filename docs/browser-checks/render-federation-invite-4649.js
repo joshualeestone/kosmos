@@ -475,6 +475,16 @@ const closeAll = (page) => page.evaluate(() => {
     check('B1 the rows and sub-lines, exactly, in the board\'s order', rowsAre(f.rows, EXPECT), JSON.stringify(f.rows));
     check('B1 withdrawn and removed invites are not shown', !/Withdrawn One|Removed One/.test(f.text), f.text);
     check('B1 no could-not-check line when checked_at is a number', f.notes.length === 0 && !f.text.includes(NOTE), JSON.stringify(f.notes));
+    /* Mona's review (20:0x): in the ~246 px tab column a long action ("Make a new code") squeezed the text, so
+       "Old Friend" broke over two lines and the date split as "Expired Oct / 1". Every name and sub-line now
+       sits on ONE line, the action dropping under the text when it does not fit. */
+    const oneLine = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-outside .fedout-row')].map((r) => {
+      const lh = (el) => parseFloat(getComputedStyle(el).lineHeight) || 16;
+      const nm = r.querySelector('.fedout-nm'); const sub = r.querySelector('.fedout-sub');
+      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5, sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5 };
+    }));
+    check('B1 at 1280 every name and sub-line is on one line (Mona: "Expired Oct / 1" split)',
+      oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub), JSON.stringify(oneLine));
 
     /* B6: dashed and untinted, the "Ada" row included; the local Ada disc is the tinted control. */
     const discs = async () => page.evaluate(() => {
