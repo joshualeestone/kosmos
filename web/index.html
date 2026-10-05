@@ -20077,33 +20077,15 @@ function menuRunsOn(a) {
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
    directly.
-   #5150: a Gemini or Grok key account (and a default OpenAI API-key one) has no name, no email and (as the
-   default row) no label; what names it is its key's last four, so the last rung is the server's own wording,
-   "API key ending XXXX". The order (key after label) follows the server's whoami chain on purpose; the picker's
-   acctPrimaryName puts the key before the label, so a NAMED-slug key account reads its slug here. */
+   #5150: a Gemini or Grok key account has no name, no email and (as the default row) no label; what names
+   it is its key's last four, so the last rung is the server's own wording, "API key ending XXXX". /api/status
+   carries keyTail for those agents (accountForAgent is handed the Gemini and Grok lists too), so the open-the-
+   agent paint and the provider-switch repaint (which reads /api/accounts) name an account the same way: a named
+   account by its slug, a default key account by its key. The order (key after label) follows the server's whoami
+   chain; the picker's acctPrimaryName puts the key first. */
 function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || acct.label || (acct.keyTail ? 'API key ending ' + acct.keyTail : ''))) || '';
-}
-/* #5150 review 2: /api/status builds an agent's `account` from the CLAUDE account list, so a Gemini or Grok agent's
-   row never carries `keyTail` and the key rung above never fired on the open-the-agent paint. /api/accounts (ACCOUNTS)
-   does carry it, per provider; this adds it from the row with the same folder. Only by folder: a default-account
-   agent has no folder to match, and a default Gemini key has no account row at all. */
-function acctWithListedKey(acct, list) {
-  if (!acct || acct.keyTail || !acct.dir || !Array.isArray(list)) return acct;
-  const row = list.find((x) => x && x.dir === acct.dir);
-  return row && row.keyTail ? Object.assign({}, acct, { keyTail: row.keyTail }) : acct;
-}
-/* #5150 review 3: on a session's FIRST agent open the account list is not read yet (the picker reads it after the
-   line is painted), so the key could not show until a later open. When the list arrives (accountsRead), the open
-   agent's line gains its bracket if it has none. Only that agent's line (data-acct-for), and only once (data-acct). */
-function runsOnAddListedKey() {
-  const drun = document.getElementById('d-runson');
-  if (!drun || typeof CURRENT === 'undefined' || !CURRENT || drun.dataset.acctFor !== CURRENT.sessionName || drun.dataset.acct === '1') return;
-  const who = acctParenthetical({ account: acctWithListedKey(CURRENT.account, ACCOUNTS) });
-  if (!who) return;
-  drun.appendChild(document.createTextNode(' (' + who + ')'));
-  drun.dataset.acct = '1';
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
@@ -37272,11 +37254,9 @@ function openDetail(sessionName, section, fromProject) {
      window after a Move both therefore name the account the agent will
      use, not the one the live session still runs on, and the Move
      verdict sentence is what names that window on screen. */
-  const acctEmail = acctParenthetical({ account: acctWithListedKey(a && a.account, typeof ACCOUNTS !== 'undefined' ? ACCOUNTS : null) });
+  const acctEmail = acctParenthetical(a);
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
     + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
-  drun.dataset.acctFor = a.sessionName;   // #5150: runsOnAddListedKey adds the bracket to this agent's line once
-  drun.dataset.acct = acctEmail ? '1' : '';
   /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
      The migration path is real (a stopped agent appears under Found agents
      and Add records it); while it runs Kosmos will not write a launch file
@@ -47104,7 +47084,6 @@ function accountsRead(list) {
   ACCOUNTS = Array.isArray(list) ? list : [];
   ACCOUNTS_LOADED = true;
   ACCOUNTS_UNREADABLE = false;
-  if (typeof runsOnAddListedKey === 'function') runsOnAddListedKey();   // #5150: a first open's line gains its key
 }
 function accountsUnreadable() {
   /* 🛑 DELIBERATELY DOES NOT TOUCH `ACCOUNTS`, AND THAT IS NOT AN OVERSIGHT. A failed read
@@ -48869,9 +48848,8 @@ async function changeProviderNow(say) {
       {
         const drun = document.getElementById('d-runson');
         const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
-        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label)
+        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label, key)
         if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
-        if (drun) { drun.dataset.acctFor = CURRENT.sessionName; drun.dataset.acct = who ? '1' : ''; }   // #5150
       }
       accountsDropped();
       try { await paintAccountPicker(CURRENT); } catch { /* the switch's own sentence is the answer */ }

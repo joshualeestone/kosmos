@@ -45,3 +45,20 @@ the reopen passes the accounts row, which carries keyTail (server.js 1603-1653).
 - NIT (OpenAI API keys too): comment says so.
 Weakest premise now: ACCOUNTS is loaded when the agent's page opens; if not, the bracket is omitted as before
 (nothing wrong is shown). A default-account Gemini/Grok agent has no folder to match and stays without a bracket.
+
+## Reviews 3 and 4 (Sonnet, Opus): the client-side join was the wrong layer
+- Review 3: a session's FIRST open showed no key (ACCOUNTS not read yet). Patched with an accountsRead hook.
+- Review 4: three WARNINGs from the same root. The join copied keyTail but not label, so the open paint said
+  "(API key ending ...)" where the switch repaint said "(b)"; a DEFAULT Gemini/Grok agent (no folder) still had no
+  bracket on open but one after a switch; the arm left page state dirty.
+- DECIDED (reversing review 2's rejection): fix it at the server. My reason for rejecting it was cost, "the
+  live-checked lists every 5 s"; that was wrong: geminiAccounts.list() and grokAccounts.list() read folders only,
+  no network. /api/status now hands accountForAgent the Gemini and Grok lists too, so their agents' rows carry
+  keyTail and the slug, default accounts included (accountForAgent's provider gate keeps a dir-less default to the
+  runner's own provider). The client join, the accountsRead hook and the data marks are gone; the page change is
+  the rung alone. OpenAI's list is left out on purpose (codex agents keep their account shape).
+- Tests: server.test.js '#5150: /api/status ...' (named Gemini row by folder with slug and key; default Grok row;
+  CONTROL a Claude agent gets no keyed row); its mutant (the two lists dropped) fails with keyTail null. Arm 12:
+  default Grok reads its key, named Gemini reads its slug (control), state restored by reopening the prior agent.
+Weakest premise: that adding rows to `known` changes nothing for Claude agents: accountForAgent's dir-less arm
+skips keyed rows for a Claude runner (isKeyedRow), and a folder belongs to one provider.

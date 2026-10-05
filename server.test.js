@@ -13337,6 +13337,59 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
   }
 });
 
+test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s account row, keyTail included', async (t) => {
+  /* The page names a key account "API key ending XXXX" from `a.account.keyTail`. Before this, /api/status built
+     every agent's account from the CLAUDE list only, so a Gemini or Grok agent's row never had a key and the
+     "Right now" bracket was empty on opening the agent. The Gemini and Grok lists are stubbed (their real list()
+     reads this machine's folders), and the dangerous answer is a null keyTail. */
+  const create = require('./engine/create');
+  const geminiAccounts = require('./engine/geminiaccounts');
+  const grokAccounts = require('./engine/grokaccounts');
+  const realGemini = geminiAccounts.list;
+  const realGrok = grokAccounts.list;
+  try {
+    fleet.install([
+      fleet.agent('gemnamed', { state: 'idle' }),
+      fleet.agent('grokdef', { state: 'idle' }),
+      fleet.agent('plainclaude3', { state: 'idle' }),
+    ]);
+    geminiAccounts.list = () => [
+      { dir: '/Users/x/.gemini', provider: 'google', label: null, isDefault: true, keyTail: '1111', email: null },
+      { dir: '/Users/x/.gemini-b', provider: 'google', label: 'b', isDefault: false, keyTail: '9999', email: null },
+    ];
+    grokAccounts.list = () => [
+      { dir: '/Users/x/.grok', provider: 'xai', label: null, isDefault: true, keyTail: '4f2a', email: null },
+    ];
+    fs.writeFileSync(create.plistPath('gemnamed'),
+      create.plistFor('gemnamed', '/opt/homebrew/bin/gemini', '/opt/homebrew/bin/tmux', null, '/Users/x/.gemini-b', 'gemini'), 'utf8');
+    fs.writeFileSync(create.plistPath('grokdef'),
+      create.plistFor('grokdef', '/opt/homebrew/bin/grok', '/opt/homebrew/bin/tmux', null, null, 'grok'), 'utf8');
+    assert.equal(create.readJob('gemnamed').runner, 'gemini', 'the gemini fixture lost its runner');
+    assert.equal(create.readJob('grokdef').configDir, null, 'the grok fixture carries a dir, so it is not the default shape');
+    const board = await req('/api/status');
+    if (!board.type.includes('application/json')) { t.skip('the status engine did not return a board on this machine'); return; }
+    const agents = JSON.parse(board.body).agents || [];
+    const row = (n) => agents.find((a) => a.sessionName === n);
+    const gem = row('gemnamed'); const grok = row('grokdef');
+    assert.ok(gem && grok, 'the fixture agents are not on the board: ' + agents.map((a) => a.sessionName).join(','));
+    // A named Gemini account: its own row by folder, slug and key.
+    assert.equal(gem.account && gem.account.keyTail, '9999', JSON.stringify(gem.account));
+    assert.equal(gem.account.label, 'b');
+    // A DEFAULT Grok agent (no folder): the Grok default row, never Gemini's default (the provider gate).
+    assert.equal(grok.account && grok.account.keyTail, '4f2a', JSON.stringify(grok.account));
+    // CONTROL: a Claude agent is never handed a keyed row.
+    const claude = row('plainclaude3');
+    assert.ok(!claude || !claude.account || !claude.account.keyTail, JSON.stringify(claude && claude.account));
+  } finally {
+    geminiAccounts.list = realGemini;
+    grokAccounts.list = realGrok;
+    for (const n of ['gemnamed', 'grokdef', 'plainclaude3']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
+    fleet.restore();
+  }
+});
+
 test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude account', () => {
   /**
    * 🛑 THE CARD'S OWN DEFECT, IN THE BRANCH I EXEMPTED BY NAME. A default-account
