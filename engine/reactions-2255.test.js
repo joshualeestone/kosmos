@@ -199,7 +199,7 @@ test('#2255: "you" is reserved for the operator - an agent named "you" cannot re
   assert.equal(messages.record().rows.filter((m) => m.kind === 'reaction').length, 0, 'a refused react wrote no event');
 });
 
-/* #4631: a person pastes "message 12 in <room>" (the page's Copy message reference) or types "12", and an agent
+/* #4631: a person pastes "message 12 in <room>" (the page's Copy message reference, #5312: Copy message id) or types "12", and an agent
    reacts with it as written. The reaction lands on m12, as the id itself would; a number naming no post is
    still refused. */
 test('#4631: react takes "12" and "message 12 in <room>" for the post m12', () => {
