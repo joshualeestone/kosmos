@@ -19903,7 +19903,10 @@ function start(port = PORT) {
          BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
          injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
-      let assignerPrev;
+      /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
+         (and in what state); written back only when it changes. */
+      let assignerPrev = assigner.loadMemory(Date.now());
+      let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
@@ -19919,6 +19922,7 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
+          assignerSaved = assigner.saveMemory(assignerPrev, assignerSaved);
           for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
           for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
