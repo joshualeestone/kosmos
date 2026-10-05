@@ -20,6 +20,11 @@
 Other prefixes still leak in smaller amounts (cli.feedback-2037 619 pairs, whatsnew 582, filelock-test 410, ...;
 see the card comment for the table). They are a class to sweep later; these three were the disk that mattered.
 
+## Review 1 (sonnet, blind): no BLOCKER, WARNING or CONVENTION
+- NITs fixed: the toast check waits (up to 5 s) for its board to stop before the data root goes; SIGINT and SIGTERM
+  exit through the same cleanup. NIT left to #5334: projects.test.js also makes clipath, cli path, cli$evil, aw-real
+  and aw-link folders beside its sandbox.
+
 ## Weakest premise
 That `test.after` runs on a failing run too. node:test runs after hooks whether tests pass or fail; a killed run
 (SIGKILL) still leaks, which no in-process cleanup can fix.
