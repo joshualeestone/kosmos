@@ -326,18 +326,19 @@ function live(sessionName) {
  * (its session carries the run's instance, @kosmos_token_instance, and the token behind it is gone, so every verb the
  * agent runs is refused). Three answers, because "we could not read the store" must never read as "gone":
  *   'held'     the file holds a token with this instance
- *   'gone'     the file is readable and does not, or there is no file for this agent in a store that exists
- *   'unknown'  the file is there and cannot be read or parsed, is in the old single-token shape, no instance was
- *              given, or there is no token store at all (a board that has never minted)
+ *   'gone'     this agent's file is readable and does not hold the run's token (retired, or the run replaced)
+ *   'unknown'  there is no file for this agent (another board's store, a revoke, a wiped store), the file cannot be
+ *              read or parsed, is in the old single-token shape, or no instance was given
  * Instances are labels, not secrets (the supervisor stamps them on the session), so nothing here touches a token.
  */
 function instanceState(sessionName, instance) {
   if (typeof instance !== 'string' || !/^[0-9a-f]+$/.test(instance)) return 'unknown';
   let raw;
-  /* A store directory that does not exist at all says this board has never minted anything (a second board on another
-     data root, sharing the tmux server), not that a token was removed: unknown, never lost. */
-  try { fs.statSync(DIR); } catch { return 'unknown'; }
-  try { raw = fs.readFileSync(fileFor(sessionName), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? 'gone' : 'unknown'; }
+  /* No file for this agent says only that THIS store never held (or no longer holds) a token for it: a second board on
+     another data root, sharing the tmux server, has no file for the fleet's agents, and calling them all lost would
+     offer a Restart that makes the next one. So a missing file (or store) is unknown; 'gone' needs this store's own file
+     for the agent to be there without the run's token (a retire, or the run replaced). */
+  try { raw = fs.readFileSync(fileFor(sessionName), 'utf8'); } catch { return 'unknown'; }
   let kept;
   try { kept = JSON.parse(raw); } catch { return 'unknown'; }
   if (!kept || typeof kept !== 'object' || !Array.isArray(kept.tokens)) return 'unknown';

@@ -260,7 +260,7 @@ function make(opts) {
       // #5333: built BY KEY from PANE_COLUMNS, not hand-typed in order: a column added before `title` (tokenInstance)
       // shifted every Windows row, putting the name in the new column and dropping the title. A column this does not
       // know is left empty (win32roster.test.js asserts every column is known here).
-      const value = { session: name, pane: '0.0', command: WIN32_COMMAND, inMode: '0', claim: name, runner, tokenInstance: '', title: name };
+      const value = win32RowValue(name, runner);
       lines.push(COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t'));
     }
     // Trailing newline so the last row parses like every other (matches tmux's
@@ -270,7 +270,11 @@ function make(opts) {
   };
 }
 
-/* #5333: the keys a Windows row fills, so a test can assert it knows every PANE_COLUMNS column. */
-const WIN32_ROW_KEYS = ['session', 'pane', 'command', 'inMode', 'claim', 'runner', 'tokenInstance', 'title'];
+/* #5333: one Windows row's fields by column key; its keys are exported (WIN32_ROW_KEYS) from the same object, so the
+   test that every PANE_COLUMNS column is known reads what the row really fills. */
+function win32RowValue(name, runner) {
+  return { session: name, pane: '0.0', command: WIN32_COMMAND, inMode: '0', claim: name, runner, tokenInstance: '', title: name };
+}
+const WIN32_ROW_KEYS = Object.keys(win32RowValue('', ''));
 
 module.exports = { WIN32_ROW_KEYS, make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, WIN32_COMMAND, isWin32Pane, flat };
