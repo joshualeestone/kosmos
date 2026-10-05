@@ -264,7 +264,7 @@ function blockBody({ introduce = false } = {}) {
  */
 /* `opts` (kosmos#5297, the board-start refresh only): `introduce` (true/false) replaces the shouldIntroduce read, and
    `onlyIfPresent` refuses to add a block the file does not carry (so a person who removed it between the refresh's
-   check and this write does not get it back). */
+   check and this write does not get it back), and `withBody` returns the body it composed as `body`. */
 function tellAgent(sessionName, participating, opts = {}) {
   const instructions = require('./instructions');
   try {
@@ -278,14 +278,17 @@ function tellAgent(sessionName, participating, opts = {}) {
     }
     if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
+    let body = participating === true ? blockBody({ introduce }) : null;
     let next = participating === true
-      ? projects.spliceBlock(current.text || '', blockBody({ introduce }), START, END)
+      ? projects.spliceBlock(current.text || '', body, START, END)
       : projects.removeBlock(current.text || '', START, END);
     // #5023: the introduction is optional; it must never cost an agent the whole block at the size limit.
     if (participating === true && Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
-      next = projects.spliceBlock(current.text || '', blockBody(), START, END);
+      body = blockBody();
+      next = projects.spliceBlock(current.text || '', body, START, END);
     }
-    if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    const wrote = opts.withBody === true ? { body } : {};   // kosmos#5297: the refresh compares what was composed
+    if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false, ...wrote };
     if (Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
       return { state: projects.TOLD.COULD_NOT, because: 'its instructions are already at the size limit', changed: false };
     }
@@ -293,7 +296,7 @@ function tellAgent(sessionName, participating, opts = {}) {
       who: 'kosmos',
       because: participating === true ? 'Kosmos told it about the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
     });
-    return { state: projects.TOLD.TOLD, because: null, changed: true };
+    return { state: projects.TOLD.TOLD, because: null, changed: true, ...wrote };
   } catch (err) {
     return { state: projects.TOLD.COULD_NOT, because: (err && err.message) || 'we could not write to its instructions', changed: false };
   }
@@ -321,8 +324,7 @@ function refreshEveryone(roster, participating) {
   const innerOf = (text) => {
     const f = projects.findBlock(text || '', START, END);
     if (!f || f.ambiguous) return null;
-    const from = text.indexOf(START) + START.length;
-    return text.slice(from, text.indexOf(END, from));
+    return String(text).slice(f.start + START.length, f.end - END.length);
   };
   const told = [];
   for (const a of roster) {
@@ -338,8 +340,8 @@ function refreshEveryone(roster, participating) {
     let posted = null;
     try { posted = require('./communitystore').postedBy(a.sessionName); } catch { posted = null; }
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
-    const r = tellAgent(a.sessionName, true, { introduce, onlyIfPresent: true });
-    const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(blockBody({ introduce }));
+    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, onlyIfPresent: true, withBody: true });
+    const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(typeof body === 'string' ? body : null);
     told.push({ agent: a.sessionName, ...r, rulesChanged });
   }
   return told;

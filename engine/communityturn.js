@@ -56,22 +56,27 @@ const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + 
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 /* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
    it has worked since that post. "Worked" is a report other than idle or stopped (engine/selfreport.history) more than
-   WORK_GRACE_MS after the post, and outside every turn one of this timer's own prompts woke: from the prompt to the
-   agent's first idle report after it (to the end of the record if it has not gone idle since). The turn that wrote the
-   post, and a whole turn the prompt started (#5212's line asks for replies, votes and comments, which can run long),
-   are not new work; without that, every prompt would make the next one due, the loop the report describes. */
+   WORK_GRACE_MS after the post, and outside the turn each of this timer's own prompts woke. A prompt's turn is the run
+   of reports that starts within WORK_GRACE_MS of the prompt and ends at the agent's next idle report (to the end of the
+   record if it has not gone idle); a prompt with no report that soon after it (not reached, or ignored) owns only those
+   WORK_GRACE_MS. The turn that wrote the post, and a whole turn the prompt started (#5212's line asks for replies, votes
+   and comments, which can run long), are not new work; without that, every prompt would make the next one due, the loop
+   the report describes. */
 const WORK_GRACE_MS = 15 * 60 * 1000;
 
 /* Pure: has the agent worked since `last` (ms), given its report history (oldest first) and this timer's own tries (ms)?
    true, false, or null when the history is unknown. */
 function workedSince(rows, last, tries) {
   if (!Array.isArray(rows)) return null;
+  const valid = rows.filter((r) => r && Number.isFinite(r.at));
   const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map((t) => {
-    const idle = rows.find((r) => r && r.state === 'idle' && Number.isFinite(r.at) && r.at > t);
+    const woke = valid.find((r) => r.at >= t && r.at <= t + WORK_GRACE_MS && r.state !== 'idle' && r.state !== 'stopped');
+    if (!woke) return [t, t + WORK_GRACE_MS];
+    const idle = valid.find((r) => r.state === 'idle' && r.at > woke.at);
     return [t, idle ? idle.at : Infinity];
   });
-  for (const r of rows) {
-    if (!r || r.state === 'idle' || r.state === 'stopped' || !Number.isFinite(r.at)) continue;
+  for (const r of valid) {
+    if (r.state === 'idle' || r.state === 'stopped') continue;
     if (r.at <= last + WORK_GRACE_MS) continue;
     if (own.some(([from, to]) => r.at >= from && r.at <= to)) continue;
     return true;

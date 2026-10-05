@@ -14,6 +14,10 @@
  * debt began, `n` counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
  * Atomic tmp + rename; an unreadable or odd file reads as empty. A debt ends without a line when the agent has started a
  * session since it began (startedSince: it read the new file at that start), or after GIVE_UP_MS.
+ *
+ * passOnce delivers. It types only into an IDLE card of ours that was idle at the previous pass too (the rule the
+ * community turn and the reply nudge use): a line typed into a permission prompt or a question menu would be submitted
+ * as its highlighted default, approving or answering for the person (engine/chat.js).
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -102,4 +106,58 @@ function lineFor(sections) {
     + 'What it says now replaces what you read when you started.';
 }
 
-module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, lineFor };
+
+/*
+ * One delivery pass. Never throws. Everything it reads or sends is injected, so it is tested without a board:
+ *   roster()      the board's cards (safeRoster); null or empty leaves every debt for a later pass
+ *   isIdle(card)  agentnudge.nudgeableCard: an idle card of ours
+ *   seenIdle      a Set kept by the caller across passes: the sessions idle at the previous pass (refilled here)
+ *   history(s)    engine/selfreport.history
+ *   allowed()     live execution
+ *   deliver(s, line, roster)  chat.deliverAutomaticAsync; DELIVERY: chat.DELIVERY
+ *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
+ * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'restarted' | 'gone' | 'expired'.
+ */
+async function passOnce(o) {
+  const out = [];
+  try {
+    const read = typeof o.read === 'function' ? o.read : readOwed;
+    const write = typeof o.write === 'function' ? o.write : writeOwed;
+    const now = Number.isFinite(o.now) ? o.now : Date.now();
+    let roster = null;
+    try { roster = o.roster(); } catch { roster = null; }
+    const seen = o.seenIdle instanceof Set ? new Set(o.seenIdle) : new Set();
+    if (!Array.isArray(roster) || !roster.length) { if (o.seenIdle instanceof Set) o.seenIdle.clear(); return out; }
+    const idleNow = new Set();
+    const isIdle = (c) => { try { return o.isIdle(c) === true; } catch { return false; } };
+    for (const c of roster) if (c && c.sessionName && isIdle(c)) idleNow.add(String(c.sessionName));
+    if (o.seenIdle instanceof Set) { o.seenIdle.clear(); for (const s of idleNow) o.seenIdle.add(s); }
+    let owed = read();
+    const cleared = {};
+    const end = (session, act) => { cleared[session] = owed[session].n; out.push({ session, act }); };
+    const ours = new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
+    for (const session of Object.keys(owed)) {
+      const debt = owed[session];
+      if (now - debt.at > GIVE_UP_MS) { end(session, 'expired'); continue; }
+      if (!ours.has(session)) { end(session, 'gone'); continue; }
+      let rows = null;
+      try { rows = o.history(session); } catch { rows = null; }
+      if (startedSince(rows, debt.at) === true) { end(session, 'restarted'); continue; }
+      if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
+      let ok = false;
+      try { ok = o.allowed() === true; } catch { ok = false; }
+      if (!ok) break;
+      const line = lineFor(debt.sections);
+      if (!line) { end(session, 'expired'); continue; }
+      let v = null;
+      try { v = await o.deliver(session, line, roster); } catch { v = null; }
+      const after = settle(owed, session, v, o.DELIVERY, now);
+      if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
+      else end(session, 'sent');
+    }
+    write(mergeCleared(read(), cleared));
+  } catch { /* the next pass tries again */ }
+  return out;
+}
+
+module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, lineFor, passOnce };
