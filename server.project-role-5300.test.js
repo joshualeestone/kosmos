@@ -66,7 +66,7 @@ test('#5300: an agent sets its role on one project; project show lists it, marke
     assert.deepEqual(stored(p.id).rolesHere, { [ada]: 'Researcher: reads the sources' });
     const ov = await (await fetch(`${base}/api/project/${p.id}/overview`)).json();
     const text = projectview.renderShow(ov).join('\n');
-    assert.match(text, /Researcher: reads the sources \(on this project\)/, text);
+    assert.match(text, /rh-ada, on this project: "Researcher: reads the sources"  \|/, text);
     const boLine = text.split('\n').find((l) => l.trim().startsWith('rh-bo')) || '';
     assert.ok(boLine && !/on this project/.test(boLine), 'the other member was given a role here: ' + boLine);
     // An agent sets only its OWN role: a name in the body is not read on an agent's call.

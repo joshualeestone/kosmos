@@ -2889,7 +2889,9 @@ function setRoleHere(id, sessionName, role) {
   mutate(id, (p) => {
     if (!(p.agents || []).includes(key)) throw new Error('that agent is not on this project');
     const rolesHere = { ...(p.rolesHere || {}) };
-    if (words) rolesHere[key] = words; else delete rolesHere[key];
+    // Defined, not assigned, so no session name (a "__proto__") can reach the object's prototype.
+    if (words) Object.defineProperty(rolesHere, key, { value: words, enumerable: true, writable: true, configurable: true });
+    else delete rolesHere[key];
     out = { role: words || null };
     return { ...p, rolesHere };
   });

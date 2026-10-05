@@ -337,7 +337,10 @@ function renderShow(payload) {
     const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
     /* #4896: the board's own spelling of the role (overviewOf's roleTitle); an older board sends none, and then
        the role is printed as it is stored, as before. */
-    const role = m.roleHere ? m.roleHere + ' (on this project)' : (m.roleTitle || m.role || '');
+    /* #5300: the member's own role, then what it said it does here, quoted (agent-written words, so they cannot pass
+       for Kosmos's own; inner double quotes become single, as for the brief). */
+    const role = [m.roleTitle || m.role || '', m.roleHere ? 'on this project: "' + String(m.roleHere).replace(/["\u201C\u201D]/g, "'") + '"' : '']
+      .filter(Boolean).join('; ');
     out.push('  ' + one(m.name) + (role ? ', ' + one(role) : '') + '  | ' + fam + '  | ' + where
       + '  | summary: ' + sum);
   }
