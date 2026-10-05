@@ -410,6 +410,31 @@ function initStub() {
   check('real model switch that does not restart: no hello is sent and no confirmation is shown',
     s11c.threads === 0 && !/Reactivated/.test(s11c.msg), 'threads=' + s11c.threads + ' msg=' + JSON.stringify(s11c.msg));
 
+  // ---- Arm 12 (#5150): a Gemini key agent opened through openDetail names its key in the bracket ----
+  // /api/status gives a Gemini agent an account row without keyTail; the page's account list (/api/accounts) has it.
+  // CONTROL: the same agent with no listed row for its folder has no bracket (nothing is invented).
+  const s12 = await page.evaluate(() => {
+    const out = {};
+    try {
+      const prevAccounts = ACCOUNTS;
+      const gem = Object.assign({}, LAST.find((x) => x.sessionName === 'april') || {}, {
+        sessionName: 'gemkey', name: 'Gemkey', displayName: 'Gemkey', runner: 'gemini', isNamedOurs: true,
+        account: { dir: '/h/.gemini-b', name: null, email: null, label: null, keyTail: null } });
+      LAST.push(gem);
+      ACCOUNTS = [{ dir: '/h/.gemini-b', provider: 'google', keyTail: '9999', name: null, email: null, label: null }];
+      openDetail('gemkey');
+      out.withRow = document.getElementById('d-runson').textContent;
+      ACCOUNTS = [];
+      openDetail('gemkey');
+      out.noRow = document.getElementById('d-runson').textContent;
+      ACCOUNTS = prevAccounts;
+      LAST.splice(LAST.indexOf(gem), 1);
+    } catch (e) { out.err = String(e && e.message || e); }
+    return out;
+  });
+  check('#5150 a Gemini key agent opened through openDetail names its key: "(API key ending 9999)" (control: no listed row, no bracket)',
+    !s12.err && /\(API key ending 9999\)$/.test(s12.withRow || '') && !/\(/.test(s12.noRow || ''), JSON.stringify(s12));
+
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
 
