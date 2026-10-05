@@ -21035,13 +21035,14 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
   }
-  /* kosmos#5297: the community block, refreshed at boot in the agents that already carry it, for the reason the sweeps
+  /* kosmos#5297: the community block, written at boot into every agent of ours (added where an agent made before it has
+     none, Splinter 11:16), for the reason the sweeps
      above give: the board restarting is the update. A user's 0.7.22 report found five running agents still told "at
      most one post a day" three days after Josh's 2026-10-02 rules, because the block was written only at birth and at
      restart. Unlike the sweeps above, the file is not enough on its own here: the rules are what an agent does all day,
      so each agent whose rules changed (refreshEveryone's rulesChanged) is owed a line telling it to read the section
-     again (engine/instructionreread.js, which the working-rules refresh routes use too). Never adds or removes the
-     block, and never fatal. */
+     again (engine/instructionreread.js, which the working-rules refresh routes use too). Never removes the block, and
+     never fatal. */
   try {
     const told = require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);

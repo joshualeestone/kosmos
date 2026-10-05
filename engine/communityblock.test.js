@@ -481,14 +481,14 @@ test('#5211 review 1: a new agent with an empty Following feed is told how to ge
 });
 
 /* ---- kosmos#5297: the block refreshed in agents that already carry it (the board-start pass) ---- */
-test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent without the block gets none; nothing when off', () => {
+test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent without the block GETS it (Splinter 11:16); nothing when off', () => {
   const fleet = require('../test-support/fleet');
   const status = require('./status');
   const board = fleet.install([fleet.agent('rae', { state: 'idle' }), fleet.agent('sol', { state: 'working' }), fleet.agent('tia', { state: 'idle' })]);
   let roster;
   try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
   for (const s of ['rae', 'sol', 'tia']) assert.equal((roster.find((c) => c.sessionName === s) || {}).isNamedOurs, true, 'fixture: no real card of ours for ' + s);
-  // rae and sol carry the 0.7.21-era block (the user's report: "At most one post a day"); tia never had one.
+  // rae and sol carry the 0.7.21-era block (the user's report: "At most one post a day"); tia never had one (made before it).
   const OLD = '## The Kosmos+ community\n\nAt most one post a day.';
   const fr = agentFile('rae', '# Rae\n\nThe person wrote this.\n\n' + cb.START + '\n' + OLD + '\n' + cb.END + '\n');
   const fs2 = agentFile('sol', '# Sol\n\n' + cb.START + '\n' + OLD + '\n' + cb.END + '\n');
@@ -499,7 +499,7 @@ test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent wit
   assert.ok(fs.readFileSync(fr, 'utf8').includes('At most one post a day.'), 'the switch-off arm changed a file');
 
   const told = cb.refreshEveryone(roster, true);
-  assert.deepEqual(told.map((t) => [t.agent, t.state, t.changed, t.rulesChanged]).sort(), [['rae', projects.TOLD.TOLD, true, true], ['sol', projects.TOLD.TOLD, true, true]]);
+  assert.deepEqual(told.map((t) => [t.agent, t.state, t.changed, t.rulesChanged]).sort(), [['rae', projects.TOLD.TOLD, true, true], ['sol', projects.TOLD.TOLD, true, true], ['tia', projects.TOLD.TOLD, true, true]]);
   for (const f of [fr, fs2]) {
     const after = fs.readFileSync(f, 'utf8');
     assert.ok(!after.includes('At most one post a day.'), 'the old rule survived the refresh');
@@ -507,16 +507,20 @@ test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent wit
     assert.equal(count(after, cb.START), 1);
   }
   assert.ok(fs.readFileSync(fr, 'utf8').includes('The person wrote this.'), 'the refresh took the person\'s words');
-  assert.equal(fs.readFileSync(ft, 'utf8'), tiaBefore, 'the refresh ADDED a block to an agent that had none');
+  const tiaAfter = fs.readFileSync(ft, 'utf8');
+  assert.equal(count(tiaAfter, cb.START), 1, 'an agent made before the block did not get it');
+  assert.ok(tiaAfter.includes('No community here.'), 'adding the block took the person\'s words');
+  assert.ok(tiaAfter.includes('no more than ' + cb.POSTS_PER_DAY_MAX + ' times a day'));
+  assert.ok(tiaAfter.startsWith(tiaBefore.trimEnd()), 'the block was not appended after the person\'s text');
 
   // A card that is not ours (a stray session of the same name) is never written, even with an old block.
   fs.writeFileSync(fr, '# Rae\n\n' + cb.START + '\n' + OLD + '\n' + cb.END + '\n');
-  assert.deepEqual(cb.refreshEveryone(roster.map((c) => (c.sessionName === 'rae' ? { ...c, isNamedOurs: false } : c)), true).map((t) => t.agent), ['sol']);
+  assert.deepEqual(cb.refreshEveryone(roster.map((c) => (c.sessionName === 'rae' ? { ...c, isNamedOurs: false } : c)), true).map((t) => t.agent).sort(), ['sol', 'tia']);
   assert.ok(fs.readFileSync(fr, 'utf8').includes('At most one post a day.'), 'a card that is not ours was written');
   cb.refreshEveryone(roster, true);
 
   const again = cb.refreshEveryone(roster, true);
-  assert.deepEqual(again.map((t) => t.changed), [false, false], 'a second board start rewrote unchanged blocks (and would tell the agents again)');
+  assert.deepEqual(again.map((t) => t.changed), [false, false, false], 'a second board start rewrote unchanged blocks (and would tell the agents again)');
 });
 
 test('#5297 refreshEveryone: an unreadable roster says so', () => {
@@ -560,4 +564,16 @@ test('#5297 review 1: tellAgent with onlyIfPresent never adds a block a file doe
   assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 0);
   assert.equal(cb.tellAgent('vic', true).changed, true);
   assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 1);
+});
+
+test('#5297 Splinter 11:16: an agent with no instructions file is skipped, never given one', () => {
+  const fleet = require('../test-support/fleet');
+  const status = require('./status');
+  const board = fleet.install([fleet.agent('wyn', { state: 'idle' })]);
+  let roster;
+  try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'wyn');
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(cb.refreshEveryone(roster, true), []);
+  assert.equal(fs.existsSync(path.join(dir, 'CLAUDE.md')), false, 'a file was created');
 });
