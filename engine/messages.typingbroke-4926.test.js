@@ -122,7 +122,7 @@ const roomhold = require('./roomhold');
 const withDeliverAuto = (fn) => { const real = { a: chat.deliverAutomaticAsync }; chat.deliverAutomaticAsync = fn(real.a); return () => { chat.deliverAutomaticAsync = real.a; }; };
 const postAs = (roster, who, text, extra) => messages.sendPostAsync(Object.assign({ sender: { ok: true, card: roster.find((c) => c.sessionName === who) }, project: 'room4926', projectName: 'Room', text }, extra || {}), roster, roster.map((c) => c.sessionName));
 
-test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quota is kept as asking it (never dropped as stale)', async () => {
+test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quota is kept as asking it (not dropped as stale; under a day, unanswered)', async () => {
   await withRoom(async (roster) => {
     arm();
     roomhold.forget('bix');
