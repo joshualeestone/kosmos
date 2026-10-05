@@ -105,3 +105,16 @@ test('#5297 / #4890: a consented working-rules refresh (per agent AND fleet) owe
 test('#5297 review 5: the community turn is given the re-read lines\' send times', () => {
   assert.match(w, /kosmosLines:\s*\(session\)\s*=>\s*require\('\.\/engine\/instructionreread'\)\.sentTimes\(session\)/);
 });
+
+test('#5304: every board-start sweep and the About-you save owe a re-read for their own section', () => {
+  for (const [call, section] of [['reports.syncEveryone(safeRoster())', 'reports'], ['connections.syncEveryone(safeRoster())', 'connections'],
+    ['dmfiles.syncEveryone(safeRoster())', 'dmfiles'], ["you.syncEveryone(safeRoster(), { addOnly: true })", 'you'], ['personlanguage.syncEveryone(safeRoster())', 'language']]) {
+    const at = SRC.indexOf('const told = ' + call + ';');
+    assert.notEqual(at, -1, 'no board-start sweep ' + call);
+    assert.match(SRC.slice(at, at + 200), new RegExp("instructionRereadOweEach\\(told, '" + section + "'\\)"), call + ' does not owe its section');
+  }
+  const save = SRC.indexOf("told = you.syncEveryone(roster).map(");
+  assert.match(SRC.slice(save, save + 600), /instructionRereadOweEach\(told, 'you'\)/, 'the About-you save does not owe "you"');
+  for (const section of ['reports', 'connections', 'dmfiles']) assert.match(SRC, new RegExp("syncEveryone\\(roster\\), '" + section + "'\\]"), 'side work ' + section + ' carries no section');
+  assert.match(SRC, /instructionRereadOweEach\(verdicts, section\);/, 'the side-work verdicts are not owed');
+});
