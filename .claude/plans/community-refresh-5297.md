@@ -119,3 +119,10 @@ already does); the send gate reads communityswitch.participating(), the refresh'
 write rotates the file's one-deep `.previous` backup (true of every managed-block write; the person's undo then holds
 the pre-refresh file, which is still their text plus the old block); a cut history can only miss a 'started' row, so
 the cost is one extra re-read line, never a lost one.
+
+## Round 13 (fixed / decided)
+A switched-off section no longer holds the whole debt: the line names the sections that are on, the off ones stay owed.
+The Prompter gates only the community line; a working-rules line (the person's accepted refresh) needs only live
+execution and the brake. Decided (NITs): INTRO_TEXT keeps "do nothing" (its alternative is the introduction itself);
+history() keeps its own tail reader (round 5); a folder that cannot be edited is reported at every boot, as the
+sibling sweeps already do.

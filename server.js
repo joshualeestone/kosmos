@@ -1065,9 +1065,10 @@ async function instructionRereadPass() {
       isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
       seenIdle: INSTRUCTION_REREAD_IDLE_SEEN, seenMissing: INSTRUCTION_REREAD_MISSING_SEEN,
       history: (session) => selfreport.history(session),
-      // As the community turn: live execution, the operator brake, and the Prompter switch.
-      allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env) && heartbeatSetting.read().on === true,
-      sectionOn: (section) => section !== 'community' || communityswitch.participating() === true,   // the refresh's own gate
+      allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+      // The community line also needs Community and the Prompter (as the community turn); a working-rules line is the
+      // person's own accepted refresh, so only live execution and the brake gate it.
+      sectionOn: (section) => section !== 'community' || (communityswitch.participating() === true && heartbeatSetting.read().on === true),
       recordSent: (session, at) => ir.recordSent(session, at),
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
