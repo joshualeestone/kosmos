@@ -46,9 +46,16 @@ for (const [mod, section, tell] of CASES) {
       assert.equal(first.state, require('./projects').TOLD.TOLD, first.because || '');
       assert.equal(first.changed, true, mod + ': a write did not say changed');
       // The heading the re-read line names is the one this block actually wrote.
-      const heading = ir.lineFor([section]).match(/"([^"]+)"/)[1];
       const text = fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, name, 'CLAUDE.md'), 'utf8');
-      assert.ok(text.includes('## ' + heading), mod + ': the line names "' + heading + '", which is not the heading in the file');
+      const named = [...ir.lineFor([section]).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+      assert.ok(named.length >= 1);
+      for (const heading of named) assert.ok(text.includes('## ' + heading), mod + ': the line names "' + heading + '", which is not a heading in the file');
+      // Every heading the block wrote is named, so the agent does not stop reading before the part that changed.
+      const START = require('./projects')[{ connections: 'CONNECTIONS_START', dmfiles: 'DMFILES_START', reports: 'REPORTS_START', you: 'YOU_START', language: 'LANGUAGE_START' }[section]];
+      const END = require('./projects')[{ connections: 'CONNECTIONS_END', dmfiles: 'DMFILES_END', reports: 'REPORTS_END', you: 'YOU_END', language: 'LANGUAGE_END' }[section]];
+      const inner = text.slice(text.indexOf(START), text.indexOf(END));
+      const written = inner.split('\n').filter((l) => /^## /.test(l)).map((l) => l.slice(3).trim());
+      assert.deepEqual(written.filter((h) => !named.includes(h)), [], mod + ': a heading in the block is not named in the line');
       const second = tell(m, name, board.roster);
       assert.equal(second.changed, false, mod + ': an unchanged pass said changed (and would tell the agent again)');
     } finally { board.restore(); }
@@ -60,4 +67,21 @@ test('#5304 oweEach owes the section to exactly the agents whose block changed',
   const told = [{ agent: 'ann', changed: true }, { agent: 'bea', changed: false }, { agent: null, changed: true }];
   assert.deepEqual(ir.oweEach(told, {}, 'reports', T), { ann: { at: T, last: T, n: 1, sections: ['reports'] } });
   assert.deepEqual(ir.oweEach(null, {}, 'reports', T), {});
+});
+
+test('#5304 review 1: switching the language back to English removes the block and owes nothing; CONTROL: a change of language owes a re-read', () => {
+  const pl = require('./personlanguage');
+  const name = 'alangx';
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  try {
+    agentFile(name, '# ' + name + '\n\nThe person wrote this.\n');
+    const added = pl.tellAgent(name, board.roster, { tag: 'es-MX' });
+    assert.equal(added.changed, true);
+    assert.notEqual(added.removed, true);
+    assert.deepEqual(Object.keys(ir.oweEach([{ agent: name, ...added }], {}, 'language')), [name]);
+    const gone = pl.tellAgent(name, board.roster, { tag: 'en-US' });
+    assert.equal(gone.changed, true, 'fixture: English did not remove the block');
+    assert.equal(gone.removed, true);
+    assert.deepEqual(ir.oweEach([{ agent: name, ...gone }], {}, 'language'), {}, 'a removed block owed a re-read of a section that is gone');
+  } finally { board.restore(); }
 });

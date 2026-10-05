@@ -20930,6 +20930,7 @@ if (require.main === module) {
    * this process, so this runs exactly when new text arrives and never in
    * between.
    *
+   * (kosmos#5304: a changed agent is now also owed a re-read line, instructionRereadOweEach.)
    * ⚠️ IT MAKES THE FILE CURRENT, NOT THE RUNNING AGENT, and the distinction is
    * not pedantic. `engine/instructions.js` says an instruction file is read ONCE
    * at session start, so a live agent keeps running on what it read at boot
@@ -20965,7 +20966,7 @@ if (require.main === module) {
    * `policyEngine.syncEveryone` - which is what makes this easy to misread as
    * already covered, and I did misread it once.
    *
-   * ⚠️ It writes the FILE, not the agent. `engine/instructions.js` reads an
+   * ⚠️ It writes the FILE, not the agent (kosmos#5304: a changed agent is now owed a re-read line). `engine/instructions.js` reads an
    * instruction file once at session start, so this does not change a running
    * agent; what it buys is that the file is already right at the agent's next
    * start. Same claim as the connections refresh below, and the same limit.
@@ -21004,8 +21005,8 @@ if (require.main === module) {
   }
   /* #3614: the direct-message files block, refreshed at boot for the reason the two
      above give (#1649/#1676): a sweep that runs only on an unrelated form save reaches
-     an agent that already exists only by accident. It writes the FILE, not the running
-     agent, and it is never fatal. */
+     an agent that already exists only by accident. It writes the FILE (kosmos#5304: a changed agent is owed a re-read
+     line), and it is never fatal. */
   try {
     const told = dmfiles.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'dmfiles');

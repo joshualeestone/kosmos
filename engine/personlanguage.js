@@ -167,12 +167,12 @@ function tellAgent(sessionName, roster, opts) {
     }
     const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false } : read();
     // Nothing to do (a read that is not sure changes nothing): told, without touching the file (review 4: no boot noise).
-    if (!got.sure) return { state: projects.TOLD.TOLD, because: null };
+    if (!got.sure) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const current = instructions.read(sessionName);
     // Nothing at the instructions path (no file, or no folder at all, as for an agent with no worker folder): this module
     // never creates one, so there is nothing to change and nothing to report, in any language (review 14). Something
     // there that cannot be read safely is not that: it is reported, as connections.tellAgent does (review 15).
-    if (!current.exists && !somethingAt(current.path)) return { state: projects.TOLD.TOLD, because: null };
+    if (!current.exists && !somethingAt(current.path)) return { state: projects.TOLD.TOLD, because: null, changed: false };
     if (!current.exists) return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
     const found = projects.findBlock(current.text || '', START, END);
     if (found && found.ambiguous) {
@@ -184,7 +184,8 @@ function tellAgent(sessionName, roster, opts) {
     const next = applyTo(current.text || '', got.tag);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
-    return { state: projects.TOLD.TOLD, because: null, changed: true };   // kosmos#5304: the running agent is owed a re-read
+    // kosmos#5304: changed owes the running agent a re-read; a removal (English again) owes none (instructionreread.oweEach).
+    return { state: projects.TOLD.TOLD, because: null, changed: true, removed: !projects.findBlock(next, START, END) };
   } catch (err) {
     const raw = (err && err.message) || '';
     return {
