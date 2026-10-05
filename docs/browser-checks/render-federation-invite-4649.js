@@ -80,8 +80,9 @@
  * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text,
  * her Q-M5 owner name). Every C arm fails on origin/main, which has no invite sheet at all, and on slice B, which
  * has no #fedinv-copy-all. The owner's name is the board's "You" name (/api/you, faked below as __you) and the
- * address is this computer's row of /api/remote/computers (faked as __computers), both read by the page's own
- * loaders (refreshYouName, computersFetch), not set by hand.
+ * address is this computer's row of /api/remote/computers (faked as __computers) ONLY when it is the account's
+ * one computer (the invitee's Verify shows the account's name, which only the first computer is bound to), both
+ * read by the page's own loaders (refreshYouName, computersFetch), not set by hand.
  *  C0  the code step reads as shot 03: "It works once, until Sunday, October 11. You can withdraw it from Members
  *      until Dana joins.", the Easier box naming Dana, and "Copy the invitation" as the primary (uprime) button
  *      after Done, with the bare-code Copy still there. A label that is not a name ("my sister") says "they join"
@@ -947,7 +948,8 @@ const closeAll = (page) => page.evaluate(() => {
     const copyAll = async (page) => { await page.click('#fedinv-copy-all'); await page.waitForTimeout(100); };
 
     const { ctx, page } = await newPage(1280, SHOW);
-    let o = await owner(page, 'Maya Chen', [THIS, { name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false, online: false }]);
+    // One computer on the account: its address is the account's own name, the one the invitee's Verify shows.
+    let o = await owner(page, 'Maya Chen', [THIS]);
     check('C setup: the page read the "You" name and this computer\'s address through its own loaders',
       o.you === 'Maya Chen' && o.addr === ADDR, JSON.stringify(o));
     await openProjectIn(page, 'tabs');
@@ -995,6 +997,12 @@ const closeAll = (page) => page.evaluate(() => {
     let v = await variant('', [THIS]);
     check('C2 no "You" name: "maya.kosmosplus.com invited you ...", the rest the same (control: C1 with the name)',
       v.got.you === '' && v.text === invitation(ADDR), JSON.stringify(v));
+    /* Several computers on the account: this one's address may not be the account's name (only the first computer
+       is bound to it; the coordinator's Verify shows the account's name), so the invitation names the owner by
+       name alone rather than risk a wrong address. Control: C1, one computer, carries the address. */
+    v = await variant('Maya Chen', [THIS, { name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false, online: false }]);
+    check('C2 several computers on the account: no address, "Maya Chen invited you ..." (control: C1 with one computer)',
+      v.got.addr === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
     v = await variant('Maya Chen', [{ name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false }]);
     check('C2 a name and no address for this computer: "Maya Chen invited you ..."', v.got.addr === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
     v = await variant('', []);

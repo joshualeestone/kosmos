@@ -27340,7 +27340,14 @@ let COMPUTERS_FAILS = 0;
    relay hiccup cannot lock the menu shut, and says so inside the menu. */
 function worldswComputersSeen(rows, good) {
   // Before the several-Kosmoses return below: the invitation needs the address whichever menu is in use.
-  if (good) { const me = rows.find((c) => c.this === true); THIS_COMPUTER_ADDRESS = me ? me.address : ''; }
+  // ONLY on a one-computer account. The invitee's Verify screen shows the ACCOUNT's name (coordinator fed.rs:
+  // owner_handle = accounts.name), and only the account's first computer is bound to that name (db.rs #1614); a
+  // second computer bought its own address. With several, this computer's address may not be the one Verify
+  // shows, and a wrong address is worse than none, so the invitation then names the owner by name alone.
+  if (good) {
+    const me = rows.find((c) => c.this === true);
+    THIS_COMPUTER_ADDRESS = (me && rows.length === 1) ? me.address : '';
+  }
   // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
   if (MULTI_KOSMOS) return;
   if (good) {
