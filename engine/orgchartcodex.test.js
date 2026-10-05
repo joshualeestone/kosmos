@@ -186,7 +186,7 @@ test('no catalog in the account: refused in words, Codex never started', async (
   fs.rmSync(record, { force: true });
   const got = await c.read({ kind: 'codex', dir: bare }, 'p', 'image/png', PNG, null);
   assert.equal(got.ok, false);
-  assert.match(got.because, /has not finished setting up/);
+  assert.equal(got.because, c.WHY_CATALOG);
   assert.equal(fs.existsSync(record), false);
 });
 
@@ -278,7 +278,9 @@ test('a catalog with a field this Codex does not know, or written by another Cod
     write({ ...CACHE, models: [...CACHE.models, { slug: 'm3', new_tool_switch: true }] });
     assert.equal(c.deriveCatalog(acct), null);
     const got = await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
-    assert.match(got.because, /has not finished setting up/);
+    assert.equal(got.because, c.WHY_CATALOG);
+    assert.equal(o.currentReader(), null, 'and the reader is not offered: the reason shows before the consent box');
+    assert.equal(o.whyNoReader(), c.WHY_CATALOG);
     write({ ...CACHE, client_version: '9.9.9' });
     assert.equal(c.deriveCatalog(acct), null);
     write(CACHE);

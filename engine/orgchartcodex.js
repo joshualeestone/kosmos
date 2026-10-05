@@ -190,6 +190,7 @@ const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has C
 /* Windows: the flags, the catalog and the capture were measured on a Mac only, and no administrator-managed layer is
    known there to check. Off until measured, as an unknown is everywhere else in this file. */
 const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. A CSV or Excel export works with any provider, and so does typing the list.';
+const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up a model list Kosmos can use for this account. Start an OpenAI agent once, then try again. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. A CSV or Excel export works with any provider, and so does typing the list.';
 const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. A CSV or Excel export works with any provider, and so does typing the list.';
 
@@ -211,6 +212,8 @@ function pickWithWhy() {
   if (!want || have !== want) return { reader: null, offWhy: whyVersion(have, want || 'unknown') };
   if (personalInstructions(r.dir)) return { reader: null, offWhy: WHY_INSTRUCTIONS };
   if (managedConfig()) return { reader: null, offWhy: WHY_MANAGED };
+  // Before the consent box, not after it: a model list Codex cannot use here is a reason, not a failed read.
+  if (!deriveCatalog(r.dir)) return { reader: null, offWhy: WHY_CATALOG };
   return { reader: { kind: 'codex', provider: 'openai', dir: r.dir, account: r.email || r.name || null }, offWhy: null };
 }
 function pick() { return pickWithWhy().reader; }
@@ -276,7 +279,7 @@ function read(reader, prompt, media, buf, signal) {
   if (personalInstructions(reader.dir)) return Promise.resolve({ ok: false, because: WHY_INSTRUCTIONS });
   if (managedConfig()) return Promise.resolve({ ok: false, because: WHY_MANAGED });
   const catalog = deriveCatalog(reader.dir);
-  if (!catalog) return Promise.resolve({ ok: false, because: 'Codex has not finished setting up this ChatGPT account. Start an OpenAI agent once, then try again' });
+  if (!catalog) return Promise.resolve({ ok: false, because: WHY_CATALOG });
   let dir;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-codex-')); fs.chmodSync(dir, 0o700); } catch { return Promise.resolve({ ok: false, because: 'the read failed' }); }
   const cleanup = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
@@ -326,7 +329,7 @@ function read(reader, prompt, media, buf, signal) {
     try {
       child = spawnFn(bin, codexArgs({ dir: work, catalog: catalogFile, schema, image, prompt }), { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'], detached: GROUPS });
     } catch { finish({ ok: false, because: 'ChatGPT did not answer' }); return; }
-    if (signal) { if (signal.aborted) { onAbort(); return; } signal.addEventListener('abort', onAbort); }
+    if (signal) signal.addEventListener('abort', onAbort);
     timer = setTimeout(() => finish({ ok: false, because: 'reading the file took too long' }), timeoutMs);
     let out = '';
     let last = null;
@@ -374,7 +377,7 @@ function read(reader, prompt, media, buf, signal) {
       if (last === null || failed !== null) {
         const said = (failed || String(stderr).split('\n').map((s) => s.trim()).find(Boolean) || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
         if (said) console.warn('[orgchart] codex ended without an answer: ' + said);
-        finish({ ok: false, because: /log(?:ged)? ?in|sign(?:ed)? ?in|auth|401|unauthori[sz]ed/i.test(said) ? 'the ChatGPT sign-in on this computer has ended. Sign in again in Settings, AI Models, then try again' : 'ChatGPT did not answer' });
+        finish({ ok: false, because: /log(?:ged)? ?in|sign(?:ed)? ?in|\bauth(?:entication|orization)?\b|\b401\b|unauthori[sz]ed/i.test(said) ? 'the ChatGPT sign-in on this computer has ended. Sign in again in Settings, AI Models, then try again' : 'ChatGPT did not answer' });
         return;
       }
       let structured;
@@ -384,4 +387,4 @@ function read(reader, prompt, media, buf, signal) {
   });
 }
 
-module.exports = { WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
