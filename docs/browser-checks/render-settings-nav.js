@@ -311,11 +311,25 @@ function chk(ok, label, extra) {
       const nlBg = await page.evaluate(() => { const root = document.documentElement; const was = root.dataset.look; root.dataset.look = 'new';
         const bg = getComputedStyle(document.getElementById('s-nav-more')).backgroundColor; if (was === undefined) delete root.dataset.look; else root.dataset.look = was; return bg; });
       chk(!/rgba\(0, 0, 0, 0\)|transparent/.test(nlBg), `[${theme}] at 375px the chevron stays solid in the new look too (#5303)`, nlBg);
-      /* On Kosmos+ the page's ground is a fixed navy gradient: a flat colour there drew the chevron as a visible square. */
+      /* On Kosmos+ the page's ground is a navy radial gradient: a --k-bg chevron showed as a square. Its colour must be the
+         gradient's own where it sits, worked out here from the body's computed gradient (its ellipse, centre and first two
+         stops), and solid, not the gradient (iOS draws a fixed background as scroll, squeezing the gradient into the box). */
       const plusBg = await page.evaluate(() => { document.body.classList.add('plus-active');
-        const out = { chev: getComputedStyle(document.getElementById('s-nav-more')).backgroundImage, body: getComputedStyle(document.body).backgroundImage };
+        const c = document.getElementById('s-nav-more'); const cs = getComputedStyle(c); const r = c.getBoundingClientRect();
+        const g = getComputedStyle(document.body).backgroundImage;
+        const m = /radial-gradient\((\d+)% (\d+)% at (\d+)% (\d+)%/.exec(g); const stops = [...g.matchAll(/rgb\((\d+), (\d+), (\d+)\) (\d+)%/g)].map((x) => [+x[1], +x[2], +x[3], +x[4] / 100]);
+        const out = { image: cs.backgroundImage, color: cs.backgroundColor, grad: g.slice(0, 60) };
+        if (m && stops.length >= 2) {
+          const W = innerWidth, H = innerHeight, x = r.left + r.width / 2, y = r.top + r.height / 2;
+          const d = Math.hypot((x - W * m[3] / 100) / (W * m[1] / 100), (y - H * m[4] / 100) / (H * m[2] / 100));
+          let k = 0; while (k < stops.length - 2 && d > stops[k + 1][3]) k++;
+          const t = Math.min(1, Math.max(0, (d - stops[k][3]) / (stops[k + 1][3] - stops[k][3])));
+          out.want = [0, 1, 2].map((i) => Math.round(stops[k][i] + (stops[k + 1][i] - stops[k][i]) * t));
+          const got = (/rgb\((\d+), (\d+), (\d+)\)/.exec(cs.backgroundColor) || []).slice(1).map(Number);
+          out.got = got; out.off = got.length === 3 ? Math.max(...got.map((v, i) => Math.abs(v - out.want[i]))) : 99;
+        }
         document.body.classList.remove('plus-active'); return out; });
-      chk(/gradient/.test(plusBg.chev) && plusBg.chev === plusBg.body, `[${theme}] at 375px on Kosmos+ the chevron paints the page's own gradient ground (#5303)`, JSON.stringify(plusBg).slice(0, 200));
+      chk(plusBg.image === 'none' && plusBg.off <= 4, `[${theme}] at 375px on Kosmos+ the chevron is solid in the gradient's own colour where it sits (#5303)`, JSON.stringify(plusBg));
       /* A real press at the chevron (not el.click()), so the press's focus is what is measured: it must not take focus,
          or focus drops to the page when it hides itself at the row's end. Polled, not a fixed wait: the scroll is smooth. */
       const cb = await page.evaluate(() => { const r = document.getElementById('s-nav-more').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });

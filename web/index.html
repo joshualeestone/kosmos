@@ -3606,8 +3606,11 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
                       background: var(--k-bg); color: var(--k-ink); box-shadow: none; }
   /* The box is a solid SQUARE and the ring is drawn inside it: a round box let the next pill's outline show in its four
      corners, which the fade cannot reach (the chevron's own 44px stays unmasked). */
-  /* On Kosmos+ the page's ground is a fixed gradient, not --k-bg: the chevron paints that same ground, so it is not a square. */
-  body.plus-active #s-nav #s-nav-more { background: var(--plus-ground, var(--k-bg)); }
+  /* On Kosmos+ the page's ground is body.plus-active's radial gradient, not --k-bg, so a --k-bg square showed. Not the
+     gradient itself: iOS Safari draws a `fixed` background as `scroll`, and the whole gradient squeezed into this 44px box
+     was a dark-edged blob. This is the gradient's colour where the chevron sits on a 360 to 430px phone (about a fifth of
+     the way from its centre, between its first two stops), fixed or not; render-settings-nav.js measures it. */
+  body.plus-active #s-nav #s-nav-more { background: #172748; }
   #s-nav #s-nav-more::before { content: ""; position: absolute; inset: 0; border-radius: 22px; box-shadow: inset 0 0 0 1px var(--k-rule); pointer-events: none; }
   #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
   #s-nav button[data-dot] { padding-right: 28px; }
@@ -11002,9 +11005,7 @@ body.plus-active {
      gradient here so the tab reads as the on-brand navy blue, not near-black. The
      gradient stops are copied verbatim from first-step.html's .app. `fixed` anchors it
      to the viewport so it stays whole no matter how the pane scrolls. */
-  /* #5303: a token, so the Settings row's "More sections" chevron paints the same ground (it must hide the pills under it). */
-  --plus-ground: radial-gradient(130% 90% at 62% 8%, #1c2c4f 0%, #132140 42%, #0b1428 100%) fixed;
-  background: var(--plus-ground);
+  background: radial-gradient(130% 90% at 62% 8%, #1c2c4f 0%, #132140 42%, #0b1428 100%) fixed;
   /* --k-* system. --k-bg lifted #070c16 -> #132140 (the gradient's mid navy) so any
      solid --k-bg surface reads navy rather than near-black under the gradient. */
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
