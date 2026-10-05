@@ -474,3 +474,15 @@ test('#2575: `operator` is the ONLY value a caller may ASSERT via entry.by; any 
   selfreport.record('by-forge', { state: 'working', because: 'x', by: 'agent', auto: true });
   assert.equal(selfreport.read('by-forge').by, 'auto', 'by:agent cannot mask a genuine auto write');
 });
+
+test('#5297 history: every state and time in the tail, oldest first; a bad line skipped; null with no record', () => {
+  assert.equal(selfreport.history('nobody-ever-5297'), null, 'no record must read as unknown, never as an empty (idle) history');
+  selfreport.record('hist-5297', { state: 'working', because: 'a' });
+  selfreport.record('hist-5297', { state: 'idle', because: 'b' });
+  fs.appendFileSync(selfreport.fileFor('hist-5297'), 'not json\n' + JSON.stringify({ state: 'vibing', at: new Date().toISOString() }) + '\n');
+  selfreport.record('hist-5297', { state: 'needs_you', because: 'which one?' });
+  const h = selfreport.history('hist-5297');
+  assert.deepEqual(h.map((r) => r.state), ['working', 'idle', 'needs_you']);
+  assert.ok(h.every((r) => Number.isFinite(r.at)));
+  assert.ok(h[0].at <= h[1].at && h[1].at <= h[2].at);
+});

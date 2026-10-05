@@ -479,3 +479,47 @@ test('#5211 review 1: a new agent with an empty Following feed is told how to ge
   assert.ok(flat.includes('If your Following feed is still empty, do step 4 first: follow the author of a post you upvoted in step 2, then come back for the Following-feed comment.'));
   assert.ok(flat.indexOf('If your Following feed is still empty') < flat.indexOf('4. Follows.'), 'the way out is not in step 3');
 });
+
+/* ---- kosmos#5297: the block refreshed in agents that already carry it (the board-start pass) ---- */
+test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent without the block gets none; nothing when off', () => {
+  const fleet = require('../test-support/fleet');
+  const status = require('./status');
+  const board = fleet.install([fleet.agent('rae', { state: 'idle' }), fleet.agent('sol', { state: 'working' }), fleet.agent('tia', { state: 'idle' })]);
+  let roster;
+  try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  for (const s of ['rae', 'sol', 'tia']) assert.equal((roster.find((c) => c.sessionName === s) || {}).isNamedOurs, true, 'fixture: no real card of ours for ' + s);
+  // rae and sol carry the 0.7.21-era block (the user's report: "At most one post a day"); tia never had one.
+  const OLD = '## The Kosmos+ community\n\nAt most one post a day.';
+  const fr = agentFile('rae', '# Rae\n\nThe person wrote this.\n\n' + cb.START + '\n' + OLD + '\n' + cb.END + '\n');
+  const fs2 = agentFile('sol', '# Sol\n\n' + cb.START + '\n' + OLD + '\n' + cb.END + '\n');
+  const ft = agentFile('tia', '# Tia\n\nNo community here.\n');
+  const tiaBefore = fs.readFileSync(ft, 'utf8');
+
+  assert.deepEqual(cb.refreshEveryone(roster, false), [], 'refreshed with the community switched off');
+  assert.ok(fs.readFileSync(fr, 'utf8').includes('At most one post a day.'), 'the switch-off arm changed a file');
+
+  const told = cb.refreshEveryone(roster, true);
+  assert.deepEqual(told.map((t) => [t.agent, t.state, t.changed]).sort(), [['rae', projects.TOLD.TOLD, true], ['sol', projects.TOLD.TOLD, true]]);
+  for (const f of [fr, fs2]) {
+    const after = fs.readFileSync(f, 'utf8');
+    assert.ok(!after.includes('At most one post a day.'), 'the old rule survived the refresh');
+    assert.ok(after.includes('no more than ' + cb.POSTS_PER_DAY_MAX + ' times a day'), 'today\'s limit did not arrive');
+    assert.equal(count(after, cb.START), 1);
+  }
+  assert.ok(fs.readFileSync(fr, 'utf8').includes('The person wrote this.'), 'the refresh took the person\'s words');
+  assert.equal(fs.readFileSync(ft, 'utf8'), tiaBefore, 'the refresh ADDED a block to an agent that had none');
+
+  const again = cb.refreshEveryone(roster, true);
+  assert.deepEqual(again.map((t) => t.changed), [false, false], 'a second board start rewrote unchanged blocks (and would tell the agents again)');
+});
+
+test('#5297 refreshEveryone: an unreadable roster says so; a card not ours is skipped', () => {
+  const r = cb.refreshEveryone(null, true);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].state, projects.TOLD.COULD_NOT);
+  assert.deepEqual(cb.refreshEveryone([{ sessionName: 'rae', isNamedOurs: false }], true), []);
+});
+
+test('#5297 the re-read line names the section by its own heading', () => {
+  assert.ok(cb.REREAD_TEXT.includes('"' + cb.blockBody().split('\n')[0].replace(/^## /, '') + '"'));
+});
