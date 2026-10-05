@@ -82,3 +82,21 @@ test('#2225 CONTROL: the caller still gates on the return, so "" omits the paren
   // falsy value there rather than a stray space or 'null'.
   assert.ok(!acctParenthetical({ account: null }), 'account-less must be falsy so the parenthetical is omitted');
 });
+
+const acctWithListedKey = new Function(`${grab('function acctWithListedKey(')}; return acctWithListedKey;`)();
+test('#5150 review 2: the open-the-agent paint takes the key from the account list, by folder', () => {
+  // /api/status hands a Gemini agent a row with no keyTail; /api/accounts has it.
+  const status = { dir: '/h/.gemini-b', name: null, email: null, label: null, keyTail: null };
+  const listed = [{ dir: '/h/.claude', email: 'j@example.com' }, { dir: '/h/.gemini-b', provider: 'google', keyTail: '9999' }];
+  assert.equal(acctParenthetical({ account: acctWithListedKey(status, listed) }), 'API key ending 9999');
+  // CONTROL: without the list (or with no row for that folder) nothing is invented.
+  assert.equal(acctParenthetical({ account: acctWithListedKey(status, null) }), '');
+  assert.equal(acctParenthetical({ account: acctWithListedKey(status, [{ dir: '/h/.gemini-c', keyTail: '1111' }]) }), '');
+  // A default-account agent (no folder) is not matched to anything, and a row that already has a key keeps it.
+  assert.equal(acctWithListedKey(null, listed), null);
+  assert.equal(acctWithListedKey({ dir: null }, listed).keyTail, undefined);
+  assert.equal(acctWithListedKey({ dir: '/h/.gemini-b', keyTail: '4f2a' }, listed).keyTail, '4f2a');
+});
+test('#5150 review 2: the paint site goes through acctWithListedKey (a source pin, as the helper is pure)', () => {
+  assert.match(PAGE, /const acctEmail = acctParenthetical\(\{ account: acctWithListedKey\(a && a\.account,/);
+});

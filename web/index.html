@@ -20077,11 +20077,22 @@ function menuRunsOn(a) {
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
    directly.
-   #5150: a Gemini or Grok key account has no name, no email and (as the default row) no label; what names
-   it is its key's last four, so the last rung is the server's own wording, "API key ending XXXX". */
+   #5150: a Gemini or Grok key account (and a default OpenAI API-key one) has no name, no email and (as the
+   default row) no label; what names it is its key's last four, so the last rung is the server's own wording,
+   "API key ending XXXX". The order (key after label) follows the server's whoami chain on purpose; the picker's
+   acctPrimaryName puts the key before the label, so a NAMED-slug key account reads its slug here. */
 function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || acct.label || (acct.keyTail ? 'API key ending ' + acct.keyTail : ''))) || '';
+}
+/* #5150 review 2: /api/status builds an agent's `account` from the CLAUDE account list, so a Gemini or Grok agent's
+   row never carries `keyTail` and the key rung above never fired on the open-the-agent paint. /api/accounts (ACCOUNTS)
+   does carry it, per provider; this adds it from the row with the same folder. Only by folder: a default-account
+   agent has no folder to match, and a default Gemini key has no account row at all. */
+function acctWithListedKey(acct, list) {
+  if (!acct || acct.keyTail || !acct.dir || !Array.isArray(list)) return acct;
+  const row = list.find((x) => x && x.dir === acct.dir);
+  return row && row.keyTail ? Object.assign({}, acct, { keyTail: row.keyTail }) : acct;
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
@@ -37250,7 +37261,7 @@ function openDetail(sessionName, section, fromProject) {
      window after a Move both therefore name the account the agent will
      use, not the one the live session still runs on, and the Move
      verdict sentence is what names that window on screen. */
-  const acctEmail = acctParenthetical(a);
+  const acctEmail = acctParenthetical({ account: acctWithListedKey(a && a.account, typeof ACCOUNTS !== 'undefined' ? ACCOUNTS : null) });
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
     + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
   /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.

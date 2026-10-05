@@ -31,3 +31,17 @@ the reopen passes the accounts row, which carries keyTail (server.js 1603-1653).
   no subscription row can say "API key ending".
 - Wording matches server.js 7939; the server.test.js slice and the two web tests still hold (17/17 run).
 - No browser check asserts this bracket for a Gemini or Grok agent.
+
+## Review 2 (blind Opus, on main merged in, 6b62add70a): 1 BLOCKER, 3 WARNING, 1 NIT
+- BLOCKER: /api/status builds `a.account` from the Claude list (accounts.list()), so a Gemini/Grok agent's row
+  has no keyTail and the open-the-agent paint ("Right now") never showed the key; only the switch repaint did.
+  -> FIXED client-side: acctWithListedKey adds keyTail from ACCOUNTS (/api/accounts, per provider) by folder.
+  Rejected: a server change in /api/status, which would need the Gemini/Grok lists each 5 s poll (their list is
+  the live-checked one).
+- WARNING (the switch repaint vs the open paint disagreeing): fixed by the same.
+- WARNING (tests only fed hand-made rows): unit test for acctWithListedKey with the status shape and controls,
+  plus a source pin that the paint site goes through it.
+- WARNING (bracket vs picker order for named-slug key accounts): DECIDED, pre-existing, stated in the comment.
+- NIT (OpenAI API keys too): comment says so.
+Weakest premise now: ACCOUNTS is loaded when the agent's page opens; if not, the bracket is omitted as before
+(nothing wrong is shown). A default-account Gemini/Grok agent has no folder to match and stays without a bracket.
