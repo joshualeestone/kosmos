@@ -165,3 +165,17 @@ Rebased onto main: browser-checks-reason-grep.test.js EXPECTED_SITES conflicted 
 render-import-name-4962 site both took 231 to 232), resolved to 233 and MEASURED: that file 5/5 and
 web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED again at f85ef65db: node 14381 tests,
 14158 pass, 0 fail; test:shell; build.
+
+
+## Rebase onto #5106 and a fresh review loop (2026-10-04 19:1x onward)
+- Rebased onto main after #5105/#5106: the counter conflict is gone with the counter. This branch now adds ONE
+  SITE_COUNTS line, 'render-import-name-4962.js': [1, 0] (its earlier +1 emit site / no catch site, measured by its
+  full runs before the rebase). The "resolved to 233" above is history.
+- Loop iteration 1 (opus): a stuck add that SUCCEEDS late with nothing newer now records the agent (no second Add for
+  an agent that exists). Two comment claims removed. Plan heading names the test files.
+- Iteration 2 (sonnet): first run's list drops a stuck add too (importAddsDropStuck from frPaintScan; receipts stay
+  for the visit). Adopt-row Enter scope: unchanged, as decided in review 1.
+- Iteration 3 (opus): a stuck add that FAILS late with nothing newer now frees its row (iteration 2 made this
+  reachable from #import-found while first run's list repaints); it moves no focus that late. Tested.
+- The test counts quoted above (36/36) are history too; the file has grown with each fix.
+\n

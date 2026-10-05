@@ -603,6 +603,37 @@ test('a stuck add is dropped on either list; a receipt is forgotten only by a ne
   assert.match(scan, /importAddsDropStuck\(\)/, 'first run paints its list through the stuck-add drop');
 });
 
+test('a stuck attempt that FAILS late, with nothing newer in flight, frees its row', async () => {
+  const t = makeDom();
+  const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+  const field = t.create('input'); field.className = 'tk-inp fr-importinput'; field.value = 'Pip';
+  const btn = t.create('button'); btn.className = 'btn uprime fr-importgo'; btn.textContent = 'Add to Kosmos';
+  const said = t.create('p'); said.className = 'fr-importsaid';
+  row.append(field, btn, said);
+  const noop = { add() {}, remove() {} };
+  row.classList = noop; btn.classList = noop; field.classList = noop;
+  t.add('import-found').appendChild(row);
+  const held = [];
+  const fetchImpl = async (url) => {
+    if (/agent-import-file/.test(url)) return { ok: true, json: async () => PARSED_NAMELESS };
+    return new Promise((resolve) => held.push(resolve));
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+    + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
+  const a = api.add('/p/pip.md', btn, row);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(held.length, 1, 'CONTROL: the attempt is waiting on its create');
+  assert.equal(btn.disabled, true, 'CONTROL: the row is held while it adds');
+  api.map.delete('/p/pip.md');                 // dropped as stuck (over a minute); nothing replaced it
+  held[0]({ ok: true, json: async () => ({ ok: false, error: 'network went away' }) });   // it fails late
+  await a;
+  assert.equal(btn.disabled, false, 'the row can be pressed again');
+  assert.equal(btn.textContent, 'Add to Kosmos');
+  assert.equal(field.disabled, false, 'and its Name field typed in');
+  assert.equal(said.textContent, 'network went away');
+});
+
 test('a stuck attempt that SUCCEEDS late, with nothing newer in flight, records the add', async () => {
   const t = makeDom();
   const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');

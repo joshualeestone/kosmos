@@ -53257,18 +53257,21 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   let attemptAt = 0;
   const current = () => (IMPORT_ADDS.get(file) || {}).at === attemptAt;
   const fail = (msg, aboutName) => {
-    if (!current()) return;
+    /* A newer attempt owns the row: this one settles nothing. An attempt that was only DROPPED (stuck over a minute,
+       nothing newer) still frees its row, or it stays "Adding..." for good; arriving that late, it moves no focus. */
+    const late = !IMPORT_ADDS.has(file);
+    if (!late && !current()) return;
     IMPORT_ADDS.delete(file);
     btn.disabled = false; btn.textContent = was;
     if (said) said.textContent = msg;
     if (field) {
       field.disabled = false;
-      if (aboutName) { field.setAttribute('aria-invalid', 'true'); if (field.classList) field.classList.add('bad'); field.focus(); }
+      if (aboutName) { field.setAttribute('aria-invalid', 'true'); if (field.classList) field.classList.add('bad'); if (!late) field.focus(); }
       else { field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
     }
-    // Review 11: give focus back unless the Name field just took it (a named row has no field to take it).
-    if (!(aboutName && field) && hadInRow && typeof had.focus === 'function') had.focus();
-    importRowsSync(file, msg, aboutName, row);
+    // Give focus back unless the Name field just took it (a named row has no field to take it).
+    if (!late && !(aboutName && field) && hadInRow && typeof had.focus === 'function') had.focus();
+    importRowsSync(file, msg, late ? false : aboutName, row);
   };
   attemptAt = Date.now();
   IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: attemptAt });
