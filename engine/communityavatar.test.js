@@ -606,3 +606,15 @@ test('#5302 pictureToFit names the agents whose picture is too big or the wrong 
   // CONTROL: the mark is still there (only the live read cleared it).
   assert.match(readKeys()[key].avatarSkipLogged, /^type:/);
 });
+
+test('#5302 keepAvatarOriginal copies the picture aside once (the first is kept), outside what the lookup reads', () => {
+  store.saveAvatar('kos', 'image/gif', GIF);
+  const kept = store.keepAvatarOriginal('kos');
+  assert.ok(fs.readFileSync(kept).equals(GIF));
+  store.saveAvatar('kos', 'image/png', png(4));
+  assert.equal(store.keepAvatarOriginal('kos'), kept, 'a second keep replaced the first original');
+  assert.ok(fs.readFileSync(kept).equals(GIF), 'the kept original changed');
+  assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(png(4)), 'the lookup read the kept original');
+  store.removeAvatar('kos');
+  assert.throws(() => store.keepAvatarOriginal('kos'), /no picture/);
+});

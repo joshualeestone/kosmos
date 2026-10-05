@@ -337,6 +337,23 @@ function avatarLookup(name) {
  * Returns 0 when there is no avatar or the file cannot be stat'd, which is a
  * stable, harmless `?v=0` for the no-picture (initials) case.
  */
+/* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
+   the avatars folder (never a name the avatar lookup reads), so the fitted copy never costs the person their only one.
+   An original already kept is not replaced: the first one is the person's own. Returns the kept path; throws when it
+   cannot be kept, and the caller then does not overwrite. */
+function keepAvatarOriginal(name) {
+  const file = avatarPath(name);
+  if (!file) throw new Error('there is no picture to keep');
+  const dir = path.join(path.dirname(avatarsDir()), 'avatar-originals');
+  ensure(dir);
+  const key = safeKey(name);
+  const kept = fs.readdirSync(dir).find((f) => f.startsWith(key + '.'));
+  if (kept) return path.join(dir, kept);
+  const dest = path.join(dir, key + path.extname(file).toLowerCase());
+  fs.copyFileSync(file, dest, fs.constants.COPYFILE_EXCL);
+  return dest;
+}
+
 function avatarVersion(name) {
   const file = avatarPath(name);
   if (!file) return 0;
@@ -614,7 +631,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

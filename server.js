@@ -5922,6 +5922,14 @@ const server = http.createServer(async (req, res) => {
     }
     readBody(req)
       .then((buf) => {
+        /* kosmos#5302: a page refit of an older picture names the version it read. A picture changed since (the person
+           chose another) is refused, and the one it replaces is kept first (store.keepAvatarOriginal), or nothing is
+           written. */
+        const refitOf = req.headers['x-kosmos-refit-of'];
+        if (refitOf !== undefined) {
+          if (String(store.avatarVersion(name)) !== String(refitOf)) { sendJson(res, 409, { error: 'that picture changed since it was read' }); return; }
+          store.keepAvatarOriginal(name);
+        }
         store.saveAvatar(name, req.headers['content-type'], buf);
         sendJson(res, 200, { ok: true });
       })
@@ -8507,10 +8515,14 @@ const server = http.createServer(async (req, res) => {
     // #4885: pictures saved before Kosmos fitted them that cannot go as they are (too big, not a still picture, refused).
     let picturesUnsendable = 0;
     try { picturesUnsendable = typeof communitysend.pictureUnsendable === 'function' ? communitysend.pictureUnsendable() : 0; } catch { picturesUnsendable = null; }
-    // kosmos#5302: which agents those are (too big or the wrong type), so the page can fit them with the picture chooser's
-    // own fitPicture and save them back; null when it cannot tell.
+    // kosmos#5302: which agents those are (too big or the wrong type), with each picture's version, so the page can fit
+    // them with the picture chooser's own fitPicture and save them back only if unchanged; null when it cannot tell.
     let picturesToFit = [];
-    try { picturesToFit = typeof communitysend.pictureToFit === 'function' ? (communitysend.pictureToFit() || []).slice(0, 100) : []; } catch { picturesToFit = null; }
+    try {
+      picturesToFit = typeof communitysend.pictureToFit === 'function'
+        ? (communitysend.pictureToFit() || []).slice(0, 100).map((name) => ({ name, ver: store.avatarVersion(name) }))
+        : [];
+    } catch { picturesToFit = null; }
     return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable, picturesToFit };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {

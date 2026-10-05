@@ -76,7 +76,7 @@ test('#5302: the agents to fit are the send layer\'s list (at most 100); none wi
   delete communitysend.pictureToFit;
   assert.deepEqual((await read()).picturesToFit, []);
   communitysend.pictureToFit = () => ['ava', 'bo'];
-  assert.deepEqual((await read()).picturesToFit, ['ava', 'bo']);
+  assert.deepEqual((await read()).picturesToFit, [{ name: 'ava', ver: 0 }, { name: 'bo', ver: 0 }], 'each name with its picture version (0: none)');
   communitysend.pictureToFit = () => Array.from({ length: 150 }, (_, i) => 'a' + i);
   assert.equal((await read()).picturesToFit.length, 100);
   communitysend.pictureToFit = () => null;
@@ -85,4 +85,9 @@ test('#5302: the agents to fit are the send layer\'s list (at most 100); none wi
   const j = await read();
   assert.equal(j.picturesToFit, null);
   assert.equal(j.ok, true, 'the list failing broke the industry answer');
+});
+
+test('#5302: a refit PUT names the version it read; the route refuses a changed picture and keeps the original first', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /const refitOf = req\.headers\['x-kosmos-refit-of'\];\n\s*if \(refitOf !== undefined\) \{\n\s*if \(String\(store\.avatarVersion\(name\)\) !== String\(refitOf\)\) \{ sendJson\(res, 409,[^\n]*\n\s*store\.keepAvatarOriginal\(name\);\n\s*\}\n\s*store\.saveAvatar\(/);
 });
