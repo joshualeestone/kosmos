@@ -490,6 +490,36 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
   } },
+  /* #5153 slice 3: Profile's Recent work. Only this page's read of the agent's receipts is faked (the throwaway board
+     has no transcripts); nothing on the board changes. Task names and numbers are invented. */
+  { name: 'agent-recent-work', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 20 });
+    const day = (d) => new Date(Date.now() - d * 86400e3).toISOString();
+    const mine = (files, commands, models) => ({ who: data.chatAgent, provider: 'claude', available: true, transcriptsWithWork: 1, files, filesMore: 0, commands, models });
+    const receipts = [
+      { project: data.projectId, projectName: 'Launch the spring catalogue', number: 1, sentence: 'Draft the product copy for every page', closedAt: day(0.2),
+        receipt: mine(['copy/home.md', 'copy/linen.md', 'copy/checkout.md'], 14, { 'claude-fable-5': b(48210, 21877, 310224, 4180552) }) },
+      { project: data.projectId, projectName: 'Launch the spring catalogue', number: 2, sentence: 'Check the prices against the spreadsheet', closedAt: day(1),
+        receipt: mine(['prices/spring.csv'], 3, { 'claude-fable-5': b(9120, 2210, 40500, 610000) }) },
+      { project: data.projectId, projectName: 'Launch the spring catalogue', number: 3, sentence: 'Book the photographer', closedAt: day(3),
+        receipt: { who: data.chatAgent, provider: 'claude', available: true, transcriptsWithWork: 0, files: [], commands: 0, models: {} } },
+    ];
+    await page.route('**/api/agent/*/receipts**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, receipts, more: true }) }));
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
+    /* The Tasks tab, as a board past its threshold has it (the sample board has three tasks): "Open the Tasks page"
+       shows only while that tab is in the bar, read when Recent work is drawn, so it is drawn again after. */
+    await page.evaluate(() => { tskTabGate(true); return paintAgentWork(CURRENT.sessionName); });
+    await page.waitForSelector('#d-work-more:not([hidden])', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('d-work').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    /* Compared without case: innerText follows text-transform, and the heading is an uppercase kicker. */
+    const t = (await page.evaluate(() => document.getElementById('d-work').innerText)).toLowerCase();
+    for (const want of ['Recent work', '3 files · 14 commands', 'at API prices', 'no activity found', 'Open the Tasks page']) {
+      if (!t.includes(want.toLowerCase())) throw new Error('Recent work does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
@@ -517,6 +547,15 @@ const SCREENS = [
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
     await page.evaluate((id) => openProjectTasks(id), data.projectId);
     await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5200: one open task's page (the seed's task 1), with its parts' Change who and Done links, for the phone tap
+     audit: every control there should be a 44px target on a touch screen. */
+  { name: 'task-page', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+    await page.waitForSelector('#pj-task-view:not([hidden]) #tk-say', { state: 'visible', timeout: 8000 });
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
@@ -650,6 +689,82 @@ const SCREENS = [
     const t = await page.evaluate(() => { const l = document.getElementById('community-mine-list'); return l && !l.hidden ? l.innerText : ''; });
     for (const want of ['Not sent. It stayed on this computer.', LEFTOVER.claim + ' (deleted agent)']) {
       if (!t.includes(want)) throw new Error('the community list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },  /* #5153: a closed task's change receipt. The board is NOT changed (review 4: a real close would show task 1 closed on
+     every later pass of every other screen): this page's own read of the projects marks task 1 closed, and the receipt's
+     answer is faked, since the throwaway board has no agent transcripts to read. The folder is invented, never this Mac's. */
+  { name: 'task-receipt', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 40 });
+    const receipt = { version: 1, closedAt: new Date(Date.now() - 3600e3).toISOString(), retries: { reopened: 1, handoffs: 1 }, agents: [
+      { who: data.chatAgent, provider: 'claude', available: true, transcriptsWithWork: 2, commands: 14, filesMore: 0,
+        folder: '/Users/ada/Kosmos/spring-catalogue', models: { 'claude-fable-5': b(48210, 21877, 310224, 4180552) },
+        files: ['copy/home.md', 'copy/linen-range.md', 'copy/checkout.md', 'prices/spring.csv'] },
+      { who: data.askAgent, provider: 'codex', available: false, because: 'provider' },
+    ] };
+    await page.route('**/api/project/*/task/*/receipt', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(receipt) }));
+    await page.route('**/api/projects', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      let res, body;
+      try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      for (const proj of body.projects || []) {
+        if (proj.id !== data.projectId) continue;
+        for (const t of proj.tasks || []) {
+          if (t.number !== 1) continue;
+          t.closedAt = receipt.closedAt;
+          if (t.progress) t.progress.closed = true;
+        }
+      }
+      await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+    await page.waitForSelector('#tk-receipt:not([hidden]) .tkr-agent', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => {
+      const b = document.querySelector('#tk-receipt .tkr-files-btn');
+      if (b) b.click();   // the files list open, as a person would have it
+      document.getElementById('tk-receipt').scrollIntoView({ block: 'start' });
+    });
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    /* Compared without case: innerText follows text-transform, and the heading is the column's uppercase kicker. */
+    const t = (await page.evaluate(() => document.getElementById('tk-receipt').innerText)).toLowerCase();
+    for (const want of ['Receipt', 'ran 14 commands', 'at API prices', 'not available for Codex agents yet', 'put back 1 time']) {
+      if (!t.includes(want.toLowerCase())) throw new Error('the receipt does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },  /* #5153 slice 4: the undo list under a closed task's receipt, opened, with each kind of row. Only this page's reads
+     are faked (the receipt screen's, plus the undo plan); the board is not changed. Paths are invented. */
+  { name: 'task-undo', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    const f = (name, extra) => ({ path: '/Users/ada/Kosmos/spring-catalogue/' + name, shown: name, agent: data.chatAgent, action: 'restore', copyId: 'x', ok: true, ...extra });
+    const plan = { on: true, ready: true, savedRoot: '/Users/ada/Library/Application Support/Kosmos/undo-saved', files: [
+      f('copy/home.md'), f('copy/linen-range.md'), f('copy/new-page.md', { action: 'move-aside' }),
+      f('prices/spring.csv', { ok: false, why: 'shared' }), f('copy/checkout.md', { ok: false, why: 'changed-since' }) ] };
+    await page.route('**/api/project/*/task/*/undo', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(plan) }));
+    await SCREENS.find((x) => x.name === 'task-receipt').go(page, data);
+    await page.waitForSelector('#tk-undo:not([hidden]) [data-undo="open"]', { state: 'visible', timeout: 8000 });
+    await page.click('#tk-undo [data-undo="open"]');
+    await page.waitForSelector('#tk-undo .tku-list', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('tk-undo').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = (await page.evaluate(() => document.getElementById('tk-undo').innerText)).toLowerCase();
+    for (const want of ['undo', 'goes back to how it was before this task', 'moved into kosmos’s undo folder', 'another agent also edited it', 'changed after the task closed', 'undo the chosen files']) {
+      if (!t.includes(want)) throw new Error('the undo list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },
+  /* #5153 slice 4: the undo switch in Settings > Advanced, shown on (only this page's read of the setting is faked). */
+  { name: 'settings-undo', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/undo-setting', (r) => (r.request().method() === 'GET'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: true, ok: true }) }) : r.continue()));
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#undo-toggle:not([hidden])', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('undo-row').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = (await page.evaluate(() => document.getElementById('undo-row').innerText)).toLowerCase();
+    for (const want of ['keep a copy before an agent edits a file', 'turning this off deletes them', 'private files such as .env included']) {
+      if (!t.includes(want)) throw new Error('the undo switch row does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
   } },
 ];

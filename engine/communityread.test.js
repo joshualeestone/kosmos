@@ -40,7 +40,10 @@ test('#4373: the feed comes back framed, and every post sits inside the one fram
   assert.equal(r.ok, true, r.because);
   assert.equal(r.count, 2);
   assert.ok(r.text.startsWith(cr.FRAME_OPEN), 'the frame does not open the text');
-  assert.ok(r.text.endsWith(cr.FRAME_CLOSE), 'the frame does not close the text');
+  // #5292: a feed read ends with Kosmos's own footer, AFTER the frame closes: never inside other agents' writing.
+  const close = r.text.indexOf(cr.FRAME_CLOSE);
+  assert.ok(close > 0, 'the frame does not close');
+  assert.equal(r.text.slice(close + cr.FRAME_CLOSE.length), '\n\n' + cr.feedFooter(null, ''), 'only the footer follows the frame');
   assert.ok(r.text.includes(cr.FRAME_RULE), 'the never-obey rule is missing');
   assert.equal(r.text.split(cr.FRAME_CLOSE).length, 2, 'the frame closes more than once');
   assert.match(between(r.text).inner, /by writer in general, 2026-09-28 \(post 1b2c3d4e/);
@@ -1537,4 +1540,78 @@ test('#4941: read --post counts only the reader\'s own comments on it that are s
   fs.writeFileSync(cs._paths.commentsSentFile(), '{corrupt');
   assert.equal(await line(), '', 'unreadable records still counted');
   for (const f of [cs._paths.commentsSentFile(), cs._paths.keysFile(), cs._paths.stateFile()]) fs.rmSync(f, { force: true });
+});
+
+/* ===== #5292 (a day-one report): a feed read is one page, so an agent's own post falls off it and reads as never
+   published. The footer says where to look (status) and how to page; --older follows the service's own cursor. ===== */
+test('#5292: a feed read says, outside the frame, that status shows whether your own posts were published', async () => {
+  on();
+  serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post()], next_cursor: null } }) });
+  const r = await cr.read({});
+  assert.equal(r.ok, true, r.because);
+  const after = r.text.slice(r.text.indexOf(cr.FRAME_CLOSE) + cr.FRAME_CLOSE.length);
+  assert.match(after, /a post that is not here may still be published\. To see whether your own posts and comments were published, use: kosmos community status$/);
+  assert.ok(!between(r.text).inner.includes('kosmos community status'), 'the footer leaked inside the frame');
+  assert.ok(!after.includes('--older'), 'a next page was offered when the service has none');
+});
+
+test('#5292: when there is a next page, the footer gives the exact command, the channel as given', async () => {
+  on();
+  const seen = serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post()], next_cursor: 'eyJhIjoxfQ' } }) });
+  const plain = await cr.read({});
+  assert.match(plain.text, /\nFor the 10 before these, use: kosmos community read --older eyJhIjoxfQ$/);
+  const chan = await cr.read({ channel: 'General/Tools' });
+  assert.match(chan.text, /\nFor the 10 before these, use: kosmos community read --channel general\/tools --older eyJhIjoxfQ$/);
+  assert.match(seen[1], /channel=tools/);
+});
+
+test('#5292: --older asks the service for the page after that place and says these are older posts', async () => {
+  on();
+  const seen = serve({ '/posts/feed': (u) => ({ status: 200, json: { posts: [post({ title: 'Old one' })], next_cursor: null, echo: u.search } }) });
+  const r = await cr.read({ channel: 'general', older: 'eyJhIjoxfQ' });
+  assert.equal(r.ok, true, r.because);
+  const u = new URL(seen[0]);
+  assert.equal(u.searchParams.get('cursor'), 'eyJhIjoxfQ');
+  assert.equal(u.searchParams.get('channel'), 'general');
+  assert.equal(u.searchParams.get('limit'), String(cr.MAX_ITEMS));
+  assert.match(between(r.text).inner, /Older posts in general:/);
+  assert.match(between(r.text).inner, /Old one/);
+});
+
+test('#5292: a place that is not the service\'s cursor shape, or --older with one post, is refused before any fetch', async () => {
+  on();
+  const seen = serve({ '/posts/feed': () => ({ status: 200, json: { posts: [] } }), ['/posts/' + ID]: () => ({ status: 200, json: post() }) });
+  for (const bad of ['a b', '../x', 'x&channel=evil', 'a'.repeat(201), 'abc=']) {
+    const r = await cr.read({ older: bad });
+    assert.equal(r.ok, false, bad);
+    assert.match(r.because, /not a place in the feed/);
+  }
+  const both = await cr.read({ post: ID, older: 'eyJhIjoxfQ' });
+  assert.equal(both.ok, false);
+  assert.match(both.because, /one post or older posts, not both/);
+  assert.equal(seen.length, 0, 'a refused read reached the service');
+});
+
+test('#5292: a next_cursor the board would not send back is not offered as a command', async () => {
+  on();
+  serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post()], next_cursor: 'x; rm -rf ~' } }) });
+  const r = await cr.read({});
+  assert.ok(!r.text.includes('--older'), 'an unsafe cursor was printed as a command');
+  assert.ok(!r.text.includes('rm -rf'), 'the service\'s unsafe cursor reached the agent');
+});
+
+test('#5292 review 1: a place the service does not recognise (its 400) is the reader\'s mistake, not an outage; a real-shaped cursor passes', async () => {
+  on();
+  // The service's real cursor: url-safe base64 of a JSON list [created_at, id], padding stripped (about 100 characters).
+  const real = Buffer.from(JSON.stringify(['2026-09-28T20:00:00.123456+00:00', ID])).toString('base64url');
+  assert.ok(cr.CURSOR_RE.test(real) && real.length < 200, 'a real cursor does not pass the shape check: ' + real);
+  serve({ '/posts/feed': (u) => (u.searchParams.get('cursor') === real ? { status: 200, json: { posts: [post()], next_cursor: null } } : { status: 400, json: { detail: 'bad cursor' } }) });
+  assert.equal((await cr.read({ older: real })).ok, true);
+  const wrong = await cr.read({ older: real.slice(0, 20) });
+  assert.equal(wrong.ok, false);
+  assert.notEqual(wrong.upstream, true, 'a wrong place was reported as the service failing');
+  assert.match(wrong.because, /did not recognise that place in the feed: run kosmos community read again/);
+  serve({ '/posts/feed': () => ({ status: 400, json: { detail: 'bad request' } }) });
+  const plain = await cr.read({});
+  assert.equal(plain.upstream, true, 'CONTROL: a 400 without --older is still the service failing');
 });

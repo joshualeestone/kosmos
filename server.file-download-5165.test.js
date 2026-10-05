@@ -2,7 +2,7 @@
 /* #5165: over Kosmos+ a file click downloads to the device the person is on. These are the two download routes
  * the page uses there, against a real sandboxed board:
  *   GET /api/project/:id/file-download?name=   and   GET /api/agent/:name/files/download?name=
- * They pass the SAME gates as open (projects.fileInFolder), stream the bytes as an attachment, and never ask the
+ * They pass the SAME gates as open (projects.resolveListedFile, listed mode), stream the bytes as an attachment, and never ask the
  * board's computer to open anything (the reveal runner is injected and must stay uncalled).
  *
  *   node --test server.file-download-5165.test.js
@@ -75,7 +75,7 @@ test('a project download passes the open gates: escapes, links out, folders and 
   const dl = (name) => fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download' + (name === null ? '' : '?name=' + encodeURIComponent(name)));
   for (const [name, said] of [
     ['../outside/secret.txt', /not a file in this project/],
-    ['link.txt', /lives outside this project, so we will not download it/],
+    ['link.txt', /not a file in this project/],   // #4997's listed mode refuses any link on the path before resolving it
     [path.join(outside, 'secret.txt'), /not a file in this project/],
     ['sub', /not a file we can download/],
     ['gone.pptx', /not there any more/],
@@ -158,7 +158,7 @@ test('a file the gates pass but that cannot be opened is refused as unreadable (
   fs.chmodSync(locked, 0o000);
   try {
     const p = projects.create({ name: 'Locked Room 5165', folder, agents: [], roster: [] });
-    assert.equal(projects.fileInFolder(folder, 'locked.pptx').ok, true, 'fixture: the gates must PASS this file, or this tests the gates instead');
+    assert.equal(projects.resolveListedFile(folder, 'locked.pptx', 'this project', { listed: true, act: 'download' }).ok, true, 'fixture: the gates must PASS this file, or this tests the gates instead');
     const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=locked.pptx');
     const body = await r.text();
     assert.equal(r.status, 404, body);
@@ -211,7 +211,7 @@ test('a zero-byte file and a file of many stream chunks both arrive whole', asyn
 });
 
 test('the ASCII filename= replaces what a quoted string cannot carry (a quote, anything outside printable ASCII)', async () => {
-  // A backslash never reaches this header: fileInFolder's first gate refuses a name holding one.
+  // A backslash never reaches this header: resolveListedFile's first gate refuses a name holding one.
   const files = path.join(SANDBOX, 'workers', 'asc', 'Files');
   fs.mkdirSync(files, { recursive: true });
   fs.writeFileSync(path.join(files, 'caf\u00e9 "q" x.txt'), 'x');
@@ -285,5 +285,37 @@ test('on a board that enforces its token, both download routes refuse without it
   } finally {
     boardAuthState.on = was.on;
     boardAuthState.token = was.token;
+  }
+});
+
+test('#4997 + #5165: a file swapped for a link, or for a FIFO, at the download\'s own open is refused with no bytes (CONTROL: no swap downloads it)', async () => {
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'projects', 'swap-'));
+  const outside = fs.mkdtempSync(path.join(SANDBOX, 'outside-swap-'));
+  fs.writeFileSync(path.join(outside, 'secret.pptx'), 'not yours');
+  const target = path.join(folder, 'deck.pptx');
+  const p = projects.create({ name: 'Swap Room 4997', folder, agents: [], roster: [] });
+  const dl = () => fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=deck.pptx');
+  const realOpen = fs.open;
+  for (const [what, swap] of [
+    ['a link out of the folder', () => fs.symlinkSync(path.join(outside, 'secret.pptx'), target)],
+    ['a FIFO', () => require('node:child_process').execFileSync('/usr/bin/mkfifo', [target])],
+  ]) {
+    fs.writeFileSync(target, PPTX);
+    const control = await dl();
+    assert.equal(control.status, 200, 'CONTROL: no swap downloads it (' + what + ')');
+    await control.arrayBuffer();
+    let swapped = false;
+    fs.open = function (file, ...rest) {
+      if (!swapped && String(file) === fs.realpathSync(target)) { swapped = true; fs.rmSync(target); swap(); }
+      return realOpen.call(fs, file, ...rest);
+    };
+    let r;
+    try { r = await dl(); } finally { fs.open = realOpen; }
+    const body = await r.text();
+    assert.ok(swapped, 'the swap never happened, so this arm proved nothing (' + what + ')');
+    assert.equal(r.status, 404, what + ': ' + body);
+    assert.match(JSON.parse(body).because, /not there any more, or it was moved/, what);
+    assert.doesNotMatch(body, /not yours/, what + ' leaked the file');
+    fs.rmSync(target, { force: true });
   }
 });

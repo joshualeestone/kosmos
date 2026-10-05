@@ -546,6 +546,14 @@ let fsWorldForTests = null;
 function setFsWorldForTests(world) { fsWorldForTests = world || null; }
 function realpathOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.realpath ? fsWorldForTests.realpath(p) : resolveReal(p); }
 function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : fs.statSync(p); }
+/* #4997: the listed walk's lstat, through the same world (a world without one reads its stat: a fake folder has no links). */
+function lstatOfFolderPath(p) {
+  if (!fsWorldForTests) return fs.lstatSync(p);
+  const st = (fsWorldForTests.lstat || fsWorldForTests.stat || fs.lstatSync)(p);
+  if (typeof st.isSymbolicLink === 'function') return st;
+  return { isFile: () => st.isFile(), isDirectory: () => st.isDirectory(), isSymbolicLink: () => false,
+    dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs };
+}
 function accessOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.access ? fsWorldForTests.access(p) : fs.accessSync(p, fs.constants.R_OK); }
 
 function folderState(folder) {
@@ -1478,8 +1486,8 @@ function revealFolder(folder) {
  * #4930: show one file selected in its folder (Finder's `open -R`; File Explorer's /select), never opening it. The
  * path is the caller's, already resolved from a stored record. Same runner seam and error rule as revealFolder.
  */
-function revealFile(file) {
-  if (revealOnWindows()) return win32explorer.revealFile(file);
+function revealFile(file, opts) {
+  if (revealOnWindows()) return win32explorer.revealFile(file, opts);   // #4997: opts.namedAs, as openFile
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
     execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
@@ -1654,11 +1662,16 @@ function listFiles(folder, limit, opts) {
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
  *
- * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project), and `act` the verb
- * (open, or download for the download routes, so a refusal under a download never talks about opening).
+ * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project), and `opts.act` the
+ * verb (#5165: open, or download for the download routes, so a refusal under a download never talks about opening).
+ * #4997: these gates are shared by every route that touches a listed file (open, the preview, the download, the
+ * reveal), so the refusal logic exists once. With opts.listed (the routes that hand bytes to a page) it also applies
+ * the list's own rules: no link on the path, no hidden or skipped folder, the list's depth, no ':' on Windows, and the
+ * resolved file must be the walked one. openFile does not pass it.
  * Returns { ok: true, target, st, given } or { ok: false, because }.
  */
-function fileInFolder(folder, name, where = 'this project', act = 'open') {
+function resolveListedFile(folder, name, where = 'this project', opts = null) {
+  const act = (opts && opts.act) || 'open';   // #5165: the verb in a refusal (open, download)
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
@@ -1669,6 +1682,31 @@ function fileInFolder(folder, name, where = 'this project', act = 'open') {
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
     return { ok: false, because: (state && state.because) || 'we cannot find that folder right now, so there is nothing to ' + act };
+  }
+  /* #4997 review 1 (a blocker, measured): the routes that HAND BYTES to a page take only a file the list would show,
+     not merely a name of the right shape inside the folder. A link named innocent.png pointing at a hidden file in
+     the same folder, a link to a hidden folder, a file under node_modules, or (for the flat agent Files list) a file
+     below the top level all resolved inside the folder and were served. listFiles' own rules, walked with lstat:
+     every folder on the way a real folder (never a link), not a skipped one, no deeper than the list goes; the file
+     itself a regular file, never a link. openFile (a local open, not a read) keeps its older rule. */
+  let walked = null;   // the last segment's lstat in listed mode: the read must be THIS file (review 3)
+  if (opts && opts.listed) {
+    /* Review 5: on Windows a ':' names an alternate data stream (photo.png:Zone.Identifier holds the address a file
+       came from), which the list never shows and no Windows file name can contain. */
+    if (process.platform === 'win32' && segs.some((x) => x.includes(':'))) return { ok: false, because: 'that is not a file in ' + where };
+    const maxDepth = Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
+    if (segs.length - 1 > maxDepth) return { ok: false, because: 'that is not a file in ' + where };
+    let at = state.real;
+    for (let i = 0; i < segs.length; i++) {
+      at = path.join(at, segs[i]);
+      let lst;
+      try { lst = lstatOfFolderPath(at); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
+      const last = i === segs.length - 1;
+      if (lst.isSymbolicLink()) return { ok: false, because: 'that is not a file in ' + where };
+      if (!last && (!lst.isDirectory() || LIST_SKIP_DIRS.has(segs[i]))) return { ok: false, because: 'that is not a file in ' + where };
+      if (last && !lst.isFile()) return { ok: false, because: 'that is not a file we can ' + act };
+      if (last) walked = lst;
+    }
   }
   let target;
   try {
@@ -1683,11 +1721,39 @@ function fileInFolder(folder, name, where = 'this project', act = 'open') {
   let st;
   try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
   if (!st.isFile()) return { ok: false, because: 'that is not a file we can ' + act };
+  /* Review 3 (measured): realpath above runs AFTER the walk, so a file swapped for a link in between resolved to the
+     link's target. In listed mode the walk has shown no segment is a link, so the resolved path must be the walked
+     path itself and the stat the walked file's: anything else changed under us and is refused.
+     Review 2/4: the same equality refuses a name in another case or normalisation (NODE_MODULES/ walking into the
+     skipped node_modules/ on a case-blind disk): realpath (native) answers the name as it is ON DISK, which the list
+     shows, so any other spelling differs from the walked path. Measured on APFS. It replaced a per-segment folder read
+     that had no bound on a huge folder. */
+  if (walked && !sameListedPath(target, path.join(state.real, given))) return { ok: false, because: 'that is not a file in ' + where };
+  /* The folders of the ON-DISK path (realpath's spelling, which is what the list walks) must not be ones the list skips.
+     The walk above checks the name as given; on Windows sameListedPath is case-blind, so NODE_MODULES/x.png would pass
+     it and resolve into node_modules, which the list never shows. Off Windows the exact comparison already refuses
+     another spelling; this check is the same rule read from the disk, on every platform. */
+  if (walked && path.relative(state.real, target).split(path.sep).slice(0, -1).some((d) => LIST_SKIP_DIRS.has(d))) {
+    return { ok: false, because: 'that is not a file in ' + where };
+  }
+  /* #5165: sameOpenedFile, so a drive that reports inode 0 (Windows FAT, exFAT) compares size and times, not 0 === 0. */
+  if (walked && !sameOpenedFile(walked, st)) return { ok: false, because: 'that file changed while it was being opened' };
   return { ok: true, target, st, given };
 }
 
+/* The resolved path against the walked one (resolveListedFile's listed mode). Exact off Windows, where it was measured
+   (it also refuses another case or normalisation of a name, review 2/4). On Windows, where a name's case does not
+   matter to the disk, both are normalised and case-folded: the listed mode now gates #5165's downloads there, and an
+   unmeasured case or separator difference must not refuse a file #5165 served; a link swapped in is still refused by
+   the lstat walk and by sameOpenedFile. */
+function sameListedPath(resolved, walked, platform = process.platform) {
+  if (platform !== 'win32') return resolved === walked;
+  const norm = (p) => path.win32.normalize(String(p)).toLowerCase();
+  return norm(resolved) === norm(walked);
+}
+
 /**
- * #5165: is the file a download just OPENED (`opened`, from fstat on the descriptor) the one `fileInFolder` passed
+ * #5165: is the file a download just OPENED (`opened`, from fstat on the descriptor) the one the gates passed (resolveListedFile)
  * (`gated`, from its stat)? What stops a file swapped in between the gates and the open, so it must hold where a
  * file system reports no inode: Windows FAT and exFAT, and some network drives, answer 0.
  *   - both inodes reported: the same inode, and off Windows the same device (Windows answers the device from the
@@ -1708,16 +1774,16 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
 }
 
 /**
- * Open ONE file from a folder with the system opener, once it passes `fileInFolder`.
+ * Open ONE file from a folder with the system opener, once it passes `resolveListedFile`.
  *
  * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE: `open` will happily launch an
- * application or a script, which is why every name goes through fileInFolder's gates first.
+ * application or a script, which is why every name goes through resolveListedFile's gates first.
  */
 function openFile(folder, name, where = 'this project') {
-  const found = fileInFolder(folder, name, where);
-  if (!found.ok) return found;
-  const { target, given } = found;
-  /* The three gates in fileInFolder are platform-free; only the hand-off differs. Explorer
+  const got = resolveListedFile(folder, name, where);
+  if (!got.ok) return got;
+  const { target, given } = got;
+  /* The three gates (resolveListedFile) are platform-free; only the hand-off differs. Explorer
      opens a file with whatever Windows opens that kind of file with. It judges the
      file's TYPE on the resolved target and applies the drive-letter rule to the path
      the project record names (review round 2), so a mapped Z:\ project opens its
@@ -3468,6 +3534,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, fileInFolder, sameOpenedFile,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
   isUnderTmpDir, tmpFolderRefused,
 };

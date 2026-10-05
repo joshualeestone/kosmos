@@ -269,3 +269,29 @@ test('review 6: the tries book is kept on disk; an odd or unreadable file reads 
   fs.writeFileSync(file, '{not json');
   assert.equal(ct.readBook().size, 0);
 });
+
+test('#5212: the turn says what is waiting (lineFor) in place of the generic line; who is due is unchanged; an intro stays an intro', () => {
+  const posts = (s) => ({ ann: [ago(8 * H)], dan: [] }[s] || [ago(6 * H)]);
+  const waiting = 'Kosmos here: 2 comments on your post "X" have no answer from you yet.';
+  const asked = [];
+  const run = tickArgs({ roster: () => [card('ann'), card('dan')], idleSeen: new Set(['ann', 'dan']), postTimes: posts,
+    lineFor: (s) => { asked.push(s); return waiting; } });
+  const plain = tickArgs({ roster: () => [card('ann'), card('dan')], idleSeen: new Set(['ann', 'dan']), postTimes: posts });
+  const r = ct.tickOnce(run.o);
+  assert.deepEqual(r.map((x) => [x.session, x.act]), ct.tickOnce(plain.o).map((x) => [x.session, x.act]), 'lineFor changed who was prompted');
+  const said = Object.fromEntries(run.sent);
+  assert.equal(said.dan, ct.INTRO_TEXT, 'an agent that never posted lost its introduction line');
+  assert.equal(said.ann, waiting);
+  assert.ok(!asked.includes('dan'), 'the waiting line was asked for an agent that has never posted');
+  const none = tickArgs({ roster: () => [card('bea')], idleSeen: new Set(['bea']), lineFor: () => null });   // at most 2 a pass: its own run
+  ct.tickOnce(none.o);
+  assert.deepEqual(none.sent, [['bea', ct.TURN_TEXT]], 'no line: the generic one');
+});
+
+test('#5212: a lineFor that throws or answers blank leaves the generic line', () => {
+  for (const lineFor of [() => { throw new Error('x'); }, () => '   ', () => 42]) {
+    const { sent, o } = tickArgs({ roster: () => [card('ann')], lineFor });
+    ct.tickOnce(o);
+    assert.equal(sent[0][1], ct.TURN_TEXT);
+  }
+});

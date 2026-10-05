@@ -199,3 +199,35 @@ test('SAFETY 1 through the project route: an agent-written .bat is SHOWN, never 
     assert.deepEqual(calls, [['/select,' + q(path.join(dir, 'Q3 report.pdf.bat'))]], 'the .bat was not SHOWN (/select) under the name its record gives (#4257)');
   });
 });
+
+test('#4997 + #5165: a document in a project on a mapped drive (Z:\\ resolving to \\\\server\\share) passes the LISTED gates the download route uses (the walk reads through the same world) (CONTROL: a name not in the folder is refused)', () => {
+  mappedDriveWorld('Z:\\proj', '\\\\server\\share\\proj', ['a.pdf']);
+  try {
+    const got = projects.resolveListedFile('Z:\\proj', 'a.pdf', 'this project', { listed: true, act: 'download' });
+    assert.equal(got.ok, true, 'a mapped-drive document was refused by the listed gates: ' + got.because);
+    assert.equal(projects.resolveListedFile('Z:\\proj', 'gone.pdf', 'this project', { listed: true, act: 'download' }).ok, false, 'CONTROL');
+  } finally {
+    projects.setFsWorldForTests(null);
+    explorer.setStatForTests(null);
+  }
+});
+
+test('#4997: the preview\'s Show in File Explorer, on a mapped drive (Z:\\ resolving to \\\\server\\share), hands Explorer the Z:\\ name (CONTROL: a record that names a UNC path itself is still refused)', () => {
+  const filepreview = require('./filepreview');
+  const calls = [];
+  projects.setRevealPlatform('win32');
+  explorer.setRunner((exe, args) => { calls.push(args); return { ok: true }; });
+  mappedDriveWorld('Z:\\proj', '\\\\server\\share\\proj', ['a.png']);
+  try {
+    const shown = filepreview.reveal('Z:\\proj', 'a.png', 'this project', {});
+    assert.deepEqual(shown, { ok: true }, 'a mapped-drive file could not be shown: ' + (shown && shown.because));
+    assert.equal(calls.length, 1);
+    assert.match(calls[0][0], /^\/select,"Z:\\proj[\\/]a\.png"$/, 'Explorer was not handed the drive-letter path: ' + calls[0][0]);
+  } finally {
+    projects.setFsWorldForTests(null);
+    projects.setRevealPlatform(null);
+    explorer.setRunner(null);
+    explorer.setStatForTests(null);
+  }
+  assert.equal(explorer.revealFile('\\\\server\\share\\proj\\a.png').ok, false, 'CONTROL: a UNC path named directly is still refused');
+});

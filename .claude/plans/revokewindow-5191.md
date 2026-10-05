@@ -3,7 +3,8 @@
 Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + B, owner side only.
 
 ## A. The owner's grace after a rotation (engine/fedseats.js graceAfter)
-- A member keeps EPOCH_GRACE_MS (10 min): it is not told why the owner rotated.
+- A member keeps EPOCH_GRACE_MS (10 min): it is not told why the owner rotated. (Changed by #5197: a
+  member uses REVOKE_GRACE_MS, and EPOCH_GRACE_MS is removed.)
 - An owner rotates only on a revoke (rotateForRevoked is its only rotation), so every owner
   rotation gets REVOKE_GRACE_MS (90 s) while a member peer remains and NO previous epoch once none
   does. A revoke that leaves nobody also drops the revoked key from the record, so a member pinned
@@ -32,7 +33,7 @@ Design: the two design comments on #5191 (Ice Cream Kitty, Renet's review), A + 
   not multiply requests; a room counts as checked from when the answer was ASKED for.
 - An owner refusing an older epoch's post re-sends the current key at once (at most once per 15 s),
   so a remaining member that missed a rotation catches up before the pass. Its refused post is not
-  resent (#5192). Member side 10 min grace: #5197.
+  resent (#5192). Member side grace: 90 s since #5197 (was 10 min).
 - Held posts are in memory: a board restart while they wait loses them, like any post in transit.
 
 ## Behaviour changes outside the owner's grace

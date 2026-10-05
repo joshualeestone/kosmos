@@ -1,0 +1,94 @@
+# receipt-5153: a change receipt on a closed task (slice 1: Claude agents)
+
+Card: kosmos#5153. Routed by Splinter 2026-10-03 15:08 ("take the next step in the same spirit as Josh's 'start and see
+how far we get'"); merges after Monday. LOE on the card: slice 1 of 4.
+
+## What finished looks like
+A closed task's page shows a receipt under its activity: for each agent that held a part, which files it created or
+edited, how many shell commands it ran (a COUNT, never their text), the tokens it used per model and an "at API prices"
+figure (unpriced models named, never guessed), and how many times the task was put back or handed on. No undo: it names
+the agent's folder and the files so a person knows where to look. An agent on another provider says the receipt is not
+available for that provider yet.
+
+## Scope held back for Josh (needs-decision stays on the card)
+- Listing commands' text (crosses the report hook's no-logging rule): count only.
+- Undo: none.
+
+## Design calls
+- Computed when the task page asks, from the task's own activity and the agent's transcripts, NOT in the close path
+  (the LOE proposed a record at close). The close path a new user touches on day one is unchanged. Kept on disk once the
+  task has been closed a few minutes (transcripts are flushed), keyed by its close time, so it is read once.
+- Each agent's work is counted only while it held a part: from being given it (created with it, assigned it, a part
+  added for it) to the part being handed on, closed, or the task closed; put back reopens it. Overlapping holds merge.
+  The receipt says this basis: work on other tasks inside that time is included.
+- Transcripts: the agent's Claude folder(s) as status.js finds them (configRoots x flatten(canonical dir) and the raw
+  spelling), subagent transcripts included; a file last written before the first hold is not read. Tokens: four
+  buckets per model, one message counted once (message id), synthetic rows skipped (usage.js's rules). Files: Edit,
+  Write, MultiEdit file_path and NotebookEdit notebook_path; commands: Bash tool calls; each tool call once by its id.
+- Dollars on the page from usageApiCost (the one price table), labelled "at API prices".
+- Provider from create.recordedRunner; anything not Claude says "not available for <provider> yet".
+
+## Weakest premise
+That an agent's Claude transcripts for a task sit in its own folder's project directory. An agent that ran its session
+from another folder (a worktree launched by hand) is not seen, and the receipt then reads "no Claude Code activity found
+in this time", never a zero presented as fact.
+
+## Review 1 (opus): 1 BLOCKER, 3 WARNINGs, all taken
+- BLOCKER: a task finished by closing its last part has no closedAt of its own (tasks.progressOf), so it never showed a
+  receipt: the close time is now the task's closedAt or else, when every part is closed, its newest part's close
+  (engine closedAtOf; page tkTaskClosed reads progress.closed, as the rest of the page does). Tests both sides.
+- Heavy reads on the board's thread: transcripts are streamed a line at a time (no whole-file string, so no size limit
+  either), one computation per task runs at a time and a second request shares it, and a receipt is kept only when every
+  transcript was read through (a partial read is shown, then worked out again). A creation-time skip was tried and
+  dropped: creation times are not dependable across file systems (tests on Linux CI would differ from macOS).
+- A slow read could paint a receipt over a task just put back: a per-call counter and a re-check that the task is still
+  closed (either alone is enough; a test fails only with both removed, which is the point of having two).
+- "Changed N files" counted attempts: an edit now counts only when its result came back without an error, and the page
+  says "Edited" and that a change made by a command counts as a command.
+- NITs taken: only assistant rows count a session; a part added while the task is closed is held from the put-back;
+  part-added with no number is part 1 in both functions; paintTaskActivity's comment is back on it; "which have" for
+  several unpriced models; the route refuses an agent's token (it lists every holder's files and folder).
+- Not taken: kept receipts are not removed when a task or project is deleted (small JSON files under app data; a
+  follow-up if it matters).
+
+## Review 2 (sonnet): 1 WARNING, taken; NITs taken
+- A task closed or put back from outside its page (an agent, another window) did not show or hide its receipt until the
+  page was reopened: one tkReceiptSync paints only when the open task or its closed state changed, called from the
+  projects read the poll makes, and from open, part changes and the done button. Test: two polls paint once, a close
+  paints, a put-back repaints; mutants (paint every poll, ignore the closed state) fail it.
+- NITs taken: a server test for the route (open, closed, an agent's token refused, no such task); a test that two
+  requests at once share one reading (forTask returns the shared promise itself, and a key that cannot be built
+  rejects rather than throws); a test with the tool result in another transcript file, in both orders.
+- Not taken: the ids of every tool result in a transcript are held while it is read (bounded by its tool calls; a
+  result can come before its call in file order, so it cannot be narrowed to the edits seen so far).
+
+## Review 3 (opus): 1 WARNING, taken
+- A failed receipt read (a board restarting, a 500) left a closed task's receipt hidden for as long as the page stayed
+  open, because the poll's key was already recorded: a failed read forgets the key, so the next poll tries again; a
+  good read is not repeated. Test (fails once, then shows; a third poll does not read again); its mutant fails it.
+- NITs taken: the close time is in the poll's key (closed, put back and closed again between polls repaints);
+  `sessions` renamed `transcriptsWithWork` (it counts transcript files, which a resumed session can make two of).
+- Accepted, not taken: a receipt worked out in the first five minutes after the close is not refreshed on a page left
+  open; opening the task again (or the next close) works it out again, and from then it is kept.
+
+## Review 4 (sonnet): 1 WARNING, taken; NITs taken
+- The task-receipt screenshot screen closed task 1 on the throwaway board for real, so every later pass (other theme,
+  size, engine) of every other screen would have shown it closed: the board is no longer changed; the screen's own page
+  reads the projects with task 1 marked closed (route on GET /api/projects) and the receipt answer is faked.
+- NITs taken: a read that keeps failing is asked for again only after 30 seconds, not every poll (test drives a fake
+  clock: too soon, then after the wait); the poll key uses the newest part's close time for a task closed through its
+  parts (test: closed, put back and closed again by its part repaints).
+
+## Review 5 (sonnet): CLEAN (no BLOCKER, no WARNING)
+- NITs not taken: the failed-read wait is kept for one task at a time (a task page shows one task); the screenshot
+  screen's route is not removed after it (each screen gets a fresh page).
+
+## Design review (Mona Lisa, 2026-10-03 19:19, on the four shots): all six taken
+- Every line in the receipt one size; the "not available" line muted (a fact about the tool, not an alarm).
+- The files: the page's own toggle ("4 files" with the chevron, aria-expanded), a plain list, the folder as its muted
+  foot; at least 44px tall on a phone, the whole line tappable.
+- The heading is the column's kicker (RECEIPT, .dlab).
+- The put-back line comes first, ending the task's history, then the receipt.
+- The intro shortened: "What each agent did while it held this task, including anything else it did in that time. A
+  file changed by a command counts as a command."
+- Not this card's: the nine other taps under 44px on the task page (Mona Lisa is checking whether a card covers them).

@@ -2644,6 +2644,26 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    track it is the least readable thing on screen at exactly the moment it is
    the only thing that matters (same rule the projects grid records) */
 .cards > .err, .cards > .pj-empty { grid-column: 1 / -1; }
+/* kosmos#4812: other computers' agents, below this computer's cards. Read-only cards: a link, no buttons. */
+.oa-wrap { margin-top: 32px; }
+.oa-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+          border-top: 1px solid var(--k-rule); padding-top: 18px; }
+.oa-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--k-ink); }
+.oa-only { font-size: 13px; color: var(--k-ink-2); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.oa-group { margin-top: 18px; }
+.oa-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.oa-badge { font-size: 12px; font-weight: 600; color: var(--k-ink); background: var(--k-sunk);
+            border: 1px solid var(--k-rule); border-radius: 999px; padding: 2px 10px; }
+.oa-note { font-size: 13px; color: var(--k-ink-2); }
+.oa-open { font-size: 13px; color: var(--k-ink); }
+.oa-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+.oa-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-decoration: none;
+           background: var(--k-surface); color: var(--k-ink); border: 1px solid var(--k-rule);
+           border-radius: 12px; padding: 12px 14px; }
+a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
+.oa-card .oa-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oa-card .oa-sub { font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oa-card.oa-off { opacity: .55; }
 .acard { display: flex; flex-direction: column; background: var(--k-surface);
          color: var(--k-ink);
          border: 1px solid var(--k-rule); border-radius: 16px;
@@ -4705,7 +4725,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(39, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(40, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -4760,7 +4780,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(39, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(40, auto) auto minmax(200px, 1fr) auto; }
   /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
      overflows at normal window heights (render-shell-noscroll-4872 measures the root and body exactly the window tall,
      down to 1024x640); what moved was the Mac's elastic overscroll, which drags a page that cannot scroll and shows a
@@ -4777,7 +4797,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      from this rule and the two cards agree about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn,
   html[data-layout="consolidated"] body.consolidated > #askcard { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 40; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 41; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -4793,7 +4813,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 41; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 42; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -4824,7 +4844,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 42; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 43; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -5171,7 +5191,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 41 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
@@ -6224,8 +6244,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkcompose { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: nowrap; }
 /* the input's skin (border/padding/font) is the .tkcompose input[type=text] rule
    above, beside .tkconvcol; here is only the row layout. */
-.tkcompose .btn-quiet { flex: 0 0 auto; font-size: .875rem;
-                        padding: calc(.5em - 1px) calc(1.05em - 1px); }
+.tkcompose .btn-quiet, #pj-task-view #tku-go { flex: 0 0 auto; font-size: .875rem;
+                        padding: calc(.5em - 1px) calc(1.05em - 1px); }   /* #5153 slice 4: Undo matches Send exactly (Mona Lisa) */
 .tkcompose-note { margin: 8px 0 0; }
 /* The pack's tasknum: mono, small, above the title. It is the thing a person
    says out loud to an agent, which is why it is set apart from the sentence
@@ -6296,6 +6316,26 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
   #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
 }
+/* kosmos#5200: on a touch screen every control on the task page is a 44px target. Boxed controls grow to 44; the
+   small links in a row (the name, Done) keep their look and their line: padding widens the hit area and an equal
+   negative margin takes it back out of the layout. 14px above and below a 16-17px line makes 44. Sideways, each link grows only AWAY from its
+   neighbour, so two targets never overlap: the name (Change who) to its left, into the avatar's gap, never towards
+   Done; Done to its right. Touch screens, and any coarse pointer (a touch laptop that reports hover). */
+#tk-subadd { margin-top: 10px; }
+@media (hover: none), (pointer: coarse) {
+  #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold) { min-height: 44px; }
+  #pj-task-view .tkwho-pick { padding: 14px 0 14px 19px; margin: -14px 0 -14px -19px; min-width: 44px; box-sizing: border-box;
+                              border-bottom: 1px solid transparent; text-decoration: underline dashed transparent; text-underline-offset: 3px; }   /* the base's 1px border kept, invisible, so the row keeps its height */
+  #pj-task-view .tkwho-pick:is(:hover, :focus-visible) { text-decoration-color: var(--label-2); }
+  /* The base focus ring would wrap the whole padded box (over the avatar and the line beside the name): on touch the
+     focus shows as a solid underline under the name instead. */
+  #pj-task-view .tkwho-pick:focus-visible { outline: none; text-decoration: underline solid var(--label); text-decoration-thickness: 2px; }
+  #pj-task-view .tkpart-go { padding: 14px 10px 14px 0; margin: -14px -10px -14px 0; }
+  /* These two stand on their own lines, where padding with a negative margin cannot be paid back exactly (the line's
+     strut moves the text 2 to 6px), so they are honest 44px boxes instead: the subtasks block grows a little on a
+     phone, and stacked boxes in normal flow cannot overlap. Sideways the hit area still grows and is taken back. */
+  #pj-task-view :is(#tk-subadd, #tk-subs-close) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; margin: 0 -10px; }
+}
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
               border-bottom: 1px dashed transparent; }
@@ -6319,6 +6359,42 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* #5153 slice 3: Profile's Recent work rows: the task's sentence over a muted line. */
+.dwork-list { display: flex; flex-direction: column; }
+.dwork-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 9px 0; color: inherit; font: inherit; cursor: pointer; }
+.dwork-row + .dwork-row { border-top: 1px solid var(--k-rule); }
+.dwork-row:hover .dwork-what, .dwork-row:focus-visible .dwork-what { text-decoration: underline; }
+.dwork-what { display: block; overflow-wrap: anywhere; }
+.dwork-meta { display: block; margin-top: 2px; color: var(--label-2); font-size: .85rem; overflow-wrap: anywhere; }
+/* #5153 slice 4: the undo panel under the receipt. */
+.tkundo { margin-top: 10px; }
+.tku-list { list-style: none; margin: 8px 0; padding: 0; }
+.tku-list li { padding: 4px 0; overflow-wrap: anywhere; }
+.tku-list label { display: flex; gap: 8px; align-items: flex-start; }
+.tku-why { display: block; color: var(--k-ink-3, var(--label-2)); }
+/* On a touch screen the action and each file's whole line are 44px targets (the #5200 gate, Mona Lisa). */
+@media (hover: none), (pointer: coarse) {
+  #pj-task-view #tku-go { min-height: 44px; }
+  #pj-task-view .tku-cancel { min-height: 44px; }   /* Cancel too (it measured 46x24 in the #5206 audit) */
+  #pj-task-view .tku-list label { min-height: 44px; padding: 6px 0; box-sizing: border-box; }
+}
+/* #5153: the change receipt under a closed task's activity (Mona Lisa's design review, 2026-10-03): a kicker heading
+   like the column's others, every line one size, facts about the tool muted, the page's own toggle for the files. */
+.tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
+.tkreceipt .dlab { margin: 10px 0 4px; }
+.tkr-line, .tkr-intro, .tkr-again { margin: 2px 0 0; font-size: inherit; }
+.tkr-intro, .tkr-again, .tkr-muted { color: var(--k-ink-3, var(--label-2)); }
+.tkr-agent { padding: 8px 0; }
+.tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }
+.tkr-name { font-weight: 600; }
+.tkr-files-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; }
+.tkr-chev { transition: transform .15s; }
+.tkr-files-btn[aria-expanded="true"] .tkr-chev { transform: rotate(90deg); }
+.tkr-files { list-style: none; margin: 4px 0 0; padding: 0; }
+.tkr-files li, .tkr-where { color: var(--k-ink-3, var(--label-2)); overflow-wrap: anywhere; }
+/* .linkish.tkr-files-btn, not .tkr-files-btn: the later .linkish rule (min-height 24px, the WCAG 2.5.8 floor) has the
+   same weight and would win, leaving the toggle 24px tall on a phone (Mona Lisa measured it, 2026-10-03). */
+@media (max-width: 40rem) { .linkish.tkr-files-btn { display: flex; width: 100%; min-height: 44px; } }   /* the whole line taps */
 /* ⚠️ THE ADD ROW HAD TO BE SIZED DOWN, and rendering is the only thing that
    showed it: `.frow` gives the input `flex: 1` and `.btn-quiet` is a
    full-weight control, so at this column's width the pair WRAPPED and Add
@@ -12770,6 +12846,19 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fmsg" id="d-skill-add-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
+    <!-- #5153 slice 3: what this agent has worked on, at the very bottom of the Profile view, below Instructions and Skills
+         (Mona Lisa's placement, 2026-10-03: not a nav entry, since the pack is a pair; and below Instructions, which the
+         person edits and the agent reads first, so a read-only history does not push it down a screen on a phone). The newest closed tasks it held, each row opening that task's page, where its full receipt is.
+         Drawn by paintAgentWork on open. -->
+    <section class="dbox" id="d-work" aria-labelledby="d-work-h">
+      <h3 class="dlab" id="d-work-h">Recent work</h3>
+      <p class="dhint" id="d-work-msg" role="status"></p>
+      <div class="dwork-list" id="d-work-list"></div>
+      <!-- "Open the Tasks page", not "See all": that page takes no agent filter yet, so "See all" under this agent's list
+           would promise this agent's tasks and show everyone's (Mona Lisa, 2026-10-03). Back to "See all", filtered,
+           when it does. -->
+      <button class="linkish" type="button" id="d-work-more" hidden>Open the Tasks page</button>
+    </section>
   </section>
   <!-- #4550: this section opens under the AI Settings button now (there is no Advanced pill). It keeps
        aria-label "Terminal" to match its own content. History, #2916: the pill was renamed "Advanced", and
@@ -16323,7 +16412,7 @@ window.kosmosMeasureScrollbarWidth();
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
-        <button class="linkish" type="button" id="tk-subadd" style="margin-top:10px;">+ Add subtask</button>
+        <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
 
       <!-- MIDDLE: the task's conversation, the whole point of resembling a project.
@@ -16336,6 +16425,11 @@ window.kosmosMeasureScrollbarWidth();
       <section class="pjcol tkconvcol">
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
+        <!-- #5153: a closed task's change receipt, drawn by paintTaskReceipt; hidden while the task is open. -->
+        <div id="tk-receipt" class="tkreceipt" hidden></div>
+        <!-- #5153 slice 4: undo this task's file changes; drawn by paintTaskUndo only while Settings' undo switch is on
+             and there is something to undo. Its own element, so a receipt repaint never wipes a list being chosen. -->
+        <div id="tk-undo" class="tkundo" hidden></div>
         <!-- #768: the composer. A message typed here is recorded on the task, shows
              in the activity above (engine tasks.say -> taskchat), AND is delivered to
              the agents assigned to the task (the server route notifies them via
@@ -18487,6 +18581,17 @@ window.kosmosMeasureScrollbarWidth();
   </section>
 
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
+    <!-- #5153 slice 4: undo a task's file changes. OFF by default (Josh can override): while on, Kosmos keeps a copy of a
+         file just before a Claude agent edits it, on this computer, for 30 days. Unread draws no knob, never a false Off. -->
+    <section class="dbox">
+      <h3 class="dlab">Undo</h3>
+      <div class="setrow" id="undo-row">
+        <div><b>Keep a copy before an agent edits a file</b>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos keeps a copy of each file before an agent edits it, so a finished task’s changes can be undone from its receipt. Copies stay on this computer for 30 days, private files such as .env included; turning this off deletes them. It covers your agents’ Claude sessions, and only files they change with their editing tools, not by commands.</p></div>
+        <button class="toggle" id="undo-toggle" role="switch" aria-label="Keep a copy before an agent edits a file" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="undo-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <section class="dbox">
       <!-- LIVE now (eng-mode): On reveals the raw session on the project
            page and the agent page; Off hides them, and hiding is the
@@ -18677,6 +18782,16 @@ window.kosmosMeasureScrollbarWidth();
      which is the ordinary case and must not carry a banner. -->
 <div id="restart-wrap" hidden></div>
 <div class="cards" id="grid"></div>
+<!-- kosmos#4812: the agents of this account's OTHER computers, read by this browser from each of them (each
+     computer decides who reads it). Only on a page served from this computer's own Kosmos+ address; absent
+     everywhere else. Read-only: every card opens the agent on its own computer. -->
+<section class="oa-wrap" id="oa-wrap" aria-labelledby="oa-title" hidden>
+  <div class="oa-top">
+    <h2 class="oa-title" id="oa-title" tabindex="-1">Your other computers</h2>
+    <label class="oa-only"><input type="checkbox" id="oa-only"> This computer only</label>
+  </div>
+  <div id="oa-groups"></div>
+</section>
 <!-- #520, piece two: the agents rail's head. Exists only in the consolidated
      view (showTab shows it with the mode). The + is the board's own New
      agent; the arrow folds the column to its letters. -->
@@ -19508,16 +19623,22 @@ function plusStarsLoop(now) { plusStarsDraw(now); plusStarsRaf = requestAnimatio
 function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
   plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
   if (!plusReduce) plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+/* #5209: one coordinate of a dot across a resize from old size o to new size n. The part inside the box
+   scales; a dot in the 4px wrap margin keeps its offset from the edge it is past. Scaling the margin too
+   pushed a just-wrapped dot (y about -3.7, grown x1.6 to about -6) past the -4 wrap line, so it was
+   wrapped to the far edge early (off the canvas either side, so not visible). */
+function plusStarScale(v, o, n) { return v < 0 ? v : v > o ? n + (v - o) : v * n / o; }
 /* #3778 (review pass 2): a re-size KEEPS the field. Re-seeding on every change in the section's
    height (a status line appearing is enough) made every dot jump to a new place each time. Each
-   dot keeps its place in proportion to the new box; the count follows the area (trimmed, or new
-   dots added), and one frame is drawn at once, as plusStarsStart does. */
+   dot keeps its place in proportion to the new box (a dot in the wrap margin keeps its offset,
+   #5209); the count follows the area (trimmed, or new dots added), and one frame is drawn at once,
+   as plusStarsStart does. */
 function plusStarsResize() {
   var ow = plusSW, oh = plusSH;
   if (!plusParts || !plusParts.length || !ow || !oh) { plusStarsStart(); return; }
   plusStarsBuffer();
-  var fx = plusSW / ow, fy = plusSH / oh;
-  for (var i = 0; i < plusParts.length; i++) { plusParts[i].x *= fx; plusParts[i].y *= fy; }
+  for (var i = 0; i < plusParts.length; i++) {
+    plusParts[i].x = plusStarScale(plusParts[i].x, ow, plusSW); plusParts[i].y = plusStarScale(plusParts[i].y, oh, plusSH); }
   var N = plusStarsCount();
   if (plusParts.length > N) plusParts.length = N;
   while (plusParts.length < N) plusParts.push(plusStarNew());
@@ -20222,13 +20343,21 @@ function menuRunsOn(a) {
    now carried on `a.account` because the board reads it off the launch dir since
    #2225 -- so this line names the account the same way the pickers and the
    Settings row have since #2095, instead of the raw path slug. It falls back to
-   the email, then the slug (`label`), for accounts that were never named, and
+   the email, then an API key's last four (#5150), then the slug (`label`), for accounts that were never named, and
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
-   directly. */
+   directly.
+   #5150: a Gemini or Grok key account has no name and no email; what names it is its key's last four, in the
+   server's own words, "API key ending XXXX", AHEAD of the folder slug (label): the Move dropdown just below
+   (acctPrimaryName) names a key account by its key, so this line agrees with it. kosmos whoami's sentence
+   (server.js sentenceForWhoami) still names the slug first: a known difference between the two surfaces. /api/status carries keyTail for those agents (accountForAgent is handed the Gemini and Grok lists too),
+   so the open-the-agent paint and the provider-switch repaint (which reads /api/accounts) name it the same way
+   whenever the switch sends an account folder. OpenAI is left out of /api/status on purpose (codex agents keep
+   their account shape), so an OpenAI key account is named by its key after a switch but not on opening the agent;
+   that difference is known and accepted. */
 function acctParenthetical(a) {
   const acct = a && a.account;
-  return (acct && (acct.name || acct.email || acct.label)) || '';
+  return (acct && (acct.name || acct.email || (acct.keyTail ? 'API key ending ' + acct.keyTail : '') || acct.label)) || '';
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
@@ -27916,6 +28045,367 @@ function computersRender(data) {
   /* #4823: the phone menu's computers level copies these rows; refill it from whichever answer this was. */
   if (typeof pnavRefresh === 'function') pnavRefresh();
 }
+/* ===== kosmos#4812: the agents of all your computers, in the Agents view =====
+   🔑 READ BY THIS BROWSER, FROM EACH COMPUTER, NEVER BY THE BOARD. Each other computer is asked for its own
+   /api/status with this browser's own sign-in for it (credentials: 'include'). That computer's relay answers a
+   listed sibling of its own account, and only for a browser it already lets in (kosmos-relay siblingcors-4812);
+   any other browser gets its gate's answer and the group says so, with no agents. That is the card's rule: each
+   computer still decides who may read it.
+   🔑 ONLY FROM THIS COMPUTER'S OWN KOSMOS+ ADDRESS. A page anywhere else (the app's 127.0.0.1 board, a LAN
+   address) is another site to every sibling, so its cookie is never sent: the section is absent there.
+   🛑 NOT MIXED INTO `LAST`. Every button on today's cards acts on THIS board's engine. Another computer's agents
+   live in their own read-only groups, and each card opens the agent on its own computer.
+   ⚠️ The other computer's answer is untrusted here: text goes in through textContent, and every URL is built from
+   the coordinator's checked address plus an encoded sessionName, never from the answer. */
+const OA_COMPUTERS_EVERY_MS = 60000;   // the computers route probes each computer, so not every round
+const OA_STATUS_EVERY_MS = 15000;
+const OA_READ_LIMIT_MS = 10000;
+const OA_MAX_AGENTS = 500;              // cards kept per other computer
+const OA_COMPUTERS_LIMIT_MS = 30000;   // above the route's own worst case (a 20 s Mac request plus a 4 s probe)
+/* Older than a round plus a read's cut plus slack: a list this old was not refreshed by the last round, so it is not
+   shown as current. Sibling reads never wait on the computers route (oaRound), so a slow route cannot age a list. */
+const OA_STALE_MS = 30000;
+let OA_COMPUTERS = null;               // the last good /api/remote/computers answer
+let OA_COMPUTERS_AT = 0;
+const OA_SEEN = new Map();             // address -> { state: 'ok'|'notin'|'blocked'|'out', agents, at }
+let OA_TIMER = null;
+let OA_BUSY = false;
+let OA_PAINTED = [];                  // oaGroupKey of each group #oa-groups shows now, in order
+let OA_REFRESHING = false;            // a computers refresh is in flight
+let OA_AGAIN = false;                 // a round was asked for while one was running
+let OA_WAS_SHOWN = false;             // whether the grid was on screen at the last paint
+
+function oaThisOnly() {
+  try { return localStorage.getItem('kosmos.agents.thisOnly') === '1'; } catch { return false; }
+}
+function oaSetThisOnly(on) {
+  try { if (on) localStorage.setItem('kosmos.agents.thisOnly', '1'); else localStorage.removeItem('kosmos.agents.thisOnly'); } catch { /* display preference only */ }
+}
+/* Whether this page can read its siblings: served over https from the address of the row marked `this`. */
+function oaEligible(data, loc) {
+  if (!data || data.ok !== true || !Array.isArray(data.computers) || !loc || loc.protocol !== 'https:') return false;
+  const me = data.computers.find((c) => c && c.this === true);
+  return !!me && typeof me.address === 'string' && me.address === String(loc.hostname || '').toLowerCase()
+    && computerAddressOk(me.address, data.domain);
+}
+function oaOthers(data) {
+  if (!data || !Array.isArray(data.computers)) return [];
+  return data.computers.filter((c) => c && c.this !== true && typeof c.name === 'string' && c.name
+    && computerAddressOk(c.address, data.domain));
+}
+/* An answer: 200 with an agents list is that computer's agents. Its gate (this browser is not let in there) is a 401
+   or 403, or a 2xx that is not an agents list (a sign-in page). Any other 3xx or 4xx is an answer signing in cannot
+   fix (a connector without this route): 'blocked', which keeps the last list. No answer, or a server error, is "not
+   reachable". */
+function oaClassify(status, body) {
+  if (status === 200 && body && Array.isArray(body.agents)) return 'ok';
+  if (status === 401 || status === 403 || (typeof status === 'number' && status >= 200 && status < 300)) return 'notin';
+  if (typeof status === 'number' && status >= 300 && status < 500) return 'blocked';
+  return 'out';
+}
+/* What to keep. Unreachable keeps the last list this page read, to be shown greyed; not let in keeps nothing. */
+function oaRemember(seen, address, state, agents, now) {
+  const prev = seen.get(address);
+  let next;
+  if (state === 'ok') next = { state, agents, at: now };
+  else if (state === 'out' || state === 'blocked') next = { state, agents: prev && prev.agents ? prev.agents : null, at: prev ? prev.at : null };
+  else next = { state, agents: null, at: null };
+  seen.set(address, next);
+  return next;
+}
+/* Only the three fields this section shows, each a string: the rows go through this board's sortAgents, which reads
+   more fields than these and would throw on a malformed one from another computer. */
+function oaAgentsOf(body) {
+  return body.agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true
+    && typeof a.sessionName === 'string' && a.sessionName)
+    .slice(0, OA_MAX_AGENTS)   // an untrusted answer: a runaway list must not build thousands of cards every 15 s
+    .map((a) => ({
+      sessionName: a.sessionName,
+      name: typeof a.name === 'string' ? a.name : '',
+      state: typeof a.state === 'string' ? a.state : '',
+    }));
+}
+function oaAgentHref(address, sessionName) {
+  return 'https://' + address + '/?agent=' + encodeURIComponent(sessionName);
+}
+async function oaReadOne(c) {
+  const ac = typeof AbortController === 'function' ? new AbortController() : null;
+  const cut = ac ? setTimeout(() => ac.abort(), OA_READ_LIMIT_MS) : null;
+  let state = 'out', agents = null, answered = false;
+  try {
+    const opts = { cache: 'no-store', credentials: 'include', mode: 'cors' };
+    if (ac) opts.signal = ac.signal;
+    const res = await fetch('https://' + c.address + '/api/status', opts);
+    answered = true;   // headers came through the credentialed CORS check: whatever fails after this is not a refusal
+    let body = null;
+    /* Only a body that is not JSON (a gate's sign-in page) counts as no status. A body cut off by this page's own
+       time limit or a dropped connection is no answer at all: thrown on, and the catch below reads it as not connected
+       (the last good list kept, greyed), not as "not let in", which would erase it and ask for a sign-in for nothing. */
+    try { body = await res.json(); } catch (e) {
+      if ((ac && ac.signal.aborted) || !(e instanceof SyntaxError)) throw e;
+      body = null;
+    }
+    state = oaClassify(res.status, body);
+    if (state === 'ok') agents = oaAgentsOf(body);
+  } catch {
+    /* No answer the page may read. A computer the board's last probe (up to a minute old) said is up most likely
+       answered and did not let this page read it (an older connector without the sibling answer does exactly that). */
+    /* This page's own time limit, or a body lost after the headers came through: slow or cut off, not a refusal. */
+    state = (answered || (ac && ac.signal.aborted)) ? 'out'
+      : (c.online === true ? 'blocked' : 'out');
+  } finally { if (cut) clearTimeout(cut); }
+  /* Not kept if a refresh took this computer off the account's list while the read ran: one added back later must
+     start as new, not as what this read saw. */
+  if (!(OA_COMPUTERS && oaOthers(OA_COMPUTERS).some((o) => o.address === c.address))) return null;
+  return oaRemember(OA_SEEN, c.address, state, agents, Date.now());
+}
+function oaNote(c, seen, now) {
+  const st = seen ? seen.state : 'reading';
+  /* This page's own last good read, never the coordinator's lastSeen: that is refreshed only on a reconnect or once
+     a day, so it would say "a day ago" of a computer that was answering minutes before. */
+  const last = seen && typeof seen.at === 'number' ? agoWords(now - seen.at) : '';
+  if (st === 'reading') return 'Reading its agents...';
+  if (oaStale(seen, now)) return 'Reading its agents... Showing what this page last read.';
+  if (st === 'ok') return '';
+  if (st === 'notin') return 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.';
+  const kept = seen && seen.agents ? ' Showing what this page last read.' : '';
+  const when = kept && last ? ' This page last read it ' + last + '.' : '';
+  /* Most often an older Kosmos on that computer (no sibling answer yet), which signing in there cannot fix: so the
+     words name the likely cause rather than a refusal the person might try to clear. */
+  if (st === 'blocked') return c.name + ' is online, but its agents cannot be read from here yet. It may need the latest Kosmos.' + kept + when;
+  return 'Not connected' + (last ? ', this page last read it ' + last : '') + '.' + kept;
+}
+/* An agents list this page read, but longer ago than two rounds (the section was off screen meanwhile): shown greyed
+   until the next read, never as current. */
+function oaStale(seen, now) {
+  return !!seen && seen.state === 'ok' && typeof seen.at === 'number' && now - seen.at > OA_STALE_MS;
+}
+function oaCard(a, c, off) {
+  const el = document.createElement(off ? 'div' : 'a');
+  el.className = off ? 'oa-card oa-off' : 'oa-card';
+  el.dataset.session = a.sessionName;   // to give focus back to the same agent after a repaint
+  const name = (typeof a.name === 'string' && a.name.trim()) || a.sessionName;
+  if (!off) {
+    el.href = oaAgentHref(c.address, a.sessionName);
+    el.target = '_blank';
+    el.rel = 'noopener noreferrer';
+    el.setAttribute('aria-label', 'Open ' + name + ' on ' + c.name);
+  }
+  const nm = document.createElement('span');
+  nm.className = 'oa-name';
+  nm.textContent = name;
+  const sub = document.createElement('span');
+  sub.className = 'oa-sub';
+  const copy = typeof STATE_COPY !== 'undefined' && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state) ? STATE_COPY[a.state] : null;
+  sub.textContent = c.name + (copy && copy.label && !off ? ' · ' + copy.label : '');
+  el.append(nm, sub);
+  return el;
+}
+function oaGroup(c, seen, now) {
+  const g = document.createElement('section');
+  g.className = 'oa-group';
+  g.dataset.address = c.address;
+  g.tabIndex = -1;   // the last place focus can go back to when nothing inside the new group can take it
+  const head = document.createElement('div');
+  head.className = 'oa-head';
+  const badge = document.createElement('span');
+  badge.className = 'oa-badge';
+  badge.textContent = c.name;
+  head.appendChild(badge);
+  const said = oaNote(c, seen, now);
+  if (said) { const n = document.createElement('span'); n.className = 'oa-note'; n.textContent = said; head.appendChild(n); }
+  const st = seen ? seen.state : 'reading';
+  if (st !== 'out') {
+    const open = document.createElement('a');
+    open.className = 'oa-open';
+    open.href = 'https://' + c.address + '/';
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Open ' + c.name;
+    head.appendChild(open);
+  }
+  g.appendChild(head);
+  const off = st !== 'ok' || oaStale(seen, now);
+  const list = seen && Array.isArray(seen.agents) ? sortAgents(seen.agents, typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name', []) : [];
+  if (list.length) {
+    const cards = document.createElement('div');
+    cards.className = 'oa-cards';
+    for (const a of list) cards.appendChild(oaCard(a, c, off));
+    g.appendChild(cards);
+  } else if (st === 'ok') {
+    const n = document.createElement('div');
+    n.className = 'oa-note';
+    n.textContent = 'No agents on ' + c.name + '.';
+    g.appendChild(n);
+  }
+  return g;
+}
+/* An agents view (the grid, or the List view's #alist) is on screen: neither it nor anything holding it is hidden
+   (the consolidated view hides its panel, not the grid). Nothing is read from the other computers while none is. */
+function oaGridShown(grid) {
+  return !!grid && !grid.closest('[hidden]');
+}
+/* kosmos#4812 (2026-10-02): the section goes under whichever of this board's agent views is on screen, the grid or
+   the list, and null when neither is (the org chart, another tab). On a phone the list is the only one (#4823: no grid
+   view there), so a grid-only section never showed through Kosmos+ on a phone, the case this card is mostly for. */
+function oaHost() {
+  /* In the consolidated layout #alist is the left RAIL of agents, shown on every tab, not the List view: counting it
+     would pull the section out of #panel-cons-agents into the page and read the other computers on every tab (review
+     1's W1 again). There the grid is the only agents view, so only it counts. */
+  const ids = document.body.classList.contains('consolidated') ? ['grid'] : ['grid', 'alist'];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (oaGridShown(el)) return el;
+  }
+  return null;
+}
+function oaPaint() {
+  const wrap = document.getElementById('oa-wrap');
+  if (!wrap) return;
+  const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
+  const host = oaHost();
+  const shown = !!host;
+  // Right under the view on screen; moved only when it is not already there, so focus inside it is kept.
+  if (host && wrap.previousElementSibling !== host) host.after(wrap);
+  /* Back on screen after reads were paused: read now rather than at the next tick (stale lists show greyed meanwhile). */
+  if (shown && !OA_WAS_SHOWN && !OA_BUSY && OA_TIMER && location.protocol === 'https:' && typeof setTimeout === 'function') setTimeout(oaRound, 0);   // only once oaStart ran
+  OA_WAS_SHOWN = shown;
+  wrap.hidden = !shown || others.length === 0;
+  if (wrap.hidden) return;
+  const only = oaThisOnly();
+  const box = document.getElementById('oa-only');
+  if (box) box.checked = only;
+  const groups = document.getElementById('oa-groups');
+  groups.hidden = only;
+  if (only) { groups.textContent = ''; OA_PAINTED = []; return; }
+  const now = Date.now();
+  /* Each group is rebuilt only when what it shows changed, and only that group: a rebuild every round would take
+     keyboard and screen-reader focus off a card twice every 15 seconds. A note's time words ("2 minutes ago") are
+     not part of the key; they are written in place. */
+  const sort = typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name';
+  const keys = others.map((c) => oaGroupKey(c, OA_SEEN.get(c.address), now, sort));
+  const same = keys.length === OA_PAINTED.length && groups.children.length === keys.length
+    && others.every((c, i) => groups.children[i].dataset.address === c.address);   // same computers in the same places
+  if (!same) {
+    /* The computers changed (added, removed, reordered, or a different address; a rename at the same address is a
+       per-group change): every group is rebuilt, and focus goes back by address, or to the section's title if that
+       computer is gone. */
+    const was = Array.from(groups.children).map((g) => [g.dataset ? g.dataset.address : undefined, oaFocusSaved(g)]).find((x) => x[1]);
+    groups.textContent = '';
+    for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
+    if (was) {
+      const back = Array.from(groups.children).find((g) => g.dataset.address === was[0]);
+      if (back) oaFocusBack(back, was[1]);
+      else { const t = document.getElementById('oa-title'); if (t && typeof t.focus === 'function') t.focus(); }
+    }
+  } else {
+    others.forEach((c, i) => {
+      const old = groups.children[i];
+      if (keys[i] !== OA_PAINTED[i]) { oaReplaceGroup(old, oaGroup(c, OA_SEEN.get(c.address), now)); return; }
+      const head = old.querySelector('.oa-head');
+      const note = head && head.querySelector('.oa-note');
+      const said = oaNote(c, OA_SEEN.get(c.address), now);
+      if (note && note.textContent !== said) note.textContent = said;
+    });
+  }
+  OA_PAINTED = keys;
+}
+/* Swap one group, and if focus was inside it, give it back to the same agent's card (or the Open link) in the new one,
+   so a state change on one agent does not drop a keyboard or screen-reader user to the top of the page. */
+function oaReplaceGroup(old, next) {
+  const saved = oaFocusSaved(old);
+  old.replaceWith(next);
+  oaFocusBack(next, saved);
+}
+/* Where focus is inside a group, if it is: the agent's session (a card), or the group itself. */
+function oaFocusSaved(group) {
+  const f = document.activeElement;
+  if (!f || typeof f.closest !== 'function' || f.closest('.oa-group') !== group) return null;
+  return { session: f.dataset ? f.dataset.session : undefined, group: f === group };
+}
+/* Back to the same agent's card if it can take focus, else the new group's Open link, else the group itself (a stale
+   or offline list has cards that are not links, and an offline computer has no Open link). */
+function oaFocusBack(next, saved) {
+  if (!saved || !next) return;
+  const can = (x) => !!x && x.tagName === 'A';
+  const card = saved.session !== undefined ? Array.from(next.querySelectorAll('.oa-card')).find((x) => x.dataset.session === saved.session) : null;
+  const open = next.querySelector('.oa-open');
+  const to = saved.group ? next : (can(card) ? card : (can(open) ? open : next));   // on the group stays on the group
+  if (typeof to.focus === 'function') to.focus();
+}
+/* What one group paints from, minus the note's time words: the computer, its state, whether the list is stale, the
+   agents (in a fixed order: the page shows its own sort, so a reorder by the other computer alone changes nothing on
+   screen, except among agents with the same name, whose ties keep the order they came in) and the sort. */
+function oaGroupKey(c, seen, now, sort) {
+  const agents = seen && Array.isArray(seen.agents)
+    ? seen.agents.slice().sort((a, b) => (a.sessionName < b.sessionName ? -1 : a.sessionName > b.sessionName ? 1 : 0)) : null;
+  return JSON.stringify([sort, c.name, c.address, seen ? seen.state : 'reading', oaStale(seen, now), !!(seen && typeof seen.at === 'number'), agents]);
+}
+async function oaRound(again) {
+  if (typeof location === 'undefined' || location.protocol !== 'https:') return;
+  /* Only the "This computer only" untick asks to run once more when a round is already running (that round skipped the
+     reads); a tick, a visibility change or a read-on-return landing mid-round is simply dropped. */
+  if (OA_BUSY) { if (again === true) OA_AGAIN = true; return; }
+  if (document.hidden) return;
+  if (!oaHost()) { oaPaint(); return; }
+  OA_BUSY = true;
+  try {
+    oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
+    /* Once a minute at most, even while no list is known (signed out, a 5xx, a cut): the route probes every computer.
+       OA_COMPUTERS_AT starts at 0, so the first round still asks. */
+    /* Once a list is known, it is not refreshed while nothing can use it: "This computer only" is ticked, or this page
+       is not this computer's own Kosmos+ address (the route probes every computer, up to 24 s of board work). */
+    const useful = !OA_COMPUTERS || (!oaThisOnly() && oaEligible(OA_COMPUTERS, location));
+    const need = useful && Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
+    const refresh = need ? oaRefreshComputers() : null;
+    /* The round waits only for its reads. The computers refresh runs on its own (it can take 24 s), so it neither
+       holds OA_BUSY nor makes later ticks drop, and no list ages past OA_STALE_MS behind it. Only the first round,
+       with no list known yet, waits for it: there is nothing to read until it lands. */
+    if (!OA_COMPUTERS && refresh) await refresh;
+    /* oaHost is checked again because the first round can have waited on the refresh meanwhile. */
+    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaHost()) {
+      oaPaint();   // groups appear at once, "Reading its agents..." until each answers
+      // Each group as its own read lands; a paint that throws must not end the round early (the final paint retries).
+      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => { try { oaPaint(); } catch { /* next paint */ } }, () => null)));
+    }
+    oaPaint();
+  } finally {
+    OA_BUSY = false;
+    if (OA_AGAIN) { OA_AGAIN = false; setTimeout(oaRound, 0); }
+  }
+}
+/* The account's computers, refreshed on their own: one at a time, cut at OA_COMPUTERS_LIMIT_MS, repainting when it
+   lands. A computer no longer on the list is forgotten, so one added back later starts as new, not as stale. */
+function oaRefreshComputers() {
+  if (OA_REFRESHING) return null;
+  OA_REFRESHING = true;
+  OA_COMPUTERS_AT = Date.now();
+  return (async () => {
+    try {
+      const ac = typeof AbortController === 'function' ? new AbortController() : null;
+      const cut = ac ? setTimeout(() => ac.abort(), OA_COMPUTERS_LIMIT_MS) : null;
+      let res, data;
+      try {
+        res = await fetch('/api/remote/computers', ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' });
+        data = res.ok ? await res.json() : null;
+      } finally { if (cut) clearTimeout(cut); }
+      if (data && data.ok === true) {
+        OA_COMPUTERS = data;
+        const keep = new Set(oaOthers(data).map((c) => c.address));
+        for (const a of [...OA_SEEN.keys()]) if (!keep.has(a)) OA_SEEN.delete(a);
+      } else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
+    } catch { /* keep the last good list */ }
+    finally { OA_REFRESHING = false; try { oaPaint(); } catch { /* next paint */ } }
+  })();
+}
+function oaStart() {
+  if (OA_TIMER || typeof location === 'undefined' || location.protocol !== 'https:') return;
+  const box = document.getElementById('oa-only');
+  if (box) box.addEventListener('change', () => { oaSetThisOnly(box.checked); oaPaint(); if (!box.checked) oaRound(true); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { oaPaint(); oaRound(); } });   // greys a list gone stale while hidden, before the read
+  oaRound();
+  OA_TIMER = setInterval(oaRound, OA_STATUS_EVERY_MS);
+}
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu) return;
@@ -31168,6 +31658,38 @@ async function communityToggleClick() {
 }
 document.getElementById('community-toggle').addEventListener('click', communityToggleClick);
 
+/* #5153 slice 4: the undo switch, Settings > Advanced. Same shape as Community's: an unread setting hides the knob. */
+let UNDO_SET_EPOCH = 0;
+let UNDO_SAVING = false;
+function undoSettingPaint(r) {
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
+  paintSwitch('undo-toggle', unread ? null : r.on === true);
+  document.getElementById('undo-msg').textContent = unread ? 'We could not read this setting just now. It stays as it was.' : '';
+}
+async function refreshUndoSetting() {
+  const mine = ++UNDO_SET_EPOCH;
+  try {
+    const res = await fetch('/api/undo-setting');
+    const r = res.ok ? await res.json() : null;
+    if (mine === UNDO_SET_EPOCH) undoSettingPaint(r);
+  } catch { if (mine === UNDO_SET_EPOCH) undoSettingPaint(null); }
+}
+document.getElementById('undo-toggle').addEventListener('click', async () => {
+  if (UNDO_SAVING) return;
+  UNDO_SAVING = true;
+  const mine = ++UNDO_SET_EPOCH;
+  const msg = document.getElementById('undo-msg');
+  try {
+    const on = document.getElementById('undo-toggle').getAttribute('aria-checked') !== 'true';
+    const res = await fetch('/api/undo-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== UNDO_SET_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
+    undoSettingPaint(body);
+  } catch { msg.textContent = 'We could not save that setting.'; }
+  finally { UNDO_SAVING = false; }
+});
+
 /* #4375: the owner's industry picker. The options come from the board's own list (GET), so the page
    offers exactly the keys the board accepts. An unreadable setting (or a failed read) draws NO
    industry as chosen, says so, and keeps "None" pickable, so the person can always clear what their
@@ -31952,6 +32474,7 @@ refreshEngMode();
 refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
+refreshUndoSetting(); // #5153 slice 4: the undo switch
 refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
@@ -33748,6 +34271,7 @@ document.addEventListener('change', (e) => {
   const ordered = sortAgents(shown, AGENT_SORT, PROJECTS);
   document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
   paintAgentList();
+  if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: and the other computers' groups
 });
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
@@ -33778,6 +34302,7 @@ function boardApplyVisibility(onAgents) {
        click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
     consLaySync();
     if (!orgC.hidden) paintOrg();
+    if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812
     return;
   }
   document.getElementById('grid').hidden = !onAgents || lay !== 'grid';
@@ -33789,6 +34314,7 @@ function boardApplyVisibility(onAgents) {
      chart waits for the tabs, where the person's choice is still kept. */
   const show = onAgents && BOARD_LAYOUT === 'org' && !document.body.classList.contains('consolidated');
   org.hidden = !show;
+  if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: the other computers' section follows the grid
   /* The diagram is absolutely positioned inside a sized box, so it can only be
      laid out once it has a width. Painting it while hidden measures zero. */
   if (show) paintOrg();
@@ -36971,6 +37497,77 @@ function agentFileRow(f) {
   b.append(n, w);
   return b;
 }
+/* #5153 slice 3: one Recent work row's muted line (Mona Lisa's wording): "closed <date> · <n> files · <n> commands ·
+   <tokens> tokens · about $<x> at API prices". Pure (node-testable). `item` is one entry of GET
+   /api/agent/:name/receipts; its `receipt` is this agent's part of the task's receipt. */
+function dWorkMeta(item, now = Date.now()) {
+  const when = new Date(item && item.closedAt);
+  const sameYear = !isNaN(when) && when.getFullYear() === new Date(now).getFullYear();
+  const bits = [isNaN(when) ? 'closed' : 'closed ' + when.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' })];
+  const a = item && item.receipt;
+  if (!a) return bits.concat('no receipt').join(' · ');
+  if (!a.available) {
+    return bits.concat(a.because === 'provider'
+      ? 'not available for ' + (TKR_PROVIDER[a.provider] || a.provider || 'this provider') + ' agents yet'
+      : 'nothing to read').join(' · ');
+  }
+  if (!a.transcriptsWithWork) return bits.concat('no activity found').join(' · ');
+  const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
+  bits.push(nFiles === 1 ? '1 file' : usageNum(nFiles) + ' files');
+  bits.push(a.commands === 1 ? '1 command' : usageNum(Number(a.commands) || 0) + ' commands');
+  let tokens = 0;
+  for (const b of Object.values(a.models || {})) tokens += usageRowTokenTotal(b);
+  bits.push(usageAbbr(tokens) + ' tokens');
+  const { cost } = usageApiCost({ receipt: a.models || {} });
+  if (cost !== null) bits.push('about ' + usageUsd(cost) + ' at API prices');
+  return bits.join(' · ');
+}
+/* #5153 slice 3: one row. Pure. A button, so it is reachable from the keyboard; it opens the task's page. */
+function dWorkRowHtml(item, now) {
+  return '<button type="button" class="dwork-row" data-project="' + esc(String(item.project)) + '" data-task="' + esc(String(Number(item.number))) + '">'
+    + '<span class="dwork-what">' + esc(item.sentence || ('Task ' + Number(item.number))) + '</span>'
+    + '<span class="dwork-meta">' + esc(dWorkMeta(item, now)) + '</span></button>';
+}
+let AGENT_WORK_EPOCH = 0;
+async function paintAgentWork(sessionName) {
+  const list = document.getElementById('d-work-list');
+  const msg = document.getElementById('d-work-msg');
+  const more = document.getElementById('d-work-more');
+  if (!list || !msg) return;
+  const epoch = (AGENT_WORK_EPOCH += 1);
+  if (!list.children.length) msg.textContent = 'Reading this agent’s work…';   // the first read can take a few seconds
+  let body = null;
+  try {
+    /* A read that never answers becomes the could-not-read line, not a reading line left forever (review 2). */
+    const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined;
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/receipts?limit=10', { cache: 'no-store', signal });
+    body = res.ok ? await res.json() : null;
+  } catch { body = null; }
+  if (epoch !== AGENT_WORK_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;   // another agent now
+  if (more) more.hidden = true;
+  if (!body || body.ok !== true) { list.innerHTML = ''; msg.textContent = 'We could not read this agent’s work just now.'; return; }
+  const items = Array.isArray(body.receipts) ? body.receipts : [];
+  if (!items.length) { list.innerHTML = ''; msg.textContent = 'Nothing finished yet.'; return; }
+  msg.textContent = '';
+  list.innerHTML = items.map((x) => dWorkRowHtml(x)).join('');
+  /* Only while the Tasks tab is in the bar (it appears once a board has enough tasks): a link to a page with no tab
+     would leave the person somewhere they cannot see how they got to (review 1). */
+  const tab = document.querySelector('.tab[data-tab="tasks"]');
+  if (more) more.hidden = !(body.more && !(tab && tab.hidden));
+}
+/* A row opens its task's page, on its own project (the Tasks page's way there: read, show, open). */
+document.getElementById('d-work-list').addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('.dwork-row');
+  if (!b) return;
+  await loadProjects();
+  if (!pjById(b.dataset.project)) { document.getElementById('d-work-msg').textContent = 'We could not open that task just now.'; return; }
+  if (URL_TAB !== 'projects') showTab('projects');
+  openProject(b.dataset.project);
+  openTaskPage(Number(b.dataset.task));
+});
+/* Through the Tasks page's own door for all tasks (review 1): it resets a project scope left from an earlier visit and
+   places the panel in either layout. */
+document.getElementById('d-work-more').addEventListener('click', () => openProjectTasks(null));
 async function paintAgentFiles(sessionName) {
   const section = document.getElementById('d-files');
   const list = document.getElementById('d-files-list');
@@ -37069,6 +37666,7 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
+  if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image or PDF opens the full-page preview
   const msg = document.getElementById(msgId);
   if (kplusRemote()) {   // #5165: download it to this device
     kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
@@ -37269,6 +37867,11 @@ function openDetail(sessionName, section, fromProject) {
     { const el = document.getElementById('d-filesall-more'); if (el) el.hidden = true; }
   }
   paintAgentFiles(a.sessionName);
+  /* #5153 slice 3: never the last agent's work while this one's is read. */
+  { const wl = document.getElementById('d-work-list'); if (wl) wl.innerHTML = '';
+    const wm = document.getElementById('d-work-msg'); if (wm) wm.textContent = '';
+    const wx = document.getElementById('d-work-more'); if (wx) wx.hidden = true; }
+  paintAgentWork(a.sessionName);
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
@@ -37452,7 +38055,7 @@ function openDetail(sessionName, section, fromProject) {
      account dropdown too; the separate Signed-in-as sentence below was
      the fourth explains-the-visible line Josh cut tonight, and it went
      with this change. */
-  /* email, then label, and DELIBERATELY not the dir rung the picker
+  /* name, email, API key, then label (acctParenthetical), and DELIBERATELY not the dir rung the picker
      keeps: a raw filesystem path does not belong in the headline, and
      the dropdown below still shows it for the configured-but-unknown
      account state. And the parenthetical reads from the launch file,
@@ -38091,6 +38694,7 @@ function settingsGo(section, opts) {
      in flight: a refresh bumps the same epoch, so it would drop that save's answer and could paint a read
      taken before the save landed. */
   if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
+  if (section === 'advanced' && typeof refreshUndoSetting === 'function' && !UNDO_SAVING) refreshUndoSetting();   // #5153
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
   /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
      repaints the industry row too, so an earlier save message there is cleared. */
@@ -44294,7 +44898,8 @@ function placeAgentsPanel(consolidated) {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
   let wrap = document.getElementById('panel-cons-agents');
-  const ids = ['grid', 'orgview'];
+  /* kosmos#4812: the other computers' section travels with the grid, or it stays behind as a band of its own. */
+  const ids = ['grid', 'oa-wrap', 'orgview'];
   if (consolidated) {
     if (!wrap) {
       wrap = document.createElement('div');
@@ -46931,7 +47536,7 @@ let OPENAI_DETAIL_GEN = 0;
    from a.plannedModelId, the job's RAW model id (#4416: plannedModelName is now a readable name, "GPT 5.6 Sol",
    which no option's value matches).
    🔑 THE ACCOUNT DIR. a.account is resolved by accountForAgent against the CLAUDE
-   account list (server.js). A codex agent WITH its own configDir gets
+   account list, plus Gemini and Grok since #5150 but never OpenAI (server.js). A codex agent WITH its own configDir gets
    {dir: <that codex dir>, isDefault:null} -- a real OpenAI account the route
    accepts, so we send it. A DEFAULT-codex agent (configDir null) gets NO ROW AT
    ALL: sending the Claude default would 404 and wrongly park the picker even for
@@ -47332,7 +47937,7 @@ let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a
      performs the swap (it does NOT refuse it, which is why the old "a codex agent
      cannot be moved from here" message is gone), so the picker offers the OpenAI
      accounts. Its current account is resolved HERE, not from `a.account`: the
-     board computes `a.account` against the CLAUDE list only, so a DEFAULT codex
+     board computes `a.account` against the Claude list (plus Gemini and Grok, #5150; never OpenAI), so a DEFAULT codex
      agent (no CODEX_HOME in its job) arrives with `a.account` null, and a named
      one arrives as a dir-only stub. The default codex home is the default OpenAI
      row, so a null falls back to it. */
@@ -49061,7 +49666,7 @@ async function changeProviderNow(say) {
       {
         const drun = document.getElementById('d-runson');
         const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
-        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label)
+        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, key, label)
         if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
       }
       accountsDropped();
@@ -57198,6 +57803,8 @@ async function loadProjects() {
      done" button for a task somebody closed elsewhere. Guarded on the view
      being up, so a stale TK_OPEN cannot repaint a page nobody is looking at. */
   if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) paintTaskPage();
+  // #5153: a task closed or put back elsewhere shows or hides its receipt on this read.
+  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) tkReceiptSync();
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -58516,6 +59123,7 @@ function tkActPhrase(ev, p) {
     // whole return is esc()'d once at the render site, like every other phrase.
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
+    case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';
     /* #3951: who marked it built and what was left; and why the mark went. */
     case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
@@ -58523,6 +59131,200 @@ function tkActPhrase(ev, p) {
       const who = ev.person ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }
+}
+/* #5153: the receipt's words for one agent's row. Pure (node-testable): `a` is one entry of the receipt's `agents`,
+   `name` its display name. Commands are a COUNT (their text is Josh's call); dollars come from usageApiCost, the one
+   price table, and say "at API prices" because a subscription is not billed this. */
+const TKR_PROVIDER = { codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok', antigravity: 'Antigravity', muse: 'Muse' };
+function tkReceiptAgentHtml(a, name) {
+  const head = '<div class="tkr-name">' + esc(name) + '</div>';
+  if (!a.available) {
+    const why = a.because === 'provider'
+      ? 'A receipt is not available for ' + (TKR_PROVIDER[a.provider] || a.provider || 'this provider') + ' agents yet.'
+      : 'Not an agent with a folder on this computer, so there is nothing to read.';
+    return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc(why) + '</p></div>';
+  }
+  if (!a.transcriptsWithWork) {
+    const tool = a.provider === 'claude' || !a.provider ? 'Claude Code' : (TKR_PROVIDER[a.provider] || a.provider);
+    return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc('No ' + tool + ' activity found while it held this task.') + '</p></div>';
+  }
+  const models = a.models || {};
+  let tokens = 0;
+  for (const b of Object.values(models)) tokens += usageRowTokenTotal(b);
+  const { cost, unpriced } = usageApiCost({ receipt: models });
+  const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
+  const bits = [
+    nFiles === 1 ? 'Edited 1 file' : 'Edited ' + usageNum(nFiles) + ' files',
+    a.commands === 1 ? 'ran 1 command' : 'ran ' + usageNum(Number(a.commands) || 0) + ' commands',
+    usageAbbr(tokens) + ' tokens',
+  ];
+  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : ''));
+  else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
+  /* The page's own toggle, not the browser's <details> (Mona Lisa): "4 files" with the chevron, a plain list, the folder
+     as its muted foot. Opened by the delegated click on #tk-receipt. */
+  const list = (a.files || []).map((f) => '<li>' + esc(f) + '</li>').join('')
+    + (a.filesMore ? '<li>and ' + usageNum(a.filesMore) + ' more</li>' : '')
+    + (a.folder ? '<li class="tkr-where">In ' + esc(a.folder) + '</li>' : '');
+  const toggle = nFiles
+    ? '<button type="button" class="linkish tkr-files-btn" aria-expanded="false">' + esc(nFiles === 1 ? '1 file' : usageNum(nFiles) + ' files')
+      + '<svg class="tkr-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+      + '<ul class="tkr-files" hidden>' + list + '</ul>'
+    : (a.folder ? '<p class="tkr-line tkr-where">In ' + esc(a.folder) + '</p>' : '');
+  return '<div class="tkr-agent">' + head
+    + '<p class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</p>'
+    + toggle
+    + '</div>';
+}
+/* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
+   (Mona Lisa: the receipt between the activity and its summary split the history in two). */
+function tkReceiptHtml(r, p) {
+  const agents = Array.isArray(r && r.agents) ? r.agents : [];
+  const rt = (r && r.retries) || {};
+  const times = (k) => (k === 1 ? '1 time' : usageNum(k) + ' times');
+  const again = [rt.reopened ? 'put back ' + times(rt.reopened) : '', rt.handoffs ? 'handed on ' + times(rt.handoffs) : ''].filter(Boolean);
+  const body = agents.length
+    ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
+    : '<p class="tkr-line tkr-muted">Nobody held this task, so there is no work to show.</p>';
+  return '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>'
+    + '<h3 class="dlab">Receipt</h3>'
+    + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
+    + body;
+}
+/* #5153 slice 4: the undo list, file by file, from GET .../undo. Pure. What each row will do, or why it will not:
+   a file changed after the close, already gone, or with no copy cannot be chosen; one another agent also edited is
+   unchecked and can be chosen. */
+const TKU_WHY = {
+  restore: 'goes back to how it was before this task',
+  'move-aside': 'the agent created it: moved into Kosmos’s undo folder, not deleted',
+  shared: 'another agent also edited it meanwhile: choose it to undo theirs too',
+  'other-task': 'the agent was also working on another task then: choose it to undo that work too',
+  incomplete: 'the copy may not be from before this task (undo was turned on after the agent began): choose it if that is fine',
+  'changed-since': 'changed after the task closed: left as it is',
+  gone: 'not there any more: left as it is',
+  'not-a-file': 'no longer a plain file here: left as it is',
+  moved: 'its folder has moved: left as it is',
+  'copy-missing': 'its copy is missing: left as it is',
+};
+function tkUndoListHtml(plan) {
+  const files = Array.isArray(plan && plan.files) ? plan.files : [];
+  const rows = files.map((f, i) => {
+    const choosable = f.ok || f.why === 'shared' || f.why === 'other-task' || f.why === 'incomplete';
+    /* Where a created file goes, named (Mona Lisa: "Kosmos's own folder" leaves the person asking where). */
+    let why = f.ok ? TKU_WHY[f.action] : TKU_WHY[f.why] || 'left as it is';
+    if (f.ok && f.action === 'move-aside' && plan.savedRoot) why += ' (' + plan.savedRoot + ')';
+    return '<li><label><input type="checkbox" data-path="' + esc(f.path) + '"' + (f.ok ? ' checked' : '') + (choosable ? '' : ' disabled')
+      + ' aria-describedby="tku-why-' + i + '"><span>' + esc(f.shown || f.path) + '<span class="tku-why" id="tku-why-' + i + '">' + esc(why) + '</span></span></label></li>';
+  }).join('');
+  /* A kicker like the receipt's; the action in the page's Send style, Cancel as text after it (Mona Lisa). */
+  return '<h3 class="dlab">Undo</h3>'
+    + '<p class="tkr-intro">These files go back to how they were before this task. Kosmos saves each one’s current version first.</p>'
+    + '<ul class="tku-list">' + rows + '</ul>'
+    + '<div class="frow"><button class="btn-quiet" type="button" id="tku-go" data-undo="go">Undo the chosen files</button> '
+    + '<button class="linkish tku-cancel" type="button" data-undo="cancel">Cancel</button></div>';
+}
+/* After an undo: what was done, what was not, and where the saved versions are. Pure. */
+function tkUndoDoneLine(out) {
+  const done = (out && out.done) || [];
+  const skipped = (out && out.skipped) || [];
+  const bits = [];
+  bits.push(done.length === 1 ? 'Undone: 1 file.' : 'Undone: ' + usageNum(done.length) + ' files.');
+  if (skipped.length) bits.push(skipped.length === 1 ? '1 file was left as it was.' : usageNum(skipped.length) + ' files were left as they were.');
+  if (out && out.savedIn) bits.push('The versions from before the undo are saved in ' + out.savedIn + '.');
+  return bits.join(' ');
+}
+let TKU_SEQ = 0;
+/* The undo panel goes when the receipt goes (a task put back, another task opened). */
+function tkUndoHide() { const box = document.getElementById('tk-undo'); if (box) { TKU_SEQ += 1; box.hidden = true; box.innerHTML = ''; } }
+async function paintTaskUndo(n) {
+  const box = document.getElementById('tk-undo');
+  if (!box) return;
+  const seq = ++TKU_SEQ;
+  const p = pjById(PJ_CURRENT);
+  if (!p || !tkTaskClosed(n)) { box.hidden = true; box.innerHTML = ''; return; }
+  let plan = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/undo', { cache: 'no-store' });
+    plan = res.ok ? await res.json() : null;
+  } catch { plan = null; }
+  if (seq !== TKU_SEQ || n !== TK_OPEN) return;
+  const files = plan && plan.on && Array.isArray(plan.files) ? plan.files : [];
+  if (!files.length) { box.hidden = true; box.innerHTML = ''; return; }
+  box.innerHTML = '<button class="linkish" type="button" data-undo="open">Undo this task’s file changes</button><p class="dhint" role="status" id="tku-msg"></p>';
+  box.dataset.plan = JSON.stringify(plan);
+  box.hidden = false;
+}
+document.getElementById('tk-undo').addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-undo]');
+  if (!b) return;
+  const box = document.getElementById('tk-undo');
+  const act = b.dataset.undo;
+  if (act === 'open') { box.innerHTML = tkUndoListHtml(JSON.parse(box.dataset.plan || '{}')) + '<p class="dhint" role="status" id="tku-msg"></p>'; return; }
+  if (act === 'cancel') { paintTaskUndo(TK_OPEN); return; }
+  const paths = [...box.querySelectorAll('input[type="checkbox"][data-path]')].filter((x) => x.checked && !x.disabled).map((x) => x.dataset.path);
+  const msg = document.getElementById('tku-msg');
+  if (!paths.length) { msg.textContent = 'Choose at least one file.'; return; }
+  const p = pjById(PJ_CURRENT);
+  b.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/undo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paths }) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = out.error || 'We could not undo that just now.'; b.disabled = false; return; }
+    box.innerHTML = '<p class="tkr-line">' + esc(tkUndoDoneLine(out)) + '</p>';
+    paintTaskActivity(TK_OPEN);
+  } catch { msg.textContent = 'We could not undo that just now.'; b.disabled = false; }
+});
+
+/* #5153: fetch and draw the receipt for task `n` when it is closed; hidden otherwise. Same stale-page guards as the
+   activity below. A failed read hides it rather than showing a receipt of nothing. */
+let TKR_SEQ = 0;
+function tkTaskClosed(n) {
+  const p = pjById(PJ_CURRENT);
+  const t = p && n != null && (p.tasks || []).find((x) => x.number === n);
+  // A task closed by closing its last part has no closedAt of its own: progress says closed (review 1).
+  return Boolean(t && (t.progress ? t.progress.closed : t.closedAt));
+}
+/* #5153: paint the receipt only when the open task, or whether it is closed, changed since it was last painted: the poll
+   calls this, so a task closed or put back by an agent or another window shows or hides its receipt without a fetch on
+   every tick (review 2). openTaskPage forgets the last key, so a task opened again is painted again. */
+let TKR_SHOWN = null;
+let TKR_FAILED = null;   // { key, at } of the last read that failed
+const TKR_RETRY_MS = 30000;
+function tkReceiptSync() {
+  const p = pjById(PJ_CURRENT);
+  const t = p && TK_OPEN != null && (p.tasks || []).find((x) => x.number === TK_OPEN);
+  /* The close time is in the key (the task's own, or its newest part's), so closed, put back and closed again between
+     two polls paints the new close (review 3). */
+  const partClose = t ? (Array.isArray(t.parts) ? t.parts : []).map((x) => (x && x.closedAt) || '').sort().pop() || '' : '';
+  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN) + ':' + ((t && t.closedAt) || partClose);
+  if (key === TKR_SHOWN) return;
+  /* After a failed read, the same receipt is asked for again only after TKR_RETRY_MS (review 4: a read that keeps
+     failing would otherwise re-read the transcripts on every poll). */
+  if (TKR_FAILED && TKR_FAILED.key === key && Date.now() - TKR_FAILED.at < TKR_RETRY_MS) return;
+  TKR_SHOWN = key;
+  paintTaskReceipt(TK_OPEN);
+}
+async function paintTaskReceipt(n) {
+  const holder = document.getElementById('tk-receipt');
+  if (!holder) return;
+  const seq = ++TKR_SEQ;   // only the newest call paints: a slow read must not paint over a reopen (review 1)
+  const p = pjById(PJ_CURRENT);
+  if (!p || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
+  let r = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/receipt', { cache: 'no-store' });
+    if (seq !== TKR_SEQ || n !== TK_OPEN) return;
+    if (!res.ok) throw new Error('not ok');
+    r = await res.json();
+  } catch { r = null; }
+  if (seq !== TKR_SEQ || n !== TK_OPEN) return;
+  /* A failed read is tried again (after TKR_RETRY_MS), not left hidden while the page stays open (review 3). */
+  if (!r) { TKR_FAILED = TKR_SHOWN ? { key: TKR_SHOWN, at: Date.now() } : null; TKR_SHOWN = null; }
+  else TKR_FAILED = null;
+  if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
+  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
+  holder.hidden = false;
+  paintTaskUndo(n);   // #5153 slice 4: offered only while Settings' undo switch is on
 }
 /* Draw the task's activity, oldest first (the way the record is written and the
    way a conversation reads top-to-bottom). Fetched on open and re-fetched after
@@ -58588,7 +59390,13 @@ function openTaskPage(n) {
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
   if (acts) acts.innerHTML = '';
+  const receipt = document.getElementById('tk-receipt');
+  if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
+  const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
+  if (undoBox) { undoBox.hidden = true; undoBox.innerHTML = ''; }
   paintTaskActivity(n);
+  TKR_SHOWN = null;   // #5153: a task opened again is painted again
+  tkReceiptSync();
   pjView('task');
   document.getElementById('tk-back').focus();   // the top of the new page
 }
@@ -58627,12 +59435,22 @@ async function tkPartPost(url, body) {
     msg.textContent = heardSentence(spokenHeard(pjById(PJ_CURRENT), out && out.heard));
     // #768: the change just recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
+    tkReceiptSync();   // #5153: closing the last part closes the task
     return true;
   } catch {
     msg.textContent = 'we could not change that';
     return false;
   }
 }
+/* #5153: a receipt's "N files" toggle opens its list (the receipt is redrawn whole, so the click is delegated). */
+document.getElementById('tk-receipt').addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.tkr-files-btn');
+  if (!b) return;
+  const list = b.nextElementSibling;
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  b.setAttribute('aria-expanded', String(open));
+  if (list) list.hidden = !open;
+});
 /* Choosing who is on a part. The row's name becomes a menu in place, so the
    fact and the control never sit in two places disagreeing about it. */
 document.getElementById('tk-who').addEventListener('click', (e) => {
@@ -58747,6 +59565,7 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     await pjReload();
     // #768: close/reopen recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
+    tkReceiptSync();   // #5153: a closed task shows its receipt, a reopened one hides it
     /* ⚠️ AND IT STAYS ON THE PAGE. The dialog closed itself here, which was
        right for a dialog: the act was the reason it was open. A page is not
        dismissed by succeeding, and being thrown back to the project on a
@@ -60349,6 +61168,7 @@ document.getElementById('docs-finder').addEventListener('click', async () => {
 document.getElementById('docs-list').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
+  if (filesPvOpen(row, { project: PJ_CURRENT }, e)) return;   // #4997
   const msg = document.getElementById('docs-msg');
   if (kplusRemote()) {   // #5165: download it to this device
     const forProject = PJ_CURRENT;
@@ -61325,14 +62145,21 @@ function pvOpen(id, from) {
   }
   back.querySelector('#pv-name').textContent = a.name;
   const act = back.querySelector('#pv-act');
-  if (kplusRemote()) {
+  if (kplusRemote() && typeof a.download === 'function') {
+    /* #4997: a Files-list file downloads through kplusDownload, so a refusal (renamed, moved, a gate) is said in the
+       bar rather than answered with nothing (a navigation's refusal is a silent 204, #5165). */
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
+    b.addEventListener('click', () => a.download());
+    act.replaceWith(b);
+  } else if (kplusRemote()) {
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
     act.replaceWith(dl);
   } else {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = pvRevealWord();
-    b.addEventListener('click', () => pvReveal(a.id));
+    b.addEventListener('click', () => (typeof a.reveal === 'function' ? a.reveal() : pvReveal(a.id)));   // #4997: a Files-list file reveals through its own route (Mona's OK)
     act.replaceWith(b);
   }
   back.querySelector('#pv-x').addEventListener('click', pvClose);
@@ -61379,9 +62206,65 @@ function pvClose() {
   back.remove();
   let to = PV_OPENER;
   if (to && !document.contains(to) && PV_OPENER_ID) to = document.querySelector('a.att[data-att="' + PV_OPENER_ID + '"]');
+  if ((!to || !document.contains(to)) && PV_OPENER_ID === FILES_PV_ID) to = filesPvRow();   // #4997 (Mona's OK): a redrawn Files row
   PV_OPENER = null;
   PV_OPENER_ID = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+/* #4997 (the Files-lists half of #4930): a plain click on an image or PDF row in a Files list (an agent's Files, a
+   project's Files panel, the Files screen) opens the same full-page preview. The file is named by its LISTED name and
+   served by the board's Files routes (engine/filepreview.js: only a file the list itself would show), never by a path. Any other row,
+   and a modifier-click, keeps opening the file on the computer. One record under one plain id, so pvClose's selector
+   never carries a file's name. `where` is { agent } or { project }. Returns true when the preview opened. */
+const FILES_PV_ID = 'files-preview';
+let FILES_PV_AT = null;   // { list, name }: where the row was, so pvClose can find it again if the list redrew
+/* Review 1: the row a Files preview was opened from, found again by its listed name after a redraw (an agent saving a
+   file rebuilds the list). Compared as a value, never put into a selector. */
+function filesPvRow() {
+  const at = FILES_PV_AT;
+  const list = at && document.getElementById(at.list);
+  if (!list) return null;
+  return [...list.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === at.name) || null;
+}
+function filesPvOpen(row, where, e) {
+  if (!row || !row.dataset || typeof row.dataset.doc !== 'string' || !row.dataset.doc) return false;
+  if (e && (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return false;
+  const name = row.dataset.doc;
+  const ext = (name.match(/\.([^./]+)$/) || [])[1];
+  const lower = ext ? ext.toLowerCase() : '';
+  /* Review 2: only what the preview can show here. A browser draws png, jpeg, gif and webp; heic and avif may not
+     decode, and a PDF's first page is drawn by macOS alone, so on Windows a PDF (and everywhere heic and avif) keeps
+     opening on the computer rather than becoming a card that cannot open it. */
+  const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf' : null);
+  if (!kind) return false;
+  let base;
+  if (where && where.agent) base = { preview: '/api/agent/' + encodeURIComponent(where.agent) + '/files/preview', download: '/api/agent/' + encodeURIComponent(where.agent) + '/files/download' };
+  else if (where && where.project) base = { preview: '/api/project/' + encodeURIComponent(where.project) + '/file-preview', download: '/api/project/' + encodeURIComponent(where.project) + '/file-download' };
+  else return false;
+  const q = '?name=' + encodeURIComponent(name);
+  const shown = name.split('/').pop();
+  const sizeEl = row.querySelector('.pj-doc-w');
+  PV_ATTS.set(FILES_PV_ID, {
+    id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
+    url: base.download + q, preview: base.preview + q,
+    download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
+      kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
+    reveal: async () => {
+      const msg = document.getElementById('pv-msg');
+      if (msg) msg.textContent = '';
+      try {
+        const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) };
+        const res = where.agent
+          ? await fetch('/api/agent/' + encodeURIComponent(where.agent) + '/files/reveal-file', init)
+          : await fetch('/api/project/' + encodeURIComponent(where.project) + '/reveal-file', init);
+        // The board's own sentence: its 404 here is the agent or project gone, a refused or vanished file is a 409.
+        if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = asSentence(out.because || out.error || 'That did not open.'); }
+      } catch { if (msg) msg.textContent = 'Kosmos could not be reached.'; }
+    },
+  });
+  const list = row.closest ? row.closest('.pj-docs') : null;
+  FILES_PV_AT = list && list.id ? { list: list.id, name } : null;
+  return pvOpen(FILES_PV_ID, row);
 }
 /* A plain click on a file card opens the preview; a modifier-click (or a middle click) keeps the download. */
 document.addEventListener('click', (e) => {
@@ -61427,6 +62310,7 @@ function pjSize(bytes) {
 document.getElementById('pj-docs').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
+  if (filesPvOpen(row, { project: PJ_CURRENT }, e)) return;   // #4997
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
@@ -75644,6 +76528,7 @@ async function firstRunBoot(force, step) {
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
     tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
+    oaStart();     // kosmos#4812: the other computers' agents, on a Kosmos+ address only
     asbStart();    // #3034: the setup assistant; it hides itself during first run and keeps looking for a guide
   }
 }
@@ -75705,7 +76590,7 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
    is the concern the comment above records, now that the board starts hidden.
    Idempotent with firstRunBoot's finally: whichever fires first wins. */
 kplusBar();   // #3837 F: the Kosmos+ bar, only through a Kosmos+ address; drawn at once, it needs nothing from the board
-setTimeout(() => { revealBoot(); tipsStart(); asbStart(); }, 3000);
+setTimeout(() => { revealBoot(); tipsStart(); oaStart(); asbStart(); }, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in

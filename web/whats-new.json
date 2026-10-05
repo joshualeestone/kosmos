@@ -1,32 +1,30 @@
 {
-  "version": "0.7.22",
+  "version": "0.7.23",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "Agents that keep stopping",
-      "line": "On a Mac, an agent that keeps stopping soon after it starts now says Keeps stopping. With Kosmos+ notifications on, your phone is told.",
-      "platforms": ["mac"]
+      "icon": "list",
+      "title": "Name an agent file as you add it",
+      "line": "When Kosmos finds an agent file with no name in it, you can type a name on its row and add it in one go."
+    },
+    {
+      "icon": "spark",
+      "title": "Token Usage for every provider",
+      "line": "Settings > Token Usage now counts your OpenAI, Gemini and Grok agents beside Claude, per day, model and agent."
+    },
+    {
+      "icon": "swarm",
+      "title": "Org charts read without Claude",
+      "line": "Without Claude set up, an org chart picture or PDF can now be read with an OpenAI API key, or a PNG or JPG picture with a Grok API key."
     },
     {
       "icon": "chat",
-      "title": "An honest sign-in warning",
-      "line": "On a Mac, when a Claude sign-in ends but its agents can still work a while, the sign-in warning says when they stop, not that they have.",
-      "platforms": ["mac"]
+      "title": "Key accounts show their key",
+      "line": "A Gemini or Grok key account with no name now shows on the Right now line as \"API key ending\" and its last characters."
     },
     {
-      "icon": "tasks",
-      "title": "Work you can check off",
-      "line": "New agents are told to put bigger work on a task, with \"Done when\" checks you can answer yes or no. Existing agents are offered the change."
-    },
-    {
-      "icon": "phone",
-      "title": "Files come to your device",
-      "line": "Over Kosmos+, clicking a file now downloads it to the device you are using, instead of opening it on the computer running Kosmos."
-    },
-    {
-      "icon": "phone",
-      "title": "New agent stays in reach",
-      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
+      "icon": "shield",
+      "title": "A refused Restore says why",
+      "line": "Among your removed agents, a Restore that Kosmos refuses now reads Not restored and shows the reason."
     }
   ]
 }

@@ -162,6 +162,11 @@ unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
 # agent carries a KOSMOS_AGENT_TOKEN) would make each CLI test that spreads process.env stop sending the board
 # token, and five tests that expect it went red (measured). A test that wants the switch sets it itself.
 unset KOSMOS_AGENT_TOKEN_ONLY
+# #5073, the same boundary for the caller's locale: with none, tmux replaces its field tabs and every test that reads
+# tmux goes red for that alone (the 0.7.19 re-cut, launched through `tmux run-shell`, had no LANG). The rules are in
+# the lib; a lib that is missing fails loud here rather than skipping the pin.
+. "$REPO/tools/lib/test-locale.sh" || { echo "run-tests: tools/lib/test-locale.sh is missing" >&2; exit 1; }
+kosmos_test_locale_pin
 
 # #708: label a live board's cwd as the main checkout / a worktree / neither.
 # Sourced HERE rather than beside the cut-guard source below, because
@@ -289,7 +294,11 @@ BEFORE="$(seen_before)"
 . "$REPO/tools/lib/cut-guard.sh" 2>/dev/null || true
 # #4609 review: a full suite queues HEAVY whatever it inherited. A KOSMOS_QUEUE_CLASS=light exported in a shell, or
 # inherited from a light queue turn, would otherwise let it jump the light lane and hold the box 15 to 20 minutes.
+# #5272: the one exception is the main canary (KOSMOS_QUEUE_CLASS=canary), a full suite on main's tip that waits first
+# among waiters, one canary at a time (tools/lib/cut-guard.sh). The next line stays as it is: a test strips it.
+_rt_class_in="${KOSMOS_QUEUE_CLASS:-}"
 KOSMOS_QUEUE_CLASS=heavy
+[ "$_rt_class_in" = canary ] && KOSMOS_QUEUE_CLASS=canary
 # #4498 (Kano's review, Liu Kang m3015): the claim is asked INSIDE _rt_box_clear below, on every poll, not once
 # here. Asked once, a suite already waiting when a cut claimed the box could start inside the cut. Now a claim is a
 # reason to wait, and the wait names the release; at the wait's bound the run refuses with that message.
