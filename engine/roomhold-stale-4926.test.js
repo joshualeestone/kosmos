@@ -3,7 +3,7 @@
  * #4926: a held room post that asks nothing of the member and has gone stale (older than messages.HELD_TELL_MAX_MS, or
  * the room's loop guard stopped the conversation after it) is dropped at the flush instead of told: telling it is a wake
  * into an idle agent, which then answers it, hours after the person asked the room for quiet. A held post that names
- * the member and asks for an answer is always told.
+ * the member and asks for an answer is told, unless the member posted in the room since or it is over a day old (R2).
  *
  *   node --test engine/roomhold-stale-4926.test.js
  */
@@ -117,4 +117,40 @@ test('#4926 review 5 (Opus): a post held on the member\'s QUOTA is aged from the
   assert.ok(messages.staleHeld('p1', ['m2'], [ended], NOW, 'gem').has('m2'), 'a pause that ended long ago kept it fresh');
   const stopped = [Object.assign(post('m3', 30), { heldUntil: { gem: new Date(NOW).toISOString() } }), valve(10)];
   assert.ok(messages.staleHeld('p1', ['m3'], stopped, NOW, 'gem').has('m3'), 'the loop guard no longer applied to a quota hold');
+});
+
+/* #4926 R2 (10-05 user diagnostic, 0.7.22): a session was woken on 10-05 for posts from 10-02 and 10-03 it had already
+   handled. A held post the member has answered in the room since, or one over a day old, is dropped even when it
+   names the member. */
+test('#4926 R2: staleHeld marks a post the member posted after, or one over a day old, as dropped even if asked', () => {
+  const own = (min, project = 'p1') => ({ kind: 'post', id: 'own' + min, project, from: 'kim', to: ['ann'], text: 'y', at: ago(min) });
+  const dayMin = messages.HELD_ASKED_MAX_MS / 60000;
+  // m1 is 30 min old; kim posted in p1 10 min ago: handled.
+  let s = messages.staleHeld('p1', ['m1'], [post('m1', 30), own(10)], NOW, 'kim');
+  assert.ok(s.has('m1') && s.evenIfAsked.has('m1'), 'a post the member answered since was kept');
+  // CONTROLS: kim's post BEFORE m1, another member's post after it, kim's post in ANOTHER room, and no member named.
+  s = messages.staleHeld('p1', ['m1'], [own(40), post('m1', 30)], NOW, 'kim');
+  assert.equal(s.size, 0, 'a post of the member from before the held one handled it');
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), { ...own(10), from: 'bob' }], NOW, 'kim');
+  assert.equal(s.size, 0, 'someone else\'s post handled it for the member');
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), own(10, 'p2')], NOW, 'kim');
+  assert.equal(s.size, 0, 'a post in another room handled it');
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), own(10)], NOW);
+  assert.equal(s.size, 0, 'with no member named, a post was taken as handled');
+  // Over a day old: dropped even if asked; just under a day (and past the 2 h rule): stale but still told if asked.
+  s = messages.staleHeld('p1', ['m1', 'm2'], [post('m1', dayMin + 5), post('m2', dayMin - 5)], NOW, 'kim');
+  assert.ok(s.evenIfAsked.has('m1'), 'a post over a day old was kept for an ask');
+  assert.ok(s.has('m2') && !s.evenIfAsked.has('m2'), 'a post under a day old was dropped even when asked');
+  // A quota pause moves the clock for the day rule too.
+  const paused = { ...post('m3', dayMin + 60), heldUntil: { kim: ago(60) } };
+  s = messages.staleHeld('p1', ['m3'], [paused], NOW, 'kim');
+  assert.equal(s.evenIfAsked.has('m3'), false, 'the day rule did not count from the pause\'s end');
+});
+
+test('#4926 R2: withoutStale drops an addressed id the judge marks evenIfAsked, and keeps the other addressed ones', () => {
+  const ids = [roomhold.addressedId('m1'), roomhold.addressedId('m2'), 'm3', 'm4'];
+  const judge = () => { const g = new Set(['m1', 'm2', 'm3']); g.evenIfAsked = new Set(['m1']); return g; };
+  assert.deepEqual(roomhold.withoutStale('p1', ids, judge), [roomhold.addressedId('m2'), 'm4']);
+  // CONTROL: a judge without evenIfAsked (the earlier shape) keeps every addressed id, as before.
+  assert.deepEqual(roomhold.withoutStale('p1', ids, () => new Set(['m1', 'm2', 'm3'])), [roomhold.addressedId('m1'), roomhold.addressedId('m2'), 'm4']);
 });

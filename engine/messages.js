@@ -1016,16 +1016,25 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
    in that project, later than the post). An id not in the record yet (a post still being delivered) is not stale.
    `member`: whose held ids these are (its quota pause, if any, starts the clock). */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
+/* #4926 R2 (10-05 user diagnostic, 0.7.22: a session woken on 10-05 for posts from 10-02 and 10-03 it had already
+   handled). The returned Set also carries `evenIfAsked`, ids withoutStale drops even when they name the member:
+   - handled: the member itself posted in this room after the post (it was in the conversation since);
+   - old: older than HELD_ASKED_MAX_MS, counted like the rest (from a quota pause's end when there was one).
+   Both stay in the room (kosmos room shows them). */
+const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
+  out.evenIfAsked = new Set();
   try {
     const rows = Array.isArray(log) ? log : readLog();
     const t = Number.isFinite(now) ? now : Date.now();
     const want = new Set(ids);
     let stoppedAt = 0;
+    let ownAt = -Infinity;
     for (const r of rows) {
       if (!r || r.project !== projectId) continue;
       if (r.kind === 'valve' && r.stopped !== false) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > stoppedAt) stoppedAt = v; }
+      if (member && r.kind === 'post' && r.from === member) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > ownAt) ownAt = v; }
     }
     for (const r of rows) {
       if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
@@ -1037,6 +1046,7 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
+      if (ownAt > at || t - from > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
   return out;
@@ -2917,7 +2927,7 @@ function projectOfPost(id) {
 }
 
 module.exports = {
-  staleHeld, HELD_TELL_MAX_MS,
+  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
