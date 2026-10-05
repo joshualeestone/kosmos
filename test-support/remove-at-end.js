@@ -12,8 +12,15 @@
  * lib-sandbox-home left 4 `kosmos-bc-home-` folders on SIGTERM). One handler per
  * process for every sweep means "another listener" can only be someone else's.
  *
- * A foreign handler for the signal (a file's own SIGTERM handler) still decides: the
- * sweeps then run at 'exit', when that handler lets the process end.
+ * A foreign handler for the signal (a file's own SIGTERM handler) still decides. If it
+ * ends the process with process.exit(), the sweeps run at 'exit'. If it RE-RAISES the
+ * signal instead (removes itself and sends the signal again, as engine/remote.js does so
+ * that it never seizes the exit code), the process dies by the signal's default action
+ * and 'exit' never fires (kosmos#5334, measured: thread-server left 3 `kosmos-bc-home-`
+ * folders and its `aw-thread-config-` folder on every browser-check run). So when this
+ * handler stands aside it listens ONCE more: on the re-raised signal it is the only
+ * listener left, and it sweeps and re-raises in turn. A foreign handler that keeps the
+ * process alive leaves the folders in place, as before.
  *
  * The registry lives on the process under a global symbol, so two copies of this file
  * (two paths to it) still share one handler. It never throws.
@@ -28,11 +35,13 @@ function removeAtEnd(fn) {
     const runAll = () => { for (const f of reg.fns.splice(0)) { try { f(); } catch { /* ending anyway */ } } };
     process.on('exit', runAll);
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-      process.once(sig, () => {
-        if (process.listenerCount(sig) > 0) return;
+      const onSig = () => {
+        /* Another listener decides; listen again for its re-raise (#5334). */
+        if (process.listenerCount(sig) > 0) { process.once(sig, onSig); return; }
         runAll();
         try { process.kill(process.pid, sig); } catch { /* already going */ }
-      });
+      };
+      process.once(sig, onSig);
     }
   }
   reg.fns.push(fn);
