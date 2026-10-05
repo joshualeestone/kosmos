@@ -4889,7 +4889,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          header is now a real bar with its own border-bottom, and (until #5018 floated them
          over the page) the notices rode inside it as they do in the tab view -- so a
          consolidated-only bottom margin made a shown notice the tallest item in the
-         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
+         header's row (then a flex row), growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -4917,16 +4917,15 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      bar now carries real content (the K mark, the Kosmos switcher on the left, the
      appearance + view-toggle controls on the right) flush to the top with no empty
      margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
-     ask) puts there. The center TABS stay hidden in this view (consolidated is one
-     screen, not separate tab screens) -- matching the mock's 2-column consolidated
-     header (left cluster + right cluster).
-     #4345 (Josh, 2026-09-28 09:21): the tabs come back. Agents, Projects and Tasks stay in
+     ask) puts there.
+     #4345 (Josh, 2026-09-28 09:21): the center tabs, hidden in this view until then, come back. Agents, Projects and Tasks stay in
      the top nav here and load into the display column (openConsolidatedAgents /
      openConsolidatedTasks; Projects returns the column to the board), so there is always
      a visible way back. Only the h1 stays hidden. */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
-    /* flex-start, not center: kosmos#2624, see the .apphead block near the top. */
-    display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5);
+    /* kosmos#2624: no display, columns or gap here. The header keeps the tab view's own (.apphead header, near the
+       top), so the center tabs sit on the same pixels in both views whatever the Kosmos name's width
+       (render-tophead-stable-2624, its long-name arm). This rule used flex space-between and moved them. */
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated > .apphead h1 { display: none; }
