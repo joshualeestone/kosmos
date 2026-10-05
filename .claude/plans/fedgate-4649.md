@@ -27,4 +27,4 @@ server.fedmembers-4649.test.js: with the switch OFF, all four answer 404, nothin
 recorded. CONTROL: the create screen's invite still works. Switched back on, the same request works. Each route's 404 is
 asserted by the gate's own sentence (review round 1: a never-shared project 404s on Remove/Withdraw without it).
 Mutations removing the Members gate, and the Remove gate, each red it. The other route tests run with the switch on. Focused: server.fedmembers-4649,
-server.federation-3311 and server.guide-secrets-3769, 57/57.
+server.federation-3311 and server.guide-secrets-3769, 56/56 (re-measured at the final code).

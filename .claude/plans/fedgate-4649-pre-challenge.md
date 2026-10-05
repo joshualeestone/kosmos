@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: fedgate-4649
 diff_hash: 7fce0e93cbce457a8f24669d31dae2b9d75537c0d262e8893bf47b629aee4b37
-validation: server.fedmembers-4649 + server.federation-3311 + server.guide-secrets-3769 57/57 at the final code. Mutations, each red: the Members gate removed; the Remove/Withdraw gate removed. Mortals full run and FULL browser checks (server.js): queued.
+validation: server.fedmembers-4649 + server.federation-3311 + server.guide-secrets-3769 56/56 at the final code. Mutations, each red: the Members gate removed; the Remove/Withdraw gate removed. Mortals full run and FULL browser checks (server.js): queued.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-05T07:39:12Z
 iterations: 2
@@ -22,5 +22,5 @@ converged: true
 - [NIT] the /join route's new member note, same class --> STATED
 - Checked clean: every #5266 side path with the switch off (forget, labelsFor, withoutStamp: local only, no coordinator call); federationLiveNow is false with remote off; the env restore; the test files run one per process
 #### Iteration 2 (sonnet): 0 B, 0 W, 1 N. Converged.
-- [NIT] the plan's 56/56 for three files could not be reproduced by the reviewer (only two files allowed) --> re-measured at the final code: 57/57 (one test added in round 1)
+- [NIT] the plan's 56/56 for three files could not be reproduced by the reviewer (only two files allowed) --> re-measured at the final code: 56/56 (round 1 added assertions to an existing test, not a new test)
 - Checked clean: gate placement before any read/write/signed call; the invite gate only on the existing-project path; each gate's test can fail; env restored
