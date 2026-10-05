@@ -400,6 +400,7 @@ const SITE_COUNTS = {
   'render-home-discovery-removed-3048.js': [2, 2],
   'render-home-phone-718.js': [1, 0],
   'render-import-add-inplace-2419.js': [1, 0],
+  'render-import-name-4962.js': [1, 0],
   'render-inline-field-errors-2606.js': [1, 0],
   'render-keyed-install-3713.js': [3, 2],
   'render-layer-gutter-4494.js': [3, 2],
