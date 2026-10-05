@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText THIS_COMPUTER_ADDRESS refreshYouName computersFetch pj-new pj-mode-join pj-join-verify
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -77,6 +77,28 @@
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
  *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
+ * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text,
+ * her Q-M5 owner name). Every C arm fails on origin/main, which has no invite sheet at all, and on slice B, which
+ * has no #fedinv-copy-all. The owner's name is the board's "You" name (/api/you, faked below as __you) and the
+ * address is this computer's row of /api/remote/computers (faked as __computers), both read by the page's own
+ * loaders (refreshYouName, computersFetch), not set by hand.
+ *  C0  the code step reads as shot 03: "It works once, until Sunday, October 11. You can withdraw it from Members
+ *      until Dana joins.", the Easier box naming Dana, and "Copy the invitation" as the primary (uprime) button
+ *      after Done, with the bare-code Copy still there. A label that is not a name ("my sister") says "they join"
+ *      and "they need". Control: the Dana line, the same code path with a name.
+ *  C1  with the name and the address: Copy the invitation writes EXACTLY shot 04's text, "Maya Chen
+ *      (maya.kosmosplus.com) invited you ...", and says Copied, then reverts. Control: the bare Copy, pressed
+ *      first on the same screen, writes only the code.
+ *  C2  with no "You" name the text starts "maya.kosmosplus.com invited you" (and is otherwise the same); with a
+ *      name but no address, "Maya Chen invited you"; with neither, "Someone invited you". Control: C1 with both.
+ *  C3  the step words, read OUT OF the copied invitation (not typed again here), each exist as a visible label on
+ *      the page's own path: "+ Add Project" on the Projects list, "Join an external project" on the Add Project
+ *      screen it opens, "Verify" on the join step that opens. A later rename of either side fails here. Control:
+ *      the same finder, given a phrase the page does not have ("Join a shared project"), finds nothing.
+ *  C4  writeText rejecting: the message line says "Kosmos could not copy the invitation. ...", the button keeps its
+ *      words, the sheet stays open, and nothing throws (no page error, no unhandled rejection). Control: C1, the
+ *      same press with a working clipboard, says Copied.
+ *
  * HERMETIC: web/index.html over file://, every route answered by the stub below (render-pj-clear-2575's
  * pattern: the stub's own /api/projects carries the seeded project, so a late startup poll cannot wipe
  * it; every catch-all reply carries the fixture's gate fields, so a late status poll cannot restamp the
@@ -128,6 +150,10 @@ function initStub(cfg) {
   window.__withdraw = { status: 200, body: { withdrawn: true } };
   window.__withdraws = [];
   window.__answerDelay = 0;
+  window.__you = null;          // slice C: /api/you's `you` ({ name }); null leaves it to the catch-all (no name)
+  window.__computers = null;    // slice C: /api/remote/computers' answer; null leaves it to the catch-all (no rows)
+  window.__unhandled = [];
+  window.addEventListener('unhandledrejection', (e) => { window.__unhandled.push(String(e.reason && e.reason.message || e.reason)); });
   const a = (s, name) => ({ sessionName: s, name, role: '', running: false, state: 'stopped', context: null });
   window.__agents = [a('ada', 'Ada'), a('basil', 'Basil'), a('cleo', 'Cleo')];
   const enc = (status, o) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
@@ -152,6 +178,8 @@ function initStub(cfg) {
       if (window.__answerDelay) await new Promise((r) => setTimeout(r, window.__answerDelay));   // B10b holds one in flight
       return enc(window[key].status, window[key].body);
     }
+    if (/\/api\/you(\?|$)/.test(u) && window.__you) return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed, { you: window.__you }));
+    if (u.includes('/api/remote/computers') && window.__computers) return enc(200, window.__computers);
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
     return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed));
   };
@@ -328,7 +356,8 @@ const closeAll = (page) => page.evaluate(() => {
     check('A5 the title names the label', done.title === 'Invite code for Dana Ruiz', done.title);
     check('A5 Josh\'s sentence, verbatim, the same words as the create form\'s', done.josh === JOSH && done.joshMain === JOSH, JSON.stringify({ josh: done.josh }));
     check('A5 the code is shown', done.code === CODE && done.askHidden, JSON.stringify(done));
-    check('A5 "It works once, until Sunday, October 11." from expires_at', done.until === 'It works once, until Sunday, October 11.', done.until);
+    check('A5 "It works once, until Sunday, October 11." from expires_at (slice C adds the withdraw sentence after it)',
+      done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until Dana joins.', done.until);
     await page.click('#fedinv-copy');
     await page.waitForTimeout(100);
     const copied = await page.evaluate(() => ({ copied: window.__copied.slice(), btn: document.getElementById('fedinv-copy').textContent }));
@@ -870,6 +899,162 @@ const closeAll = (page) => page.evaluate(() => {
     check('B11b the gate leaving "show" closes an open outside Remove (control: open just before)', openBefore === true && openAfter === false,
       JSON.stringify({ openBefore, openAfter }));
     await ctx.close();
+  }
+
+  /* ---------------- slice C: "Copy the invitation" (shot 03 button and line, shot 04 text) ---------------- */
+  {
+    const ADDR = 'maya.kosmosplus.com';
+    const invitation = (who) => who + ' invited you to the project "Spring launch" on Kosmos.\n'
+      + '\n'
+      + '1. Open Kosmos on your computer. If you do not have it yet, get it at installkosmos.com and sign in to Kosmos+.\n'
+      + '2. Go to Projects, press + Add Project, then Join an external project.\n'
+      + '3. Paste this code and press Verify:\n'
+      + '\n'
+      + CODE + '\n'
+      + '\n'
+      + 'The code works once, until Sunday, October 11.';
+    const computers = (rows) => ({ ok: true, domain: 'kosmosplus.com', computers: rows });
+    const THIS = { name: 'Studio', address: ADDR, this: true, online: true };
+    // Set the "You" name and this computer's rows, then let the page's own loaders read them.
+    const owner = (page, name, rows) => page.evaluate(async (o) => {
+      window.__you = { name: o.name };
+      window.__computers = o.computers;
+      await refreshYouName();
+      await computersFetch();
+      return { you: YOU_NAME, addr: THIS_COMPUTER_ADDRESS };
+    }, { name, computers: computers(rows) });
+    const step = (page) => page.evaluate(() => {
+      const all = document.getElementById('fedinv-copy-all');
+      const acts = all ? [...all.parentElement.querySelectorAll('button')].map((b) => b.id) : [];
+      return {
+        until: document.getElementById('fedinv-until').textContent,
+        easier: (document.getElementById('fedinv-easier') || {}).textContent || null,
+        allText: all ? all.textContent : null, allPrime: !!all && all.classList.contains('uprime'),
+        allShown: !!all && all.getClientRects().length > 0, acts,
+        copyText: document.getElementById('fedinv-copy').textContent,
+        status: document.getElementById('fedinv-status').textContent,
+        open: !document.getElementById('fedinv-modal').hidden,
+        copied: window.__copied.slice(), unhandled: window.__unhandled.slice(),
+      };
+    });
+    const makeCode = async (page, label) => {
+      await page.click('#pj-add-member');
+      await page.click('#pj-addmenu-outside');
+      await page.fill('#fedinv-label', label);
+      await page.click('#fedinv-make');
+      await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    };
+    const copyAll = async (page) => { await page.click('#fedinv-copy-all'); await page.waitForTimeout(100); };
+
+    const { ctx, page } = await newPage(1280, SHOW);
+    let o = await owner(page, 'Maya Chen', [THIS, { name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false, online: false }]);
+    check('C setup: the page read the "You" name and this computer\'s address through its own loaders',
+      o.you === 'Maya Chen' && o.addr === ADDR, JSON.stringify(o));
+    await openProjectIn(page, 'tabs');
+    await makeCode(page, 'Dana Ruiz');
+    let st = await step(page);
+    check('C0 the code step reads as shot 03: the withdraw line names Dana',
+      st.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until Dana joins.', st.until);
+    check('C0 the Easier box names Dana',
+      st.easier === 'Easier: copy the whole invitation. It has the code and the three steps Dana needs, ready to paste into an email or a text.', st.easier);
+    check('C0 "Copy the invitation" is the primary button, after Done, and the bare Copy stays',
+      st.allText === 'Copy the invitation' && st.allPrime && st.allShown && st.acts.join(',') === 'fedinv-ok,fedinv-copy-all' && st.copyText === 'Copy',
+      JSON.stringify({ allText: st.allText, prime: st.allPrime, shown: st.allShown, acts: st.acts, copy: st.copyText }));
+
+    // C1: the control first, on the same screen: the bare Copy writes only the code.
+    await page.evaluate(() => { window.__copied.length = 0; });
+    await page.click('#fedinv-copy');
+    await page.waitForTimeout(100);
+    st = await step(page);
+    check('C1 control: the bare Copy writes only the code', st.copied.length === 1 && st.copied[0] === CODE, JSON.stringify(st.copied));
+    await copyAll(page);
+    st = await step(page);
+    const c1 = st.copied[1];
+    check('C1 Copy the invitation writes shot 04\'s text exactly, with the name and the address',
+      st.copied.length === 2 && c1 === invitation('Maya Chen (' + ADDR + ')'), JSON.stringify(c1));
+    check('C1 it says Copied, and the bare Copy is not left saying Copied', st.allText === 'Copied' && st.copyText === 'Copy' && st.status === 'Invitation copied.',
+      JSON.stringify({ all: st.allText, copy: st.copyText, status: st.status }));
+    await page.waitForTimeout(2300);
+    st = await step(page);
+    check('C1 the button reverts to "Copy the invitation"', st.allText === 'Copy the invitation' && st.status === '', JSON.stringify({ all: st.allText, status: st.status }));
+
+    // C3: the step words, read out of the invitation that was just copied.
+    const m2 = /^2\. Go to Projects, press (.+), then (.+)\.$/m.exec(c1 || '');
+    const m3 = /^3\. Paste this code and press (.+):$/m.exec(c1 || '');
+    const words = m2 && m3 ? [m2[1], m2[2], m3[1]] : null;
+    check('C3 setup: the invitation names three step words', !!words && words.length === 3, JSON.stringify(words));
+
+    // C2: no "You" name, then a name and no address, then neither. Each is read by the page's loaders again.
+    const variant = async (name, rows) => {
+      const got = await owner(page, name, rows);
+      await page.evaluate(() => { window.__copied.length = 0; });
+      await copyAll(page);
+      const s2 = await step(page);
+      return { got, text: s2.copied[0] };
+    };
+    let v = await variant('', [THIS]);
+    check('C2 no "You" name: "maya.kosmosplus.com invited you ...", the rest the same (control: C1 with the name)',
+      v.got.you === '' && v.text === invitation(ADDR), JSON.stringify(v));
+    v = await variant('Maya Chen', [{ name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false }]);
+    check('C2 a name and no address for this computer: "Maya Chen invited you ..."', v.got.addr === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
+    v = await variant('', []);
+    check('C2 neither: "Someone invited you ..."', v.text === invitation('Someone'), JSON.stringify(v));
+
+    // C4: the clipboard refuses. Restore the name and address so only the clipboard differs from C1.
+    await owner(page, 'Maya Chen', [THIS]);
+    await page.evaluate(() => {
+      window.__copied.length = 0;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Write permission denied.'); } } });
+    });
+    await copyAll(page);
+    st = await step(page);
+    check('C4 a refused clipboard says so in the message line, keeps the button\'s words and the sheet, and throws nothing (control: C1 said Copied)',
+      st.status === 'Kosmos could not copy the invitation. Press Copy to copy the code alone, and paste it into your message.'
+      && st.allText === 'Copy the invitation' && st.open && st.copied.length === 0 && st.unhandled.length === 0,
+      JSON.stringify({ status: st.status, all: st.allText, open: st.open, unhandled: st.unhandled }));
+    await page.waitForTimeout(2300);
+    st = await step(page);
+    check('C4 the refusal stays on screen (no revert timer clears it)', st.status.startsWith('Kosmos could not copy the invitation.'), st.status);
+    await page.click('#fedinv-ok');
+
+    // C3 continued: walk the page's own path to the join step, finding each word as a visible label.
+    const find = (page, text) => page.evaluate((t) => {
+      const vis = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+      const norm = (el) => el.textContent.replace(/\s+/g, ' ').trim();
+      const root = document.getElementById('panel-projects');
+      const hit = root ? [...root.querySelectorAll('button, label, a')].find((el) => vis(el) && norm(el) === t) : null;
+      document.querySelectorAll('[data-c3-hit]').forEach((el) => el.removeAttribute('data-c3-hit'));
+      if (hit) hit.setAttribute('data-c3-hit', '1');
+      return hit ? (hit.id || hit.tagName + ':' + (hit.querySelector('input') || {}).id) : null;
+    }, text);
+    const found = [];
+    if (words) {
+      await page.evaluate(() => { showTab('projects'); pjView('list'); });   // the Projects list, where step 2 starts
+      await page.waitForTimeout(200);
+      for (const w of words) {
+        const hit = await find(page, w);
+        found.push({ word: w, hit });
+        if (!hit) break;
+        await page.click('[data-c3-hit]');
+        await page.waitForTimeout(200);
+      }
+    }
+    check('C3 each step word is a visible label on the page\'s own path: Projects list, Add Project screen, join step',
+      !!words && found.length === 3 && found.every((f) => f.hit), JSON.stringify(found));
+    const none = await find(page, 'Join a shared project');
+    check('C3 control: the same finder finds nothing for a phrase the page does not have', none === null, String(none));
+    await ctx.close();
+
+    // C0 with a label that is not a name: they/their, never "my's".
+    const p2 = await newPage(1280, SHOW);
+    await openProjectIn(p2.page, 'tabs');
+    await makeCode(p2.page, 'my sister');
+    st = await step(p2.page);
+    check('C0 a label that is not a name: "until they join" and "the three steps they need" (control: the Dana lines)',
+      st.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.'
+      && st.easier === 'Easier: copy the whole invitation. It has the code and the three steps they need, ready to paste into an email or a text.',
+      JSON.stringify({ until: st.until, easier: st.easier }));
+    await p2.ctx.close();
   }
 
   await browser.close();
