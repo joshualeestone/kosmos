@@ -72,6 +72,9 @@
  *       project's list is not asked again. Control: B2, where the same 200 does ask again.
  *  B11a consolidated layout: Withdraw pressed in the RAIL asks the board and says its 409 unsupported sentence
  *       there. Control: B4, the same answer in the tab layout.
+ *  B15 focus across a tab rebuild (a) and a rail rebuild (b); focus on the "+" after a Remove (c); a Remove that a
+ *      Cancel did not stop says it went through (d); a Withdraw nobody answers is given up on (e); the rows at 390 (f);
+ *      Remove pressed in the rail (g).
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
  *  B12  through the real gate path (fedGateStamp, not fedGateMembers): a project opened with the gate OFF asks
@@ -176,7 +179,14 @@ function initStub(cfg) {
       let body = null;
       try { body = JSON.parse(String((opts && opts.body) || 'null')); } catch { body = 'unreadable'; }
       window[log].push({ method, body });
-      if (window.__answerDelay) await new Promise((r) => setTimeout(r, window.__answerDelay));   // B10b holds one in flight
+      // B10b holds one in flight; like a real fetch, an aborted signal rejects it with an AbortError (B15e).
+      if (window.__answerDelay) {
+        await new Promise((r, no) => {
+          const t = setTimeout(r, window.__answerDelay);
+          const sig = opts && opts.signal;
+          if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
+        });
+      }
       return enc(window[key].status, window[key].body);
     }
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
@@ -1116,6 +1126,102 @@ const closeAll = (page) => page.evaluate(() => {
     const openAfter = (await modal(page)).open;
     check('B11b the gate leaving "show" closes an open outside Remove (control: open just before)', openBefore === true && openAfter === false,
       JSON.stringify({ openBefore, openAfter }));
+    await ctx.close();
+  }
+
+  /* B15: focus across rebuilds, the end of a Remove, a Cancel that does not stop one, the action time limit, the
+     rail's Remove, and the rows at phone width. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const focusedKey = () => page.evaluate(() => { const a = document.activeElement; return a && a.dataset ? a.dataset.fedKey || a.id || a.tagName : null; });
+    // B15a: a background refetch that changes the markup keeps focus on the same row's action.
+    await page.focus('#pj-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
+    await page.evaluate(() => { document.activeElement.__mark = 1; });
+    await setMembers(page, answer([row({ invite_id: 'inv-zed', label: 'Zed Ng', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const a15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey : null, rebuilt: !(a && a.__mark),
+      zed: !!document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-zed"]') }; });
+    check('B15a the tab list rebuilt under a focused Withdraw keeps focus on that row\'s Withdraw (control: the button was replaced, a new row shows)',
+      a15.key === 'i:inv-lee' && a15.rebuilt && a15.zed, JSON.stringify(a15));
+    // B15d: Cancel while a Remove is asked; it goes through anyway, and the list says so.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__answerDelay = 300; window.__remove = { status: 200, body: { removed: true } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(50);
+    await page.click('#mem-keep');
+    await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
+    await page.waitForTimeout(500);
+    let f = await readFed(page, '#pj-fed-outside');
+    check('B15d Cancel does not stop an asked Remove: when it goes through, the list says so (control: the row is gone)',
+      f.msgs.includes('Dana Ruiz was removed from this project.') && !f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify({ msgs: f.msgs, keys: f.rows.map((r) => r.key) }));
+    // B15c: a Remove that goes through with the dialog open lands focus on the Members "+".
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await act(page, 'e:edge-dana');
+    await page.click('#mem-go');
+    await page.waitForTimeout(250);
+    const c15 = { open: (await modal(page)).open, focus: await focusedKey() };
+    check('B15c a Remove that goes through closes the dialog and focus lands on the Members "+"', !c15.open && c15.focus === 'pj-add-member', JSON.stringify(c15));
+    // B15e: a Withdraw nobody answers is given up on: it says so, the row's Withdraw is live again, the list is asked.
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(100);
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; window.__answerDelay = 3000; window.__withdraw = { status: 200, body: { withdrawn: true } }; });
+    const g0 = await gets(page);
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(600);
+    f = await readFed(page, '#pj-fed-outside');
+    const g1 = (await gets(page)) - g0;
+    await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
+    const lee = f.rows.find((r) => r.key === 'i:inv-lee');
+    check('B15e a Withdraw nobody answers is given up on: the sentence, the Withdraw live again, the list asked (control: the row still shows)',
+      f.msgs.some((m) => m.startsWith('Kosmos did not hear back in time.')) && lee && lee.actOn && g1 >= 1, JSON.stringify({ msgs: f.msgs, lee, g1 }));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'consolidated');
+    // B15b: the rail is rebuilt on every status poll; a focused rail action is found again by its key.
+    await page.focus('#alist-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
+    await page.evaluate(() => { document.activeElement.__mark = 1; paintAgentList(); });
+    const b15 = await page.evaluate(() => { const a = document.activeElement; return { key: a && a.dataset ? a.dataset.fedKey : null, rebuilt: !(a && a.__mark),
+      inRail: !!(a && a.closest && a.closest('#alist-fed-outside')) }; });
+    check('B15b a rail rebuild keeps focus on the same row\'s action (control: the button was replaced)', b15.key === 'i:inv-lee' && b15.rebuilt && b15.inRail, JSON.stringify(b15));
+    // B15g: Remove pressed in the rail asks the board for that connection, and the row goes.
+    await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
+    await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
+    await page.click('#mem-go');
+    await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
+    await page.waitForTimeout(300);
+    const sent = await page.evaluate(() => window.__removes.slice());
+    const rf = await readFed(page, '#alist-fed-outside');
+    check('B15g rail: Remove asks the board for Dana\'s connection and her row goes (control: B11a\'s rail Withdraw)',
+      sent.length === 1 && sent[0].body && sent[0].body.edge_id === 'edge-dana' && !rf.rows.some((r) => r.key === 'e:edge-dana') && rf.rows.length > 0,
+      JSON.stringify({ sent, keys: rf.rows.map((r) => r.key) }));
+    await ctx.close();
+  }
+  {
+    // B15f: shot 07 at phone width: every name and sub-line on one line, as B1 at 1280.
+    const { ctx, page } = await newPage(390, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const oneLine = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-outside .fedout-row')].map((r) => {
+      const lh = (el) => parseFloat(getComputedStyle(el).lineHeight) || 16;
+      const nm = r.querySelector('.fedout-nm'); const sub = r.querySelector('.fedout-sub');
+      return { key: r.dataset.fedKey, nm: nm.getBoundingClientRect().height <= lh(nm) * 1.5, sub: sub.getBoundingClientRect().height <= lh(sub) * 1.5,
+        seen: r.getClientRects().length > 0 };
+    }));
+    check('B15f at 390 every name and sub-line is on one line (control: the rows are on screen, as many as at 1280)',
+      oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub && o.seen), JSON.stringify(oneLine));
     await ctx.close();
   }
 

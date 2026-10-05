@@ -67920,7 +67920,14 @@ function fedOutsideHtml() {
 function fedOutsidePaint(tabOnly) {
   const html = fedOutsideHtml();
   const el = document.getElementById('pj-fed-outside');
-  if (el && el.__fedHtml !== html) { el.__fedHtml = html; el.innerHTML = html; }
+  if (el && el.__fedHtml !== html) {
+    // A focused action is found again by its row key after the rebuild (a background refetch or another row's
+    // answer replaces the markup), instead of dropping to <body>; the rail does the same in paintAgentList.
+    const ae = document.activeElement;
+    const key = (ae && ae.closest && ae.closest('#pj-fed-outside .fedout-act[data-fed-key]')) ? ae.dataset.fedKey : null;
+    el.__fedHtml = html; el.innerHTML = html;
+    if (key) { const b = [...el.querySelectorAll('.fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key); if (b) b.focus(); }
+  }
   if (tabOnly) return;
   // The consolidated rail draws the section inside its own list, so it repaints that list while it groups.
   // Only when the section's markup changed, so an answer that changes nothing adds no extra rebuild (the status
@@ -68003,7 +68010,7 @@ function fedRemoveOpen(btn, r) {
     && !/^(The|My|Our|Your|Their|His|Her|A|An|Mr|Mrs|Ms|Mx|Dr)$/.test(word)) ? word : '';
   if (FED_BUSY.has(fedRowKey(r))) return;   // a Remove for this row is still being asked
   fedRemoveReset();
-  MEM_PENDING = { btn, fed: { project: PJ_CURRENT, edge_id: r.edge_id, key: fedRowKey(r) } };
+  MEM_PENDING = { btn, fed: { project: PJ_CURRENT, edge_id: r.edge_id, key: fedRowKey(r), label: r.label || '' } };
   document.getElementById('mem-title').textContent = who
     ? 'Remove ' + who + ' from this project?' : 'Remove someone you invited from this project?';
   document.getElementById('mem-small').textContent = first
@@ -68031,6 +68038,21 @@ function fedClearLoose() {
   const keys = new Set(fm && fm.ok ? fedOutsideRows(fm.body).map(fedRowKey) : []);
   Object.keys(FED_MSGS).forEach((k) => { if (!keys.has(k)) delete FED_MSGS[k]; });
 }
+// Remove and Withdraw are given up on after this (a request that never settles would keep the row's action
+// disabled until the page reloads); the list is then asked again, so it shows what the board did. A let, so the
+// browser check can shorten it.
+let FED_ACT_LIMIT_MS = 60000;
+const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. The list below is asked again, so it shows whether it went through.';
+async function fedActPost(url, payload) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), FED_ACT_LIMIT_MS) : 0;
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: ctl ? ctl.signal : undefined });
+    const body = await res.json().catch(() => null);
+    if (ctl && ctl.signal.aborted) { const e = new Error('timed out'); e.name = 'AbortError'; throw e; }
+    return { res, body };
+  } finally { if (timer) clearTimeout(timer); }
+}
 async function fedRemoveGo() {
   const p = MEM_PENDING;
   if (!p || !p.fed) return;
@@ -68046,16 +68068,15 @@ async function fedRemoveGo() {
   let res = null;
   let body = null;
   let said = '';
+  let timedOut = false;
   try {
-    res = await fetch('/api/federation/remove', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ project: f.project, edge_id: f.edge_id }),
-    });
-    body = await res.json().catch(() => null);
-  } catch {
-    said = FED_UNREACHABLE;
+    ({ res, body } = await fedActPost('/api/federation/remove', { project: f.project, edge_id: f.edge_id }));
+  } catch (err) {
+    timedOut = !!(err && err.name === 'AbortError');
+    said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
   }
   FED_BUSY.delete(f.key);
+  if (timedOut && PJ_CURRENT === f.project) fedMembersLoad(f.project);
   // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
   if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) memConfirmClose(); return; }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
@@ -68067,6 +68088,9 @@ async function fedRemoveGo() {
     if (fm && fm.ok && fm.project === f.project && fm.body && Array.isArray(fm.body.invites)) {
       fm.body.invites = fm.body.invites.map((r) => (r && r.edge_id === f.edge_id ? Object.assign({}, r, { state: 'removed' }) : r));
     }
+    // Cancel closed the dialog while it was asked, and it went through anyway: say so beside the list (the row is
+    // gone, so the sentence is a loose one, cleared by the next action), rather than letting the row just vanish.
+    if (!still) { const done = (f.label ? f.label : 'They') + ' ' + (f.label ? 'was' : 'were') + ' removed from this project.'; FED_MSGS[f.key] = done; fedSay(done); }
     fedOutsidePaint(false);   // the row goes now, not when the refetch answers
     if (still) fedRemoveDone();
     fedMembersLoad(f.project);
@@ -68097,14 +68121,12 @@ async function fedWithdraw(r) {
   let res = null;
   let body = null;
   let said = '';
+  let timedOut = false;
   try {
-    res = await fetch('/api/federation/withdraw', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ project, invite_id: r.invite_id }),
-    });
-    body = await res.json().catch(() => null);
-  } catch {
-    said = FED_UNREACHABLE;
+    ({ res, body } = await fedActPost('/api/federation/withdraw', { project, invite_id: r.invite_id }));
+  } catch (err) {
+    timedOut = !!(err && err.name === 'AbortError');
+    said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
   }
   FED_BUSY.delete(key);
   if (PJ_CURRENT !== project) return;
@@ -68127,7 +68149,7 @@ async function fedWithdraw(r) {
   fedOutsidePaint(false);
   // 409 joined: someone used the code meanwhile, so the row is now a joined one; 404: the code is not known any
   // more. Both ask again, and focus is placed after that repaint (the row's key changes or the row goes).
-  if ((res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)) {
+  if (timedOut || (res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)) {
     await fedMembersLoad(project);
     if (PJ_CURRENT !== project) return;
   }
@@ -68160,6 +68182,8 @@ function fedRefocus(key) {
   // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section or in
   // the Remove dialog that is closing (focus leaves a hidden dialog later, not at once).
   const at = document.activeElement;
+  // Focus on ANOTHER row's action (the person moved on while this was asked) stays where it is.
+  if (at && at.isConnected && at.dataset && at.dataset.fedKey && at.dataset.fedKey !== key && at.closest && at.closest('.fedout')) return;
   if (to && (!at || at === document.body || (at.closest && at.closest('.fedout, #mem-modal')))) to.focus();
 }
 // The rows' actions, delegated: both lists are rebuilt from markup on every paint.
