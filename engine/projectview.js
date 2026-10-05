@@ -35,7 +35,8 @@ const FUTURE_SLACK_MINUTES = 5;
  *   could not look (the reader must not take that as none).
  */
 /* overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
-   (#4581 N10, idleExcused). Not the member's own state, which also reads 'idle'. */
+   (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused). Not the member's
+   own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
   /* No usable folder at all (none recorded, or not absolute) is "we do not know where it is" (round 4), not "we
@@ -150,6 +151,36 @@ function idleExcused(summary, member, readReport, nowMs) {
   return { ...summary, state: 'idle', idleKind: rep.state === 'started' ? 'started' : 'idle', idleSince: new Date(idleAt).toISOString(), idleMinutes: Math.max(0, Math.round((now - idleAt) / 60000)) };
 }
 
+/* #4581 (10-05 user diagnostic R9, on 0.7.22): idleExcused measures from the member's LATEST idle report, and any turn
+   while the project is quiet (a community prompt every few hours, a room post) moves that report on, so a summary
+   written when the work ended reads as behind for days. The rhythm is a summary every four hours of WORK, so on a
+   project with no open task, the clock that matters is when its work ended: the newest time any of its tasks was
+   closed or had a part closed. A stale summary of an idle member written no earlier than the rhythm
+   before that reads 'quiet', with quietSince. A project that has never had a task has no such time and is left as it
+   was, and so is one with any open task: there is work to summarise. Weakest premise: work done outside any task
+   (a member asked in a room or a DM to do something) leaves no task time, so it is not counted here. */
+function lastWorkAt(tasks) {
+  let at = NaN;
+  const take = (v) => { const t = Date.parse(v); if (Number.isFinite(t) && !(t <= at)) at = t; };
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t) continue;
+    take(t.closedAt);
+    for (const part of Array.isArray(t.parts) ? t.parts : []) if (part) take(part.closedAt);
+  }
+  return at;
+}
+function quietExcused(summary, member, tasks, nowMs) {
+  if (!summary || summary.state !== 'stale' || !summary.at) return summary;
+  if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
+  if (openTasks(tasks).open !== 0) return summary;
+  const endedAt = lastWorkAt(tasks);
+  const wroteAt = Date.parse(summary.at);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!Number.isFinite(endedAt) || !Number.isFinite(wroteAt)) return summary;
+  if (endedAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  return { ...summary, state: 'quiet', quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
+}
+
 /**
  * The payload for one project, from a projects.list() entry (already described against the roster).
  * @param {object} p      one element of projects.list(roster)
@@ -184,7 +215,7 @@ function overviewOf(p, roster, o) {
          derived from that name reported as this member's summary. */
       /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
          member that is not running is still this member, and its last summary is exactly what a PM checks. */
-      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now),
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now),
     };
   });
   return {
@@ -297,6 +328,8 @@ const SUMMARY_WORDS = {
   idle: (s) => s.idleKind === 'started'
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
+  // #4581 R9: the project has no open task; this summary was current when its last task ended.
+  quiet: (s) => 'current when the project\'s work ended (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; the last task ended ' + ago(s.quietMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',

@@ -411,3 +411,60 @@ test('#4896: roleTitle is the board\'s roleLine rule (a lookup on the menu title
   // Review 1: `setup` is labelled "Kosmos Guide" but is not on the menu, so it is not one of the board's titles.
   assert.equal(roleTitle('kosmos guide'), 'Kosmos guide', 'a menu: false label must not be looked up');
 });
+
+/* #4581 R9 (10-05 user diagnostic, 0.7.22): every member of a finished project read as behind for days, because each
+   quiet-time turn (a community prompt, a room post) moves the latest idle report on, so idleExcused never applies. On a
+   project with no open task, a summary current when its last task ended reads 'quiet'. Real member rows (fleet +
+   describe); the report is injected as a RECENT idle, the case idleExcused cannot excuse. */
+test('#4581 R9: on a project with no open task, a summary current when its work ended reads quiet; otherwise stale', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('ida-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);   // written 5 days 1h ago
+  const show = (tasks, report, name = 'ida') => {
+    const raw = { id: 'qq', name: 'Quiet', folder: '/p/qq', agents: [name], tasks };
+    const described = projects.describe(raw, BOARD.agents, [raw]);
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report };
+    const view = v.overviewOf(described, BOARD.agents, o);
+    return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
+  };
+  const recentIdle = { found: true, state: 'idle', at: at(30) };   // a community turn half an hour ago
+  // The last task closed 5 days ago, an hour after the summary: current when the work ended.
+  const done = [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }];
+  const quiet = show(done, recentIdle);
+  assert.equal(quiet.m.summary.state, 'quiet', JSON.stringify(quiet.m.summary));
+  assert.match(quiet.text, /summary: current when the project's work ended \(summaries\/2026-09-24-15\.md, 5 days ago; the last task ended 5 days ago\)$/m);
+  assert.doesNotMatch(quiet.text, /older than the 4-hour rhythm/);
+  // A task finished by its parts counts as the end too (a part's closedAt, no task closedAt).
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(5 * DAY) }] }], recentIdle).m.summary.state, 'quiet');
+  // A task closed as a whole while its part stays open (closing leaves parts open): the task's own closedAt is the end.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY), parts: [{ id: 1, who: 'ida', closedAt: null }] }], recentIdle).m.summary.state, 'quiet');
+  // CONTROL: a summary that is current is left current on a finished project (only a stale one is excused).
+  const freshFolder = agentFolder('ida-quiet-fresh', [['2026-09-29-16.md', 30]]);
+  const freshRaw = { id: 'qf', name: 'Quiet Fresh', folder: '/p/qf', agents: ['ida'], tasks: done };
+  const freshDescribed = projects.describe(freshRaw, BOARD.agents, [freshRaw]);
+  assert.equal(v.overviewOf(freshDescribed, BOARD.agents, { now: NOW, folderOf: () => freshFolder, readBrief: () => ({ found: false }), readReport: () => recentIdle }).members[0].summary.state, 'current');
+  // CONTROL: any open task leaves it stale, there is work to summarise (even one added before the summary).
+  assert.equal(show(done.concat([{ number: 2, sentence: 'b', createdAt: at(7 * DAY) }]), recentIdle).m.summary.state, 'stale');
+  // CONTROL: a part closed two days ago is work after the summary, though its task was added before it.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(2 * DAY) }] }], recentIdle).m.summary.state, 'stale');
+  // CONTROL: work that ended more than four hours after the summary leaves it stale (it was behind when work ended).
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 240) }], recentIdle).m.summary.state, 'stale');
+  // The edge: exactly four hours after the summary still reads quiet.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 180) }], recentIdle).m.summary.state, 'quiet');
+  // CONTROL: a project that never had a task has no end time, so it stays stale.
+  assert.equal(show([], recentIdle).m.summary.state, 'stale');
+  // CONTROL: a later task, closed two days ago, is work after the summary.
+  assert.equal(show(done.concat([{ number: 2, sentence: 'b', createdAt: at(2 * DAY), closedAt: at(2 * DAY - 10) }]), recentIdle).m.summary.state, 'stale');
+});
+
+test('#4581 R9 CONTROL: a member that is not idle is never marked quiet, even on a finished project', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('mark-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);
+  const raw = { id: 'qw', name: 'Quiet Working', folder: '/p/qw', agents: ['mark'], tasks: [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const m = described.agents.find((x) => x.sessionName === 'mark');
+  assert.ok(m && m.present && m.state !== 'idle', 'fixture: mark is not a non-idle running member: ' + JSON.stringify(m && m.state));
+  const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(30) }) };
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
+});
