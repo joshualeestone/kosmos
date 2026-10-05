@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: queuewrap-4977
-diff_hash: 15fd9ce500e390be3daaab39b58a212e1ca352dbc450da4935922e6b0d593473
-validation: passed (Mortals full suite at 477ecc6c0; after rebasing onto main 2026-10-03 16:19 CDT at d021c8810 (package.json test:shell conflict only, main's steps kept, the branch's three added in its order): bash -n both scripts and tools/test-queued-heavy-4977.sh 79/79 OK; rebased on main for the merge (hold lifted): package.json test:shell conflicts resolved as main's list plus this branch's three commands; tools/test-queued-heavy-4977.sh 79/79, guards 144/144 on the new base)
+diff_hash: 2a14527306a7730e772400923c1d5ced49fc313b60f5c29e82c5395e63d7d1a4
+validation: passed (Mortals full suite at 477ecc6c0; after rebasing onto main 2026-10-03 16:19 CDT at d021c8810 (package.json test:shell conflict only, main's steps kept, the branch's three added in its order): bash -n both scripts and tools/test-queued-heavy-4977.sh 79/79 OK; rebased on main for the merge (hold lifted): package.json test:shell conflicts resolved as main's list plus this branch's three commands; tools/test-queued-heavy-4977.sh 79/79, guards 144/144 on the new base; rebased again (main moved: test:shell conflict, same union rule); 4977 test + guards green)
 subdir_audit: passed
-timestamp: 2026-10-04T18:47:08Z
+timestamp: 2026-10-05T00:09:36Z
 iterations: 8
 converged: true
 ---
