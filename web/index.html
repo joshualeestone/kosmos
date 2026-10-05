@@ -9661,6 +9661,15 @@ html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]
               border-radius: 10px; padding: 10px 12px; margin: var(--space-6) 0 0; background: var(--bg); }
 .fedinv-can b { color: var(--label); font-weight: 600; }
 #fedinv-modal .rm-acts { justify-content: flex-end; margin-top: var(--space-6); }
+/* The sheet lives inside #panel-projects (the body-children cap), where `.panel h2` (0,1,1) and `.panel p` (0,1,1)
+   out-rank .rm-title, .fhint, .fmsg and .rm-small (0,1,0): its title came out at title-3 and its lines at body type
+   with the panel's gaps. Each class's own type is restored here, scoped to the sheet, so it reads as every other
+   dialog does (the dialogs at body level never meet the panel rules). */
+#fedinv-modal .rm-title { font: 600 var(--text-title-1) var(--font-ui); color: var(--label); margin: 0 0 var(--space-5); }
+#fedinv-modal p.fhint { font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: inherit; margin-bottom: var(--space-4); }
+#fedinv-modal p.fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: inherit; margin-bottom: 0; }
+#fedinv-modal p.rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: 1.45; margin-bottom: var(--space-8); }
+#fedinv-modal p.fedinv-josh { margin-bottom: var(--space-4); }
 .fedinv-josh { margin-bottom: var(--space-4); }
 .fedinv-code { display: flex; gap: var(--space-4); align-items: center; min-width: 0; }
 .fedinv-code .tk-inp { flex: 1 1 auto; min-width: 0; margin-top: 0; font-family: ui-monospace, Menlo, monospace;
@@ -33983,7 +33992,10 @@ function fedGateStamp(data) {
      leaves "show" closes them (the CSS hides the outside item and the sheet as well), and the "+"
      says it opens a menu only while it does. Guarded: unit tests lift this function alone. */
   if (mode !== 'show') {
-    if (typeof pjAddMenuClose === 'function') pjAddMenuClose(false);
+    // Refocus the + only if focus was in the menu (its items go hidden): otherwise leave focus where it is.
+    const menuEl = document.getElementById('pj-addmenu');
+    const inMenu = !!(menuEl && menuEl.contains(document.activeElement));
+    if (typeof pjAddMenuClose === 'function') pjAddMenuClose(inMenu);
     const inv = document.getElementById('fedinv-modal');
     // A code already made cannot be shown again, so its step survives a passing "signup" (one poll that reads the
     // entitlement as unknown on prod); only federation turning off ("hidden") closes it. The asking step closes.
@@ -67595,8 +67607,8 @@ document.getElementById('fedinv-label').addEventListener('keydown', (e) => {
   e.preventDefault();
   if (!document.getElementById('fedinv-make').disabled) fedInviteMake();
 });
-document.getElementById('fedinv-cancel').addEventListener('click', fedInviteClose);
-document.getElementById('fedinv-ok').addEventListener('click', fedInviteClose);
+document.getElementById('fedinv-cancel').addEventListener('click', () => fedInviteClose());   // never pass the event as `force`
+document.getElementById('fedinv-ok').addEventListener('click', () => fedInviteClose());
 document.getElementById('fedinv-copy').addEventListener('click', fedInviteCopy);
 // The backdrop closes the asking step only: once a code is shown, a stray click must not lose it.
 document.getElementById('fedinv-modal').addEventListener('click', (e) => {
