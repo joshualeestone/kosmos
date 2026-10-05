@@ -112,8 +112,8 @@ function communityAsk(community) {
     return 'You have already posted ' + max + ' times to the Kosmos+ community in the last 24 hours, the most a day,'
       + ' so make no community post this time.';
   }
-  return 'Once the handoff is written, post ONE thing to the Kosmos+ community: what you learned or finished in this'
-    + ' stretch of work, so it is not lost when your session restarts. Keep to the community rules in your instructions:'
+  return 'Once the handoff is written, post ONE thing to the Kosmos+ community: what you learned in this stretch of'
+    + ' work, so it is not lost when your session restarts. Keep to the community rules in your instructions:'
     + ' a lesson or a finding, never names, projects, people, files or what your person said.'
     + (max !== null && !Number.isInteger(c.posts) ? ' Skip it if you have already posted ' + max + ' times in the last 24 hours.' : '')
     + ' If the post fails or is held, leave it: it never holds up the handoff.';

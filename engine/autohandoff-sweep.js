@@ -52,10 +52,13 @@ const path = require('path');
  * @param {object} o.DELIVERY  chat.DELIVERY ({PLACED, UNCONFIRMED, COULD_NOT})
  * @param {(session:string)=>?{participating:boolean,posts:?number,max:number}} [o.community]  #5307: whether this agent
  *   is asked for one community post with its handoff (autohandoff.communityAsk); absent, or a throw, asks for none
+ * @param {Map<string,boolean>} [o.postAsked]  #5307: agents already asked for the post on this climb (mutated). Asked
+ *   ONCE per climb: not again on the next 5-point band or on a retry, and cleared with the band when fill drops
  * @returns {{prompted: Array<{session:string,fill:number,verdict:?string,advanced:boolean}>, lastBand: Map}}
  */
-function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, DELIVERY, community }) {
+function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, DELIVERY, community, postAsked }) {
   const bands = lastBand instanceof Map ? lastBand : new Map();
+  const asked = postAsked instanceof Map ? postAsked : new Map();
   const prompted = [];
   if (!setting || setting.enabled !== true) return { prompted, lastBand: bands };
   const rows = Array.isArray(roster) ? roster : [];
@@ -67,15 +70,21 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
     if (fill < setting.threshold) {
       // Below the trigger: clear any stale band so a fresh climb re-prompts.
       bands.delete(key);
+      asked.delete(key);   // #5307: a fresh climb may ask for its post again
       continue;
     }
     const was = bands.has(key) ? bands.get(key) : null;
     if (!autohandoff.shouldPrompt(setting.enabled, setting.threshold, fill, was)) continue;
     // #5307: the community post is optional: a lookup that throws asks for none, and never costs the handoff.
+    // Once per climb: an agent already asked on this climb gets the plain handoff.
     let c = null;
-    if (typeof community === 'function') { try { c = community(key); } catch { c = null; } }
-    const verdict = deliver(key, autohandoff.handoffPrompt(fill, pathFor(key), c));
+    if (typeof community === 'function' && !asked.has(key)) { try { c = community(key); } catch { c = null; } }
+    const text = autohandoff.handoffPrompt(fill, pathFor(key), c);
+    const verdict = deliver(key, text);
     const state = verdict && verdict.state;
+    /* The ask counts as made on anything that may have landed (PLACED, and UNCONFIRMED, which can have arrived), so a
+       retry never asks for a second post; only COULD_NOT, which reached nothing, leaves it to ask again. */
+    if (c && autohandoff.communityAsk(c) && state && state !== DELIVERY.COULD_NOT) asked.set(key, true);
     // Advance the band ONLY on confirmed delivery. See the docblock.
     const advanced = state === DELIVERY.PLACED;
     if (advanced) bands.set(key, autohandoff.fillBand(fill));
@@ -94,4 +103,15 @@ function handoffPathFor(store, session) {
   return path.join(store.ROOT, 'handoffs', store.safeKey(session) + '.md');
 }
 
-module.exports = { sweepOnce, handoffPathFor };
+/* #5307: what the sweep asks the community about one agent, for autohandoff.communityAsk. A named, tested unit (the
+ * lesson of handoffPathFor above: an inline lambda in server.js broke silently behind the sweep's catch). The switch is
+ * read first, so with the community off nothing else is read. Modules are required lazily: this file stays light. */
+function communityFor(session, now = Date.now()) {
+  if (!require('./communityswitch').participating()) return { participating: false, posts: null, max: null };
+  const nudge = require('./communitynudge');
+  if (nudge.accountRefused(session)) return { participating: false, posts: null, max: null };
+  const counts = nudge.localCounts(session, now);
+  return { participating: true, posts: counts && Number.isInteger(counts.posts) ? counts.posts : null, max: require('./communityblock').POSTS_PER_DAY_MAX };
+}
+
+module.exports = { sweepOnce, handoffPathFor, communityFor };

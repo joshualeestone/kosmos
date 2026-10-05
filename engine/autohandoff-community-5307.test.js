@@ -14,7 +14,8 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-hopost-5307-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const ah = require('./autohandoff');
-const { sweepOnce } = require('./autohandoff-sweep');
+const { sweepOnce, communityFor } = require('./autohandoff-sweep');
+const communityswitch = require('./communityswitch');
 const { DELIVERY } = require('./chat');
 const nudge = require('./communitynudge');
 const cs = require('./communitysend');
@@ -38,7 +39,8 @@ test('#5307: with the community on, one post is asked for AFTER the handoff, wit
   assert.ok(at < lines.length - 1 && /^Keep working/.test(lines[lines.length - 1]), 'before "keep working", which stays last');
   const ask = lines[at];
   assert.match(ask, /^Once the handoff is written, post ONE thing/);
-  assert.match(ask, /what you learned or finished/);
+  assert.match(ask, /what you learned in this stretch of work/);
+  assert.doesNotMatch(ask, /finished/, 'a lesson, not a work report');
   assert.match(ask, /never names, projects, people, files or what your person said/);
   assert.match(ask, /If the post fails or is held, leave it: it never holds up the handoff\./);
   assert.doesNotMatch(ask, /Skip it if/, 'a known count under the ceiling needs no reminder');
@@ -87,4 +89,37 @@ test('#5307: accountRefused is true only for a readable record that says refused
   assert.equal(nudge.accountRefused('cy'), false, 'an agent with no record');
   fs.writeFileSync(file, '{not json');
   assert.equal(nudge.accountRefused('ada'), false, 'an unreadable record says nothing');
+});
+
+test('#5307: one post is asked per climb: not again on the next band or a retry, again after the fill drops back', () => {
+  const texts = []; let state = DELIVERY.PLACED;
+  const deliver = (session, text) => { texts.push(text); return { state }; };
+  const bands = new Map(); const postAsked = new Map();
+  const run = (pct) => sweepOnce({ setting: { enabled: true, threshold: 85 }, roster: [{ sessionName: 'a', context: { percent: pct } }], lastBand: bands,
+    deliver, pathFor: (k) => '/h/' + k + '.md', autohandoff: ah, DELIVERY, community: () => ON, postAsked });
+  const asks = () => texts.filter((t) => /post ONE thing/.test(t)).length;
+  run(86); assert.equal(asks(), 1, 'the first band asks');
+  run(91); run(96); assert.equal(texts.length, 3); assert.equal(asks(), 1, 'the next bands of the same climb do not ask again');
+  run(40); run(87); assert.equal(asks(), 2, 'a fresh climb asks again');
+  // A retry after an UNCONFIRMED delivery (which may have landed) does not ask twice; COULD_NOT (reached nothing) does.
+  bands.clear(); postAsked.clear(); texts.length = 0;
+  state = DELIVERY.UNCONFIRMED; run(88); run(88);
+  assert.equal(texts.length, 2, 'the unconfirmed handoff is retried'); assert.equal(asks(), 1, 'but the post is asked once');
+  bands.clear(); postAsked.clear(); texts.length = 0;
+  state = DELIVERY.COULD_NOT; run(88); state = DELIVERY.PLACED; run(88);
+  assert.equal(asks(), 2, 'nothing reached the agent the first time, so the retry asks');
+});
+
+test('#5307: communityFor reads the switch, the refusal and the 24-hour count', () => {
+  const file = cs._paths.keysFile();
+  try { fs.unlinkSync(file); } catch { /* none */ }
+  try { fs.unlinkSync(communityswitch.FILE); } catch { /* none: never asked reads ON */ }
+  assert.deepEqual(communityFor('ada'), { participating: true, posts: 0, max: 6 }, 'on by default, nothing posted yet');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ ada: { refused: true } }));
+  assert.equal(communityFor('ada').participating, false, 'a switched-off account is not asked');
+  fs.unlinkSync(file);
+  assert.equal(communityswitch.setOn(false).ok, true);
+  assert.deepEqual(communityFor('ada'), { participating: false, posts: null, max: null }, 'community off: nothing else read');
+  assert.equal(communityswitch.setOn(true).ok, true);
 });
