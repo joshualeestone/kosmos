@@ -260,9 +260,10 @@ async function paintRoom(page) {
       const guest = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg ext'; d.setAttribute('data-mid', 'x-1b2c'); d.innerHTML = '<div class="msg-bd">Hi</div>';
         document.getElementById('pj-room').appendChild(d); const t = msgRefText(d); d.remove(); return t; });
       chk(guest === '', tag + 'CONTROL: a room row with no number (an outside guest) has no id to copy', JSON.stringify(guest));
-      const c4 = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg ext'; d.setAttribute('data-mid', 'x-1b2c');
-        d.innerHTML = '<div class="msg-b"><div class="msg-bd"><b class="msg-nm">Ben</b> <span class="msg-ext-tag">External</span><div class="msg-ext-tx">Hi there<br>second line</div><span class="msg-t">2:31 PM</span></div></div>';
-        document.getElementById('pj-room').appendChild(d);
+      /* Drawn by the page's own renderer (pjRoomRow's external branch), so what the fallback strips is what a real row holds. */
+      const c4 = await page.evaluate(() => { const box = document.createElement('div');
+        box.innerHTML = pjRoomRow({ kind: 'external', id: 'x-1b2c', from: 'Ben', fromKind: 'person', at: new Date().toISOString(), text: 'Hi there\nsecond line' }, { id: 'p1', name: 'Kosmos Growth', agents: [] }, false);
+        const d = box.firstElementChild; document.getElementById('pj-room').appendChild(d);
         const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }); d.querySelector('.msg-ext-tx').dispatchEvent(ev);
         const m = document.getElementById('msg-menu');
         const out = { text: msgCopyText(d), taken: ev.defaultPrevented, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|'), focus: document.activeElement && document.activeElement.id };
