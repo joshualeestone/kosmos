@@ -299,7 +299,7 @@ test('review 3: a refusal during a redraw shows its reason on the row on screen,
     return { ok: false, json: async () => ({ outcome: 'refused', field: 'name', because: 'an agent called pip is already here' }) };
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importAddsNewVisit') + '\n' + slice('importRowsSync') + '\n'
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map(); let IMPORT_ATTEMPT_LAST = 0;\n' + slice('importRowApply') + '\n' + slice('importAddsDropStuck') + '\n' + slice('importAddsNewVisit') + '\n' + slice('importRowsSync') + '\n'
     + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\n' + slice('addImportedInPlace')
     + '\nreturn { addImportedInPlace, importNamesKept, importNamesRestore };')(t.document, fetchImpl);
   const first = mk();
@@ -323,7 +323,7 @@ test('review 3: a refusal during a redraw shows its reason on the row on screen,
 test('review 3: a fresh visit to the list forgets receipts, but keeps an add still in flight', () => {
   // eslint-disable-next-line no-new-func
   const api = new Function('const IMPORT_ADDS = new Map([[\'a\', { state: \'added\', name: \'A\' }], [\'b\', { state: \'adding\', name: \'B\' }]]);\n'
-    + slice('importAddsNewVisit') + '\nreturn { IMPORT_ADDS, importAddsNewVisit };')();
+    + slice('importAddsDropStuck') + '\n' + slice('importAddsNewVisit') + '\nreturn { IMPORT_ADDS, importAddsNewVisit };')();
   api.importAddsNewVisit();
   assert.deepEqual([...api.IMPORT_ADDS.keys()], ['b']);
   const src = slice('populateFoundImports');
@@ -489,7 +489,7 @@ test('review 7: an add stuck in flight over a minute is dropped on the next visi
   const now = Date.now();
   // eslint-disable-next-line no-new-func
   const api = new Function('now', 'const IMPORT_ADDS = new Map([[\'old\', { state: \'adding\', at: now - 61000 }], [\'new\', { state: \'adding\', at: now - 5000 }]]);\n'
-    + slice('importAddsNewVisit') + '\nreturn { IMPORT_ADDS, importAddsNewVisit };')(now);
+    + slice('importAddsDropStuck') + '\n' + slice('importAddsNewVisit') + '\nreturn { IMPORT_ADDS, importAddsNewVisit };')(now);
   api.importAddsNewVisit();
   assert.deepEqual([...api.IMPORT_ADDS.keys()], ['new']);
 });
