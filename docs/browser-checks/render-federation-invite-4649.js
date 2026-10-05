@@ -78,12 +78,12 @@
  *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
  * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text, her
- * Q-M5 owner name). On origin/main (no invite sheet) the C block fails from its first arm. On slice B (no #fedinv-
- * copy-all) the C0 arms fail by assertion, the setup line, C3's negative control and C1's bare-Copy control pass
- * (correctly), and the run ends in a crash at C4's copyKeysWord(); every arm after that point does not run there.
- * The owner's name is the board's "You" name (/api/you, faked below as __you) and the address is the ACCOUNT's name
- * (owner_name on the owner's members answer, Kitty's follow-up), both read by the page's own loaders
- * (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own address.
+ * Q-M5 owner name). On origin/main (no invite sheet) the C block fails from its first arm. On slice B (no
+ * #fedinv-copy-all) the C0 arms fail by assertion and the run then crashes in C1, waiting for #fedinv-copy-all;
+ * nothing after that point runs there. The owner's name is the board's "You" name (/api/you, faked below as __you)
+ * and the address is the ACCOUNT's name (owner_name on the owner's members answer, Kitty's follow-up), both read by
+ * the page's own loaders (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own
+ * address.
  *  C0  the code step reads as shot 03: "It works once, until Sunday, October 11. You can withdraw it from Members
  *      until Dana joins.", the Easier box naming Dana, and "Copy the invitation" as the primary (uprime) button
  *      after Done, with the bare-code Copy still there. A label that is not a name ("my sister") says "they join"
@@ -1056,6 +1056,7 @@ const closeAll = (page) => page.evaluate(() => {
       window.__copied.length = 0;
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Write permission denied.'); } } });
       window.__execOk = false;   // the select-and-copy fails too
+      FEDINV_CLIP_HOLDS = '';    // no earlier copy of this text on record (C2 left one), so the refusal is real
     });
     await copyAll(page);
     st = await step(page);
@@ -1201,6 +1202,7 @@ const closeAll = (page) => page.evaluate(() => {
         JSON.stringify({ newer: newer.status, after: after.status }));
       // C7b: the same button twice (same text): the stale write changes nothing, so the newer "Copied" stands.
       await p7.page.evaluate(() => {
+        FEDINV_CLIP_HOLDS = '';   // C7's late write recorded the invitation; each arm starts with no copy on record
         window.__execOk = false;
         window.__holds = [];
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__holds.push(ok); }) } });
@@ -1218,7 +1220,7 @@ const closeAll = (page) => page.evaluate(() => {
         same.status === 'Invitation copied.', JSON.stringify({ status: same.status }));
       // C7c: the same button twice, BOTH refused (both held past the limit), then the stale write lands: it did copy
       // the invitation, so the refusal gives way to "Invitation copied." (control: C7b, where the newer press said so).
-      await p7.page.evaluate(() => { window.__holds = []; });
+      await p7.page.evaluate(() => { window.__holds = []; FEDINV_CLIP_HOLDS = ''; });   // no copy on record: both presses refused
       await p7.page.click('#fedinv-copy-all');
       await p7.page.waitForTimeout(3600);
       await p7.page.click('#fedinv-copy-all');

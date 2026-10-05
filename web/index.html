@@ -67594,6 +67594,9 @@ let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is kno
 // Anything copied in another app replaces the clipboard without this page knowing, so leaving the window forgets the
 // record: a later refusal then says so honestly rather than claiming an earlier copy still stands.
 window.addEventListener('blur', () => { FEDINV_CLIP_HOLDS = ''; });
+// So is any copy on this page (the person following the refusal's own advice, another copy control): a copy event
+// fires before the sheet's select-and-copy records its text, so the sheet's own copies are still recorded.
+document.addEventListener('copy', () => { FEDINV_CLIP_HOLDS = ''; });
 let FEDINV_COPY_TOKEN = 0;     // slice C: counts copy presses, so a late write from an earlier press is known as stale
 let FEDINV_COPY_BUSY = false;  // slice C: either copy (the code, or the invitation) is waiting on the clipboard
 let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project, projectId })
@@ -67606,7 +67609,7 @@ function fedInviteOpen(opener, prefill) {
   FEDINV_PROJECT = PJ_CURRENT;
   FEDINV_SEQ++;
   if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
-  FEDINV_COPY_BUSY = false;   // a clipboard still being asked belongs to the sheet that was closed (its seq check drops it)
+  FEDINV_COPY_BUSY = false;   // a clipboard still being asked belongs to the sheet that was closed (fedCopyText reports its late landing)
   FEDINV_CLIP_HOLDS = '';
   document.getElementById('fedinv-t').textContent = FEDINV_TITLE;
   document.getElementById('fedinv-ask').hidden = false;
@@ -67712,7 +67715,17 @@ async function fedCopyText(text, btn, onLate, what) {
   const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
   const write = (async () => navigator.clipboard.writeText(text))();
   // Whenever this write lands, in time or late, the clipboard holds its text: a refusal checks that before speaking.
-  write.then(() => { if (seq === FEDINV_SEQ) FEDINV_CLIP_HOLDS = text; }, () => {});
+  write.then(() => {
+    if (seq === FEDINV_SEQ) { FEDINV_CLIP_HOLDS = text; return; }
+    // A write from a sheet that was closed (and maybe reopened for another code) has just landed: the clipboard now
+    // holds THAT code, not this sheet's. Say so on whatever sheet is open, rather than dropping it silently.
+    FEDINV_CLIP_HOLDS = '';
+    const back = document.getElementById('fedinv-modal');
+    if (back && !back.hidden) {
+      fedInviteCopyReset();
+      document.getElementById('fedinv-status').textContent = 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy again for this code.';
+    }
+  }, () => {});
   let ok = false;
   try { await Promise.race([write, late]); ok = true; }
   catch {
