@@ -18292,7 +18292,7 @@ const server = http.createServer(async (req, res) => {
           let note = '';
           try {
             const raw = projects.readAll().find((x) => x && x.id === id);
-            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null }) : [];
+            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made) }) : [];
             if (alike.length) {
               const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim());
                 return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };

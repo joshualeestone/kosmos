@@ -4,37 +4,48 @@
 engine/tasks.js has no check of new task text against open tasks. In one session the same ask was added as #1 and #11,
 and another as #26, #27 and #29.
 
-## The change
-- engine/tasks.js `similarOpen(p, sentence, beforeNumber, {parent})`: a pure function of the project record. Since review 3 it
-  names up to three OPEN, OLDER tasks with the SAME text (see "Review round 3"), never the task itself or its parent.
-- server.js POST /api/project/:id/tasks: the task is ADDED as asked. The answer carries `note`, for example
-  "Note: an open task with similar text already exists: #1 (Verify Theo AI and Enzo Health). If this is the same ask,
-  close the new one: kosmos task close <project> <n>".
+## The change (as it stands after review round 7)
+- engine/tasks.js `sameTextOpen(p, sentence, beforeNumber, {parent, detail, who})` names up to three tasks, oldest
+  first. A task is named only if all of these hold:
+  - it is OPEN;
+  - it is numbered BELOW the new one;
+  - it is not the new task's parent;
+  - it is under the SAME parent (top-level with top-level);
+  - its sentence and its detail are the SAME text: only case, runs of whitespace and NFC are set aside, and every other
+    character counts;
+  - it is given to the same people.
+- server.js POST /api/project/:id/tasks: the task is ADDED as asked. The answer carries `note`, for example "Note: an
+  open task with the same text already exists: #1 (Verify Theo AI and Enzo Health). If this is the same ask, close the
+  new one: kosmos task close <project> <n>".
 - Both CLIs print the note under the "added" sentence: install/kosmos lifts it with sed; tools/windows/kosmos-cli.js
   prints r.json.note.
 
 ## Decided
-- **Similar means:** lowercase words, with punctuation and a few filler words dropped. A match is any of:
-  - the same words;
-  - a word overlap (Jaccard) of 0.6 or more, with two or more words on each side;
-  - every word of the shorter (three or more words) appears in the other.
-- **Add, then warn.** The card's "add anyway?" is a prompt. Agents run the CLI non-interactively and cannot answer one,
-  so the task is added and the answer says how to close it if it is a duplicate. No silent dedup, as the card says:
-  two asks can look alike and be different, and only the adder knows.
-- **Rejected:** refusing without a flag (`--anyway`). It would break every agent and script that adds tasks today,
-  for a guess.
-- **Rejected:** merging into the existing task. That is the silent dedup the card rules out.
-- **The note** holds no double quote or backslash, so the macOS CLI's sed can lift it. The look-alikes' sentences are
-  cut to 60 characters, with those characters taken out.
-- **Out of scope:** the project page also adds tasks through this route. It ignores the new field; showing the
-  look-alikes on screen would be its own card.
+- **Add, then warn.** The card's "add anyway?" is a prompt, and agents cannot answer one. No silent dedup, as the card
+  says.
+- **Rejected:** refusing without an --anyway flag (it would break every agent and script that adds tasks). Merging into
+  the existing task (the silent dedup the card rules out).
+- **The SAME text, not similar text.** Reviews 1 to 7 showed every looser rule matching different asks. Each is now a
+  test that must not match:
+  - another person or verb;
+  - a negation;
+  - swapped order;
+  - a sign or symbol;
+  - a superscript;
+  - another parent;
+  - another detail or assignee.
 
-**Weakest premise:** the word-overlap thresholds are judged on the report's two real cases and a handful of near
-misses ("Fix the signup bug" vs "Fix the login bug" is NOT similar). A real duplicate phrased with different words
-("look into Worlds" vs "deep dive: Worlds") is missed, which is the old behaviour. A false match costs one line of
-advice.
+  The note makes an agent close the NEW task, so a false match costs a real task. A miss costs only today's behaviour.
+  Both real cases in the report were exact copies.
+- **The note** holds no double quote, backslash, control character or direction override (the macOS CLI lifts it with
+  sed; a terminal can act on controls). Project ids are [a-z0-9_-] (idFor).
+- **Out of scope:** the project page ignores the new field.
 
-**What would change my mind:** a report of notes on unrelated tasks. The fix then is to raise the 0.6 threshold.
+**Weakest premise:** that real duplicates are literal copies. A duplicate in other words, or with other punctuation,
+is missed.
+
+**What would change my mind:** a report of a missed duplicate that was not a copy. Then a stricter fuzzy rule could be
+proposed against the false-match rows the tests already hold.
 
 ## Tests
 - server.task-same-text-5319.test.js:
@@ -114,3 +125,11 @@ with the strip removed, the row goes red.
 - [N] FIXED: U+061C (a bidi mark) is stripped from the note too. My own round-1 edit had written that character class
   as raw invisible characters in server.js; it is now ASCII \u escapes, and the diff carries no invisible characters.
 - [N] not changed: toLowerCase is not a symmetric fold for Greek final sigma; that is only a miss.
+
+## Review round 7 (opus)
+- [W] FIXED: the same sentence for another target ("Review the PR" for PR 12 / PR 15; for alice / for bob) is another
+  ask, so the detail and the people it is given to must match too. Test rows.
+- [W] FIXED: a route test now adds a subtask through the real route. Under another parent there is no note; under the
+  same parent the sibling is named. Control: with the parent dropped from the server's call, it goes red.
+- [N] FIXED: the plan's "change" and "decided" sections describe the rule as it stands.
+- [N] not changed: a hand-edited parent pointing at a missing task is read as stored (only a miss).
