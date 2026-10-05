@@ -152,3 +152,11 @@ test('passOnce: a debt owed again while its line was being sent survives the wri
   assert.equal(p.sent.length, 1);
   assert.equal(p.file().ida && p.file().ida.n, 2, 'the debt owed during the send was cleared');
 });
+
+test('review 4: oweChanged owes a community re-read to exactly the agents whose rules changed', () => {
+  const told = [{ agent: 'ann', changed: true, rulesChanged: true }, { agent: 'bea', changed: true, rulesChanged: false },
+    { agent: 'cal', changed: false, rulesChanged: false }, { agent: null, state: 'could_not', rulesChanged: false }];
+  const next = ir.oweChanged(told, { dot: { at: T - 5, n: 1, sections: ['rules'] } }, T);
+  assert.deepEqual(next, { dot: { at: T - 5, n: 1, sections: ['rules'] }, ann: { at: T, n: 1, sections: ['community'] } });
+  assert.deepEqual(ir.oweChanged(null, {}, T), {});
+});

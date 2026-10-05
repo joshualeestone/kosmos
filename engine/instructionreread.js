@@ -96,6 +96,14 @@ function mergeCleared(latest, cleared) {
   return next;
 }
 
+/* Pure: the board-start community refresh's verdicts (communityblock.refreshEveryone) applied to the debt map: every
+   agent whose rules changed owes a 'community' re-read. */
+function oweChanged(told, owed, now = Date.now()) {
+  let next = { ...owed };
+  for (const t of Array.isArray(told) ? told : []) if (t && t.rulesChanged === true && t.agent) next = owe(next, t.agent, 'community', now);
+  return next;
+}
+
 /* The one line for an agent's debt, naming every section it owes. */
 function lineFor(sections) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
@@ -105,7 +113,6 @@ function lineFor(sections) {
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it again now. '
     + 'What it says now replaces what you read when you started.';
 }
-
 
 /*
  * One delivery pass. Never throws. Everything it reads or sends is injected, so it is tested without a board:
@@ -160,4 +167,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, lineFor, passOnce };
+module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce };
