@@ -1080,7 +1080,9 @@ async function instructionRereadPass() {
 /* A consented working-rules refresh owes the running agent a re-read. A pass sends it once the agent has been idle at
    two passes running, so it lands one to two INSTRUCTION_REREAD_MS after the click. */
 function instructionRereadOwe(session) {
-  try { require('./engine/instructionreread').oweNow(session, 'rules'); } catch { /* the file is right; only the line is lost */ }
+  let ok = false;
+  try { ok = require('./engine/instructionreread').oweNow(session, 'rules'); } catch { ok = false; }
+  if (!ok) process.stderr.write(`Kosmos updated ${session}'s working rules but could not record that it should be told; it reads them at its next start\n`);
 }
 const INSTRUCTION_REREAD_MS = 5 * 60 * 1000;
 const githubdevice = require('./engine/githubdevice');

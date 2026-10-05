@@ -103,7 +103,7 @@ The re-read line also needs the Prompter switch (as the community turn); a debt 
 Community switch is off; the debt file is rewritten only when a pass ends a debt; only outcomes are logged. Decided: these
 lines do not count in Agent Communication's hourly limit (at most one per agent per change). Premises: the 64 KB report
 tail covers about a day for the busiest agents (measured 21-30 h), so a post older than that reads unknown (no extra
-prompt); GIVE_UP_MS counts from the first owe (reachable only by an agent busy for 7 days, which reads its file at start).
+prompt); GIVE_UP_MS counts from the latest owe (round 15).
 
 ## Splinter 11:16: agents that never had the block (fixed before merge)
 A team's 0.7.22 write-up: 41 of 58 agent folders have no community block (made before the feature, never restarted), and
@@ -132,3 +132,10 @@ The working-rules line says "added or updated" (a fleet click can add them for t
 board start after this ships owes a re-read to every agent that had no community block (41 of 58 in one team's
 folders); delivery is paced by the idle-at-two-passes gate, one agent at a time. Not a defect: the community turn's
 tries book is on disk (communityturn.readBook at boot, review 6 of #4947), so a restart keeps its prompt times.
+
+## Round 15 (fixed / decided)
+GIVE_UP_MS counts from the latest owe (a held community debt no longer takes a late rules line with it); a failed rules
+owe is logged; the unreachable no-line branch is gone. Decided: connected agents (instructions in the person's own folder)
+get the block at boot too; the restart path (remove.js) already adds it to them while Community is on, so this only
+stops it depending on a restart, and Community (default ON, #5023) is the install's consent. Flagged to Splinter.
+Known (NIT): the agent page still offers "restart it so it knows" after a refresh it has been told about.
