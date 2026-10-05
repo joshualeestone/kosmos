@@ -756,7 +756,8 @@ token_refused_hint() {   # <token-sent> <board-answer>
     say "If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new"
     say "token by itself, so ask your person to restart you from Kosmos (your page, Restart; \"Write a handoff, then"
     say "restart\" keeps what you were doing). The new session starts with a fresh token. \`kosmos adopt\` does not"
-    say "help: its token never reaches a running session."
+    say "help: its token never reaches a running session. If you have no page in Kosmos at all, your person can add"
+    say "you from New agent."
   } >&2
 }
 
@@ -2635,7 +2636,7 @@ cmd_report() {
   # than forwarded: /api/report reads `header || body.token`, so a junk header
   # would take the token arm and fail there instead of falling through to the
   # pane, turning a working report into a refused one.
-  _tok=""
+  local _tok=""   # #5333: local, now that token_refused_hint reads it here
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
