@@ -321,7 +321,9 @@ function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
         || (theirs !== null && theirs(t))
         || (t.launcher !== launcher && !(untagged && !t.launcher)));
       if (left.length === all.length) return { ok: true, retired: 0 };
-      if (left.length === 0) { const r = revokeUnlocked(sessionName); return r.ok ? { ok: true, retired: all.length } : r; }
+      /* #5333 round 9: a sweep that leaves nothing writes the empty list, as retire does, so a live session whose own
+         token was already gone reads as lost, not unknown. revoke stays the only path that removes the file. */
+      if (left.length === 0) { writeTokens(sessionName, []); return { ok: true, retired: all.length }; }
       writeTokens(sessionName, left);
       return { ok: true, retired: all.length - left.length };
     });
