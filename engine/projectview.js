@@ -347,4 +347,4 @@ function renderShow(payload) {
   return out;
 }
 
-module.exports = { summaryFreshness, idleExcused, familyOf, overviewOf, listOf, renderList, renderShow, SUMMARY_RHYTHM_HOURS };
+module.exports = { summaryFreshness, idleExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS };

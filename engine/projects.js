@@ -2872,13 +2872,13 @@ function addAgent(id, sessionName, roster, made) {
 
 /* #5300 (10-05 user diagnostic R10, and N11 in the 0.7.15 one: "let the role say what the agent does on that project"):
    every member showed its agent's one role, so five agents made as Project Managers read as five Project Managers on
-   every project. A member can say what it does on THIS project; describe shows that ahead of the agent's own role.
+   every project. A member can say what it does on THIS project; describe carries it as `roleHere`, beside `role`.
    Kept per project in `rolesHere` (session name -> words), removed with the membership. One line of plain words, at
    most ROLE_HERE_MAX characters; an empty one clears it. Throws on a non-member or words that are not text. */
 const ROLE_HERE_MAX = 60;
 function cleanRoleHere(role) {
   if (typeof role !== 'string') throw new Error('say the role in words');
-  const one = role.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ').replace(/\s+/g, ' ').trim();
+  const one = require('./projectview').one(role);   // review 3: the line filter project show uses, not a narrower copy
   if (one.length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
   return one;
 }
@@ -2886,6 +2886,9 @@ function setRoleHere(id, sessionName, role) {
   const key = String(sessionName || '').trim();
   const words = cleanRoleHere(role);
   let out = null;
+  // Unchanged (review 3): no write, so re-running the verb is not project activity (updatedAt).
+  const cur = readAll().find((p) => p && p.id === id);
+  if (cur && (cur.agents || []).includes(key) && roleHereOf(cur, key) === (words || null)) return { role: words || null };
   mutate(id, (p) => {
     if (!(p.agents || []).includes(key)) throw new Error('that agent is not on this project');
     const rolesHere = { ...(p.rolesHere || {}) };
@@ -2911,9 +2914,12 @@ function removeAgent(id, sessionName, made) {
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.
     delete told[key];
-    const rolesHere = { ...(p.rolesHere || {}) };   // #5300: the role here goes with the membership
-    delete rolesHere[key];
-    return withMemberChange({ ...p, agents: (p.agents || []).filter((a) => a !== key), told, everSeen, rolesHere }, key, 'remove', made, Date.now());
+    if (p.rolesHere && Object.prototype.hasOwnProperty.call(p.rolesHere, key)) {   // #5300: the role here goes with the membership
+      const rolesHere = { ...p.rolesHere };
+      delete rolesHere[key];
+      p = { ...p, rolesHere };
+    }
+    return withMemberChange({ ...p, agents: (p.agents || []).filter((a) => a !== key), told, everSeen }, key, 'remove', made, Date.now());
   });
 }
 

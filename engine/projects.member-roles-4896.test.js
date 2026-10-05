@@ -98,7 +98,7 @@ test('#5300: a role set for one project is that member\'s roleHere there only; r
     // project show prints both, the role here quoted (an agent's words), and the own role first.
     const view = require('./projectview');
     const shown = view.renderShow({ project: view.overviewOf(projects.list(roster).find((p) => p.id === b.id), roster, { allProjects: [] }) }).join('\n');
-    assert.ok(shown.includes('Ada, Project Manager  |') || shown.includes('Ada, Project Manager; '), 'fixture: ' + shown);
+    assert.ok(shown.includes('Ada, Project Manager  |'), 'fixture, or a role here leaked into this project: ' + shown);
     projects.setRoleHere(b.id, 'pm', 'Lead "boss"');
     const shown2 = view.renderShow({ project: view.overviewOf(projects.list(roster).find((p) => p.id === b.id), roster, { allProjects: [] }) }).join('\n');
     assert.match(shown2, /Ada, Project Manager; on this project: "Lead 'boss'"  \|/, shown2);
@@ -111,6 +111,6 @@ test('#5300: a role set for one project is that member\'s roleHere there only; r
     assert.ok(Object.prototype.hasOwnProperty.call(stored, '__proto__'), 'the role for __proto__ was not kept as its own key');
     // A non-member is refused; the role is one line.
     assert.throws(() => projects.setRoleHere(b.id, 'nobody', 'x'), /not on this project/);
-    assert.deepEqual(projects.setRoleHere(b.id, 'pm', 'line one\nline\u202etwo'), { role: 'line one line two' });
+    assert.deepEqual(projects.setRoleHere(b.id, 'pm', 'line one\nline\u202etwo'), { role: 'line one linetwo' });
   } finally { store.writeProfile('cw', {}); }
 });

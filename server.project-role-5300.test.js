@@ -108,3 +108,17 @@ test('#5300: refusals: not a member, too long, not text, nobody named; the scree
     assert.equal(Object.prototype.hasOwnProperty.call(stored(p.id).rolesHere || {}, bo), false, 'the role outlived the membership');
   } finally { board.restore(); }
 });
+
+test('#5300 review 3: a paneless (Windows) agent sets its role under the member name the project stores; tag characters are dropped', async () => {
+  // The REAL paneless row, as server.project-pause-4771 makes it: a token plus a live beat, no typed card.
+  const remote = sendertoken.mint('Kip5300', { launcher: 'remote' });
+  assert.equal(remote.ok, true, 'fixture: no paneless token');
+  require('./engine/liveness').seen('kip5300');
+  const p = projects.create({ name: 'Role Paneless' });
+  const raw = projects.readAll();
+  raw.find((x) => x.id === p.id).agents = ['Kip5300'];   // stored under the spelling it joined with, not the key
+  projects.writeAll(raw);
+  const r = await asAgent(p.id, remote.token, { role: 'Tester\u{E0041}\u{E0042} of builds' });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual(stored(p.id).rolesHere, { Kip5300: 'Tester of builds' }, 'not stored under the project\'s spelling, or a tag character kept');
+});

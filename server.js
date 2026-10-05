@@ -18587,8 +18587,8 @@ const server = http.createServer(async (req, res) => {
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   /* #5300 (10-05 user diagnostic R10): a member says what it does on THIS project (`kosmos project role`). Body
-     { role } (empty clears it). An agent sets only its own, identified by its token or pane as task built does; the
-     screen names the member (`name`). Shown by projects.describe ahead of the agent's own role. Not valved: one field
+     { role } (empty clears it). An agent sets only its own, identified by processCaller (token, else pane); the
+     screen names the member (`name`). describe carries it as `roleHere`, beside `role`. Not valved: one field
      per member per project, rewritten in place; display only (describe's roleHere), so it decides no routing. */
   const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
   if (roleHere && req.method === 'POST') {
@@ -18605,21 +18605,16 @@ const server = http.createServer(async (req, res) => {
         name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
         if (!name) { sendJson(res, 400, { error: 'say which member' }); return; }
       } else {
-        if (roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the role was not set' }); return; }
-        const tokenSender = senderFromAgentToken(req, body, roster);
-        if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
-        const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
-        const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
-        const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
-        name = (card && card.sessionName) || null;
+        const caller = processCaller(req, body, roster, false, 'the role was not set');
+        if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
+        name = (caller.card && caller.card.sessionName) || null;
         if (!name) { sendJson(res, 403, { error: 'run this as an agent: Kosmos could not tell which agent you are' }); return; }
         /* The stored spelling of this member, as task built finds it: a paneless caller (every Windows agent) by key. */
         let stored = null;
         try { stored = projects.readAll().find((x) => x && x.id === id) || null; }
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the role was not set' }); return; }
         if (stored) {
-          const byKey = panelessCaller(tokenSender);
-          const match = (stored.agents || []).find((a) => sameAgentName(a, name, byKey));
+          const match = (stored.agents || []).find((a) => sameAgentName(a, name, caller.byKey));
           if (match) name = match;
         }
       }
