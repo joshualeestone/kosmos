@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: community-refresh-5297
 diff_hash: 7cc85bf87121389f5a961967bd510d37b20f9aad349e25274b951968118f0ca0
-validation: pending (focused 803/803 on head 78f1a2b68: the module tests, every sandbox-boot test, every CLAUDE.md reader, server.test.js and the file-scanning guards; full suite on Mortals and PR CI, merge waits on both)
+validation: node suite passed at head acd55a87a (full node --test, 15572 tests, 15348 pass, 0 fail, 224 skipped, 2026-10-05 12:26 CDT; an earlier 803 count over-claimed the CLAUDE.md readers, which a zsh word-split skipped); Mortals full (incl. shell tests) and PR CI still to come, merge waits on both
 subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-05T16:57:35Z
 iterations: 21
