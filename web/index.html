@@ -9669,7 +9669,6 @@ html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]
 #fedinv-modal p.fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: inherit; margin-bottom: 0; }
 #fedinv-modal p.rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: 1.45; margin-bottom: var(--space-8); }
 #fedinv-modal p.fedinv-josh { margin-bottom: var(--space-4); }
-.fedinv-josh { margin-bottom: var(--space-4); }
 .fedinv-code { display: flex; gap: var(--space-4); align-items: center; min-width: 0; }
 .fedinv-code .tk-inp { flex: 1 1 auto; min-width: 0; margin-top: 0; font-family: ui-monospace, Menlo, monospace;
                        font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -16846,6 +16845,7 @@ window.kosmosMeasureScrollbarWidth();
     <div class="field">
       <label class="flabel" for="fedinv-label">Who is it for?</label>
       <p class="fhint" id="fedinv-label-hint">Their name, so you can tell your invitations apart. Only you see it.</p>
+      <!-- maxlength 80 is the board's LABEL_MAX (engine/fedmembers.js); the board trims and caps it again. -->
       <input class="tk-inp" id="fedinv-label" type="text" maxlength="80" autocomplete="off" spellcheck="false" aria-describedby="fedinv-label-hint fedinv-msg">
     </div>
     <div class="field">
@@ -67396,30 +67396,39 @@ function pjAddMenuAgentsLine() {
 }
 // Mona's Q-M4: below the "+", right edge on the "+"'s right edge, kept inside the Members card
 // (the rail in the consolidated view); at phone width the card's full width under the head.
+const PJ_ADDMENU_WIDTH = 250;    // Mona's Q-M4 menu width on a desktop
+const PJ_ADDMENU_GUTTER = 16;    // the page's side gutter: the menu never touches the window edge
+const PJ_ADDMENU_GAP = 6;        // between the "+" and the menu below it
 function pjAddMenuPlace() {
   const menu = document.getElementById('pj-addmenu');
   const opener = PJ_ADDMENU_OPENER;
   if (!menu || menu.hidden || !opener) return;
-  if (!opener.getClientRects().length) { pjAddMenuClose(false); return; }   // its + is gone (scrolled away, a tab change): no zero-rect jump
+  if (!opener.getClientRects().length) { pjAddMenuCloseKeepFocus(); return; }   // its + is gone (scrolled away, a tab change): no zero-rect jump
   const r = opener.getBoundingClientRect();
   const host = opener.closest('.pjcard-members') || opener.closest('#rail-agents');
   const vw = document.documentElement.clientWidth || window.innerWidth;
-  const gutter = 16;
+  const gutter = PJ_ADDMENU_GUTTER;
   const c = host ? host.getBoundingClientRect() : { left: gutter, right: vw - gutter };
   const lo = Math.max(gutter, c.left);
   const hi = Math.min(vw - gutter, c.right);
   let left, width;
-  if (vw <= 600) { left = lo; width = Math.max(0, hi - lo); }
+  // The app's one phone width (40rem, as its @media rules and matchMedia use), not a second definition.
+  if (window.matchMedia && window.matchMedia('(max-width: 40rem)').matches) { left = lo; width = Math.max(0, hi - lo); }
   else {
     // Right edge ON the "+" AND inside the card: a card narrower than 250 px (the tab view's Members column
     // is ~246) narrows the menu to the room between the card's left edge and the "+" (Mona's review, 20:0x).
-    width = Math.min(250, vw - 2 * gutter, Math.max(0, r.right - lo));
+    width = Math.min(PJ_ADDMENU_WIDTH, vw - 2 * gutter, Math.max(0, r.right - lo));
     left = Math.max(lo, r.right - width);
     if (left + width > vw - gutter) left = vw - gutter - width;
   }
-  menu.style.top = Math.round(r.bottom + 6) + 'px';
+  menu.style.top = Math.round(r.bottom + PJ_ADDMENU_GAP) + 'px';
   menu.style.left = Math.round(left) + 'px';
   menu.style.width = Math.round(width) + 'px';
+}
+// Closes the menu; if focus was in it (its items go hidden), focus goes back to the "+", not to <body>.
+function pjAddMenuCloseKeepFocus() {
+  const m = document.getElementById('pj-addmenu');
+  pjAddMenuClose(!!(m && m.contains(document.activeElement)));
 }
 function pjAddMenuClose(refocus) {
   const menu = document.getElementById('pj-addmenu');
@@ -67438,7 +67447,7 @@ function pjAddMenuSync() {
   // A menu left open across a project switch or a tab change (its "+" no longer on screen) closes on the next
   // stamp rather than coming back stale for another project.
   const m = document.getElementById('pj-addmenu');
-  if (m && !m.hidden && (PJ_ADDMENU_PROJECT !== PJ_CURRENT || !PJ_ADDMENU_OPENER || !PJ_ADDMENU_OPENER.getClientRects().length)) pjAddMenuClose(false);
+  if (m && !m.hidden && (PJ_ADDMENU_PROJECT !== PJ_CURRENT || !PJ_ADDMENU_OPENER || !PJ_ADDMENU_OPENER.getClientRects().length)) pjAddMenuCloseKeepFocus();
   const on = fedShow() && !!PJ_CURRENT;   // with no project open the + opens the add-agent dialog, not a menu
   const grouped = AGENTS_GROUPED === true;   // declared near the top (a typeof guard would not shield a TDZ read anyway)
   for (const [id, menuy] of [['pj-add-member', on], ['rail-agents-new', on && grouped]]) {
@@ -67474,7 +67483,8 @@ document.addEventListener('click', (e) => {
   if (menu.contains(e.target) || (PJ_ADDMENU_OPENER && PJ_ADDMENU_OPENER.contains(e.target))) return;
   pjAddMenuClose(false);
 });
-window.addEventListener('resize', () => pjAddMenuClose(false));
+// A resize re-places the menu (a phone's address bar collapsing on scroll fires resize too).
+window.addEventListener('resize', () => pjAddMenuPlace());
 // A scroll re-places the menu under its "+" (the emoji picker's pattern) rather than closing it: the project room
 // scrolls itself when a post arrives, which would otherwise shut the menu while it is being read.
 document.addEventListener('scroll', (e) => {
@@ -67549,7 +67559,9 @@ function fedInviteLongDate(sec) {
   if (typeof sec !== 'number' || !Number.isFinite(sec) || sec <= 0) return '';
   try { return new Date(sec * 1000).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); } catch { return ''; }
 }
+const FEDINV_MAKE_LIMIT_MS = 60000;   // above the board's worst case for one invite (see fedInviteMake)
 async function fedInviteMake() {
+  if (!fedShow()) return;   // a passing signup reading keeps the asking step open, but no new code is made under it
   const msg = document.getElementById('fedinv-msg');
   const make = document.getElementById('fedinv-make');
   const label = document.getElementById('fedinv-label').value.trim();
@@ -67563,9 +67575,10 @@ async function fedInviteMake() {
   const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
   try {
     // A board or coordinator that never answers must not hold the sheet shut (it refuses to close while Make is in
-    // flight): after 30 s the request is given up and falls into "could not reach", with Make live again.
+    // flight). The limit sits well above the board's own worst case (its coordinator call gives up at 20 s, and one
+    // project's invites queue one after another), and a request given up on says a code may still have been made.
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = ctl ? setTimeout(() => ctl.abort(), 30000) : 0;
+    const timer = ctl ? setTimeout(() => ctl.abort(), FEDINV_MAKE_LIMIT_MS) : 0;
     let res, body;
     try {
       res = await fetch('/api/federation/invite', {
@@ -67590,8 +67603,12 @@ async function fedInviteMake() {
     const until = fedInviteLongDate(body.expires_at);
     document.getElementById('fedinv-until').textContent = until ? 'It works once, until ' + until + '.' : 'It works once.';
     document.getElementById('fedinv-copy').focus();
-  } catch {
-    if (seq === FEDINV_SEQ) msg.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
+  } catch (err) {
+    if (seq === FEDINV_SEQ) {
+      msg.textContent = err && err.name === 'AbortError'
+        ? 'Kosmos did not hear back in time. A code may still have been made: check Members before making another.'
+        : 'Kosmos could not reach the connection service. Try again in a moment.';
+    }
   } finally {
     if (seq === FEDINV_SEQ) { make.disabled = false; FEDINV_INFLIGHT = false; }
   }
@@ -67643,7 +67660,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const back = document.getElementById('fedinv-modal');
-  if (!back || back.hidden) return;
+  if (!back || back.hidden || !back.getClientRects().length) return;   // not on screen: never trap Tab app-wide
   const reachable = [...back.querySelectorAll('button, input, textarea, select, [tabindex]:not([tabindex="-1"])')]
     .filter((el) => !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
   if (!reachable.length) { e.preventDefault(); return; }
