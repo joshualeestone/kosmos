@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: msgcopy-5312
-diff_hash: 5972cfe68c49f12a6984ef921bff5d9223beacdbe61e93e95542a51c52cec254
+diff_hash: 754d5632bd23157648699f9e2369c44c4e07adefe4b6c9cf14fb66ac360cd6b2
 validation: not run locally as yarn test (the machine's suite queue was 14 deep). Run instead on head fc3a82513: page tests 2452/2452 (node --test web.*.test.js); browser checks all passed, none skipped: render-msgref-4631 (Chromium as Windows and Mac, touch, real WebKit), render-dm-tapreact-718 (four phone sizes), render-room-msgbox-2806, render-room-reply-3745, render-dm-reply-4256, render-dm-reactions-3650, render-reactions-2255, render-voice-4409. CI runs the full node and shell suites on the PR head.
 subdir_audit: not run (same)
 timestamp: 2026-10-05T17:22:28Z
@@ -120,6 +120,11 @@ converged: true
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 6 NITs
 **Converged** — no new actionable findings.
+
+### After convergence: CI
+CI's node suite on 769028c failed one lint, no-name-refs-3071: the C4 guest fixture (render-msgref-4631.js:302) used a
+real outside person's first name. Renamed to the neutral fixture name `Roo`; no-name-refs-3071 4/4 and
+render-msgref-4631 all passed on the new head. One word in a test fixture; no product code changed.
 
 ### Final Ledger (WARNINGs and above)
 
