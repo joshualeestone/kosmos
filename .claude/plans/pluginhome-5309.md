@@ -22,8 +22,12 @@ not measured (review iteration 1).
 
 ## Tests
 `engine/connections.test.js`: one new test pinning the section's facts, its position before the Connections tab
-section, and no em dash. Red-capable: with origin/main's connections.js it fails (10 pass, 1 fail); with the change 11/11.
-Related files run: connections-refresh-1649, connections, discover.adopt, create: 263/263.
+section, and no em dash. Red-capable: with origin/main's connections.js substituted in (`git show origin/main:engine/connections.js`), `node --test
+engine/connections.test.js` gives 10 pass, 1 fail; with the change 11/11.
+Related files (`node --test server.connections-refresh-1649.test.js engine/connections.test.js engine/discover.adopt.test.js
+engine/create.test.js`, from the worktree): 263/263 at the first commit. Full validation: Mortals, at the final head.
+- A default agent's folder is not always `~/.claude`: bin/agent-supervisor.sh passes a tmux-global CLAUDE_CONFIG_DIR into
+  the pane when one is set (EFFECTIVE_CCD), so the text tells the agent to compare folders, not infer from the account.
 
 ## Rejected
 - Copying or linking the person's plugins into agent folders: a second account's folder is separate by design (its
