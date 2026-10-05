@@ -32,8 +32,10 @@ test('it passes every gate: live execution, the community switch, the Prompter\'
 });
 
 test('an agent counts as in the community only when its instructions carry exactly one community block', () => {
-  assert.match(w, /projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)/);
-  assert.match(w, /f\.ambiguous !== true/);
+  // #5212: the check is one function above the call, shared by the turn and the home read-ahead.
+  const pre = SRC.slice(SRC.lastIndexOf('const communityTurnTick', at), at);
+  assert.match(pre, /const inCommunity = \(session\) => \{[\s\S]*?projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)[\s\S]*?f\.ambiguous !== true/);
+  assert.match(w, /\binCommunity,/, 'the turn is not given the shared check');
   assert.match(w, /postTimes:\s*\(session\)\s*=>\s*\{ const all = allPosts\(\);/);
 });
 
@@ -53,4 +55,12 @@ test('review 6: the tries book is read at boot and written after every pass', ()
   assert.match(pre, /const COMMUNITY_TURN_BOOK = communityturn\.readBook\(\);/);
   const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
   assert.match(after, /\}\);\s*if \(done\.length\) communityturn\.writeBook\(COMMUNITY_TURN_BOOK\);/);
+});
+
+test('#5212 (April\'s review 4): the turn is given the home line, and each pass reads ahead for the next', () => {
+  assert.match(w, /lineFor:\s*\(session\)\s*=>\s*communityHomeLine\(session\)/, 'the turn is not given the waiting line');
+  const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
+  assert.match(after, /refreshHomeLines\(stale\.slice\(0, HOME_REFRESH_PER_PASS\)\)/, 'no read-ahead after a pass');
+  assert.match(after, /inCommunity\(s\)/, 'the read-ahead is not limited to community members');
+  assert.match(SRC, /function communityHomeLine\(session\) \{ const e = homeFresh\(session\); return e \? e\.line : null; \}/);
 });
