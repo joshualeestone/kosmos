@@ -13,6 +13,9 @@ its folder (compare actual folders, not the account), its account (claude.ai con
 (the desktop app's chat side). Then: say which one plainly, no restart for those, the in-folder causes to look at, and
 "say you do not know yet" when none fits.
 
+- A default agent's folder is not always `~/.claude`: bin/agent-supervisor.sh passes a tmux-global CLAUDE_CONFIG_DIR into
+  the pane when one is set (EFFECTIVE_CCD), so the text tells the agent to compare folders, not infer from the account.
+
 Knowledge only: the block stays constant (no argument, no machine state), as its tests require. It deliberately names no
 file inside a provider folder: where Codex records an enabled plugin, and how account-synced Claude plugins arrive, were
 not measured (review iteration 1).
@@ -23,8 +26,6 @@ section, and no em dash. Red-capable: with origin/main's connections.js substitu
 engine/connections.test.js` gives 10 pass, 1 fail; with the change 11/11.
 Related files (`node --test server.connections-refresh-1649.test.js engine/connections.test.js engine/discover.adopt.test.js
 engine/create.test.js`, from the worktree): 263/263 at the first commit and again after review iteration 6. Full validation: Mortals, at the final head.
-- A default agent's folder is not always `~/.claude`: bin/agent-supervisor.sh passes a tmux-global CLAUDE_CONFIG_DIR into
-  the pane when one is set (EFFECTIVE_CCD), so the text tells the agent to compare folders, not infer from the account.
 
 ## What each claim rests on (connections.js's own rule: only what was read off the product)
 - Measured on Agent1s: each Claude config folder has its own `plugins/installed_plugins.json` (two folders, different
