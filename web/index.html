@@ -20096,6 +20096,35 @@ function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || (acct.keyTail ? 'API key ending ' + acct.keyTail : '') || acct.label)) || '';
 }
+/* #5145: which account an agent is on after a provider switch, as the page records it (CURRENT.account.dir), or
+   null. ONE function so its precedence can be tested (review 2). `landed` is the route's accountDir.
+   - Claude: the person's pick wins (it is what the engine resolved); else the landed account if listed; else, when the
+     route named an account the page's list does not have (a stale list), nothing; else the main Claude account.
+   - Others: the landed account wins (codex can fall back from an unpicked unknown row); if it is not listed (the
+     Gemini/Grok default with no key, or a stale list), nothing, even when it is what was sent; with no landed
+     account (a dry-run, Antigravity), the sent row.
+   A landed dir is matched to a row after normalising (see bare below), and the row's own stored dir is recorded; a
+   dir that matches no row records nothing rather than a guess. */
+function chooseSwitchedAccount(want, sentDir, out, accounts, mainClaudeDir) {
+  /* The landed dir is the server's path.resolve; a row's dir is stored as its engine wrote it: a trailing separator
+     (an env-override default), and on Windows either separator and either case of the drive letter. So a row matches
+     with separators unified, the trailing one dropped and a drive letter lower-cased, and the row's OWN stored dir is
+     what gets recorded, so a landed record names a real row (the "Right now" rebuild finds it by exact match). A
+     Claude pick is recorded as sent: it is what the engine resolved, listed or not, as before this card. */
+  const bare = (d) => String(d).replace(/\\/g, '/').replace(/\/+$/, '').replace(/^([A-Za-z]):/, (m, l) => l.toLowerCase() + ':');
+  const rowFor = (d) => (typeof d === 'string' && d !== ''
+    ? (accounts || []).find((x) => x && typeof x.dir === 'string' && x.dir !== '' && bare(x.dir) === bare(d)) || null : null);
+  const partial = !out || out.outcome === 'partial';
+  // A partial (the restart failed) records no landed account: the agent did not move, whatever the caller checks.
+  const landed = !partial && out && typeof out.accountDir === 'string' && out.accountDir ? out.accountDir : null;
+  if (want === 'anthropic') {
+    if (sentDir && !partial) { const picked = rowFor(sentDir); return picked ? picked.dir : sentDir; }   // its row's own spelling when listed
+    if (landed) { const row = rowFor(landed); return row ? row.dir : null; }
+    return mainClaudeDir || null;
+  }
+  if (landed) { const row = rowFor(landed); return row ? row.dir : null; }   // unlisted: nothing, never the sent dir
+  return (sentDir && !partial) ? sentDir : null;
+}
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
    restarted session writes one, that is the OLD session's, so Runs on said "Right now: <the old model>"
@@ -48847,12 +48876,13 @@ async function changeProviderNow(say) {
       CURRENT.modelName = null;
       // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
       CURRENT.plannedModelName = want === 'anthropic' ? 'Claude (its default model)' : null;
-      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
-         would disable Move for an agent that is on main. */
+      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one. The one exception
+         (#5145): the route named an account the page's list does not have (a stale list). Then nothing is recorded,
+         since the agent is on THAT account, not main, and naming main would be wrong; Move waits for the next list. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
-      CURRENT.account = want === 'anthropic'
-        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
-        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null);   // round 5: OpenAI/Gemini/Grok keep the sent account too
+      /* #5145: the account the switch landed on, by chooseSwitchedAccount's precedence (tested there). */
+      const chosenDir = chooseSwitchedAccount(want, sentAccount, out, ACCOUNTS, mainClaude ? mainClaude.dir : null);
+      CURRENT.account = chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
