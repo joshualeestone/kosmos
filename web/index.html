@@ -7004,9 +7004,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
-/* #4631: Copy message reference (#5312: now "Copy message id", after Copy message), drawn like Reply. The number is faint: it is there so a
-   person sees what they copy, not to be read as part of the message. #5312: Copy message (the whole text) comes first,
-   drawn the same, and the reference became "Copy message id". */
+/* #4631: Copy message reference, drawn like Reply. The number is faint: it is there so a person sees what they copy,
+   not to be read as part of the message. #5312: it is now "Copy message id", after Copy message (the whole text),
+   which is drawn the same. */
 .rxn-ref, .rxn-copy { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
            display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .rxn-ref-ico { flex: none; display: block; }
@@ -63666,7 +63666,10 @@ function msgRefButton(mid) {
     + '</button>';
 }
 function msgCopyButton() {
-  return '<button class="rxn-copy" type="button" title="Copy message" aria-label="Copy message">'
+  /* On a touchscreen it opens the menu with both (msgCopyPressed), and its name says so; with a pointer it copies. */
+  const touch = typeof PJ_TOUCH_MQ !== 'undefined' && !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches;
+  return '<button class="rxn-copy" type="button" title="Copy message" '
+    + (touch ? 'aria-label="Copy message or its id" aria-haspopup="menu">' : 'aria-label="Copy message">')
     + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
     + '</button>';
 }
@@ -63851,7 +63854,7 @@ function msgMenuOpen(row, x, y) {
   /* Each item only where it has something to copy: an outside guest's row has words but no id. With neither, no menu
      (the touch bar's Copy reaches here without msgMenuRowFor's check). */
   const hasText = !!msgCopyText(row), hasRef = !!msgRefText(row);
-  if (!hasText && !hasRef) { m.hidden = true; m.msgRef = null; return; }
+  if (!hasText && !hasRef) { msgMenuClose(false); return; }
   document.getElementById('msg-menu-text').hidden = !hasText;
   document.getElementById('msg-menu-copy').hidden = !hasRef;
   m.msgBack = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;

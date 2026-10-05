@@ -3,7 +3,7 @@
 /* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
  * message to then reference it to an agent later on". In the real page (web/index.html from disk, fetch stubbed):
  *
- *   R1  a room post's hover bar starts with Copy reference, showing the number faintly; Reply stays last (#4358)
+ *   R1  a room post's hover bar has Copy message id (once Copy reference), showing the number faintly; Reply stays last (#4358)
  *   R2  clicking it copies "message 530 in Kosmos Growth" and says so in a toast
  *   R3  right-clicking the post opens the menu, and its Copy message id (once Copy message reference) copies the same words
  *   R4  ctrl-click (Windows) opens the same menu; on a Mac ctrl-click is the right-click of R3
@@ -24,7 +24,7 @@
  *   C3  the menu offers Copy message then Copy message id; the arrow keys move between them; each copies its own
  *   C4  an outside guest's row (no id) offers Copy message alone, from what the row shows
  *   C5  a direct-conversation row copies its own record's words; a failed copy says so without the words
- *   C6  on a touchscreen both buttons are there and the bar still fits the phone
+ *   C6  on a touchscreen the bar keeps seven buttons: Copy (named for its menu) opens the menu with both, and the bar fits
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-msgref-4631.js [shots-dir]
  */
@@ -100,9 +100,11 @@ async function paintRoom(page) {
         const inL = room.getBoundingClientRect().left + room.clientLeft; const inR = inL + room.clientWidth;
         const shown = [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]);
         const cp = q.querySelector('.rxn-copy').getBoundingClientRect();
-        return { open: row.classList.contains('rxn-show'), shown: shown.join(','), copy: [Math.round(cp.width), Math.round(cp.height)], barH: Math.round(qr.height),
+        const cb = q.querySelector('.rxn-copy');
+        return { name: cb.getAttribute('aria-label'), popup: cb.getAttribute('aria-haspopup'), open: row.classList.contains('rxn-show'), shown: shown.join(','), copy: [Math.round(cp.width), Math.round(cp.height)], barH: Math.round(qr.height),
           inside: qr.left >= inL - 0.5 && qr.right <= inR + 0.5, bar: [Math.round(qr.left), Math.round(qr.right)], thread: [Math.round(inL), Math.round(inR)] };
       });
+      chk(c6.name === 'Copy message or its id' && c6.popup === 'menu', '[touch] C6 Copy is named for what it opens (a menu with both)', JSON.stringify(c6));
       chk(c6.open && c6.shown === 'rxn-copy,rxn-pick,rxn-pick,rxn-pick,rxn-more,rxn-speak,rxn-reply' && c6.copy[0] >= 36 && c6.copy[1] >= 36 && c6.barH < 50 && c6.inside,
         '[touch] C6 a tapped-open bar keeps seven buttons (Copy, no Copy message id), Copy a room-sized target, on one line inside the thread', JSON.stringify(c6));
       await page.locator('#pj-room .msg[data-mid="m530"] .rxn-copy').tap();
