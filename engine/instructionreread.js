@@ -33,6 +33,12 @@ const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
   rules: 'the working rules (Kosmos added or updated them with your person\'s OK)',
+  // kosmos#5304: the blocks the board-start sweeps and the About-you save rewrite.
+  you: 'the section headed "Who you work for"',
+  reports: 'the section headed "Who you report to"',
+  connections: 'the section headed "How connecting a provider works"',
+  dmfiles: 'the section headed "Where to save files you make for the person"',
+  language: 'the section headed "The person\'s language"',
 });
 
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
@@ -154,6 +160,13 @@ function oweChanged(told, owed, now = Date.now()) {
   return next;
 }
 
+/* Pure (kosmos#5304): every verdict whose block was rewritten (`changed`) owes `section`. */
+function oweEach(told, owed, section, now = Date.now()) {
+  let next = { ...owed };
+  for (const t of Array.isArray(told) ? told : []) if (t && t.changed === true && t.agent) next = owe(next, t.agent, section, now);
+  return next;
+}
+
 /* The one line for an agent's debt, naming every section it owes. */
 function lineFor(sections) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
@@ -264,4 +277,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
