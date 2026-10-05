@@ -5,8 +5,8 @@ engine/tasks.js has no check of new task text against open tasks. In one session
 and another as #26, #27 and #29.
 
 ## The change
-- engine/tasks.js `similarOpen(p, sentence, exceptNumber)`: a pure function of the project record. It returns up to
-  three OPEN tasks whose text is similar, never the task itself.
+- engine/tasks.js `similarOpen(p, sentence, beforeNumber, {parent})`: a pure function of the project record. Since review 3 it
+  names up to three OPEN, OLDER tasks with the SAME text (see "Review round 3"), never the task itself or its parent.
 - server.js POST /api/project/:id/tasks: the task is ADDED as asked. The answer carries `note`, for example
   "Note: an open task with similar text already exists: #1 (Verify Theo AI and Enzo Health). If this is the same ask,
   close the new one: kosmos task close <project> <n>".
@@ -68,3 +68,25 @@ advice.
   no spaces), comparing every word, filler included, so "Fix this" is still not "Fix it". Combining marks (\p{M})
   stay inside a word.
 - [N] FIXED: numbers are compared in order: "Move 1 to 2" is not "Move 2 to 1".
+
+## Review round 3 (opus): CUT TO THE SAME TEXT
+Round 3 still found false matches after rounds 1 and 2 tuned the fuzzy rules:
+- long tasks one word apart ("Email Alice ..." / "Email Bob ...", "approve" / "reject");
+- a negation inside the two-extra-word allowance ("Do not enable dark mode on login" / "Enable dark mode on login");
+- swapped order (Dallas to Austin / Austin to Dallas);
+- extra name words.
+This is the pattern Baron named on #5263: each round tunes the rules and the next finds their new edge.
+
+**Decided: match only the SAME TEXT.** Case, punctuation, spacing and Unicode form (NFKC) are set aside; numbers and
+word order are kept.
+- Both real cases in the 0.7.22 report were exact copies.
+- The note makes an agent close the NEW task, so a false match costs a real task. A miss costs only today's behaviour.
+- Every false-match class from rounds 1 to 3 is now a test row that must NOT match.
+
+**Trade-off:** a near-duplicate in other words ("deep dive worlds again") is not named. That is today's behaviour.
+
+**The note now says "the same text".** Round 1's rules are kept: only older tasks, never the parent, and at most three
+(now oldest first). Round 3's NFKC point is taken. Its warnings and nits on the fuzzy rules no longer apply.
+
+**Test gap closed:** the route test's look-alike now has a double quote and a backslash in its stored text. Control:
+with the strip removed, the row goes red.
