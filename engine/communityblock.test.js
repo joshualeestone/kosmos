@@ -600,3 +600,11 @@ test('#5297 Splinter 11:37: a CONNECTED agent (its folder is the person\'s own) 
   assert.deepEqual(again.filter((t) => t.agent === 'xia').map((t) => [t.changed, t.rulesChanged]), [[true, true]]);
   assert.ok(!fs.readFileSync(fx, 'utf8').includes('At most one post a day.'));
 });
+
+test('#5297 review 17: tellAgent onlyIfPresent never adds to a file without the block (a connected agent\'s file read again at write time); CONTROL: without it, it adds', () => {
+  const f = agentFile('zan', '# Zan\n\nNo block.\n');
+  assert.deepEqual(cb.tellAgent('zan', true, { onlyIfPresent: true }), { state: projects.TOLD.TOLD, because: null, changed: false });
+  assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 0);
+  assert.equal(cb.tellAgent('zan', true).changed, true);
+  assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 1);
+});
