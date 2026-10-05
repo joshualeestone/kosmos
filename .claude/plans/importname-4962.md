@@ -189,3 +189,5 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
 - Iteration 7 (opus): the name a row shows once added is one value on every copy, what was typed else the file's
   own display name (a parse-named file no longer blanks the pressed row or shows its slug on a copy). Tested on the
   row's shown name. README row states N2's condition.
+- Iteration 8 (sonnet): the code comments carry their reasons without review-round tags (13 lines; the history is
+  here). Adopt-row Enter and the in-flight bookkeeping: unchanged (decided; tested).

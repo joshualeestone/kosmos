@@ -53071,16 +53071,16 @@ function importNamesRestore(box, kept) {
     const f = k && row.querySelector('.fr-importinput');
     if (f) {
       f.value = k.value;
-      if (k.bad) { f.setAttribute('aria-invalid', 'true'); if (f.classList) f.classList.add('bad'); }   // review 6: a refusal shown just before the redraw stays shown (review 9: border too)
+      if (k.bad) { f.setAttribute('aria-invalid', 'true'); if (f.classList) f.classList.add('bad'); }   // a refusal shown just before the redraw stays shown (border too)
       const said = row.querySelector('.fr-importsaid');
       if (said && k.why) said.textContent = k.why;
       if (k.focused && typeof f.focus === 'function') f.focus();
     }
-    importRowApply(row);   // an add in flight or done shows as such on the new row (review 2)
+    importRowApply(row);   // an add in flight or done shows as such on the new row
   }
 }
 
-/* kosmos#4962 (review 2): an add's state lives HERE, keyed by file, not only on the row that was pressed,
+/* kosmos#4962: an add's state lives HERE, keyed by file, not only on the row that was pressed,
    because both lists are redrawn whole. A redraw re-applies it (importNamesRestore), and an add that
    finishes applies it to whichever copy of the row is on screen now, so a receipt is never lost and a row
    is never offered again one keypress from a duplicate. */
@@ -53094,7 +53094,7 @@ function importRowApply(row) {
   const field = row.querySelector('.fr-importinput');
   if (field) {
     field.disabled = true; if (st.name && !field.value) field.value = st.name;
-    // Review 10: a copy that is adding or added is not flagged, whatever a refusal before it left.
+    // A copy that is adding or added is not flagged, whatever a refusal before it left.
     field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad');
   }
   if (!go) return;
@@ -53123,7 +53123,7 @@ function importAddsNewVisit() {
   for (const [f, st] of [...IMPORT_ADDS]) if (st.state === 'added') IMPORT_ADDS.delete(f);
 }
 function importRowsSync(file, msg, aboutName, pressed) {
-  /* Review 8/9: focus moves only when the PRESSED row was redrawn away (fail() has already focused it when it is
+  /* Focus moves only when the PRESSED row was redrawn away (fail() has already focused it when it is
      still on screen), and then to at most one copy, never one inside a hidden list. */
   const rows = [];
   for (const id of ['import-found', 'fr-fleet']) {
@@ -53137,7 +53137,7 @@ function importRowsSync(file, msg, aboutName, pressed) {
   for (const row of rows) {
     if (row === pressed) continue;
     if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
-    /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason (review 3), since
+    /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason, since
        the pressed row may no longer be on screen to show it. */
     const go = row.querySelector('.fr-importgo');
     const field = row.querySelector('.fr-importinput');
@@ -53169,7 +53169,7 @@ async function populateFoundImports() {
   // #3/#4 half (b): a fresh generation per call, so a mode re-pick during the ~2s two-phase
   // retry cannot let a stale partial paint over the newer state.
   const gen = ++FR_IMPORT_POP_GEN;
-  /* kosmos#4962 (review 3): a receipt belongs to one visit to this list. A fresh visit forgets 'added' (the
+  /* kosmos#4962: a receipt belongs to one visit to this list. A fresh visit forgets 'added' (the
      agent may since have been removed, or the same template is wanted under another name; the engine refuses
      a true duplicate by name, and that refusal lands on the row's field). An add still in flight is kept. */
   importAddsNewVisit();
@@ -53238,16 +53238,15 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   /* Where the keyboard was when the add began (the field, after Enter, or the button). Disabling it drops
      focus to the page, so it is given back on a refusal, and, for an add made FROM THE KEYBOARD (viaKey:
      the click's detail was 0, which also covers voice control and screen-reader activation; those act as keys
-     here, deliberately), moved on to the next row on success (review 5): this list is pressed down,
-     add after add. A pointer add leaves focus alone (review 6): Chrome focuses a clicked button, and moving
+     here, deliberately), moved on to the next row on success: this list is pressed down,
+     add after add. A pointer add leaves focus alone: Chrome focuses a clicked button, and moving
      focus into the next field after a tap would open a phone's keyboard over the list. */
   const had = document.activeElement;
   const hadInRow = !!(had && had.closest && had.closest('.fr-importrow') === row);
   /* A refusal re-enables the Name field. Only a refusal ABOUT THE NAME (the engine says field:'name')
      marks it invalid and puts the cursor back in it, the reason read with it through aria-describedby;
-     a missing account, a file that is not an agent, or a network failure is not the name's fault
-     (review 2). */
-  /* Review 11: each attempt has a token (its start time). A stale attempt (dropped after a minute so the row could be
+     a missing account, a file that is not an agent, or a network failure is not the name's fault. */
+  /* Each attempt has a token (its start time). A stale attempt (dropped after a minute so the row could be
      pressed again) that settles late must not touch a newer attempt's state or offer the row a second time. */
   let attemptAt = 0;
   const current = () => (IMPORT_ADDS.get(file) || {}).at === attemptAt;
@@ -53271,7 +53270,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   attemptAt = Math.max(Date.now(), IMPORT_ATTEMPT_LAST + 1);   // two attempts in one millisecond still differ
   IMPORT_ATTEMPT_LAST = attemptAt;
   IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: attemptAt });
-  // Review 10: a new attempt starts unflagged (a retry after a refusal must not stay red while it is adding).
+  // A new attempt starts unflagged (a retry after a refusal must not stay red while it is adding).
   if (field) { field.disabled = true; field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
   btn.disabled = true;
   btn.textContent = 'Adding…';
@@ -53430,7 +53429,7 @@ function importNameEnter(e) {
   if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;   // a plain Enter only, as PLUS_ENTER_GO
   /* Also an adopt row's name field (first run's, and the board's disk-scan and found panels, which draw
      the same .fr-adoptinput): frEnterSubmit exempts it for the same reason, and Enter adds that row
-     rather than doing nothing (review 3). keyCode 229 is an input method's Enter committing a word, which
+     rather than doing nothing. keyCode 229 is an input method's Enter committing a word, which
      WebKit can send with isComposing false. */
   const field = e.target.closest('.fr-importinput') || e.target.closest('.fr-adoptinput');
   if (!field) return;
