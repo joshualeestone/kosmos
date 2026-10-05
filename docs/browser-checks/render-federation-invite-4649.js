@@ -1328,9 +1328,12 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(async () => { PJ_CURRENT = 'elsewhere'; await fedMembersLoad('elsewhere'); PJ_CURRENT = 'k'; await fedMembersLoad('k'); });
     await page.waitForTimeout(500);
     const loose = await page.evaluate(() => Object.values(FED_MSGS));
+    const mF = await modal(page);
     await page.evaluate(() => { window.__answerDelay = 0; });
-    check('B18f a Remove answered after the project was left and reopened leaves no sentence (control: B3 says the 502 when it stays)',
-      loose.length === 0, JSON.stringify(loose));
+    // With the dialog still open a 502 would only write #mem-msg, so that is what is asserted: the dropped answer
+    // closes the dialog and writes nothing (control: B3, the same 502 when the project stays, says it there).
+    check('B18f a Remove answered after the project was left and reopened: the dialog closes, nothing is said (control: B3)',
+      !mF.open && mF.msg === '' && loose.length === 0, JSON.stringify({ open: mF.open, msg: mF.msg, loose }));
     // B18g: the same through the real path: Cancel, the back chevron to the projects list, then the SAME project
     // reopened before the Remove answers. Its late answer says nothing in the reopened project.
     await page.evaluate(() => { window.__answerDelay = 400; });
