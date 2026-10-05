@@ -136,6 +136,21 @@ const EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 
 // one, the read is refused, which fails safe. Do not add a type here without a capture showing what it is.
 const QUIET_ITEMS = new Set(['agent_message', 'reasoning', 'todo_list', 'error']);
 
+/* The environment Codex runs with: an ALLOWLIST, so the board's token, another provider's key, NODE_OPTIONS, or an
+   OPENAI_ or CODEX_ variable (a key or base URL that would bill a key or send the chart elsewhere while the box says
+   "using your plan") never reaches it. Kept: what a program needs to run, and the person's own proxy and CA settings,
+   without which a computer on a company network cannot reach OpenAI at all. Compared without case, as Windows names
+   are. CODEX_HOME is the account the consent named. */
+const ENV_KEEP = new Set(['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'LC_CTYPE', 'USER', 'LOGNAME', 'SHELL',
+  'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'PROGRAMDATA',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS']);
+function childEnv(from, accountDir) {
+  const env = {};
+  for (const [k, v] of Object.entries(from || {})) if (ENV_KEEP.has(k.toUpperCase())) env[k] = v;
+  env.CODEX_HOME = accountDir;
+  return env;
+}
+
 // A process group per read on Mac and Linux; on Windows `detached` would open a console window instead.
 const GROUPS = process.platform !== 'win32';
 let spawnFn = (bin, args, opts) => require('node:child_process').spawn(bin, args, opts);
@@ -168,11 +183,7 @@ function read(reader, prompt, media, buf, signal) {
     fs.writeFileSync(catalogFile, JSON.stringify(catalog), { mode: 0o600 });
     fs.writeFileSync(image, buf, { mode: 0o600 });
   } catch { cleanup(); return Promise.resolve({ ok: false, because: 'the read failed' }); }
-  /* The account the consent named, and only it: an OPENAI_* or CODEX_* variable the board inherited (a key, another
-     base URL, another home) could bill a key or send the chart elsewhere while the box says "using your plan". */
-  const env = {};
-  for (const [k, v] of Object.entries(process.env)) if (!/^(OPENAI_|CODEX_)/.test(k)) env[k] = v;
-  env.CODEX_HOME = reader.dir;
+  const env = childEnv(process.env, reader.dir);
   return new Promise((resolve) => {
     let done = false;
     let child;
@@ -226,6 +237,7 @@ function read(reader, prompt, media, buf, signal) {
       let i;
       while ((i = out.indexOf('\n')) >= 0) { const l = out.slice(0, i); out = out.slice(i + 1); onLine(l); if (done) return; }
     });
+    child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d) => { if (stderr.length < 4096) stderr += d; });
     child.on('error', () => finish({ ok: false, because: 'ChatGPT did not answer' }));
     child.on('close', () => {
@@ -245,4 +257,4 @@ function read(reader, prompt, media, buf, signal) {
   });
 }
 
-module.exports = { KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

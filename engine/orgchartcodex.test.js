@@ -52,7 +52,8 @@ const at = (f) => a[a.indexOf(f) + 1];
 const cat = (a.find((x) => x.startsWith('model_catalog_json=')) || '').slice('model_catalog_json='.length);
 const catPath = JSON.parse(cat || '""');
 fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: a, home: process.env.CODEX_HOME,
-  inherited: Object.keys(process.env).filter((k) => /^(OPENAI_|CODEX_)/.test(k)),
+  inherited: Object.keys(process.env).filter((k) => /^(OPENAI_|CODEX_|AGENT_WORKFORCE_|NODE_OPTIONS$|ANTHROPIC_)/i.test(k)),
+  proxy: process.env.HTTPS_PROXY || null,
   image: fs.readFileSync(at('-i')).toString('base64'), imagePath: at('-i'),
   catalog: catPath ? JSON.parse(fs.readFileSync(catPath, 'utf8')) : null,
   schema: JSON.parse(fs.readFileSync(at('--output-schema'), 'utf8')) }));
@@ -132,17 +133,19 @@ test('a read: every switch is on the command line, the picture goes in, the cata
   await grandchildGone();
 });
 
-test('an inherited OPENAI_* or CODEX_* variable never reaches Codex: the read is on the account the consent named', async () => {
-  const saved = { a: process.env.OPENAI_API_KEY, b: process.env.CODEX_API_KEY, c: process.env.OPENAI_BASE_URL };
-  process.env.OPENAI_API_KEY = 'sk-TEST-5346'; process.env.CODEX_API_KEY = 'sk-TEST-5346'; process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9/v1';
+test('only allowlisted variables reach Codex: no key, token, base URL or NODE_OPTIONS; the proxy is kept', async () => {
+  const NAMES = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'Openai_Api_Key', 'NODE_OPTIONS', 'ANTHROPIC_API_KEY', 'AGENT_WORKFORCE_TOKEN', 'HTTPS_PROXY'];
+  const saved = Object.fromEntries(NAMES.map((k) => [k, process.env[k]]));
+  for (const k of NAMES) process.env[k] = k === 'HTTPS_PROXY' ? 'http://proxy.example.test:3128' : k === 'NODE_OPTIONS' ? '--no-warnings' : 'TEST-5346';
   try {
     answer(PEOPLE);
     await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
     const rec = JSON.parse(fs.readFileSync(record, 'utf8'));
     assert.deepEqual(rec.inherited, ['CODEX_HOME']);
     assert.equal(rec.home, acct);
+    assert.equal(rec.proxy, 'http://proxy.example.test:3128', 'the person\'s proxy is kept, or a company network cannot reach OpenAI');
   } finally {
-    for (const [k, v] of [['OPENAI_API_KEY', saved.a], ['CODEX_API_KEY', saved.b], ['OPENAI_BASE_URL', saved.c]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    for (const k of NAMES) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
   await grandchildGone();
 });

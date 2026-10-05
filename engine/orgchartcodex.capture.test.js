@@ -73,14 +73,22 @@ async function capture(argsFor) {
   return cap.bodies.filter((b) => b && Array.isArray(b.input));
 }
 
-test('#5346 (a): with the reader\'s flags, a captured request offers only update_plan and request_user_input', { skip: why || false, timeout: 120000 }, async () => {
-  const bodies = await capture(({ dir, catalog, schema, image, base }) => c.codexArgs({ dir, catalog, schema, image, prompt: 'Read this org chart.', extra: [base] }));
-  assert.ok(bodies.length >= 1, 'Codex sent no model request to the capture server');
-  for (const b of bodies) {
-    const tools = c.offeredTools(b);
-    assert.deepEqual([...new Set(tools)].sort(), [...c.ALLOWED_TOOLS].sort(), 'tools offered: ' + JSON.stringify(tools));
-    // The picture is in the request itself (base64), not left as a path for a tool to open.
-    assert.match(JSON.stringify(b), /data:image\/png;base64,/);
+/* Every model in the catalog, not only the default: a read runs on whichever one Codex picks, and each model carries
+   its own tool fields. */
+const slugs = why ? [] : (c.deriveCatalog(path.dirname(cache)) || { models: [] }).models.map((m) => m.slug).filter((s) => typeof s === 'string');
+
+test('#5346 (a): with the reader\'s flags, a captured request offers only update_plan and request_user_input, on every model in the catalog', { skip: why || false, timeout: 600000 }, async () => {
+  assert.ok(slugs.length >= 1, 'the catalog named no model');
+  for (const slug of slugs) {
+    const bodies = await capture(({ dir, catalog, schema, image, base }) => c.codexArgs({ dir, catalog, schema, image, prompt: 'Read this org chart.', extra: [base, 'model=' + JSON.stringify(slug)] }));
+    assert.ok(bodies.length >= 1, slug + ': Codex sent no model request to the capture server');
+    for (const b of bodies) {
+      assert.equal(b.model, slug, 'the run used the model asked for');
+      const tools = c.offeredTools(b);
+      assert.deepEqual([...new Set(tools)].sort(), [...c.ALLOWED_TOOLS].sort(), slug + ': tools offered: ' + JSON.stringify(tools));
+      // The picture is in the request itself (base64), not left as a path for a tool to open.
+      assert.match(JSON.stringify(b), /data:image\/png;base64,/);
+    }
   }
 });
 
