@@ -134,11 +134,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # #1794: install tmux. run-tests.sh boots boards, and last-look spawns a child
-      # that runs status.snapshot() against the environment's tmux; macos-latest ships
-      # none, so without this last-look reads 'could not run tmux' instead of the
-      # honest no-server empty. brew tmux with no server started is the hermetic
-      # no-server path the test's own comment documents as null.
+      # #1794: install tmux. run-tests.sh boots boards, and last-look's healthy test
+      # starts its own tmux server (#5073) and reads it through status.snapshot();
+      # macos-latest ships no tmux, so without this that test cannot start a server.
+      # (The no-server path is covered in engine/status.test.js.)
       - name: install tmux (#1794)
         run: brew install tmux
       # PIN THE NODE. Nothing else here declares a version at all (fixed by the
