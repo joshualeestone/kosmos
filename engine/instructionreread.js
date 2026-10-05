@@ -28,6 +28,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_PER_PASS = 3;   // lines typed per pass; the timer delivers the rest
 const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
@@ -195,6 +196,7 @@ async function passOnce(o) {
     let owed = read();
     const cleared = {};
     const keep = {};
+    let tried = 0;
     const end = (session, act) => { cleared[session] = owed[session].n; out.push({ session, act }); };
     const ours = new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
     for (const session of Object.keys(owed)) {
@@ -228,6 +230,8 @@ async function passOnce(o) {
       try { fresh = o.roster(); } catch { fresh = null; }
       const card = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
       if (!card || !isIdle(card)) { out.push({ session, act: 'not-idle' }); continue; }
+      if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
+      tried += 1;
       const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
       let v = null;
       // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as communityturn and replynudge read chat.
@@ -256,4 +260,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce, recordSent, sentTimes, sentFile };

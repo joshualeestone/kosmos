@@ -277,3 +277,17 @@ test('review 15: give-up counts from the latest owe, so a section owed late is n
   const old = passArgs({ owed: ir.owe({}, 'ida', 'community', T - 8 * DAY), o: { now: T } });
   assert.deepEqual((await ir.passOnce(old.o)).map((x) => x.act), ['expired'], 'CONTROL: a week-old debt with nothing newer ends');
 });
+
+test('review 19: at most MAX_PER_PASS lines a pass; the rest stay owed for the next', async () => {
+  const fleet2 = require('../test-support/fleet');
+  const names = ['p1', 'p2', 'p3', 'p4', 'p5'];
+  const board = fleet2.install(names.map((n) => fleet2.agent(n, { state: 'idle' })));
+  let cards;
+  try { cards = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const owed = {};
+  for (const n of names) owed[n] = debt();
+  const p = passArgs({ owed, o: { roster: () => cards, seenIdle: new Set(names) } });
+  await ir.passOnce(p.o);
+  assert.equal(p.sent.length, ir.MAX_PER_PASS);
+  assert.equal(Object.keys(p.file()).length, names.length - ir.MAX_PER_PASS, 'the unsent debts were lost');
+});
