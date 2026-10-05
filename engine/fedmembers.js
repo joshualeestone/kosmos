@@ -68,7 +68,9 @@ function cleanLabel(v) {
    is cut to 300 characters. Empty when nothing readable is left, so the caller's own sentence is used. */
 function plainBecause(v) {
   if (typeof v !== 'string') return '';
-  const s = v.replace(/\s*\(HTTP \d{3}[^)]*\)\s*\.?/g, ' ').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Only the connector's own trailer, "(HTTP <code> on /<path>)": a sentence that merely mentions an HTTP code keeps
+  // its words, and punctuation after the trailer stays (review round 1).
+  const s = v.replace(/\s*\(HTTP \d{3} on \/[^)]*\)/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   return s ? cut(s, 300) : '';
 }
 

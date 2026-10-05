@@ -396,3 +396,12 @@ test('#4649 (Pete): a refused Remove or Withdraw shows the coordinator\'s words 
   const bare = stubRemote({ '/v1/mac/federation/edges': edges, '/v1/mac/federation/revoke': { ok: false, because: '(HTTP 502 on /v1/mac/federation/revoke)' } });
   assert.strictEqual((await fedmembers.remove(bare, 'plain', 'e-plain')).body.error, 'Kosmos could not remove them just now. Try again in a moment.');
 });
+
+test('#4649 (Pete) review round 1: Withdraw cleans the trailer too; a sentence that mentions an HTTP code keeps its words', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
+  const made = await fedmembers.invite(remote, { project: 'plainw', invited_kind: 'person' }, here(['plainw']));
+  const odd = stubRemote({ '/v1/mac/federation/invite/withdraw': { ok: false, because: 'the service is busy (HTTP 429 means slow down). (HTTP 503 on /v1/mac/federation/invite/withdraw).' } });
+  const w = await fedmembers.withdraw(odd, 'plainw', made.body.invite_id);
+  assert.strictEqual(w.status, 502);
+  assert.strictEqual(w.body.error, 'the service is busy (HTTP 429 means slow down)..', 'the trailer was not removed, or the sentence lost its own words');
+});

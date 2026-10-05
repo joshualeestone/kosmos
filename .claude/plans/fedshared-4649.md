@@ -31,3 +31,8 @@ Remove and Withdraw passed the connector's raw `because` to the dialog, includin
 - collapses whitespace and cuts to 300;
 - falls back to the board's own sentence when nothing readable is left.
 Tested (path and status gone; the bare trailer falls back). A mutation passing the raw text reds it. 34/34.
+- Review round 1 of plainBecause (sonnet): 0 B, 1 W, NITs.
+  - FIXED: a Withdraw test (the changed line had none).
+  - FIXED: the regex now strips only "(HTTP <code> on /<path>)", so a sentence mentioning an HTTP code keeps its words and following punctuation stays.
+  - STATED: a bare /v1 path elsewhere in a sentence is not stripped; bidi characters are not stripped (the dialog escapes).
+  - 35/35.
