@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: hoblock-5307
-diff_hash: 51fa61aa265e971937456b14807b2524d627d87a1c31c8ff458e39a6f49da1b0
+diff_hash: 7f9f1d0b5ca016065defe8dcbb2d3bcec3359015e2c52212ed3016903f003d1f
 validation: not run locally (deep suite queue). Run instead: communityblock, communitynudge-5211, communityturn, communityreply-4833, instructionreread, create, remove 434/434; the new test fails with the line removed (control run). The reviewer also ran server.communityturn-4947, personlanguage, windows-kosmos-cli-verbs-parity and marker-registry, all passing. CI runs the full suites.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-05T21:06:11Z
