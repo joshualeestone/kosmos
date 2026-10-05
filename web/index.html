@@ -12182,6 +12182,11 @@ window.kosmosMeasureScrollbarWidth();
            action a healthy agent needs. Aiming it at THIS agent's specific account is a
            follow-up gated on #1916/#1917; the account list is the honest floor. -->
       <button type="button" class="detail-reauth linkish" id="d-reauth" hidden>Sign in again</button>
+      <!-- #5333: a RUNNING agent that has lost its link to Kosmos (its run's token is no longer on file, card.linkLost)
+           cannot read its messages or answer, and nothing else says so. One sentence and the one remedy, the restart
+           (the shared confirm, which offers "Write a handoff, then restart"). Shown ONLY while linkLost is true. -->
+      <p class="fhint detail-linklost" id="d-linklost" hidden><span id="d-linklost-text"></span>
+        <button type="button" class="btn" id="d-linklost-restart" data-restart-agent="">Restart</button></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -37867,6 +37872,20 @@ function paintDetailState(card) {
      the existing re-auth surface. */
   const reauthBtn = document.getElementById('d-reauth');
   if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
+  /* #5333: the link notice follows the poll like the re-auth button. Written only when it changes (this runs every poll). */
+  const lost = document.getElementById('d-linklost');
+  if (lost) {
+    const on = a.linkLost === true;
+    if (lost.hidden === on) lost.hidden = !on;
+    if (on) {
+      const words = a.name + ' has lost its link to Kosmos, so it cannot read your messages or answer you. Restart it to fix'
+        + ' this: \u201cWrite a handoff, then restart\u201d keeps what it was doing.';
+      const t = document.getElementById('d-linklost-text');
+      if (t && t.textContent !== words) t.textContent = words;
+      const b = document.getElementById('d-linklost-restart');
+      if (b && b.dataset.restartAgent !== a.sessionName) b.dataset.restartAgent = a.sessionName;
+    }
+  }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over

@@ -1,4 +1,4 @@
-// Browser-check-surface: d-state d-task d-start-wrap
+// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart
 'use strict';
 /**
  * #3958 (Josh, 2026-09-26): on the agent page the status pill said Idle while the same page's DM
@@ -20,6 +20,9 @@
  *     fade in turn (they stopped dead there before, which reads as frozen) and do not move.
  * Control: the first reading (idle, before any flip) shows the instrument can read "Idle" and "no
  * dots", so a working reading is not the instrument's default.
+ *   - #5333: a running agent whose run token is no longer on file (it lost its link to Kosmos) gets the notice
+ *     under its pill, naming it, with a Restart that opens the shared restart confirm (and its "Write a handoff,
+ *     then restart"); once its run's token is on file the notice is gone. Control: the notice is hidden before.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-agent-pill-3958.js
  */
@@ -49,9 +52,10 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-const setState = (state) => fleet.install([
-  fleet.agent('beatrix', { state, displayName: 'Beatrix', role: 'Collections Coordinator' }),
+const setState = (state, extra) => fleet.install([
+  fleet.agent('beatrix', { state, displayName: 'Beatrix', role: 'Collections Coordinator', ...(extra || {}) }),
 ]);
+const sendertoken = require('../../engine/sendertoken');   // #5333: the board reads this store, in this process
 
 /* One reading of the pill and the DM line. `moves` samples the first pill dot twelve times over
    1.2s: a running animation gives many distinct frames, a static dot gives one. */
@@ -203,6 +207,28 @@ async function read(page) {
         await page.waitForTimeout(6500);
         const wk = await startShown();
         chk(!wk.wrap, `${engineName} -> working after stopped: the Start button is gone, not left beside Working`, JSON.stringify(wk));
+        /* #5333: a running agent that has lost its link. Control first: no notice while its run carries no instance. */
+        const linkNote = () => page.evaluate(() => {
+          const n = document.getElementById('d-linklost');
+          const b = document.getElementById('d-linklost-restart');
+          return { shown: !!(n && !n.hidden && n.getClientRects().length), text: ((document.getElementById('d-linklost-text') || {}).textContent || ''),
+            target: b ? b.dataset.restartAgent : null };
+        });
+        chk(!(await linkNote()).shown, `${engineName}: control: no lost-link notice for a running agent with nothing to compare`);
+        setState('working', { tokenInstance: 'abcdef123456' });   // a run whose token is not on file
+        await page.waitForTimeout(6500);
+        const lost = await linkNote();
+        chk(lost.shown && /^Beatrix has lost its link to Kosmos, so it cannot read your messages or answer you\./.test(lost.text) && lost.target === 'beatrix',
+          `${engineName} -> link lost: the notice names the agent and its Restart is for that agent`, JSON.stringify(lost));
+        await page.click('#d-linklost-restart');
+        await page.waitForTimeout(300);
+        const dlg = await page.evaluate(() => { const h = document.getElementById('rst-handoff-go'); return !!(h && h.getClientRects().length); });
+        chk(dlg, `${engineName} -> link lost: Restart opens the shared confirm, with "Write a handoff, then restart"`, String(dlg));
+        await page.click('#rst-keep').catch(() => {});   // Leave it running: nothing is restarted here
+        const minted = sendertoken.mint('beatrix');
+        setState('working', { tokenInstance: minted.instance });   // its run's token is on file
+        await page.waitForTimeout(6500);
+        chk(!(await linkNote()).shown, `${engineName} -> token on file: the notice is gone`);
         chk(secondPolls === 1, `${engineName}: precondition: the keep-running arm actually ran once`, String(secondPolls));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
       } finally {
