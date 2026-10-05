@@ -193,3 +193,8 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
   here). Adopt-row Enter and the in-flight bookkeeping: unchanged (decided; tested).
 - Iteration 9 (opus): an adopt row refused by /api/connect-agent left its Name field disabled (on main already; Enter
   now reaches it). The failure arm re-enables the field; pinned by a source test (the handler is an anonymous listener).
+- Iteration 10 (sonnet): ACCEPTED residual, stated here. An add stuck over a minute is dropped so its row can be
+  pressed again; the first request may still be in flight. If it later succeeds AND the second press used a different
+  typed name, two agents exist (the engine refuses only a duplicate NAME). Accepted: holding the row for good is the
+  frozen-row failure the drop exists to end, and a create that takes over a minute is itself a fault. Adopt-row Enter:
+  unchanged (decided; the adopt-field Enter test covers it).
