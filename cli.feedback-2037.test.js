@@ -144,3 +144,66 @@ test('feedback show/write on a broken install (no runtime) refuses in sentence v
   assert.match(s.both, /cannot find its own runtime/);
   assert.doesNotMatch(s.both, /No such file or directory/, 'must not leak the raw shell error');
 });
+
+/* kosmos#5294: `feedback write` SENDS now, and says what happened. Before, it printed "It stays on this computer."
+   (stale once sending shipped), and a user's agent took that to mean the team never got the report. A local stub
+   collector stands in for installkosmos.com: under test, sendNow may reach loopback only, so these never phone home. */
+const http = require('node:http');
+const fbsend = require('./engine/feedbacksend');
+
+function stubCollector() {
+  return new Promise((resolve) => {
+    const posts = [];
+    const srv = http.createServer((req, res) => {
+      let b = ''; req.on('data', (c) => { b += c; });
+      req.on('end', () => { posts.push({ method: req.method, url: req.url, body: b }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"id":"t"}'); });
+    });
+    srv.listen(0, '127.0.0.1', () => resolve({ posts, url: 'http://127.0.0.1:' + srv.address().port + '/api/feedback', close: () => new Promise((r) => srv.close(r)) }));
+  });
+}
+function runWith(args, h, extra) {
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, KOSMOS_HOME: h.home, AGENT_WORKFORCE_DATA: h.data, KOSMOS_PORT: '9',
+      AGENT_WORKFORCE_WORKERS: path.join(h.data, 'workers'), ...extra };
+    execFile('bash', [CLI, ...args], { env, timeout: 20000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code))); return; }
+      resolve({ code: err ? err.code : 0, out: `${stdout}`.trim(), err: `${stderr}`, both: `${stdout}${stderr}` });
+    });
+  });
+}
+
+test('#5294 feedback write SENDS the report now (one POST to the collector) and says so', async () => {
+  const h = makeHome(); const c = await stubCollector();
+  try {
+    const w = await runWith(['feedback', 'write', 'The task verbs were missing.'], h, { AGENT_WORKFORCE_FEEDBACK_URL: c.url });
+    assert.equal(w.code, 0, w.both);
+    assert.equal(w.out, fbsend.writeMessage('sent'));
+    assert.equal(c.posts.length, 1, 'the collector did not receive exactly one POST');
+    assert.equal(c.posts[0].method, 'POST');
+    assert.match(JSON.parse(c.posts[0].body).body, /task verbs were missing/);
+    assert.doesNotMatch(w.out, /It stays on this computer\./, 'the stale local-only sentence is back');
+  } finally { await c.close(); }
+});
+
+test('#5294 with sending switched off, feedback write saves, sends nothing, and says why', async () => {
+  const h = makeHome(); const c = await stubCollector();
+  try {
+    const off = await runWith(['feedback', 'write', 'first'], h, { AGENT_WORKFORCE_FEEDBACK_URL: c.url });
+    assert.equal(c.posts.length, 1, 'setup: the first write should have sent');
+    // Switch sending off the way Settings does: the setting file under this data root.
+    const appDir = fs.readdirSync(h.data).find((d) => fs.existsSync(path.join(h.data, d, 'feedbacksend.json')));
+    assert.ok(appDir, 'setup: no setting file was written: ' + off.both);
+    fs.writeFileSync(path.join(h.data, appDir, 'feedbacksend.json'), JSON.stringify({ on: false }) + '\n');
+    const w = await runWith(['feedback', 'write', 'second, with sending off'], h, { AGENT_WORKFORCE_FEEDBACK_URL: c.url });
+    assert.equal(w.code, 0, w.both);
+    assert.equal(w.out, fbsend.writeMessage('off'));
+    assert.equal(c.posts.length, 1, 'a report went out with sending switched off');
+  } finally { await c.close(); }
+});
+
+test('#5294 under test, the real collector address is never reached: "blocked" (CONTROL for the stub arms)', async () => {
+  const h = makeHome();
+  const w = await runWith(['feedback', 'write', 'body'], h, { AGENT_WORKFORCE_FEEDBACK_URL: '' });
+  assert.equal(w.code, 0, w.both);
+  assert.equal(w.out, fbsend.writeMessage('blocked'));
+});

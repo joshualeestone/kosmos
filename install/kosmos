@@ -3625,11 +3625,22 @@ cmd_feedback() {
         say "Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin)."
         exit 2
       fi
-      KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
-        const fb = require(process.argv[1] + "/engine/feedback");
-        process.stdout.write(fb.write(process.env.KOSMOS_FEEDBACK_BODY || "").date);
-      ' "$KOSMOS_HOME/app" >/dev/null || { say "We could not save that report."; exit 1; }
-      say "Saved today's product-feedback report. It stays on this computer."
+      # kosmos#5294: save, then send NOW (engine/feedbacksend.sendNow: the same opt-out, scrub, collector and 3 h
+      # floor as the board's hourly sweep) and print the one sentence for what happened. Before this it printed
+      # "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), and a user's agent took
+      # that to mean the report never reached the team. Exit 3 is "not saved"; anything after the save cannot be.
+      local fb_msg
+      fb_msg="$(KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
+        const app = process.argv[1];
+        let d;
+        try { d = require(app + "/engine/feedback").write(process.env.KOSMOS_FEEDBACK_BODY || "").date; } catch { process.exit(3); }
+        if (!d) process.exit(3);
+        let fbs;
+        try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Saved the product-feedback report on this computer."); process.exit(0); }
+        fbs.sendNow(d).then((r) => process.stdout.write(fbs.writeMessage(r && r.state)),
+          () => process.stdout.write(fbs.writeMessage("failed")));
+      ' "$KOSMOS_HOME/app")" || { say "We could not save that report."; exit 1; }
+      say "$fb_msg"
       exit 0
       ;;
     show)

@@ -1085,11 +1085,19 @@ async function feedbackWrite(ctx, args) {
     ctx.err(POWERSHELL_PIPE_NOTE);
     return 2;
   }
-  try { ctx.engine('feedback').write(body); } catch (e) {
+  let date;
+  try { date = ctx.engine('feedback').write(body).date; } catch (e) {
     ctx.err('We could not save that report (' + String((e && e.message) || e) + ').');
     return 1;
   }
-  ctx.out('Saved today\'s product-feedback report. It stays on this computer.');
+  /* kosmos#5294, as install/kosmos: send NOW (feedbacksend.sendNow: the same opt-out, scrub, collector and 3 h floor
+     as the board's hourly sweep) and print the one shared sentence for what happened. It used to say "It stays on
+     this computer.", stale once sending shipped, and a user's agent took that to mean the team never got it. */
+  let fbs;
+  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Saved the product-feedback report on this computer.'); return 0; }
+  let r;
+  try { r = await fbs.sendNow(date); } catch { r = { state: 'failed' }; }
+  ctx.out(fbs.writeMessage(r && r.state));
   return 0;
 }
 

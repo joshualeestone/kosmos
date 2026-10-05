@@ -215,10 +215,30 @@ function feedbackCli(args, input) {
   return { code: r.status, out: String(r.stdout).replace(/\r?\n$/, ''), err: String(r.stderr).replace(/\r?\n$/, ''), root };
 }
 
+test('#5294 feedback write SENDS the report now to the collector (a loopback stub) and says so', async () => {
+  const http = require('node:http');
+  const posts = [];
+  const srv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => { posts.push(b); res.writeHead(200); res.end('{"ok":true}'); }); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const root = fs.mkdtempSync(path.join(SANDBOX, 'feedback-send-'));
+    const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: root, AGENT_WORKFORCE_WORKERS: path.join(root, 'workers'),
+      AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:' + srv.address().port + '/api/feedback' });
+    delete env.KOSMOS_WORLD;
+    const r = await new Promise((resolve) => cp.execFile(process.execPath, [CLI_FILE, 'feedback', 'write', 'The', 'verbs', 'were', 'missing.'],
+      { env, timeout: 60000 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: String(stdout).trim(), err: String(stderr) })));
+    assert.equal(r.code, 0, r.err);
+    assert.equal(r.out, require('./engine/feedbacksend').writeMessage('sent'));
+    assert.equal(posts.length, 1, 'the collector did not receive exactly one POST');
+    assert.match(JSON.parse(posts[0]).body, /verbs were missing/);
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
 test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads it back; list names the day', () => {
   const w = feedbackCli(['feedback', 'write', 'The', 'task', 'verbs', 'were', 'missing.']);
   assert.equal(w.code, 0, w.err);
-  assert.equal(w.out, 'Saved today\'s product-feedback report. It stays on this computer.');
+  /* kosmos#5294: under the test runner the real collector is never reached, so the CLI says it was not sent. */
+  assert.equal(w.out, require('./engine/feedbacksend').writeMessage('blocked'));
   /* The store root is AGENT_WORKFORCE_DATA plus the app's own folder (store.js
      dataRootFor), so the report is looked for one level down, and only there. */
   const appDirs = fs.readdirSync(w.root);

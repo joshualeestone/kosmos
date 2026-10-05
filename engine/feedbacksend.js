@@ -517,10 +517,91 @@ function markSent(date, hash, at) {
   return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null });
 }
 
+/** A loopback endpoint: the only kind a TEST run may POST to (sendNow). */
+function loopback(url) {
+  try { return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(new URL(url).hostname); } catch { return false; }
+}
+
+/**
+ * kosmos#5294: send a day's report NOW and say what happened, for `kosmos feedback write`. The day-one report: an
+ * agent read "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), believed its report
+ * never reached the team, and posted it in the community instead. The board's hourly sweep did send it, later.
+ *
+ * Same gates, in the same order, as sendDailyOnce: the person's opt-out first; then unchanged-since-sent, and the
+ * #4766 floor (a CHANGED report waits RESEND_MIN_MS after the last send, so an agent that rewrites often cannot flood
+ * the collector); then the mark, persisted BEFORE the POST; then the POST; and the delivered hash only after the
+ * collector accepted it. Same payload, scrub, endpoint and timeout as maybeSend.
+ *
+ * Resolves (never rejects) to { state }, one of:
+ *   sent     the collector accepted it          already  sent today, and unchanged since
+ *   later    changed, but sent < 3 h ago        off      the person switched sending off
+ *   none     no report for that day             failed   the collector did not take it (retried after the floor)
+ *   unsent   the marker could not be saved, so nothing was sent (the sweep's own rule)
+ *   blocked  a test run aimed at a real address (a test may POST only to loopback, so it never phones home)
+ */
+function sendNow(date, now) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (state) => { if (!settled) { settled = true; resolve({ state }); } };
+    try {
+      const d = date || feedback.today();
+      const t = Number.isFinite(now) ? now : Date.now();
+      const st = read();
+      if (!st.on) return done('off');
+      const body = feedback.readBody(d);
+      if (body == null) return done('none');
+      if (!sender && underTest() && !loopback(endpoint())) return done('blocked');
+      const h = bodyHash(body);
+      if (st.sent === d) {
+        if (st.sentHash === h) return done('already');
+        const age = st.sentAt == null ? Infinity : t - st.sentAt;
+        if (age >= 0 && age < RESEND_MIN_MS) return done('later');
+      }
+      const data = payload(d);
+      if (!data) return done('none');
+      const keep = st.sent === d ? st.sentHash : null;
+      if (!markSent(d, keep, t).ok) return done('unsent');
+      const post = sender || ((url, init) => fetch(url, init));
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 5000);
+      Promise.resolve(post(endpoint(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: ctl.signal,
+      })).then((res) => {
+        if (res && res.ok === false) return done('failed');
+        const cur = read();
+        if (cur.ok && cur.sent === d && cur.sentAt === t) write({ sentHash: h });
+        done('sent');
+      }).catch(() => done('failed'))
+        .finally(() => clearTimeout(timer));
+    } catch { done('failed'); }
+  });
+}
+
+/**
+ * kosmos#5294: the one sentence `kosmos feedback write` prints after saving, per sendNow state. Both CLIs (install/
+ * kosmos and tools/windows/kosmos-cli.js) print THIS, so they cannot drift. Each says where the report is and, when
+ * it left the computer, where it went and what was taken out first.
+ */
+const WRITE_MESSAGES = Object.freeze({
+  sent: 'Saved today\'s product-feedback report and sent it to the Kosmos team (installkosmos.com), with home paths, agent and project names, and keys taken out first. A copy stays on this computer.',
+  already: 'Saved today\'s product-feedback report. It is the same as the one already sent to the Kosmos team today, so nothing new was sent.',
+  later: 'Saved today\'s product-feedback report. A report from today went to the Kosmos team less than three hours ago, so this version goes with the next send, within three hours, while Kosmos is running.',
+  off: 'Saved today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
+  none: 'Saved today\'s product-feedback report on this computer.',
+  failed: 'Saved today\'s product-feedback report on this computer, but it could not be sent to the Kosmos team just now. Kosmos tries again within three hours, while it is running.',
+  unsent: 'Saved today\'s product-feedback report on this computer, but it could not be sent: Kosmos could not record the send. It was not sent.',
+  blocked: 'Saved today\'s product-feedback report on this computer. Not sent: this is a test run.',
+});
+function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.none; }
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 
 module.exports = {
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
+  sendNow, writeMessage, WRITE_MESSAGES, loopback,   // kosmos#5294
 };
