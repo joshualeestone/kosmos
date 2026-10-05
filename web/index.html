@@ -27326,11 +27326,6 @@ function worldswSetStale(stale) {
    #3055, #4648, and #718's phone frame) set it, so the code stays tested while nobody sees it. */
 const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
 let THIS_COMPUTER_NAME = '';
-/* kosmos#4649 slice C: this computer's Kosmos+ address ("maya.kosmosplus.com"), the "this" row of the same
-   /api/remote/computers answer. It is the address an invitee is shown as "Shared by" on Verify (the coordinator's
-   owner_handle plus .kosmosplus.com), so the copied invitation names the owner by it (Mona's Q-M5). '' until an
-   answer names one; a signed-out answer clears it. */
-let THIS_COMPUTER_ADDRESS = '';
 let COMPUTERS_OPENABLE = false;
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
@@ -27339,15 +27334,6 @@ let COMPUTERS_FAILS = 0;
    the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
    relay hiccup cannot lock the menu shut, and says so inside the menu. */
 function worldswComputersSeen(rows, good) {
-  // Before the several-Kosmoses return below: the invitation needs the address whichever menu is in use.
-  // ONLY on a one-computer account. The invitee's Verify screen shows the ACCOUNT's name (coordinator fed.rs:
-  // owner_handle = accounts.name), and only the account's first computer is bound to that name (db.rs #1614); a
-  // second computer bought its own address. With several, this computer's address may not be the one Verify
-  // shows, and a wrong address is worse than none, so the invitation then names the owner by name alone.
-  if (good) {
-    const me = rows.find((c) => c.this === true);
-    THIS_COMPUTER_ADDRESS = (me && rows.length === 1) ? me.address : '';
-  }
   // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
   if (MULTI_KOSMOS) return;
   if (good) {
@@ -67592,7 +67578,7 @@ let FEDINV_OPENER = null;
 let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
-let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project })
+let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project, projectId })
 const FEDINV_TITLE = 'Invite someone outside your Kosmos';
 /* kosmos#4649 slice B: `prefill` ({ label, kind }) is an expired row's "Make a new code" (Mona's Q-M2):
    the same label and kind filled in, and focus on "Make an invite code", so Enter makes the code. */
@@ -67679,7 +67665,7 @@ async function fedInviteMake() {
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '' };
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor };
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
@@ -67716,13 +67702,19 @@ function fedInviteCopyReset() {
   document.getElementById('fedinv-status').textContent = '';
 }
 /* kosmos#4649 slice C: the invitation, shot 04's text exactly (Mona's mock, blank lines included). The owner is
-   named per Mona's Q-M5: this board's "You" name (YOU_NAME, Settings) with this computer's Kosmos+ address in
-   brackets, the address alone with no name, the name alone when this computer has no address (not signed in to
-   Kosmos+, or not read yet), and "Someone" with neither. The step words are the page's own labels ("+ Add
+   named per Mona's Q-M5: this board's "You" name (YOU_NAME, Settings) with the account's Kosmos+ address in
+   brackets, the address alone with no name, the name alone with no address, and "Someone" with neither. The
+   address is the one the invitee's Verify shows, the ACCOUNT's name (coordinator fed.rs owner_handle). The board
+   learns it only from the owner's members answer (`owner_name`, Ice Cream Kitty's follow-up on #4649); until that
+   field arrives the name stands alone. It is never taken from this computer's own address: a second computer, or
+   a first one retired, has an address that is not the account's name. The step words are the page's own labels ("+ Add
    Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
   const name = (typeof YOU_NAME === 'string' ? YOU_NAME : '').trim();
-  const addr = typeof THIS_COMPUTER_ADDRESS === 'string' ? THIS_COMPUTER_ADDRESS : '';
+  const fm = FED_MEMBERS;
+  const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
+    && /^[a-z0-9-]{3,32}$/.test(fm.body.owner_name)) ? fm.body.owner_name : '';
+  const addr = handle ? handle + '.kosmosplus.com' : '';
   const who = name && addr ? name + ' (' + addr + ')' : (name || addr || 'Someone');
   const until = fedInviteLongDate(made.expires_at);
   return who + ' invited you to ' + (made.project ? 'the project "' + made.project + '"' : 'a project') + ' on Kosmos.\n'
@@ -67735,8 +67727,8 @@ function fedInviteText(made) {
     + '\n'
     + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
 }
-// Writes through the clipboard only: there is no select-and-copy fallback for a text that is not on screen, so
-// a refusal says what to do instead and never throws.
+// The clipboard first, then the page's select-and-copy on an off-screen textarea (plusCopyViaExec's pattern) where
+// the clipboard is missing or refuses; a refusal of both says what to do instead and never throws.
 async function fedInviteCopyAll() {
   const made = FEDINV_MADE;
   if (!made) return;
@@ -67747,6 +67739,13 @@ async function fedInviteCopyAll() {
   try {
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(fedInviteText(made)); ok = true; }
   } catch { ok = false; }
+  if (!ok) {
+    const t = document.createElement('textarea'); t.value = fedInviteText(made); t.setAttribute('readonly', '');
+    t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
+    try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
+    catch { ok = false; }
+    finally { t.remove(); if (btn && btn.isConnected) btn.focus(); }
+  }
   if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
   fedInviteCopyReset();
   if (!ok) {

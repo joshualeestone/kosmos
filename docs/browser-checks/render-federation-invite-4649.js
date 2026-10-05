@@ -80,9 +80,8 @@
  * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text,
  * her Q-M5 owner name). Every C arm fails on origin/main, which has no invite sheet at all, and on slice B, which
  * has no #fedinv-copy-all. The owner's name is the board's "You" name (/api/you, faked below as __you) and the
- * address is this computer's row of /api/remote/computers (faked as __computers) ONLY when it is the account's
- * one computer (the invitee's Verify shows the account's name, which only the first computer is bound to), both
- * read by the page's own loaders (refreshYouName, computersFetch), not set by hand.
+ * address is the ACCOUNT's name (owner_name on the owner's members answer, Kitty's follow-up), both read by the
+ * page's own loaders (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own address.
  *  C0  the code step reads as shot 03: "It works once, until Sunday, October 11. You can withdraw it from Members
  *      until Dana joins.", the Easier box naming Dana, and "Copy the invitation" as the primary (uprime) button
  *      after Done, with the bare-code Copy still there. A label that is not a name ("my sister") says "they join"
@@ -91,14 +90,16 @@
  *      (maya.kosmosplus.com) invited you ...", and says Copied, then reverts. Control: the bare Copy, pressed
  *      first on the same screen, writes only the code.
  *  C2  with no "You" name the text starts "maya.kosmosplus.com invited you" (and is otherwise the same); with a
- *      name but no address, "Maya Chen invited you"; with neither, "Someone invited you". Control: C1 with both.
+ *      name but no owner_name (or one that is not a Kosmos+ name), "Maya Chen invited you"; with neither,
+ *      "Someone invited you". Control: C1 with both.
  *  C3  the step words, read OUT OF the copied invitation (not typed again here), each exist as a visible label on
  *      the page's own path: "+ Add Project" on the Projects list, "Join an external project" on the Add Project
  *      screen it opens, "Verify" on the join step that opens. A later rename of either side fails here. Control:
  *      the same finder, given a phrase the page does not have ("Join a shared project"), finds nothing.
- *  C4  writeText rejecting: the message line says "Kosmos could not copy the invitation. ...", the button keeps its
- *      words, the sheet stays open, and nothing throws (no page error, no unhandled rejection). Control: C1, the
- *      same press with a working clipboard, says Copied.
+ *  C4  writeText rejecting AND select-and-copy failing: the message line says "Kosmos could not copy the
+ *      invitation. ...", the button keeps its words, the sheet stays open, and nothing throws. Control: C1 says Copied.
+ *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
+ *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
  * HERMETIC: web/index.html over file://, every route answered by the stub below (render-pj-clear-2575's
  * pattern: the stub's own /api/projects carries the seeded project, so a late startup poll cannot wipe
@@ -152,7 +153,6 @@ function initStub(cfg) {
   window.__withdraws = [];
   window.__answerDelay = 0;
   window.__you = null;          // slice C: /api/you's `you` ({ name }); null leaves it to the catch-all (no name)
-  window.__computers = null;    // slice C: /api/remote/computers' answer; null leaves it to the catch-all (no rows)
   window.__unhandled = [];
   window.addEventListener('unhandledrejection', (e) => { window.__unhandled.push(String(e.reason && e.reason.message || e.reason)); });
   const a = (s, name) => ({ sessionName: s, name, role: '', running: false, state: 'stopped', context: null });
@@ -180,7 +180,6 @@ function initStub(cfg) {
       return enc(window[key].status, window[key].body);
     }
     if (/\/api\/you(\?|$)/.test(u) && window.__you) return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed, { you: window.__you }));
-    if (u.includes('/api/remote/computers') && window.__computers) return enc(200, window.__computers);
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
     return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed));
   };
@@ -914,16 +913,17 @@ const closeAll = (page) => page.evaluate(() => {
       + CODE + '\n'
       + '\n'
       + 'The code works once, until Sunday, October 11.';
-    const computers = (rows) => ({ ok: true, domain: 'kosmosplus.com', computers: rows });
-    const THIS = { name: 'Studio', address: ADDR, this: true, online: true };
-    // Set the "You" name and this computer's rows, then let the page's own loaders read them.
-    const owner = (page, name, rows) => page.evaluate(async (o) => {
+    /* Set the "You" name and the owner's members answer (owner_name: the ACCOUNT's name, Kitty's follow-up), then let
+       the page's own loaders read them. The address is never this computer's own (a second computer, or a retired
+       first one, has an address that is not the account's name). */
+    const owner = (page, name, ownerName) => page.evaluate(async (o) => {
       window.__you = { name: o.name };
-      window.__computers = o.computers;
+      window.__members = { status: 200, body: Object.assign({ owner: true, sealed: false, invites: [], checked_at: 1791115200 },
+        o.ownerName === null ? {} : { owner_name: o.ownerName }) };
       await refreshYouName();
-      await computersFetch();
-      return { you: YOU_NAME, addr: THIS_COMPUTER_ADDRESS };
-    }, { name, computers: computers(rows) });
+      await fedMembersLoad('k');
+      return { you: YOU_NAME, ownerName: (FED_MEMBERS && FED_MEMBERS.body && FED_MEMBERS.body.owner_name) || '' };
+    }, { name, ownerName });
     const step = (page) => page.evaluate(() => {
       const all = document.getElementById('fedinv-copy-all');
       const acts = all ? [...all.parentElement.querySelectorAll('button')].map((b) => b.id) : [];
@@ -948,11 +948,10 @@ const closeAll = (page) => page.evaluate(() => {
     const copyAll = async (page) => { await page.click('#fedinv-copy-all'); await page.waitForTimeout(100); };
 
     const { ctx, page } = await newPage(1280, SHOW);
-    // One computer on the account: its address is the account's own name, the one the invitee's Verify shows.
-    let o = await owner(page, 'Maya Chen', [THIS]);
-    check('C setup: the page read the "You" name and this computer\'s address through its own loaders',
-      o.you === 'Maya Chen' && o.addr === ADDR, JSON.stringify(o));
     await openProjectIn(page, 'tabs');
+    let o = await owner(page, 'Maya Chen', 'maya');
+    check('C setup: the page read the "You" name and the account name (owner_name) through its own loaders',
+      o.you === 'Maya Chen' && o.ownerName === 'maya', JSON.stringify(o));
     await makeCode(page, 'Dana Ruiz');
     let st = await step(page);
     check('C0 the code step reads as shot 03: the withdraw line names Dana',
@@ -987,32 +986,33 @@ const closeAll = (page) => page.evaluate(() => {
     check('C3 setup: the invitation names three step words', !!words && words.length === 3, JSON.stringify(words));
 
     // C2: no "You" name, then a name and no address, then neither. Each is read by the page's loaders again.
-    const variant = async (name, rows) => {
-      const got = await owner(page, name, rows);
+    const variant = async (name, ownerName) => {
+      const got = await owner(page, name, ownerName);
       await page.evaluate(() => { window.__copied.length = 0; });
       await copyAll(page);
       const s2 = await step(page);
       return { got, text: s2.copied[0] };
     };
-    let v = await variant('', [THIS]);
+    let v = await variant('', 'maya');
     check('C2 no "You" name: "maya.kosmosplus.com invited you ...", the rest the same (control: C1 with the name)',
       v.got.you === '' && v.text === invitation(ADDR), JSON.stringify(v));
-    /* Several computers on the account: this one's address may not be the account's name (only the first computer
-       is bound to it; the coordinator's Verify shows the account's name), so the invitation names the owner by
-       name alone rather than risk a wrong address. Control: C1, one computer, carries the address. */
-    v = await variant('Maya Chen', [THIS, { name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false, online: false }]);
-    check('C2 several computers on the account: no address, "Maya Chen invited you ..." (control: C1 with one computer)',
-      v.got.addr === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
-    v = await variant('Maya Chen', [{ name: 'Laptop', address: 'maya-laptop.kosmosplus.com', this: false }]);
-    check('C2 a name and no address for this computer: "Maya Chen invited you ..."', v.got.addr === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
-    v = await variant('', []);
+    /* No owner_name (a board before Kitty's follow-up): the name alone, never this computer's address. Control: C1
+       with owner_name carries the address. */
+    v = await variant('Maya Chen', null);
+    check('C2 no owner_name: "Maya Chen invited you ...", with no address (control: C1 with owner_name)',
+      v.got.ownerName === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
+    v = await variant('Maya Chen', 'Not A Handle!');
+    check('C2 an owner_name that is not a Kosmos+ name is not printed', v.text === invitation('Maya Chen'), JSON.stringify(v));
+    v = await variant('', null);
     check('C2 neither: "Someone invited you ..."', v.text === invitation('Someone'), JSON.stringify(v));
 
-    // C4: the clipboard refuses. Restore the name and address so only the clipboard differs from C1.
-    await owner(page, 'Maya Chen', [THIS]);
+    // C4: the clipboard refuses AND the select-and-copy fallback fails. Restore the name and address first.
+    await owner(page, 'Maya Chen', 'maya');
     await page.evaluate(() => {
       window.__copied.length = 0;
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Write permission denied.'); } } });
+      window.__realExec = document.execCommand.bind(document);
+      document.execCommand = () => false;
     });
     await copyAll(page);
     st = await step(page);
@@ -1023,6 +1023,18 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(2300);
     st = await step(page);
     check('C4 the refusal stays on screen (no revert timer clears it)', st.status.startsWith('Kosmos could not copy the invitation.'), st.status);
+    // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
+    await page.evaluate(() => {
+      window.__execText = null;
+      document.execCommand = (cmd) => { if (cmd !== 'copy') return false; const a = document.activeElement; window.__execText = a && a.value; return true; };
+    });
+    await copyAll(page);
+    st = await step(page);
+    const execText = await page.evaluate(() => window.__execText);
+    check('C4b a refused clipboard falls back to select-and-copy: the exact invitation, and Copied (control: C4, fallback failing)',
+      execText === invitation('Maya Chen (' + ADDR + ')') && st.allText === 'Copied' && st.status === 'Invitation copied.',
+      JSON.stringify({ execText, all: st.allText, status: st.status }));
+    await page.evaluate(() => { document.execCommand = window.__realExec; });
     await page.click('#fedinv-ok');
 
     // C3 continued: walk the page's own path to the join step, finding each word as a visible label.
