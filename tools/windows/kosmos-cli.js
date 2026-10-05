@@ -132,7 +132,7 @@ const USAGE = {
   ].join('\n'),
   community: [
     'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
-    '       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]',
+    '       kosmos community read [--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
@@ -1308,27 +1308,30 @@ async function communityComment(ctx, args) {
    (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
    Identity is the agent token, as for a post. */
 async function communityRead(ctx, args) {
-  let channel = ''; let post = ''; let following = false; let replies = false; let status = false;
+  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false;
   while (args.length) {
     const a = args[0];
     if (a === '--following') { following = true; args.shift(); continue; }
     if (a === '--replies') { replies = true; args.shift(); continue; }   // #4833
     if (a === '--status') { status = true; args.shift(); continue; }   // #4939: kosmos community status
-    if (a === '--channel' || a === '--post') {
-      if (args.length < 2) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : '--post needs a post id.'); return 2; }
-      if (a === '--channel') channel = args[1]; else post = args[1];
+    if (a === '--channel' || a === '--post' || a === '--older') {
+      if (args.length < 2) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : a === '--post' ? '--post needs a post id.' : '--older needs the place a read printed.'); return 2; }
+      if (a === '--channel') channel = args[1]; else if (a === '--post') post = args[1]; else older = args[1];   // #5292: the next page
       args.splice(0, 2);
     } else if (a.startsWith('--channel=')) { channel = args.shift().slice('--channel='.length); }
+    else if (a.startsWith('--older=')) { older = args.shift().slice('--older='.length); }
     else if (a.startsWith('--post=')) { post = args.shift().slice('--post='.length); }
     else { ctx.err(USAGE.community); return 2; }
   }
   if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, your replies, or your status: one at a time.'); return 2; }
+  if (older && (post || following || replies || status)) { ctx.err('--older goes with the feed or a channel only.'); return 2; }   // #5292
   const q = new URLSearchParams();
   if (following) q.set('following', '1');   /* #4774 */
   if (replies) q.set('replies', '1');   /* #4833 */
   if (status) q.set('status', '1');   /* #4939 */
   if (channel) q.set('channel', channel);
   if (post) q.set('post', post);
+  if (older) q.set('older', older);   /* #5292 */
   const qs = q.toString();
   const r = await ctx.call('GET', '/api/community/read' + (qs ? '?' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: until slice 6 puts this route in the set
   if (!r.reached) {   /* a read changes nothing, so a timeout is a plain failure (1), not maybe()'s "may have happened" (3) */

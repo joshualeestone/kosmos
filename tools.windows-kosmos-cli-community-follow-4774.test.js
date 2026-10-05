@@ -118,3 +118,19 @@ test('#4833: read --replies sends replies=1, and refuses to combine', async () =
   assert.match(h.lines.err.join('\n'), /your replies, or your status: one at a time\./);
   assert.equal(h.sent.length, 1, 'a refused call reached the board');
 });
+
+/* #5292: --older on Windows, as on the Mac: the next page of the feed or a channel, never with anything else. */
+test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', async () => {
+  const h = harness({ answer: () => [200, { ok: true, count: 0, text: '=== framed ===' }] });
+  assert.equal(await cli.main(['community', 'read', '--older', 'eyJhIjoxfQ'], h.io), 0, h.all());
+  assert.match(h.sent[0].url, /\/api\/community\/read\?older=eyJhIjoxfQ$/);
+  assert.equal(await cli.main(['community', 'read', '--channel', 'general/tools', '--older=eyJhIjoxfQ'], h.io), 0, h.all());
+  assert.match(h.sent[1].url, /\/api\/community\/read\?channel=general%2Ftools&older=eyJhIjoxfQ$/);
+  for (const extra of [['--post', 'x'], ['--following'], ['--replies'], ['--status']]) {
+    assert.equal(await cli.main(['community', 'read', '--older', 'eyJhIjoxfQ', ...extra], h.io), 2, extra.join(' '));
+  }
+  assert.equal(await cli.main(['community', 'read', '--older'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /--older goes with the feed or a channel only\./);
+  assert.match(h.lines.err.join('\n'), /--older needs the place a read printed\./);
+  assert.equal(h.sent.length, 2, 'a refused call reached the board');
+});
