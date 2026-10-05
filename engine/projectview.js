@@ -35,7 +35,8 @@ const FUTURE_SLACK_MINUTES = 5;
  *   could not look (the reader must not take that as none).
  */
 /* overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
-   (#4581 N10, idleExcused). Not the member's own state, which also reads 'idle'. */
+   (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused). Not the member's
+   own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
   /* No usable folder at all (none recorded, or not absolute) is "we do not know where it is" (round 4), not "we
@@ -150,20 +151,91 @@ function idleExcused(summary, member, readReport, nowMs) {
   return { ...summary, state: 'idle', idleKind: rep.state === 'started' ? 'started' : 'idle', idleSince: new Date(idleAt).toISOString(), idleMinutes: Math.max(0, Math.round((now - idleAt) / 60000)) };
 }
 
+/* #4581 (10-05 user diagnostic R9, on 0.7.22): idleExcused measures from the member's LATEST idle report, and any turn
+   while the project is quiet (a community prompt every few hours, a room post) moves that report on, so a summary
+   written when the work ended reads as behind for days. The rhythm is a summary every four hours of WORK, so on a
+   project with no open task, the clock that matters is when the work ended: for a member that held parts here, the
+   newest close of its own parts (quietKind 'own'), else the newest close of any task or part here ('project'). A stale
+   summary of an idle member written no earlier than the rhythm before that reads 'quiet', with quietSince. A project that has never had a task has no such time and is left as it
+   was, and so is one with any open task: there is work to summarise. Weakest premise: work done outside any task
+   (a member asked in a room or a DM to do something) leaves no task time, so it is not counted here. */
+function lastWorkAt(tasks, who) {
+  const tasksMod = require('./tasks');
+  let at = NaN;
+  const take = (v) => { const t = Date.parse(v); if (Number.isFinite(t) && !(t <= at)) at = t; };
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t) continue;
+    if (who === undefined) take(t.closedAt);
+    for (const part of tasksMod.partsOf(t)) {
+      if (!part) continue;
+      if (who === undefined) take(part.closedAt);
+      else if (part.who === who) take(part.closedAt || t.closedAt);
+    }
+  }
+  return at;
+}
+/* Review 2 (Opus): the summary is the AGENT's, shared by all its projects, so work on another project counts. Busy when
+   it holds an open part on any project, or any part of its closed more than the rhythm after the summary. An
+   unreadable store (null) is busy. */
+function busyElsewhere(allProjects, sessionName, wroteAt) {
+  if (!Array.isArray(allProjects)) return true;
+  const tasksMod = require('./tasks');
+  for (const q of allProjects) {
+    for (const t of (q && Array.isArray(q.tasks)) ? q.tasks : []) {
+      if (!t) continue;
+      for (const part of tasksMod.partsOf(t)) {
+        if (!part || part.who !== sessionName) continue;
+        const closed = Date.parse(part.closedAt || t.closedAt);
+        if (!Number.isFinite(closed)) return true;
+        if (closed - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return true;
+      }
+    }
+  }
+  return false;
+}
+function quietExcused(summary, member, tasks, nowMs, allProjects) {
+  if (!summary || summary.state !== 'stale' || !summary.at) return summary;
+  if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
+  if (openTasks(tasks).open !== 0) return summary;
+  const own = lastWorkAt(tasks, member.sessionName);
+  const quietKind = Number.isFinite(own) ? 'own' : 'project';
+  const endedAt = quietKind === 'own' ? own : lastWorkAt(tasks);
+  const wroteAt = Date.parse(summary.at);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!Number.isFinite(endedAt) || !Number.isFinite(wroteAt)) return summary;
+  if (endedAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  if (busyElsewhere(typeof allProjects === 'function' ? allProjects() : allProjects, member.sessionName, wroteAt)) return summary;
+  return { ...summary, state: 'quiet', quietKind, quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
+}
+
 /**
  * The payload for one project, from a projects.list() entry (already described against the roster).
  * @param {object} p      one element of projects.list(roster)
  * @param {Array} roster  the cards the list was described against (for each member's model)
  * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object,
- *   readReport?: (sessionName: string) => object }} [o]
+ *   readReport?: (sessionName: string) => object, allProjects?: Array|null }} [o]
+ *   allProjects: every stored project, for the cross-project check (busyElsewhere); null means the store could not be
+ *   read (no member reads quiet); omitted, the store is read when a member first needs it.
  * Each member's `summary` is summaryFreshness's answer, or (#4581 N10, idleExcused) a stale one marked
- * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped.
+ * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped, or
+ * (#4581 R9, quietExcused) { state: 'quiet', quietKind: 'own'|'project', quietSince, quietMinutes } when it was current
+ * as its own tasks here, or the project's, ended.
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
   const readReport = opts.readReport || ((name) => { try { return require('./selfreport').read(name); } catch { return null; } });
   const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
   const readBrief = opts.readBrief || require('./brief').readBrief;
+  // Read once, and only when a member reaches busyElsewhere (review 3).
+  let allRead = false; let all = null;
+  const allProjects = () => {
+    if (!allRead) {
+      allRead = true;
+      if (opts.allProjects !== undefined) all = opts.allProjects;
+      else { try { all = require('./projects').readAll(); } catch { all = null; } }
+    }
+    return all;
+  };
   const cards = Array.isArray(roster) ? roster : [];
   const brief = readBrief(p.folder) || { goal: null, done: null, found: false };
   const members = (p.agents || []).map((m) => {
@@ -184,7 +256,7 @@ function overviewOf(p, roster, o) {
          derived from that name reported as this member's summary. */
       /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
          member that is not running is still this member, and its last summary is exactly what a PM checks. */
-      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now),
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now, allProjects),
     };
   });
   return {
@@ -297,6 +369,9 @@ const SUMMARY_WORDS = {
   idle: (s) => s.idleKind === 'started'
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
+  // #4581 R9: the project has no open task; this summary was current when its last task ended.
+  quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
+    + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',

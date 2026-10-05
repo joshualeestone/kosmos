@@ -411,3 +411,160 @@ test('#4896: roleTitle is the board\'s roleLine rule (a lookup on the menu title
   // Review 1: `setup` is labelled "Kosmos Guide" but is not on the menu, so it is not one of the board's titles.
   assert.equal(roleTitle('kosmos guide'), 'Kosmos guide', 'a menu: false label must not be looked up');
 });
+
+/* #4581 R9 (10-05 user diagnostic, 0.7.22): every member of a finished project read as behind for days, because each
+   quiet-time turn (a community prompt, a room post) moves the latest idle report on, so idleExcused never applies. On a
+   project with no open task, a summary current when its last task ended reads 'quiet'. Real member rows (fleet +
+   describe); the report is injected as a RECENT idle, the case idleExcused cannot excuse. */
+test('#4581 R9: on a project with no open task, a summary current when its work ended reads quiet; otherwise stale', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('ida-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);   // written 5 days 1h ago
+  const show = (tasks, report, name = 'ida', others = []) => {
+    const raw = { id: 'qq', name: 'Quiet', folder: '/p/qq', agents: [name], tasks };
+    const described = projects.describe(raw, BOARD.agents, [raw]);
+    const mem = described.agents.find((x) => x.sessionName === name);
+    assert.ok(mem && mem.present && mem.tied && mem.state === 'idle', 'fixture: ' + name + ' is not an idle member: ' + JSON.stringify(mem));
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report, allProjects: [raw].concat(others) };
+    const view = v.overviewOf(described, BOARD.agents, o);
+    return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
+  };
+  const recentIdle = { found: true, state: 'idle', at: at(30) };   // a community turn half an hour ago
+  // The last task closed 5 days ago, an hour after the summary: current when the work ended.
+  const done = [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }];
+  const quiet = show(done, recentIdle);
+  assert.equal(quiet.m.summary.state, 'quiet', JSON.stringify(quiet.m.summary));
+  assert.match(quiet.text, /summary: current when work on the project's tasks ended \(summaries\/2026-09-24-15\.md, 5 days ago; work ended 5 days ago\)$/m);
+  assert.doesNotMatch(quiet.text, /older than the 4-hour rhythm/);
+  // A task finished by its parts counts as the end too (a part's closedAt, no task closedAt).
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(5 * DAY) }] }], recentIdle).m.summary.state, 'quiet');
+  // A task closed as a whole while its part stays open (closing leaves parts open): the task's own closedAt is the end.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY), parts: [{ id: 1, who: 'ida', closedAt: null }] }], recentIdle).m.summary.state, 'quiet');
+  // CONTROL: a summary that is current is left current on a finished project (only a stale one is excused).
+  const freshFolder = agentFolder('ida-quiet-fresh', [['2026-09-29-16.md', 30]]);
+  const freshRaw = { id: 'qf', name: 'Quiet Fresh', folder: '/p/qf', agents: ['ida'], tasks: done };
+  const freshDescribed = projects.describe(freshRaw, BOARD.agents, [freshRaw]);
+  assert.equal(v.overviewOf(freshDescribed, BOARD.agents, { now: NOW, folderOf: () => freshFolder, readBrief: () => ({ found: false }), readReport: () => recentIdle }).members[0].summary.state, 'current');
+  // CONTROL: any open task leaves it stale, there is work to summarise (even one added before the summary).
+  assert.equal(show(done.concat([{ number: 2, sentence: 'b', createdAt: at(7 * DAY) }]), recentIdle).m.summary.state, 'stale');
+  // CONTROL: a part closed two days ago is work after the summary, though its task was added before it.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(2 * DAY) }] }], recentIdle).m.summary.state, 'stale');
+  // CONTROL: work that ended more than four hours after the summary leaves it stale (it was behind when work ended).
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 240) }], recentIdle).m.summary.state, 'stale');
+  // One minute past four hours after the summary is not quiet (pins the strict comparison from the other side).
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 181) }], recentIdle).m.summary.state, 'stale');
+  // A summary written AFTER the work ended (the last task closed 6 days ago, the summary 5 days ago) was current then too.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(7 * DAY), closedAt: at(6 * DAY) }], recentIdle).m.summary.state, 'quiet');
+  // The edge: exactly four hours after the summary still reads quiet.
+  assert.equal(show([{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY - 180) }], recentIdle).m.summary.state, 'quiet');
+  // Review 2: the summary is the agent's. CONTROL: an open part on ANOTHER project, a part closed on another project
+  // two days ago, and an unreadable project store each leave it stale; a part elsewhere closed before the summary does not.
+  const other = (parts) => [{ id: 'oo', name: 'Other', agents: ['ida'], tasks: [{ number: 1, sentence: 'x', createdAt: at(7 * DAY), parts }] }];
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'ida', closedAt: null }])).m.summary.state, 'stale');
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'ida', closedAt: at(2 * DAY) }])).m.summary.state, 'stale');
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'ida', closedAt: at(6 * DAY) }])).m.summary.state, 'quiet');
+  assert.equal(show(done, recentIdle, 'ida', other([{ id: 1, who: 'someone-else', closedAt: null }])).m.summary.state, 'quiet');
+  {
+    const raw = { id: 'qn', name: 'Quiet Null', folder: '/p/qn', agents: ['ida'], tasks: done };
+    const described = projects.describe(raw, BOARD.agents, [raw]);
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle, allProjects: null };
+    assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale', 'an unreadable project store excused it');
+  }
+  // CONTROL: a project that never had a task has no end time, so it stays stale.
+  assert.equal(show([], recentIdle).m.summary.state, 'stale');
+  // CONTROL: a later task, closed two days ago, is work after the summary.
+  assert.equal(show(done.concat([{ number: 2, sentence: 'b', createdAt: at(2 * DAY), closedAt: at(2 * DAY - 10) }]), recentIdle).m.summary.state, 'stale');
+});
+
+test('#4581 R9 CONTROL: a member that is not idle is never marked quiet, even on a finished project', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('mark-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);
+  const raw = { id: 'qw', name: 'Quiet Working', folder: '/p/qw', agents: ['mark'], tasks: [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const m = described.agents.find((x) => x.sessionName === 'mark');
+  assert.ok(m && m.present && m.state !== 'idle', 'fixture: mark is not a non-idle running member: ' + JSON.stringify(m && m.state));
+  const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(30) }) };
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
+});
+
+test('#4581 R9 review 2 CONTROL: a member that is not running is never marked quiet', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('ghost-quiet', [['2026-09-24-15.md', 5 * DAY + 60]]);
+  const raw = { id: 'qg', name: 'Quiet Ghost', folder: '/p/qg', agents: ['ghost'], tasks: [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY) }] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const g = described.agents.find((x) => x.sessionName === 'ghost');
+  assert.ok(g && !g.present, 'fixture: ghost is running: ' + JSON.stringify(g));
+  const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(30) }), allProjects: [raw] };
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
+});
+
+test('#4581 R9 review 3: the project store is not read when no member needs the cross-project check', () => {
+  let reads = 0;
+  const raw = { id: 'qr', name: 'Quiet Reads', folder: '/p/qr', agents: ['mark'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const fresh = agentFolder('mark-reads', [['2026-09-29-16.md', 30]]);
+  const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => null };
+  Object.defineProperty(o, 'allProjects', { get() { reads += 1; return []; }, enumerable: true });
+  v.overviewOf(described, BOARD.agents, o);
+  assert.equal(reads, 0, 'the project store was read for a member with a current summary');
+});
+
+test('#4581 R9 review 4: a member is measured from its own last part here; the real store path reads quiet', () => {
+  const DAY = 24 * 60;
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  const folder = agentFolder('ida-own', [['2026-09-24-15.md', 5 * DAY + 60]]);
+  const recentIdle = { found: true, state: 'idle', at: at(30) };
+  // ida finished her part 5 days ago (an hour after her summary); a teammate closed the last part 2 days ago.
+  const tasks = [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'ida', closedAt: at(5 * DAY) }, { id: 2, who: 'mark', closedAt: at(2 * DAY) }] }];
+  const raw = { id: 'qo', name: 'Quiet Own', folder: '/p/qo', agents: ['ida', 'mark'], tasks };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle, allProjects: [raw] };
+  const view = v.overviewOf(described, BOARD.agents, o);
+  const ida = view.members.find((m) => m.sessionName === 'ida');
+  assert.equal(ida.summary.state, 'quiet', JSON.stringify(ida.summary));
+  assert.equal(ida.summary.quietKind, 'own');
+  assert.match(v.renderShow({ project: view }).join('\n'), /summary: current when its own tasks here ended \(summaries\/2026-09-24-15\.md, 5 days ago; work ended 5 days ago\)$/m);
+  // CONTROL: measured from the project's end (the teammate's part), the same summary is stale.
+  const noParts = { id: 'qp', name: 'Quiet Project', folder: '/p/qp', agents: ['ida', 'mark'], tasks: [{ number: 1, sentence: 'a', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'mark', closedAt: at(2 * DAY) }] }] };
+  const d2 = projects.describe(noParts, BOARD.agents, [noParts]);
+  assert.equal(v.overviewOf(d2, BOARD.agents, { ...o, allProjects: [noParts] }).members.find((m) => m.sessionName === 'ida').summary.state, 'stale');
+  // ida's task closed as a whole 5 days ago with her part left open: that close is her end, not the teammate's later one.
+  const closedWhole = { id: 'qw2', name: 'Quiet Whole', folder: '/p/qw2', agents: ['ida', 'mark'], tasks: [
+    { number: 1, sentence: 'a', createdAt: at(6 * DAY), closedAt: at(5 * DAY), parts: [{ id: 1, who: 'ida', closedAt: null }] },
+    { number: 2, sentence: 'b', createdAt: at(6 * DAY), parts: [{ id: 1, who: 'mark', closedAt: at(2 * DAY) }] }] };
+  const d3 = projects.describe(closedWhole, BOARD.agents, [closedWhole]);
+  assert.equal(v.overviewOf(d3, BOARD.agents, { ...o, allProjects: [closedWhole] }).members.find((m) => m.sessionName === 'ida').summary.state, 'quiet');
+  // The real store path: the project written through the store, no allProjects passed.
+  const prior = projects.readAll();
+  try {
+    projects.writeAll([raw]);
+    const real = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle };
+    assert.equal(v.overviewOf(described, BOARD.agents, real).members.find((m) => m.sessionName === 'ida').summary.state, 'quiet', 'the real store read did not reach busyElsewhere');
+  } finally { projects.writeAll(prior); }
+  // A damaged store (readAll throws UNREADABLE) is busy: nobody reads quiet.
+  const storeFile = projects.file();
+  const before = fs.readFileSync(storeFile, 'utf8');
+  try {
+    fs.writeFileSync(storeFile, '{ not json');
+    const real = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => recentIdle };
+    assert.equal(v.overviewOf(described, BOARD.agents, real).members.find((m) => m.sessionName === 'ida').summary.state, 'stale', 'a damaged project store excused it');
+  } finally { fs.writeFileSync(storeFile, before); projects.readAll(); }   // the re-read resets the store's read flag
+  // A legacy task (a who and no parts) is the member's own too (partsOf derives the part).
+  const legacy = { id: 'ql', name: 'Quiet Legacy', folder: '/p/ql', agents: ['ida', 'mark'], tasks: [
+    { number: 1, sentence: 'a', who: 'ida', createdAt: at(6 * DAY), closedAt: at(5 * DAY) },
+    { number: 2, sentence: 'b', who: 'mark', createdAt: at(6 * DAY), closedAt: at(2 * DAY) }] };
+  assert.equal(v.overviewOf(projects.describe(legacy, BOARD.agents, [legacy]), BOARD.agents, { ...o, allProjects: [legacy] }).members.find((m) => m.sessionName === 'ida').summary.quietKind, 'own');
+});
+
+test('#4581 R9 review 6: a stale summary refused before the cross-project check (an open task) does not read the store', () => {
+  let reads = 0;
+  const raw = { id: 'qx', name: 'Quiet Open', folder: '/p/qx', agents: ['ida'], tasks: [{ number: 1, sentence: 'a', createdAt: new Date(NOW - 7 * 86400000).toISOString() }] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const stale = agentFolder('ida-open', [['2026-09-24-15.md', 5 * 24 * 60]]);
+  const o = { now: NOW, folderOf: () => stale, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: new Date(NOW - 30 * 60000).toISOString() }) };
+  Object.defineProperty(o, 'allProjects', { get() { reads += 1; return []; }, enumerable: true });
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
+  assert.equal(reads, 0, 'the project store was read for a member an open task had already refused');
+});
