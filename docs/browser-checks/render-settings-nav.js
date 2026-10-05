@@ -311,10 +311,16 @@ function chk(ok, label, extra) {
       const nlBg = await page.evaluate(() => { const root = document.documentElement; const was = root.dataset.look; root.dataset.look = 'new';
         const bg = getComputedStyle(document.getElementById('s-nav-more')).backgroundColor; if (was === undefined) delete root.dataset.look; else root.dataset.look = was; return bg; });
       chk(!/rgba\(0, 0, 0, 0\)|transparent/.test(nlBg), `[${theme}] at 375px the chevron stays solid in the new look too (#5303)`, nlBg);
+      /* On Kosmos+ the page's ground is a fixed navy gradient: a flat colour there drew the chevron as a visible square. */
+      const plusBg = await page.evaluate(() => { document.body.classList.add('plus-active');
+        const out = { chev: getComputedStyle(document.getElementById('s-nav-more')).backgroundImage, body: getComputedStyle(document.body).backgroundImage };
+        document.body.classList.remove('plus-active'); return out; });
+      chk(/gradient/.test(plusBg.chev) && plusBg.chev === plusBg.body, `[${theme}] at 375px on Kosmos+ the chevron paints the page's own gradient ground (#5303)`, JSON.stringify(plusBg).slice(0, 200));
       /* A real press at the chevron (not el.click()), so the press's focus is what is measured: it must not take focus,
          or focus drops to the page when it hides itself at the row's end. Polled, not a fixed wait: the scroll is smooth. */
       const cb = await page.evaluate(() => { const r = document.getElementById('s-nav-more').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       await page.mouse.click(cb.x, cb.y);
+      // A timeout is swallowed on purpose: the assertion below then fails with the state it found.
       await page.waitForFunction(() => { const n = document.getElementById('s-nav'); return n.dataset.edge === 'lr' && n.scrollLeft > 100; }, null, { timeout: 5000 }).catch(() => {});
       const moved = await page.evaluate(() => { const n = document.getElementById('s-nav'); return { scrollLeft: n.scrollLeft, edge: n.dataset.edge,
         focusOnChevron: document.activeElement === document.getElementById('s-nav-more'), mask: getComputedStyle(n).maskImage || getComputedStyle(n).webkitMaskImage }; });
