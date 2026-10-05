@@ -87,7 +87,9 @@ test('#5297: the re-read pass checks live execution per send, uses the automatic
   assert.match(fn, /for \(const session of Object\.keys\(owed\)\) \{[\s\S]*?if \(!liveExecution\.liveExecutionAllowed\(\)\) break;[\s\S]*?chat\.deliverAutomaticAsync\(session, line, safeRoster\(\)/, 'live execution is not checked before each send');
   assert.doesNotMatch(fn, /chat\.deliver\(|chat\.deliverAsync\(/);
   assert.match(fn, /if \(!ours\.has\(session\)\)/);
-  assert.match(fn, /const latest = ir\.readOwed\(\);[\s\S]*?ir\.writeOwed\(latest\)/, 'the pass overwrites debts owed during its awaits');
+  assert.match(fn, /if \(!Array\.isArray\(roster\) \|\| !roster\.length\) return;[\s\S]*?let owed = ir\.readOwed\(\)/, 'an unreadable or empty roster can clear every debt');
+  assert.match(fn, /ir\.startedSince\(rows, debt\.at\) === true/, 'an agent that restarted is still told its file changed');
+  assert.match(fn, /ir\.writeOwed\(ir\.mergeCleared\(ir\.readOwed\(\), cleared\)\)/, 'the pass overwrites debts owed during its awaits');
   // Wired: at boot (a first pass and a 15-minute timer).
   assert.match(SRC, /setTimeout\(\(\) => \{ instructionRereadPass\(\); \}, 30 \* 1000\)/);
   assert.match(SRC, /setInterval\(\(\) => \{ instructionRereadPass\(\); \}, 15 \* 60 \* 1000\)/);

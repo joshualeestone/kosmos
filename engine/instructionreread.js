@@ -10,9 +10,10 @@
  *   - rules: the working rules, rewritten only when the person accepts the refresh (engine/doctrine.js refresh, #539).
  *
  * chat drops a line it cannot place (the shared-quota hold, a busy or unreachable pane), so the debt is kept on disk
- * until a line lands (PLACED or UNCONFIRMED), and the board retries it. { session: { at, sections: [...] } }, atomic tmp +
- * rename; an unreadable or odd file reads as empty. A debt older than GIVE_UP_MS is dropped: by then the agent has
- * almost certainly restarted and read the file itself.
+ * until a line lands (see settle) and the board retries it. { session: { at, n, sections: [...] } }: `at` is when the
+ * debt began, `n` counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
+ * Atomic tmp + rename; an unreadable or odd file reads as empty. A debt ends without a line when the agent has started a
+ * session since it began (startedSince: it read the new file at that start), or after GIVE_UP_MS.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,7 +34,7 @@ function readOwed() {
     for (const [k, v] of Object.entries(d)) {
       if (!k || !v || typeof v !== 'object' || !Number.isFinite(v.at) || !Array.isArray(v.sections)) continue;
       const sections = v.sections.filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
-      if (sections.length) out[k] = { at: v.at, sections };
+      if (sections.length) out[k] = { at: v.at, n: Number.isInteger(v.n) ? v.n : 1, sections };
     }
     return out;
   } catch { return {}; }
@@ -55,7 +56,7 @@ function owe(owed, session, section, now = Date.now()) {
   if (!session || !Object.prototype.hasOwnProperty.call(SECTIONS, section)) return { ...owed };
   const cur = owed[session];
   const sections = cur ? [...new Set([...cur.sections, section])] : [section];
-  return { ...owed, [session]: { at: cur ? cur.at : now, sections } };
+  return { ...owed, [session]: { at: cur ? cur.at : now, n: (cur && Number.isInteger(cur.n) ? cur.n : 0) + 1, sections } };
 }
 
 /* Read, owe and write in one step, for a caller that is not holding the map. */
@@ -74,6 +75,23 @@ function settle(owed, session, verdict, DELIVERY, now = Date.now()) {
   return next;
 }
 
+/* Pure: has the agent started a session since the debt began? `rows` is engine/selfreport.history (oldest first); a
+   'started' report is written at every session start. true, false, or null when the history is unknown (keep the debt). */
+function startedSince(rows, at) {
+  if (!Array.isArray(rows)) return null;
+  return rows.some((r) => r && r.state === 'started' && Number.isFinite(r.at) && r.at > at);
+}
+
+/* Pure: the file's debts after a pass, given what the pass ended: { session: n } (the `n` of the debt it ended). A debt
+   owed again during the pass has a larger `n`, so it survives. */
+function mergeCleared(latest, cleared) {
+  const next = { ...latest };
+  for (const [session, n] of Object.entries(cleared || {})) {
+    if (next[session] && next[session].n === n) delete next[session];
+  }
+  return next;
+}
+
 /* The one line for an agent's debt, naming every section it owes. */
 function lineFor(sections) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
@@ -84,4 +102,4 @@ function lineFor(sections) {
     + 'What it says now replaces what you read when you started.';
 }
 
-module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, lineFor };
+module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, lineFor };

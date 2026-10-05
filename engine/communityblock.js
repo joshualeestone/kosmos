@@ -13,8 +13,8 @@
  * 0.7.22 report (Josh, 2026-10-05) found five running agents still told "at most one post a day". The
  * board restarting is the update, so the boot pass runs exactly when new text arrives (the same reason
  * as the connections and reports sweeps in server.js). An agent reads its file once, at session start,
- * so the board also tells each agent whose block's rules changed to read it again (engine/instructionreread.js). The refresh
- * never adds the block and never removes it: that stays with birth, restart and the switch.
+ * so the board also tells each agent whose block's rules changed to read it again (engine/instructionreread.js).
+ * The refresh never adds the block and never removes it: that stays with birth, restart and the switch.
  *
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
@@ -314,12 +314,16 @@ function refreshEveryone(roster, participating) {
   }
   if (participating !== true) return [];
   const instructions = require('./instructions');
-  const blockOf = (text) => {
+  /* The rules part of a block: its lines without the introduction, trimmed. `before` is read from the file; the
+     comparison is against the body this refresh composes (the text tellAgent writes), never a second read of the file,
+     which another writer could have changed in between. */
+  const rulesOf = (body) => (body === null ? null : body.split('\n').filter((l) => !INTRO_LINES.includes(l)).join('\n').trim());
+  const innerOf = (text) => {
     const f = projects.findBlock(text || '', START, END);
     if (!f || f.ambiguous) return null;
-    return String(text).slice(text.indexOf(START), text.indexOf(END) + END.length);
+    const from = text.indexOf(START) + START.length;
+    return text.slice(from, text.indexOf(END, from));
   };
-  const withoutIntro = (block) => (block === null ? null : block.split('\n').filter((l) => !INTRO_LINES.includes(l)).join('\n'));
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
@@ -328,19 +332,14 @@ function refreshEveryone(roster, participating) {
     try {
       const cur = instructions.read(a.sessionName);
       carries = Boolean(cur && cur.exists && projects.findBlock(cur.text || '', START, END));
-      if (carries) before = blockOf(cur.text);
+      if (carries) before = innerOf(cur.text);
     } catch { carries = false; }
     if (!carries) continue;
     let posted = null;
     try { posted = require('./communitystore').postedBy(a.sessionName); } catch { posted = null; }
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
     const r = tellAgent(a.sessionName, true, { introduce, onlyIfPresent: true });
-    let rulesChanged = false;
-    if (r.changed === true) {
-      let after = null;
-      try { after = blockOf(instructions.read(a.sessionName).text); } catch { after = null; }
-      rulesChanged = after === null || withoutIntro(before) !== withoutIntro(after);
-    }
+    const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(blockBody({ introduce }));
     told.push({ agent: a.sessionName, ...r, rulesChanged });
   }
   return told;
