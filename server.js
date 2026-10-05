@@ -1138,6 +1138,7 @@ function connectionsHeld() {
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
+const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
 const autoretell = require('./engine/autoretell');
@@ -16194,6 +16195,44 @@ const server = http.createServer(async (req, res) => {
     } catch {
       sendJson(res, 500, { error: 'the previous version could not be read' });   // as the GET beside it
     }
+    return;
+  }
+
+  /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
+     page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
+     the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
+     token and want a browser's headers (isViaScreen, the check community release uses). As there, a speed bump, not
+     a wall, until #4491 keeps the board token out of agents' reach. One pending per target: a second is refused. */
+  const instrAdd = pathname.match(/^\/api\/agent\/([^/]+)\/instruction-add(?:\/(apply|dismiss|undo))?$/);
+  if (instrAdd) {
+    const name = decodeSegment(instrAdd[1]);
+    const act = instrAdd[2] || null;
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
+      try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this route does' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'send it as JSON, like {"text": "..."}' }); return; }
+        if (!act) {
+          const roster = safeRoster();
+          if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so nothing was held' }); return; }
+          const who = resolveAgentSender(req, body, roster);
+          if (!who || !who.ok) { sendJson(res, 200, { ok: false, because: (who && who.because) || 'we could not tell which agent is asking' }); return; }
+          const askedBy = (who.card && (who.card.name || who.card.sessionName)) || '';
+          sendJson(res, 200, instructionadds.propose(name, body.text, askedBy));
+          return;
+        }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from the agent’s page' }); return; }
+        const out = act === 'apply' ? instructionadds.apply(name) : act === 'dismiss' ? instructionadds.dismiss(name) : instructionadds.undo(name);
+        sendJson(res, out.ok ? 200 : 409, out);
+      })
+      .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that could not be done' }); });
     return;
   }
 

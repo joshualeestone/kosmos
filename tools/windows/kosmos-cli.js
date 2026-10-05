@@ -113,12 +113,14 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <create|roles|role-draft>',
+    'Usage: kosmos agent <create|roles|role-draft|instructions-add>',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
     '  kosmos agent roles                              list the roles an agent can be made with',
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
+    '  kosmos agent instructions-add "<name>" --from <file>',
+    '                                                  propose an addition to an agent\'s instructions; the person applies it',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
@@ -1048,6 +1050,30 @@ async function agentRoles(ctx) {
   for (const x of roles) if (x && x.key) ctx.out(x.key + '  ' + (x.label || ''));
   return 0;
 }
+/* kosmos#5293, as install/kosmos: only PROPOSES an addition to <name>'s instructions. The board holds it, named by
+   this agent's token (never a name typed here), and the person applies or dismisses it on <name>'s page. */
+async function agentInstructionsAdd(ctx, args) {
+  const usage = 'Usage: kosmos agent instructions-add "<name>" --from <file>   (the text to add, in a file)';
+  const name = args[0];
+  if (!name || args[1] !== '--from' || !args[2]) { ctx.err(usage); return 2; }
+  if (tooManyWords(ctx, 'agent instructions-add', 3, usage, args)) return 2;
+  let text;
+  try { text = ctx.readFile(args[2]); } catch (_) { ctx.err('We could not read ' + args[2] + '. Write the addition to a file first.'); return 2; }
+  const r = await ctx.call('POST', '/api/agent/' + encodeURIComponent(name) + '/instruction-add', { text, from_pane: '' });
+  if (!r.reached) return ctx.unreachable('hold that addition');
+  const j = r.json || {};
+  if (j.ok === true) { ctx.out('Held. The person applies it on ' + name + '\'s page in Kosmos; nothing changes until they do. Tell them it is waiting there.'); return 0; }
+  if (j.code === 'pending') {
+    const p = j.pending || {};
+    const d = p.askedAt ? new Date(p.askedAt) : null;
+    const when = d && !isNaN(d) ? ' on ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+    ctx.err('Not sent: ' + name + ' already has an addition waiting, asked by ' + (p.askedBy || 'another agent') + when + '. The person can apply or dismiss it on ' + name + '\'s page first.');
+    return 1;
+  }
+  const why = clause(j.because || j.error || '') || 'it did not say why';
+  ctx.err('Kosmos did not hold that addition: ' + why + '.');
+  return 1;
+}
 /* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
 async function agentRoleDraft(ctx, args) {
   const to = args && args[0] === '--to' ? args[1] : null;
@@ -1533,7 +1559,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause },
-  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
+  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
