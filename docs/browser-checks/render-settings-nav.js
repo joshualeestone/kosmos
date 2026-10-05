@@ -249,6 +249,8 @@ function chk(ok, label, extra) {
       chk(band.navWidth > 0 && band.navRight <= band.secLeft + 1, `[${theme}] at 920px the nav sits beside the section`, JSON.stringify(band));
       chk(band.secWidth > 544 + 1, `[${theme}] at 920px the section is fluid, wider than the 34rem pair`, JSON.stringify(band));
       chk(!band.overflow, `[${theme}] at 920px the page does not scroll sideways`);
+      const noChev = await page.evaluate(() => getComputedStyle(document.getElementById('s-nav-more')).display);
+      chk(noChev === 'none', `[${theme}] control: at 920px the nav is a column and has no More sections chevron (#5303)`, noChev);
 
       // Narrow: the nav becomes a row above the content, and nothing overflows.
       await page.setViewportSize({ width: 420, height: 900 });
@@ -288,6 +290,31 @@ function chk(ok, label, extra) {
       chk(phone.minPillH >= 44 && phone.saveH >= 44, `[${theme}] at 375px pills and the Save button are at least 44px tall`, JSON.stringify(phone));
       chk(phone.nameFont >= 16, `[${theme}] at 375px the name field is at least 16px, so iOS does not zoom`, JSON.stringify(phone));
 
+      /* #5303: the row says there is more. At the start, the "More sections" chevron is shown at the row's real right
+         edge, a solid 44px target (a tap at its top and bottom edges lands on it, not on a pill under it), and the row
+         is marked as having more on the right. A tap moves the row along. */
+      const chev = await page.evaluate(() => {
+        const nav = document.getElementById('s-nav'); const b = document.getElementById('s-nav-more');
+        const r = b.getBoundingClientRect(); const n = nav.getBoundingClientRect(); const cs = getComputedStyle(b);
+        const hit = (y) => { const e = document.elementFromPoint(r.left + r.width / 2, y); return !!e && (e === b || b.contains(e)); };
+        return { shown: cs.display !== 'none' && !b.hidden, w: Math.round(r.width), h: Math.round(r.height), gapRight: Math.round(n.right - r.right),
+          bg: cs.backgroundColor, hits: [hit(r.top + 2), hit(r.bottom - 2)], edge: nav.dataset.edge, scrollLeft: nav.scrollLeft };
+      });
+      chk(chev.shown && chev.w >= 44 && chev.h >= 44 && Math.abs(chev.gapRight) <= 1 && chev.edge === 'r' && chev.scrollLeft === 0,
+        `[${theme}] at 375px the More sections chevron shows at the row's right edge, 44px, with more on the right (#5303)`, JSON.stringify(chev));
+      chk(!/rgba\(0, 0, 0, 0\)|transparent/.test(chev.bg) && chev.hits.every(Boolean),
+        `[${theme}] at 375px the chevron is solid and a tap at its top or bottom edge lands on it (#5303)`, JSON.stringify(chev));
+      /* The new look's `#s-nav button { background: none }` once outranked the chevron's own and left it see-through. */
+      const nlBg = await page.evaluate(() => { const root = document.documentElement; const was = root.dataset.look; root.dataset.look = 'new';
+        const bg = getComputedStyle(document.getElementById('s-nav-more')).backgroundColor; if (was === undefined) delete root.dataset.look; else root.dataset.look = was; return bg; });
+      chk(!/rgba\(0, 0, 0, 0\)|transparent/.test(nlBg), `[${theme}] at 375px the chevron stays solid in the new look too (#5303)`, nlBg);
+      await page.evaluate(() => document.getElementById('s-nav-more').click());
+      await page.waitForTimeout(700);
+      const moved = await page.evaluate(() => ({ scrollLeft: document.getElementById('s-nav').scrollLeft, edge: document.getElementById('s-nav').dataset.edge }));
+      chk(moved.scrollLeft > 100 && moved.edge === 'lr', `[${theme}] at 375px a tap on the chevron moves the row along and both edges then have more (#5303)`, JSON.stringify(moved));
+      await page.evaluate(() => { document.getElementById('s-nav').scrollLeft = 0; });
+      await page.waitForTimeout(200);
+
       /* Control first: the last pill starts past the nav's right edge. The click is an in-page
          el.click(), because Playwright's own click scrolls its target into view and would pass
          this with settingsGo doing nothing. */
@@ -304,6 +331,9 @@ function chk(ok, label, extra) {
         return { navL: n.left, navR: n.right, pillL: c.left, pillR: c.right, scrollY: window.scrollY };
       });
       chk(last.pillL >= last.navL - 1 && last.pillR <= last.navR + 1, `[${theme}] at 375px the chosen last pill is scrolled into view`, JSON.stringify(last));
+      /* #5303: at the end of the row the chevron goes and the fade moves to the left edge (nothing more to the right). */
+      const atEnd = await page.evaluate(() => ({ display: getComputedStyle(document.getElementById('s-nav-more')).display, edge: document.getElementById('s-nav').dataset.edge }));
+      chk(atEnd.display === 'none' && atEnd.edge === 'l', `[${theme}] at 375px at the end of the row the chevron is gone and only the left edge fades (#5303)`, JSON.stringify(atEnd));
 
       /* A MIDDLE pill is centred, not merely in view: the last pill sits at the clamped end of
          the scroll, where centring and snapping cannot disagree, so only a middle one tests it. */
