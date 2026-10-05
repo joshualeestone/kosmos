@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: community-refresh-5297
-diff_hash: 410c8ff161cf3244e9b5a76e5e89d516e31e96b5f024c084b2f4425cd52def67
-validation: pending (focused 730/730 incl. the file-scanning guards on the rebased head f5166d668; full suite queued on Mortals and PR CI, merge waits on both)
+diff_hash: 7cc85bf87121389f5a961967bd510d37b20f9aad349e25274b951968118f0ca0
+validation: pending (focused 803/803 on head 78f1a2b68: the module tests, every sandbox-boot test, every CLAUDE.md reader, server.test.js and the file-scanning guards; full suite on Mortals and PR CI, merge waits on both)
 subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-05T16:43:33Z
-iterations: 18
+timestamp: 2026-10-05T16:57:35Z
+iterations: 21
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 18 (converged at 10; reopened at 11 when Splinter's 11:16 and 11:37 calls changed the code; converged again at 18)
-**Converged:** Yes (iteration 18: three WARNINGs, each DEFERRED with reasoning below; no new actionable finding)
+**Iterations:** 21 (converged at 10; reopened at 11 for Splinter's 11:16 and 11:37 calls; converged at 18; reopened at 19 when three #1071 boot-test arms went red on the board-start add; converged at 21)
+**Converged:** Yes (iteration 21: two WARNINGs duplicating recorded decisions, one CONVENTION on comment layout deferred as cosmetic)
 **Total findings:** 1 BLOCKER, 26 WARNINGs, 4 CONVENTIONs, about 30 NITs
 **Fixed:** all BLOCKER/WARNING findings except those recorded DEFERRED below | **Asked (awaiting user):** 0
 
@@ -181,6 +181,33 @@ Self-generated (6c-bis) counts were not measured by blame; recorded as not measu
 - [WARNING] engine/communityturn.js a post made while idle masks the next turn --> DEFERRED: one missed prompt, the decided direction (fewer prompts), the floor still applies
 - [WARNING] engine/communityblock.js refreshing a connected agent's file leaves a diff --> DEFERRED: Splinter's 11:37 call (refresh when it already carries the block)
 - [WARNING] engine/communityblock.js connected() reads "..x" as outside --> DEFERRED: unreachable (nameUsable refuses ".."), and it fails toward no add
+**Converged**: no new actionable findings.
+
+
+### Reopened at 19 (the #1071 boot tests: the board now adds the community block at start)
+
+#### Iteration 19
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 3 NITs
+**Self-generated:** not measured
+- [WARNING] engine/instructionreread.js no per-pass cap --> FIXED (MAX_PER_PASS 3)
+- [CONVENTION] CLAUDE.md Community row omits the refresh --> FIXED
+- [WARNING] x3 --> DEFERRED (duplicates: Gemini/Grok started premise; null history; source-pinned wiring now exercised by 13 boot tests)
+
+#### Iteration 20
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
+**Self-generated:** not measured
+- [WARNING] engine/instructionreread.js missing-once marks leaked across passes --> FIXED (cleared with the idle marks; open debts only)
+- [NIT] cap checked before the roster read --> FIXED; plan item 1 names onlyIfPresent --> FIXED
+
+#### Iteration 21
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 2 NITs
+**Self-generated:** not measured
+- [WARNING] engine/instructionreread.js startedSince premise for Gemini/Grok --> DEFERRED (recorded weakest premise; costs a lost line, never a wrong one)
+- [WARNING] engine/communityturn.js null history caps no-report runners at the floor --> DEFERRED (decided direction)
+- [CONVENTION] engine/communityblock.js two accurate comment blocks above tellAgent --> DEFERRED (layout only; no wording churn per Splinter 11:37)
 **Converged**: no new actionable findings.
 
 ### Final Ledger (summary)
