@@ -163,22 +163,22 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   assert.match(flat, /A server added with `claude mcp add` is a separate record from a plugin: it is kept in `\.claude\.json`, which sits next to `\.claude` in the home folder when `CLAUDE_CONFIG_DIR` is not set and inside that folder when it is/);
   assert.match(flat, /\*\*Your account \(Claude\)\.\*\*/);
   assert.match(flat, /## A plugin the person installed in their own app \(Claude and Codex agents\)/);
-  assert.match(flat, /If you are not a Claude or Codex agent, none of the below applies to you/);
+  assert.match(flat, /If you are not a Claude or Codex agent, the rest of this section does not apply to you/);
   assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
   assert.match(flat, /On Windows the home folder is `%USERPROFILE%` \(`\$env:USERPROFILE` in PowerShell\)/);
   /* `claude mcp add` defaults to --scope local (its own --help, measured), so the server stays with the folder it
      was added from (review 7). */
   assert.match(flat, /`--scope local` \(the default\): only the project folder it was added from/);
   assert.match(flat, /Check your own account yourself; ask them only which one they added it to/);
-  assert.match(flat, /`--scope project`: kept in that project's own `\.mcp\.json` instead/);
-  assert.match(flat, /`--scope user`: every project folder, but only from that same `\.claude\.json`, so not from another account's folder/);
+  assert.match(flat, /`--scope project`: kept in that project's own `\.mcp\.json`, so it reaches anyone working in that project folder once it is approved/);
+  assert.match(flat, /`--scope user`: every project folder for whoever reads that `\.claude\.json`, so not an agent running from another folder/);
   assert.match(flat, /compare the actual folders rather than assuming from the account/);
   /* A connector belongs to an ACCOUNT, not a folder (review: it is never in a plugins file); desktop-app chat additions
      are in neither (review 3). */
   assert.match(flat, /A connector added on the claude\.ai website is tied to a Claude account rather than to a folder/);
   assert.match(flat, /A server or extension set up in the Claude desktop app's own settings is kept by that app, not in any Claude Code folder/);
   /* The direct instruments first (review 11; each verb confirmed in its own --help on Codex 0.149.1 / this Claude Code). */
-  assert.match(flat, /`claude plugin list` \(installed plugins\), `claude mcp list` \(servers\) and `claude auth status` \(your account\); for Codex, `codex mcp list`/);
+  assert.match(flat, /`claude plugin list` \(installed plugins\), `claude mcp list` \(servers; it starts or contacts each one to check it, so run it once, not in a loop\) and `claude auth status` \(your account\); for Codex, `codex mcp list`/);
   /* Restart is ruled out only for the other-folder/account/app case. */
   assert.match(flat, /Restarting does not change that, so do not suggest it then/);
   assert.match(flat, /whether it was added after you started/);
