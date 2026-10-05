@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: joincode-4794
 diff_hash: e2005120688458e52ffe15ab8ed18377d9c330af6a39ac8574dee77ce38f92cd
-validation: PENDING at 3789fda373 (fresh mortals-validate queued 17:15 CDT, log pete-jc4794-3789; the earlier pass at 48a823a65 does not cover the guard commits). Targeted: the three #4794/Allow tests pass locally; browser-check gate rc 0
+validation: passed (Mortals, mortals-validate at 3789fda373, hash e20051206884, ENTRY status clean, EXIT=0 19:21 CDT; the proof commits after it are excluded from the hash). OWED before merge: the FULL browser-checks run (web/ change) and a clean merge onto current main
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-04T22:14:12Z
 iterations: 9
