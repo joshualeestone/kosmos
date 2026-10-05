@@ -51,7 +51,10 @@ stay off (measured reasons on the card).
   the answer. Defense in depth, not the guarantee. A turn.failed refuses the answer even after a message; a top-level
   error (Codex reports a reconnect this way) refuses it only if no turn.completed follows.
 - **Files:** the picture and the schema are written to a fresh 0700 temp folder and removed after the read,
-  success or failure. Nothing is saved by Codex (`--ephemeral`, measured on the card).
+  success or failure. Nothing of the chart is kept by Codex on this computer. MEASURED 2026-10-05 18:50 on the
+  private data, not the prompt: a real read whose answer contained a marker name (confirmed in the answer), then
+  `/usr/bin/grep -r -a` over the whole account folder (its sqlite databases included) for the marker and for a
+  slice of the picture's base64: no match. Control: the same search finds a model name inside logs_2.sqlite.
 - **Consent:** "OpenAI (ChatGPT, <email>)", "using your plan", and what OpenAI does with it (orgchartcodex.KEEPS):
   on a personal plan, "Improve the model for everyone" in ChatGPT's Data Controls decides whether it trains on it;
   business plans do not by default (OpenAI's Data Controls FAQ). Codex sends `store: false` (captured). Retention
@@ -75,13 +78,15 @@ stay off (measured reasons on the card).
 - Capture test (real Codex 0.149.1, fake key, local server): 2/2. Mutations, each red for the right reason:
   keeping `tool_mode` -> `exec`, `wait` offered; re-enabling `shell_tool`/`unified_exec` -> `exec_command`,
   `write_stdin` offered. Also captured once with the REAL ChatGPT login (still to a local server): same two tools.
-- Unit tests 27/27 after iteration 9; existing org-chart tests and engine sweeps pass in the same run. The existing
+- Unit tests 30/30 after iteration 11; existing org-chart tests and engine sweeps pass in the same run. The existing
   org-chart test files stub the ChatGPT reader out, so a single-file run from a Codex session (CODEX_HOME set) never
   reads with the person's real account. Each guard
   added in review was checked by a mutation that reds it (group kill, env allowlist, instructions file, failed turn,
   forced catalog field).
 
-- **Two fail-closed gates before the reader is offered** (and the first again at the read):
+- **Fail-closed gates before the reader is offered, and again at the read:** Windows, the Codex version, the
+  instructions file, administrator-managed settings, and the model list (missing, another version's, or with an
+  unknown field). The first two of them in detail:
   1. **The account has its own instructions file** (`AGENTS.override.md` or `AGENTS.md` in its Codex folder): not
      used, with a sentence saying why. Measured in review: Codex sends that file with every request under every flag,
      `model_instructions_file` included, so it would carry the person's private instructions to OpenAI and could

@@ -424,9 +424,12 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
       // A turn that failed is refused even if a message came before the failure: that text may be a partial answer.
       if (failed === null && errored !== null && !completed) failed = errored;
       // An answer counts only from a turn that completed: a message followed by a crash is not one.
-      if (failed === null && !completed) failed = 'the turn did not complete';
-      if (last === null || failed !== null) {
-        const said = (failed || String(stderr).split('\n').map((s) => s.trim()).find(Boolean) || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
+      const notDone = failed === null && !completed;
+      if (last === null || failed !== null || notDone) {
+        /* Codex's own words first: a failure it reported, else its first stderr line (past the banner it prints when
+           stdin is not a terminal), so a missing sign-in is named as one rather than "did not answer". */
+        const stderrLine = String(stderr).split('\n').map((s) => s.trim()).find((s) => s && !/^Reading additional input from stdin/i.test(s)) || '';
+        const said = (failed || stderrLine || (notDone ? 'the turn did not complete' : '')).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
         if (said) console.warn('[orgchart] codex ended without an answer: ' + said);
         finish({ ok: false, because: /log(?:ged)? ?in|sign(?:ed)? ?in|\bauth(?:entication|orization)?\b|\b401\b|unauthori[sz]ed/i.test(said) ? 'the ChatGPT sign-in on this computer has ended. Sign in again in Settings, AI Models, then try again' : 'ChatGPT did not answer' });
         return;

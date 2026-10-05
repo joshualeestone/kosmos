@@ -60,7 +60,9 @@ fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: a, home: proc
   catalog: catPath ? JSON.parse(fs.readFileSync(catPath, 'utf8')) : null,
   schema: JSON.parse(fs.readFileSync(at('--output-schema'), 'utf8')) }));
 const s = fs.readFileSync(${JSON.stringify(script)}, 'utf8');
-if (s === 'hang') setInterval(() => {}, 1000); else process.stdout.write(s);
+if (s === 'hang') setInterval(() => {}, 1000);
+else if (s.startsWith('stderr:')) { process.stderr.write('Reading additional input from stdin...\\n' + s.slice(7)); process.exitCode = 1; }
+else process.stdout.write(s);
 `);
 fs.chmodSync(fake, 0o755);
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -416,4 +418,13 @@ test('the exact Codex command line is pinned', () => {
     '-c', 'include_environment_context=false', '-c', 'include_apps_instructions=false',
     '-c', 'include_collaboration_mode_instructions=false', '-c', 'project_doc_max_bytes=0',
     '-c', 'model_catalog_json="/C"', '--output-schema', '/S', '-i', '/I', '--', 'P']);
+});
+
+test('Codex exiting before any turn with its own reason: a missing sign-in is named as one', async () => {
+  fs.writeFileSync(script, 'stderr:Error: no Codex credentials were found. Run codex login to sign in.\n');
+  assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /sign-in on this computer has ended/);
+  await grandchildGone();
+  fs.writeFileSync(script, 'stderr:Error: something else went wrong\n');
+  assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, 'ChatGPT did not answer', 'CONTROL: any other reason is not called a sign-in');
+  await grandchildGone();
 });
