@@ -62751,6 +62751,7 @@ function msgCopyRelabel() {
   });
 }
 try { const mq = window.matchMedia && window.matchMedia(PJ_TOUCH_MQ); if (mq && mq.addEventListener) mq.addEventListener('change', msgCopyRelabel); } catch { /* no media queries: the paint's names stand */ }
+try { msgCopyRelabel(); } catch { /* once now too: a bar painted before PJ_TOUCH_MQ existed was named for a pointer */ }
 function pjPhoneOrder() {
   const grid = document.querySelector('.pj3');
   const mid = grid && grid.querySelector(':scope > .pjmid');
@@ -63804,6 +63805,7 @@ async function msgRefCopy(row) {
    right-click. Opened after this tap's own click has finished, or the page's click-outside rule would close it at once. */
 function msgCopyPressed(btn, row) {
   if (msgCopyTouch()) {
+    if (!msgCopyText(row) && !msgRefText(row)) { msgToast('There is nothing to copy in this message.'); return; }   // the menu would not open: say so
     const r = btn.getBoundingClientRect();
     setTimeout(() => { if (row && row.isConnected) msgMenuOpen(row, r.left, r.bottom + 4); }, 0);
     return;

@@ -124,6 +124,12 @@ async function paintRoom(page) {
         const idCopied = await page.evaluate(() => window.__copied.slice());
         chk(idCopied[0] === 'message 530 in Kosmos Growth', '[touch] C6 Copy message id in that menu copies the reference', JSON.stringify(idCopied));
       }
+      // A row with nothing to copy: Copy says so instead of doing nothing (the menu does not open empty).
+      const none = await page.evaluate(() => new Promise((res) => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', 'x-none');
+        document.getElementById('pj-room').appendChild(d); const b = document.createElement('button'); d.appendChild(b);
+        msgCopyPressed(b, d); setTimeout(() => { const m = document.getElementById('msg-menu'); const t = document.getElementById('msg-toast');
+          const out = { menu: !!m && !m.hidden, toast: t && !t.hidden ? t.textContent || msgToast.words : null }; d.remove(); res(out); }, 120); }));
+      chk(!none.menu && none.toast === 'There is nothing to copy in this message.', '[touch] C6 Copy on a row with nothing to copy says so', JSON.stringify(none));
       await ctx.close();
     }
     for (const platform of ['Win32', 'MacIntel']) {
