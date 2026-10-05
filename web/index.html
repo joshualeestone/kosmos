@@ -68974,7 +68974,7 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     const head = PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.';
     said.textContent = total === 0 ? head + ' Kosmos now uses the new location.'
       : reached >= total ? (PJ_READ_FAILED ? head + ' Kosmos and this project\'s agents now use the new location.' : 'Done. Kosmos and this project\'s agents now use the new location.')
-        : head + ' Kosmos now uses the new location. ' + reached + ' of ' + total + ' agents on this project were told; the rest see it in their instructions when they next start.';
+        : head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + total + ' agents on this project; the others will see it when they next start.';   // Mona Lisa's wording
     // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
     if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
   } catch (e) {
