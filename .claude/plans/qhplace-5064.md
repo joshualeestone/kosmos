@@ -31,3 +31,9 @@ The instant race between two takes is not closed; only the loser's place is kept
 ## Review 2 (blind Sonnet): converged, 0 blockers, 0 warnings, 2 nits, both taken
 - A timed-out wait for the waiters is now written into the order file, so the ORDER= arms go red instead of passing a
   run that never raced; both waits count exactly the lib's suitewait.<pid> markers (cut-guard.sh:549).
+
+## Rebased onto main (2026-10-05 01:4x, PigeonPete)
+#4977 merged as #5121 (squash). This branch is now the three #5064 commits cherry-picked onto origin/main (clean).
+tools/queued-heavy.sh, tools/test-queued-heavy-4977.sh and tools/lib/cut-guard.sh on main are byte-identical to
+the stacked base (90d07ad85) the two reviews read, so the reviewed diff is unchanged. tools/test-queued-heavy-4977.sh
+on the rebased head: 82 OK, 0 BAD, the #5064 arm and its CONTROL included.
