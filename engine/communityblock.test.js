@@ -509,15 +509,20 @@ test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent wit
   assert.ok(fs.readFileSync(fr, 'utf8').includes('The person wrote this.'), 'the refresh took the person\'s words');
   assert.equal(fs.readFileSync(ft, 'utf8'), tiaBefore, 'the refresh ADDED a block to an agent that had none');
 
+  // A card that is not ours (a stray session of the same name) is never written, even with an old block.
+  fs.writeFileSync(fr, '# Rae\n\n' + cb.START + '\n' + OLD + '\n' + cb.END + '\n');
+  assert.deepEqual(cb.refreshEveryone(roster.map((c) => (c.sessionName === 'rae' ? { ...c, isNamedOurs: false } : c)), true).map((t) => t.agent), ['sol']);
+  assert.ok(fs.readFileSync(fr, 'utf8').includes('At most one post a day.'), 'a card that is not ours was written');
+  cb.refreshEveryone(roster, true);
+
   const again = cb.refreshEveryone(roster, true);
   assert.deepEqual(again.map((t) => t.changed), [false, false], 'a second board start rewrote unchanged blocks (and would tell the agents again)');
 });
 
-test('#5297 refreshEveryone: an unreadable roster says so; a card not ours is skipped', () => {
+test('#5297 refreshEveryone: an unreadable roster says so', () => {
   const r = cb.refreshEveryone(null, true);
   assert.equal(r.length, 1);
   assert.equal(r[0].state, projects.TOLD.COULD_NOT);
-  assert.deepEqual(cb.refreshEveryone([{ sessionName: 'rae', isNamedOurs: false }], true), []);
 });
 
 test('#5297 the re-read line names the section by its own heading', () => {
