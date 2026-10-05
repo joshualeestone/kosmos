@@ -31,6 +31,9 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit. Full va
   files); each record carries a `scope` field (`user` here), so a narrower scope exists; the desktop app keeps
   `claude_desktop_config.json` under `~/Library/Application Support/Claude/`, apart from any Claude Code folder; Codex
   0.149.1 keeps `plugins/` inside its home. Read from code: CLAUDE_CONFIG_DIR / CODEX_HOME / EFFECTIVE_CCD.
+- "Kosmos does not install provider plugins": `git grep` on origin/main over engine, bin, server.js and install (tests
+  excluded) for enabledPlugins, installed_plugins, `plugin install`, `plugin add` and 'plugin': 0 hits (control:
+  CLAUDE_CONFIG_DIR, 131 hits in the same scope).
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
   and not an API key; that a reload picks up a late-added plugin.
 
