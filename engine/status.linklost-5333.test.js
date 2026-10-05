@@ -106,3 +106,13 @@ test('#5333 CONTROLS: no instance on the session, an unreadable store, or a sess
     assert.equal(board.snapshot().find((a) => a.sessionName === 'di').linkLost, false, 'an unreadable store says nothing');
   } finally { board.restore(); }
 });
+
+test('#5333 round 9: a launcher sweep that leaves nothing keeps the empty list, so the live run reads lost; revoke still removes the file', () => {
+  const a = sendertoken.mint('gus', { launcher: 'supervisor:gus' });
+  assert.deepEqual(sendertoken.retireLauncher('gus', 'supervisor:gus', 'abcdef123456'), { ok: true, retired: 1 }, 'its only token was not the kept run');
+  assert.ok(fs.existsSync(path.join(sendertoken.DIR, 'gus.json')), 'the file stays, empty');
+  assert.equal(sendertoken.instanceState('gus', 'abcdef123456'), 'gone');
+  assert.equal(sendertoken.resolve(a.token, []).ok, false, 'the swept token is refused');
+  sendertoken.revoke('gus');
+  assert.equal(fs.existsSync(path.join(sendertoken.DIR, 'gus.json')), false, 'CONTROL: revoke still removes it');
+});

@@ -12187,7 +12187,10 @@ window.kosmosMeasureScrollbarWidth();
            cannot read its messages or answer, and nothing else says so. One sentence and the one remedy, the restart
            (the shared confirm, which offers "Write a handoff, then restart"). Shown ONLY while linkLost is true. -->
       <p class="fhint detail-linklost" id="d-linklost" hidden><span id="d-linklost-text"></span>
-        <button type="button" class="btn" id="d-linklost-restart" data-restart-agent="">Restart</button></p>
+        <button type="button" class="btn" id="d-linklost-restart" data-restart-agent="" data-restart-note="d-linklost-msg">Restart</button></p>
+      <!-- #5333 round 9: the restart's follow-up ("Restarted. Waking them...", or where the handoff is) lands here, OUTSIDE
+           #d-linklost, which hides the moment the restart works. Cleared on every open, as d-restart-msg is. -->
+      <div class="fmsg" id="d-linklost-msg" role="status" aria-live="polite"></div>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -41651,6 +41654,7 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   if (foot) foot.hidden = false;
   if (!fromPoll) {
     document.getElementById('d-restart-msg').textContent = '';
+    { const lm = document.getElementById('d-linklost-msg'); if (lm) lm.textContent = ''; }   // #5333 round 9
     rstBtn.disabled = false;
     /* The same name detailNavNames paints (the mock's long form), not the
        bare verb: this reset used to put "Restart it" back after an open,

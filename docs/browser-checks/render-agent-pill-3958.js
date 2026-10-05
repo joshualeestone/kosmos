@@ -1,4 +1,4 @@
-// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart
+// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart d-linklost-msg
 'use strict';
 /**
  * #3958 (Josh, 2026-09-26): on the agent page the status pill said Idle while the same page's DM
@@ -232,6 +232,12 @@ async function read(page) {
         const dlg = await page.evaluate(() => { const h = document.getElementById('rst-handoff-go'); return !!(h && h.getClientRects().length); });
         chk(dlg, `${engineName} -> link lost: Restart opens the shared confirm, with "Write a handoff, then restart"`, String(dlg));
         await page.click('#rst-keep').catch(() => {});   // Leave it running: nothing is restarted here
+        /* Round 9: the restart's follow-up line needs somewhere to land that survives the notice hiding. Read through
+           the handlers' own lookup (noteFor), not the attribute, without pressing Restart for real. */
+        const noteAt = await page.evaluate(() => { const b = document.getElementById('d-linklost-restart'); const n = noteFor(b);
+          return { id: n ? n.id : null, outside: !!n && !document.getElementById('d-linklost').contains(n) }; });
+        chk(noteAt.id === 'd-linklost-msg' && noteAt.outside,
+          `${engineName} -> link lost: the restart's follow-up writes to d-linklost-msg, outside the notice that hides`, JSON.stringify(noteAt));
         /* A removal that could not stop the session revokes its token on purpose and keeps the card (hidesCard false):
            that agent must not be told to Restart. The record goes; the token stays gone. */
         const REMOVED_FILE = require('../../engine/remove').REMOVED_FILE;
