@@ -166,6 +166,10 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   assert.match(flat, /this is about Claude and Codex agents/);
   assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
   assert.match(flat, /On Windows the home folder is `%USERPROFILE%`/);
+  /* `claude mcp add` defaults to --scope local (its own --help, measured), so the server stays with the folder it
+     was added from (review 7). */
+  assert.match(flat, /By default \(`--scope local`\) such a server belongs to the folder it was added from/);
+  assert.match(flat, /ask them which account they added it to rather than guessing/);
   assert.match(flat, /compare the actual folders rather than assuming from the account/);
   /* A connector belongs to an ACCOUNT, not a folder (review: it is never in a plugins file); desktop-app chat additions
      are in neither (review 3). */
@@ -178,5 +182,5 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   assert.match(flat, /different from the Connections tab below/);
   const at = flat.indexOf('## A plugin the person');
   assert.ok(at >= 0 && at < flat.indexOf('## The Connections tab'), 'the plugin section is missing or moved after the Connections tab section');
-  assert.doesNotMatch(flat, /—/, 'an em dash reached the agent block');
+  assert.doesNotMatch(flat, /\u2014/, 'an em dash reached the agent block');
 });

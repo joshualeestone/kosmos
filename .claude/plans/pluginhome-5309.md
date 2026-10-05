@@ -38,6 +38,8 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit and agai
   account folder. That MCP servers are recorded there is from review iteration 5 (a project-scope server is in the project's
   `.mcp.json` instead, per iteration 6, which is why the text no longer says anything narrower) and
   matches the file's role; no server is configured on this box to show the exact keys.
+- `claude mcp add` defaults to `--scope local` (measured: its `--help`, default "local"); that local scope ties the
+  server to the folder it was added from is from review iteration 7.
 - The account bullet is limited to Claude: the Codex counterpart (ChatGPT-side connectors) was not measured.
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
   and not an API key; that a reload picks up a late-added plugin.
