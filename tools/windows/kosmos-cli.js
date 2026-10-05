@@ -628,8 +628,11 @@ async function verbReport(ctx, args, opts) {
 const TOKEN_REFUSED = 'we could not match that to one of your agents';
 function tokenRefusedHint(ctx, r) {
   if (!ctx.agentToken()) return;
-  const said = (r && r.json && typeof r.json.because === 'string' ? r.json.because : '') + ' ' + String((r && r.text) || '');
-  if (!said.includes(TOKEN_REFUSED)) return;
+  /* The refusal itself, never the sentence quoted inside another answer: the JSON's own because or error, a delivery's
+     because (msg, post), or a plain-text answer that is exactly the sentence (inbox, as=text). */
+  const j = (r && r.json) || {};
+  const said = [j.because, j.error, j.delivery && j.delivery.because, j.json ? null : String((r && r.text) || '').trim()];
+  if (!said.some((x) => x === TOKEN_REFUSED)) return;
   ctx.err('');
   ctx.err('Kosmos could not match the agent token this session started with to one of your running agents.');
   ctx.err('If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new');

@@ -740,7 +740,14 @@ kosmos_engine_module() {
 # reaches it, so the recovery is a restart from Kosmos. Printed after the board's words, never instead of them.
 token_refused_hint() {   # <token-sent> <board-answer>
   [ -n "${1:-}" ] || return 0
-  case "${2:-}" in *'we could not match that to one of your agents'*) ;; *) return 0 ;; esac
+  # The refusal itself, never the sentence quoted inside some other answer: a JSON answer's own "because" or "error"
+  # (a msg or post refusal is a delivery whose "because" it is), or a plain-text answer that is exactly the sentence
+  # (inbox, as=text).
+  case "${2:-}" in
+    *'"because":"we could not match that to one of your agents"'*|*'"error":"we could not match that to one of your agents"'*) ;;
+    'we could not match that to one of your agents'|'we could not match that to one of your agents'$'\n') ;;
+    *) return 0 ;;
+  esac
   say ""
   say "Kosmos could not match the agent token this session started with to one of your running agents."
   say "If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new"
