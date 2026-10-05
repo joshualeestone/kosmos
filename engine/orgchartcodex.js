@@ -107,18 +107,23 @@ function setBin(fn) { binFn = typeof fn === 'function' ? fn : realBin; }
 /* The Codex version Kosmos pins (engine/runners.js), the only one these flags were measured on. A newer Codex can add a
    tool that is on by default, so any other version is not used for this read: it fails closed, not open. */
 const pinnedVersion = () => { try { return require('./runners').MANIFEST.openai.version || null; } catch { return null; } };
-const versionCache = new Map();   // bin + mtime -> version, so --version runs once per binary, not per page load
+/* bin + mtime -> { version, when }, so --version runs about once per binary and not per page load. Expires, because a
+   launcher's own mtime need not change when the program it starts is upgraded. */
+const versionCache = new Map();
+const VERSION_TTL_MS = 10 * 60 * 1000;
 let versionFn = (bin) => {
   let key = bin;
   try { key = bin + '\u0000' + fs.statSync(bin).mtimeMs; } catch { /* the run below reports it */ }
-  if (versionCache.has(key)) return versionCache.get(key);
+  const hit = versionCache.get(key);
+  if (hit && Date.now() - hit.at < VERSION_TTL_MS) return hit.v;
   let v = null;
   try {
     const out = require('node:child_process').execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: childEnv(process.env, os.tmpdir()) });
     const m = /(\d+\.\d+\.\d+)/.exec(String(out));
     v = m ? m[1] : null;
   } catch { v = null; }
-  versionCache.set(key, v);
+  // A version that could not be read is not cached: a slow or busy moment must not switch the reader off for good.
+  if (v) versionCache.set(key, { v, at: Date.now() });
   return v;
 };
 const versionFnReal = versionFn;
@@ -287,7 +292,8 @@ function read(reader, prompt, media, buf, signal) {
       if (done) return;
       if (out) onLine(out);
       if (done) return;
-      if (last === null) {
+      // A turn that failed is refused even if a message came before the failure: that text may be a partial answer.
+      if (last === null || failed !== null) {
         const said = (failed || String(stderr).split('\n').map((s) => s.trim()).find(Boolean) || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
         if (said) console.warn('[orgchart] codex ended without an answer: ' + said);
         finish({ ok: false, because: /log(?:ged)? ?in|sign(?:ed)? ?in|auth|401|unauthori[sz]ed/i.test(said) ? 'the ChatGPT sign-in on this computer has ended. Sign in again in Settings, AI Models, then try again' : 'ChatGPT did not answer' });

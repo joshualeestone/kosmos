@@ -53,7 +53,7 @@ async function capture(argsFor, plant = {}) {
   const home = path.join(root, 'codex-home');
   const work = path.join(root, 'work');
   fs.mkdirSync(home); fs.mkdirSync(work);
-  for (const [f, text] of Object.entries(plant)) fs.writeFileSync(path.join(home, f), text);
+  for (const [f, text] of Object.entries(plant)) { fs.mkdirSync(path.dirname(path.join(home, f)), { recursive: true }); fs.writeFileSync(path.join(home, f), text); }
   fs.copyFileSync(cache, path.join(home, 'models_cache.json'));
   const catalog = path.join(root, 'catalog.json');
   fs.writeFileSync(catalog, JSON.stringify(c.deriveCatalog(home)));
@@ -112,4 +112,29 @@ test('#5346 premise: under the reader\'s flags Codex still sends the account\'s 
   bodies = await capture(args, { 'AGENTS.override.md': 'MARKER-OVERRIDE-5346' });
   assert.ok(bodies.length >= 1 && JSON.stringify(bodies).includes('MARKER-OVERRIDE-5346'), 'AGENTS.override.md was not sent');
   assert.deepEqual([...c.INSTRUCTION_FILES].sort(), ['AGENTS.md', 'AGENTS.override.md']);
+});
+
+/* The rest of the person's own Codex context, planted in the account's folder: none of it may reach the request. */
+test('#5346: the account\'s skills, prompts, memories, rules, hooks and config do not reach the request', { skip: why || false, timeout: 120000 }, async () => {
+  const plant = {
+    'skills/decoy/SKILL.md': '---\nname: decoy\ndescription: MARKER-SKILL-5346\n---\nMARKER-SKILL-BODY-5346',
+    'prompts/decoy.md': 'MARKER-PROMPT-5346',
+    'memories/decoy.md': 'MARKER-MEMORY-5346',
+    'rules/decoy.rules': 'prefix_rule(pattern=["MARKER-RULE-5346"], decision="allow")',
+    'hooks.json': '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo MARKER-HOOK-5346"}]}]}}',
+    'config.toml': 'developer_instructions = "MARKER-CONFIG-5346"\n[mcp_servers.decoy]\ncommand = "echo"\nargs = ["MARKER-MCP-5346"]\n',
+  };
+  const bodies = await capture(({ dir, catalog, schema, image, base }) => c.codexArgs({ dir, catalog, schema, image, prompt: 'Read this org chart.', extra: [base] }), plant);
+  assert.ok(bodies.length >= 1, 'Codex sent no model request to the capture server');
+  const sent = JSON.stringify(bodies);
+  const leaked = sent.match(/MARKER-[A-Z-]+-5346/g) || [];
+  assert.deepEqual(leaked, [], 'the person\'s own context reached the request');
+});
+
+test('#5346 CONTROL: the same planted folder WITHOUT the reader\'s flags does send the person\'s context', { skip: why || false, timeout: 120000 }, async () => {
+  const bodies = await capture(({ dir, schema, image, base }) => ['exec', '--json', '--ephemeral', '--skip-git-repo-check',
+    '--sandbox', 'read-only', '-C', dir, '-c', base, '--output-schema', schema, '-i', image, '--', 'Read this org chart.'],
+  { 'skills/decoy/SKILL.md': '---\nname: decoy\ndescription: MARKER-SKILL-5346\n---\nbody', 'config.toml': 'developer_instructions = "MARKER-CONFIG-5346"\n' });
+  const sent = JSON.stringify(bodies);
+  assert.ok(sent.includes('MARKER-SKILL-5346') || sent.includes('MARKER-CONFIG-5346'), 'the control saw none of the planted context, so the main test proves nothing');
 });

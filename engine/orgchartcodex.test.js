@@ -199,6 +199,9 @@ test('an answer that is not JSON, and no answer at all, are refusals', async () 
   events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: 'Here is your chart!' } });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /not the list asked for/);
   await grandchildGone();
+  events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.failed', error: { message: 'stream cut' } });
+  assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: 'ChatGPT did not answer' }, 'a message before a failed turn is not used');
+  await grandchildGone();
   events({ type: 'turn.failed', error: { message: 'Not logged in' } });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /sign-in on this computer has ended/);
   await grandchildGone();
@@ -242,4 +245,16 @@ test('a file made after the consent is caught at the read: Codex is never starte
     assert.deepEqual(got, { ok: false, because: c.WHY_INSTRUCTIONS });
     assert.equal(fs.existsSync(record), false);
   } finally { fs.rmSync(path.join(acct, 'AGENTS.md')); }
+});
+
+test('with no reader at all, a switched-off key provider\'s reason wins over the ChatGPT one', () => {
+  keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
+  c.setVersion(() => '9.9.9');
+  try {
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), keys.OFF_WHY.google);
+    keys.setAccounts(() => []);
+    assert.equal(o.currentReader(), null);
+    assert.match(o.whyNoReader(), /Kosmos has checked only version/, 'CONTROL: alone, the ChatGPT reason is shown');
+  } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); }
 });
