@@ -937,3 +937,14 @@ test('#5294 every state has its own sentence; only sent, already and later say a
   }
   assert.doesNotMatch(Object.values(feedbacksend.WRITE_MESSAGES).join(' '), /\u2014/, 'an em dash in user-facing copy');
 });
+
+test('#5294 review 3: a REAL data root (not a temp folder, no test runner) is NOT sandboxed, so real installs send', () => {
+  // A child with its data root outside every fixed temp root, and no NODE_TEST_CONTEXT, must read sandboxed() false.
+  // Pins the other direction of the rule above: a sandboxed() that degraded to always-true would block every real send.
+  const cp = require('node:child_process');
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: '/nonexistent-kosmos-5294-root', TMPDIR: '/' };
+  delete env.NODE_TEST_CONTEXT;
+  const out = cp.execFileSync(process.execPath, ['-e', 'process.stdout.write(String(require(process.argv[1]).sandboxed()))',
+    nodePath.join(__dirname, 'feedbacksend.js')], { env, encoding: 'utf8' });
+  assert.equal(out, 'false', 'a real data root (with TMPDIR=/, the review-3 case) was treated as a test run');
+});

@@ -203,12 +203,23 @@ test('#5294 with sending switched off, feedback write saves, sends nothing, and 
   } finally { await c.close(); }
 });
 
-test('#5294 under test, the real collector address is never reached: "blocked" (CONTROL for the stub arms)', async (t) => {
-  // This arm points the child at the REAL default address on purpose, so it runs only where the engine's guard holds:
-  // under `node --test`, whose NODE_TEST_CONTEXT the child inherits. Run any other way, it skips rather than send.
-  if (!process.env.NODE_TEST_CONTEXT) { t.skip('not under node --test, so the guard that blocks a real send is off'); return; }
+test('#5294 under test, a non-loopback collector is never reached: "blocked" (CONTROL for the stub arms)', async (t) => {
+  // Review 3: a NON-loopback address that cannot land anywhere (.invalid never resolves), not the real collector, so a
+  // regressed guard reds this arm without posting to production.
+  void t;
   const h = makeHome();
-  const w = await runWith(['feedback', 'write', 'body'], h, { AGENT_WORKFORCE_FEEDBACK_URL: '' });
+  const w = await runWith(['feedback', 'write', 'body'], h, { AGENT_WORKFORCE_FEEDBACK_URL: 'https://collector.invalid/api/feedback' });
   assert.equal(w.code, 0, w.both);
   assert.equal(w.out, fbsend.writeMessage('blocked'));
+});
+
+test('#5294 review 3: a node that cannot run prints "could not save", never "Saved" (no proof of the save)', async () => {
+  const h = makeHome();
+  const nodeBin = path.join(h.home, 'runtime', 'bin', 'node');
+  fs.unlinkSync(nodeBin);
+  fs.writeFileSync(nodeBin, '#!/bin/sh\nexit 137\n', { mode: 0o755 });   // passes the runtime guard, dies like a killed binary
+  const w = await runWith(['feedback', 'write', 'body'], h);
+  assert.equal(w.code, 1, w.both);
+  assert.match(w.both, /We could not save that report\./);
+  assert.doesNotMatch(w.both, /Saved/, 'a run that never saved said Saved');
 });

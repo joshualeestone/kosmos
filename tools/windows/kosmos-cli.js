@@ -1094,7 +1094,7 @@ async function feedbackWrite(ctx, args) {
      as the board's hourly sweep) and print the one shared sentence for what happened. It used to say "It stays on
      this computer.", stale once sending shipped, and a user's agent took that to mean the team never got it. */
   let fbs;
-  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Saved the product-feedback report on this computer.'); return 0; }
+  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Saved the product-feedback report on this computer. Kosmos could not check whether it was sent.'); return 0; }
   let r;
   // review 2: no date back means no report we can name, so nothing is sent (a stub engine returns none).
   if (!date) r = { state: 'none' };

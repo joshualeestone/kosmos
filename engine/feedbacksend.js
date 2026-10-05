@@ -517,21 +517,24 @@ function markSent(date, hash, at) {
   return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null });
 }
 
-/** A loopback endpoint: the only kind a TEST run may POST to (sendNow). */
 // #5294 review 2: a FAILED send (nothing delivered today) may be retried by writing again, but not sooner than this,
 // so an agent looping on `feedback write` against a down or rate-limiting collector cannot flood it.
 const RETRY_MIN_MS = 60 * 1000;
 /* #5294 review 2: a test harness is not always under `node --test` (a file run directly is not), so the runner signal
-   alone let a CLI test POST a real report. Every fixture keeps its data in a temp folder and a real install never
-   does, so a data root under the temp directory is a test too. Under either, only loopback may be reached. */
+   alone let a CLI test POST a real report. Fixtures keep their data in a temp folder and a real install never does, so
+   a data root under a FIXED temp root counts as a test too. Review 3: never os.tmpdir(), which follows the caller's
+   TMPDIR/TEMP: a runner that sets TMPDIR=/ would make every real install look like a test. On Windows none of these
+   roots resolve, so only the runner signal applies there. This gates sendNow only; the board's sweep (maybeSend,
+   sendDailyOnce) keeps its runner-only guard. */
 function sandboxed() {
   if (underTest()) return true;
   try {
-    const roots = [os.tmpdir(), '/tmp', '/private/tmp', '/var/folders'].map((r) => { try { return fs.realpathSync(r); } catch { return r; } });
+    const roots = ['/tmp', '/private/tmp', '/var/folders', '/private/var/folders'].map((r) => { try { return fs.realpathSync(r); } catch { return r; } });
     let base = BASE; try { base = fs.realpathSync(BASE); } catch { /* not created yet: compare as given */ }
     return roots.some((r) => base === r || base.startsWith(r.endsWith(path.sep) ? r : r + path.sep));
   } catch { return false; }
 }
+/** A loopback endpoint: the only kind a sandboxed sendNow may POST to. */
 function loopback(url) {
   try { return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(new URL(url).hostname); } catch { return false; }
 }
@@ -553,8 +556,8 @@ function loopback(url) {
  *   sent     the collector accepted it          already  delivered today, and unchanged since
  *   later    changed, but a version was DELIVERED < 3 h ago   off   the person switched sending off
  *   unreadable  the setting file cannot be read, so nothing is sent (the safe direction)
- *   soon     nothing delivered today, and a send was tried under a minute ago (RETRY_MIN_MS)
- *   none     no report for that day             failed   the collector did not take it (retried after the floor)
+ *   soon     nothing delivered today, and a send was started under a minute ago (RETRY_MIN_MS): failed, or in flight
+ *   none     no report for that day             failed   not confirmed: refused, unreachable, or timed out (may have landed)
  *   unsent   the marker could not be saved, so nothing was sent (the sweep's own rule)
  *   blocked  a test (under the runner, or with its data in a temp folder) aimed at a real address: loopback only
  */
@@ -616,8 +619,8 @@ const WRITE_MESSAGES = Object.freeze({
   off: 'Saved today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
   unreadable: 'Saved today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
   none: 'Saved today\'s product-feedback report on this computer.',
-  failed: 'Saved today\'s product-feedback report on this computer, but Kosmos could not confirm it reached the Kosmos team just now. Run kosmos feedback write again later to try again.',
-  soon: 'Saved today\'s product-feedback report on this computer. A send was tried less than a minute ago and did not go through, so this one waits: run kosmos feedback write again in a minute.',
+  failed: 'Saved today\'s product-feedback report on this computer, but Kosmos could not confirm it reached the Kosmos team just now. Kosmos may try again later today while it is running; to be sure, write the same report again with kosmos feedback write in a few minutes.',
+  soon: 'Saved today\'s product-feedback report on this computer. A send started less than a minute ago has not been confirmed yet, so this one waits: write it again with kosmos feedback write in a minute.',
   unsent: 'Saved today\'s product-feedback report on this computer, but it could not be sent: Kosmos could not record the send. It was not sent.',
   blocked: 'Saved today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
 });
