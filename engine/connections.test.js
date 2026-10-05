@@ -155,15 +155,19 @@ test('#4451: the block teaches the Connections tab, the cheap read, and connecti
   assert.match(flat, /How connecting a provider works/);
 });
 
-test('#5309: it tells an agent a plugin may be in the person\'s folder and not in its own, and how to check', () => {
+test('#5309: it tells an agent the two things that decide whether it gets a plugin, and how to tell them apart', () => {
   const flat = connections.blockBody().replace(/\s+/g, ' ');
   assert.match(flat, /## A plugin the person installed in their own app/);
-  assert.match(flat, /`CLAUDE_CONFIG_DIR`, or `~\/\.claude` when that is not set/);
-  assert.match(flat, /`plugins\/installed_plugins\.json`/);
-  assert.match(flat, /`CODEX_HOME`, or `~\/\.codex` when that is not set/);
-  assert.match(flat, /Restarting does not change that, so do not suggest it/);
-  assert.match(flat, /never one running on an API key/);
-  /* The section sits before the Connections tab section, so the two "connected" meanings stay apart. */
+  assert.match(flat, /the folder in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
+  assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
+  assert.match(flat, /On Windows the home folder is the user's own folder/);
+  /* A connector follows the ACCOUNT, not the folder (review: a connector is never in a plugins file). */
+  assert.match(flat, /Connectors added on the claude\.ai website come with the Claude account you are signed in to, not with a folder/);
+  assert.match(flat, /signed in to that same account, never on an API key/);
+  /* Restart is ruled out only for the other-folder case; added-after-start is where a restart IS the fix. */
+  assert.match(flat, /Restarting does not change that, so do not suggest it then/);
+  assert.match(flat, /added after you started \(then a restart is what picks it up\)/);
+  assert.match(flat, /switched off, set up for one project only/);
   assert.ok(flat.indexOf('## A plugin the person') < flat.indexOf('## The Connections tab'), 'the plugin section moved after the Connections tab section');
   assert.doesNotMatch(flat, /—/, 'an em dash reached the agent block');
 });
