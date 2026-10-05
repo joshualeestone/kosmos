@@ -69,3 +69,86 @@ test('review 2: mergeCleared removes only the debt the pass ended; one owed agai
   assert.deepEqual(ir.mergeCleared(sent, { ann: sent.ann.n }), {}, 'CONTROL: the debt the pass ended is removed');
   assert.deepEqual(ir.mergeCleared({ bea: { at: T, n: 1, sections: ['rules'] } }, { ann: 1 }), { bea: { at: T, n: 1, sections: ['rules'] } });
 });
+
+/* ---- passOnce, behaviourally (review 3), with real cards from the real producer ---- */
+const fleet = require('../test-support/fleet');
+const status = require('./status');
+const CARDS = (() => {
+  const board = fleet.install([fleet.agent('ida', { state: 'idle' }), fleet.agent('ned', { state: 'needs_you' }), fleet.agent('wes', { state: 'working' })]);
+  try { return status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+})();
+const nudgeable = require('./agentnudge').nudgeableCard;
+
+function passArgs(over = {}) {
+  let file = over.owed || {};
+  const sent = [];
+  return {
+    sent, file: () => file,
+    o: {
+      roster: () => CARDS, isIdle: nudgeable, seenIdle: new Set(['ida', 'ned', 'wes']), now: T + 1000,
+      history: () => [], allowed: () => true, DELIVERY: D,
+      deliver: async (s, line) => { sent.push([s, line]); return { state: D.PLACED }; },
+      read: () => file, write: (o) => { file = o; return true; },
+      ...over.o,
+    },
+  };
+}
+const debt = (sections = ['community']) => ({ at: T, n: 1, sections });
+
+test('fixture: real cards, ida idle, ned on a question, wes working', () => {
+  for (const s of ['ida', 'ned', 'wes']) assert.equal((CARDS.find((c) => c.sessionName === s) || {}).isNamedOurs, true, s);
+  assert.equal(nudgeable(CARDS.find((c) => c.sessionName === 'ida')), true);
+  assert.equal(nudgeable(CARDS.find((c) => c.sessionName === 'ned')), false, 'fixture: a needs_you card reads idle');
+});
+
+test('review 3 BLOCKER: an agent on a question or permission prompt, or working, is never typed into; its debt is kept', async () => {
+  const p = passArgs({ owed: { ned: debt(), wes: debt() } });
+  const r = await ir.passOnce(p.o);
+  assert.deepEqual(p.sent, [], 'a line was typed into an agent that is not idle');
+  assert.deepEqual(r.map((x) => [x.session, x.act]).sort(), [['ned', 'not-idle'], ['wes', 'not-idle']]);
+  assert.deepEqual(Object.keys(p.file()).sort(), ['ned', 'wes']);
+});
+
+test('passOnce: an idle agent seen idle at the previous pass gets the line once, and its debt ends; CONTROL: not seen before, it waits', async () => {
+  const wait = passArgs({ owed: { ida: debt(['community', 'rules']) }, o: { seenIdle: new Set() } });
+  await ir.passOnce(wait.o);
+  assert.deepEqual(wait.sent, [], 'sent to an agent not idle at the previous pass');
+  assert.ok(wait.o.seenIdle.has('ida'), 'this pass did not remember the idle card for the next');
+  await ir.passOnce(wait.o);
+  assert.equal(wait.sent.length, 1);
+  assert.equal(wait.sent[0][1], ir.lineFor(['community', 'rules']));
+  assert.deepEqual(wait.file(), {});
+});
+
+test('passOnce: a refused or held line keeps the debt; live execution off sends nothing', async () => {
+  const held = passArgs({ owed: { ida: debt() }, o: { deliver: async () => ({ state: D.COULD_NOT, held: true }) } });
+  assert.deepEqual((await ir.passOnce(held.o)).map((x) => x.act), ['kept']);
+  assert.ok(held.file().ida);
+  const off = passArgs({ owed: { ida: debt() }, o: { allowed: () => false } });
+  await ir.passOnce(off.o);
+  assert.deepEqual(off.sent, []);
+  assert.ok(off.file().ida);
+});
+
+test('passOnce: restarted since, gone, and expired debts end without a line; an unreadable or empty roster changes nothing', async () => {
+  const p = passArgs({ owed: { ida: debt(), zed: debt(), wes: { at: T - ir.GIVE_UP_MS - 1, n: 1, sections: ['rules'] } },
+    o: { history: (s) => (s === 'ida' ? [{ state: 'started', at: T + 500 }] : []), allowed: () => false } });
+  const r = await ir.passOnce(p.o);
+  assert.deepEqual(r.map((x) => [x.session, x.act]).sort(), [['ida', 'restarted'], ['wes', 'expired'], ['zed', 'gone']]);
+  assert.deepEqual(p.sent, []);
+  assert.deepEqual(p.file(), {}, 'expiry waited for live execution');
+  for (const roster of [() => null, () => []]) {
+    const q = passArgs({ owed: { ida: debt() }, o: { roster } });
+    await ir.passOnce(q.o);
+    assert.deepEqual(q.file(), { ida: debt() });
+    assert.deepEqual(q.sent, []);
+  }
+});
+
+test('passOnce: a debt owed again while its line was being sent survives the write', async () => {
+  const p = passArgs({ owed: { ida: debt(['rules']) } });
+  p.o.deliver = async (s, line) => { p.sent.push([s, line]); p.o.write(ir.owe(p.file(), 'ida', 'rules', T + 2000)); return { state: D.PLACED }; };
+  await ir.passOnce(p.o);
+  assert.equal(p.sent.length, 1);
+  assert.equal(p.file().ida && p.file().ida.n, 2, 'the debt owed during the send was cleared');
+});

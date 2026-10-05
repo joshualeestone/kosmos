@@ -6,7 +6,7 @@
  *
  * The one read every Community piece gates on. The send layer (#4287) sends only when
  * `read()` gives `on === true && ok === true`, read at send time; the managed block
- * (#4289) is written only then too. Contract posted on #4288.
+ * (#4289) is written only then too (at birth, at restart, and by the board-start refresh, kosmos#5297). Contract posted on #4288.
  *
  * Its own file, not a field in feedbacksend.json: a different consent, and one file's
  * corruption must not flip the other.

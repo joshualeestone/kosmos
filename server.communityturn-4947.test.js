@@ -80,24 +80,23 @@ test('#5297: at board start the community block is refreshed in the agents that 
   assert.ok(r > SRC.indexOf('const told = dmfiles.syncEveryone(safeRoster());'), 'the refresh is not among the board-start sweeps');
 });
 
-test('#5297: the re-read pass checks live execution per send, uses the automatic sender, drops agents no longer ours, and merges onto the file', () => {
+test('#5297: the board runs instructionreread.passOnce on a timer with the idle gate, the automatic sender and live execution', () => {
   const a = SRC.indexOf('async function instructionRereadPass()');
   assert.notEqual(a, -1, 'no re-read pass');
-  const fn = SRC.slice(a, SRC.indexOf('function instructionRereadSoon', a));
-  assert.match(fn, /for \(const session of Object\.keys\(owed\)\) \{[\s\S]*?if \(!liveExecution\.liveExecutionAllowed\(\)\) break;[\s\S]*?chat\.deliverAutomaticAsync\(session, line, safeRoster\(\)/, 'live execution is not checked before each send');
+  const fn = SRC.slice(a, SRC.indexOf('function instructionRereadOwe', a));
+  assert.match(fn, /ir\.passOnce\(\{/);
+  assert.match(fn, /isIdle:\s*\(c\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeableCard\(c\)/, 'the pass is not given the idle-card gate');
+  assert.match(fn, /seenIdle:\s*INSTRUCTION_REREAD_IDLE_SEEN/);
+  assert.match(fn, /allowed:\s*\(\)\s*=>\s*liveExecution\.liveExecutionAllowed\(\)/);
+  assert.match(fn, /deliver:\s*\(session, line, r\)\s*=>\s*chat\.deliverAutomaticAsync\(session, line, r, undefined, undefined\)/);
+  assert.match(fn, /history:\s*\(session\)\s*=>\s*selfreport\.history\(session\)/);
   assert.doesNotMatch(fn, /chat\.deliver\(|chat\.deliverAsync\(/);
-  assert.match(fn, /if \(!ours\.has\(session\)\)/);
-  assert.match(fn, /if \(!Array\.isArray\(roster\) \|\| !roster\.length\) return;[\s\S]*?let owed = ir\.readOwed\(\)/, 'an unreadable or empty roster can clear every debt');
-  assert.match(fn, /ir\.startedSince\(rows, debt\.at\) === true/, 'an agent that restarted is still told its file changed');
-  assert.match(fn, /ir\.writeOwed\(ir\.mergeCleared\(ir\.readOwed\(\), cleared\)\)/, 'the pass overwrites debts owed during its awaits');
-  // Wired: at boot (a first pass and a 15-minute timer).
-  assert.match(SRC, /setTimeout\(\(\) => \{ instructionRereadPass\(\); \}, 30 \* 1000\)/);
-  assert.match(SRC, /setInterval\(\(\) => \{ instructionRereadPass\(\); \}, 15 \* 60 \* 1000\)/);
+  assert.match(SRC, /setInterval\(\(\) => \{ instructionRereadPass\(\); \}, INSTRUCTION_REREAD_MS\)/);
 });
 
 test('#5297 / #4890: a consented working-rules refresh (per agent AND fleet) owes the running agent a re-read', () => {
-  assert.match(SRC, /const got = doctrine\.refresh\(name, safeRoster\(\), \{ expectHash: body\.hash \}\);\s*if \(got && got\.state === 'added'\) instructionRereadSoon\(name\);/);
-  assert.match(SRC, /const got = doctrine\.refresh\(name, roster\);\s*if \(got && got\.state === 'added'\) instructionRereadSoon\(name\);/);
-  const soon = SRC.slice(SRC.indexOf('function instructionRereadSoon'), SRC.indexOf('function instructionRereadSoon') + 300);
-  assert.match(soon, /oweNow\(session, 'rules'\)/);
+  assert.match(SRC, /const got = doctrine\.refresh\(name, safeRoster\(\), \{ expectHash: body\.hash \}\);\s*if \(got && got\.state === 'added'\) instructionRereadOwe\(name\);/);
+  assert.match(SRC, /const got = doctrine\.refresh\(name, roster\);\s*if \(got && got\.state === 'added'\) instructionRereadOwe\(name\);/);
+  const owe = SRC.slice(SRC.indexOf('function instructionRereadOwe'), SRC.indexOf('function instructionRereadOwe') + 300);
+  assert.match(owe, /oweNow\(session, 'rules'\)/);
 });

@@ -370,6 +370,15 @@ test('#5296 review 1: a LONG turn the prompt woke (replies, votes, comments past
   const rows = [{ state: 'working', at: tried + MIN }, { state: 'working', at: tried + 50 * MIN }, { state: 'idle', at: tried + 55 * MIN }];
   assert.equal(ct.workedSince(rows, post, [tried]), false);
   assert.equal(ct.workedSince([...rows, { state: 'working', at: tried + 2 * H }], post, [tried]), true);
-  // Still working since the prompt (no idle after it): all of it is the woken turn.
-  assert.equal(ct.workedSince([{ state: 'working', at: tried + 90 * MIN }], post, [tried]), false);
+  // Still working since the prompt woke it (no idle after it): all of it is the woken turn.
+  assert.equal(ct.workedSince([{ state: 'working', at: tried + MIN }, { state: 'working', at: tried + 90 * MIN }], post, [tried]), false);
+});
+
+test('#5296 review 3: a prompt that woke nothing (no report within the grace) does not swallow the next real turn', () => {
+  const post = NOW - 8 * H;
+  const tried = NOW - 4 * H;
+  // Unreached (or ignored): nothing until real work an hour later, then idle. That work counts.
+  assert.equal(ct.workedSince([{ state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), true);
+  // CONTROL: the same work starting inside the grace is the prompt's own turn.
+  assert.equal(ct.workedSince([{ state: 'working', at: tried + 5 * MIN }, { state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), false);
 });
