@@ -1059,7 +1059,7 @@ async function instructionRereadPass() {
   instructionRereadRunning = true;
   try {
     const ir = require('./engine/instructionreread');
-    if (!Object.keys(ir.readOwed()).length) { INSTRUCTION_REREAD_IDLE_SEEN.clear(); return; }
+    if (!Object.keys(ir.readOwed()).length) { INSTRUCTION_REREAD_IDLE_SEEN.clear(); INSTRUCTION_REREAD_MISSING_SEEN.clear(); return; }
     const done = await ir.passOnce({
       roster: () => safeRoster(),
       isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),

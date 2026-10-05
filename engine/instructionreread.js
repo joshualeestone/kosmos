@@ -188,7 +188,11 @@ async function passOnce(o) {
     try { roster = o.roster(); } catch { roster = null; }
     const seen = o.seenIdle instanceof Set ? new Set(o.seenIdle) : new Set();
     const missingBefore = o.seenMissing instanceof Set ? new Set(o.seenMissing) : null;
-    if (!Array.isArray(roster) || !roster.length) { if (o.seenIdle instanceof Set) o.seenIdle.clear(); return out; }
+    if (!Array.isArray(roster) || !roster.length) {
+      if (o.seenIdle instanceof Set) o.seenIdle.clear();
+      if (o.seenMissing instanceof Set) o.seenMissing.clear();
+      return out;
+    }
     const idleNow = new Set();
     const isIdle = (c) => { try { return o.isIdle(c) === true; } catch { return false; } };
     for (const c of roster) if (c && c.sessionName && isIdle(c)) idleNow.add(String(c.sessionName));
@@ -226,11 +230,11 @@ async function passOnce(o) {
       const line = lineFor(on);
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
+      if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
       let fresh = null;
       try { fresh = o.roster(); } catch { fresh = null; }
       const card = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
       if (!card || !isIdle(card)) { out.push({ session, act: 'not-idle' }); continue; }
-      if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
       tried += 1;
       const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
       let v = null;
@@ -246,7 +250,7 @@ async function passOnce(o) {
     }
     if (o.seenMissing instanceof Set) {
       o.seenMissing.clear();
-      for (const k of Object.keys(owed)) if (!ours.has(k)) o.seenMissing.add(k);
+      for (const k of Object.keys(owed)) if (!ours.has(k) && !(k in cleared)) o.seenMissing.add(k);   // still-open debts only
     }
     if (Object.keys(cleared).length) {
       const cur = typeof o.read === 'function' ? read() : readOwedStrict();
