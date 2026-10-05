@@ -1482,6 +1482,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     static func endReason(domain: String, code: Int) -> String {
         if domain == "kAFAssistantErrorDomain" && code == 1110 { return "nothing-heard" }
         if domain == "kAFAssistantErrorDomain" && (code == 203 || code == 216 || code == 301) { return "" }   // cancelled or stopped by us
+        // #5311 (measured on Mortals 2026-10-05 11:00:04, the unified log): macOS refuses on-device recognition with
+        // kLSRErrorDomain 201 "Siri and Dictation are disabled" when Dictation is off. Said as that, not as a fault.
+        if domain == "kLSRErrorDomain" && code == 201 { return "dictation-off" }
         return "recognizer"
     }
 
@@ -1610,9 +1613,20 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         task = nil; request = nil; recognizer = nil
         session += 1
         if let error {
-            let reason = Self.endReason(domain: error.domain, code: error.code)
+            var reason = Self.endReason(domain: error.domain, code: error.code)
+            /* #5311: the framework may hand the app a wrapper; the daemon's own error is underneath. Use it when it says more. */
+            let under = error.userInfo[NSUnderlyingErrorKey] as? NSError
+            if reason == "recognizer", let under {
+                let deeper = Self.endReason(domain: under.domain, code: under.code)
+                if deeper != "recognizer" { reason = deeper }
+            }
             if !reason.isEmpty {
-                logLine("voice: ended, " + error.domain + " " + String(error.code))
+                let said = "voice: ended, " + error.domain + " " + String(error.code)
+                    + (under.map { ", under " + $0.domain + " " + String($0.code) } ?? "") + " -> " + reason
+                logLine(said)
+                /* #5311: logLine writes only to an existing test log, so in production this error was recorded nowhere.
+                   NSLog reaches the unified log (log show --predicate 'process == "kosmos-app"'). */
+                NSLog("%@", said)
                 emit(["kind": "error", "reason": reason])
             }
         }
@@ -6421,13 +6435,15 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.endReason(domain: "kAFAssistantErrorDomain", code: 1110) == "nothing-heard", "silence is not a fault")
     row(VoiceBridge.endReason(domain: "kAFAssistantErrorDomain", code: 216) == "", "a stop we asked for says nothing")
     row(VoiceBridge.endReason(domain: "NSOSStatusErrorDomain", code: -1) == "recognizer", "anything else is a recognizer error")
+    row(VoiceBridge.endReason(domain: "kLSRErrorDomain", code: 201) == "dictation-off", "#5311: Dictation off is said as that")
+    row(VoiceBridge.endReason(domain: "kLSRErrorDomain", code: 202) == "recognizer", "#5311 CONTROL: another kLSR code is not called Dictation")
     let both: [String: Any] = ["NSMicrophoneUsageDescription": "x", "NSSpeechRecognitionUsageDescription": "y"]
     row(VoiceBridge.usageStringsPresent(both), "both usage strings present")
     row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "x"]), "A MISSING SPEECH STRING REFUSES (macOS would kill the app at the request)")
     row(!VoiceBridge.usageStringsPresent(["NSSpeechRecognitionUsageDescription": "y"]), "a missing mic string refuses")
     row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "", "NSSpeechRecognitionUsageDescription": "y"]), "an empty string is missing")
     row(!VoiceBridge.usageStringsPresent(nil), "no Info.plist at all (an unbundled binary) refuses")
-    let expected = 14
+    let expected = 16   // #5311: + Dictation off, + its control
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")
