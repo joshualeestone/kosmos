@@ -418,6 +418,8 @@ function maybeSend(date, onOk) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(data),
       signal: ctl.signal,
+      // #5317 review 3: as sendNow, a loopback stub under test may not redirect this to a real host.
+      ...(sandboxed() ? { redirect: 'error' } : {}),
     })).then((res) => {
       // kosmos#4766: `onOk` runs only when the collector accepted the report. A
       // fetch Response with ok:false (a 4xx/5xx) is a failure; an injected test
@@ -503,8 +505,8 @@ function sendDailyOnce(date, now) {
     // DELIVERED is kept for the same day (a failed re-send must not erase it),
     // and dropped on a new day (it described another day's report).
     const keep = st.sent === d ? st.sentHash : null;
-    flushChangedDay(st, d, t);   // #5317 review 2: before the record leaves the day it names
     if (!markSent(d, keep, t).ok) return;
+    flushChangedDay(st, d, t);   // #5317: the day the record named before this mark (review 3: only once the mark held)
     maybeSend(d, () => {
       // After the collector accepted it: record what was delivered, but only if
       // no later attempt has marked since (that attempt records its own).
@@ -535,7 +537,7 @@ function sweepTick(now) {
 }
 
 /**
- * kosmos#5317 review 2: the send record names ONE day. Before it moves to a new day, the day it names is sent once more
+ * kosmos#5317 review 2: the send record names ONE day. As it moves to a new day, the day it named is sent once more
  * if that report changed since its last delivery (a second agent wrote after the first agent's report went, or the
  * last send failed). Without this, the record moving on was the only thing that remembered the change, and it was
  * lost. At most once per change of day, so it cannot flood the collector; a failure here is not retried.
@@ -543,9 +545,9 @@ function sweepTick(now) {
 function flushChangedDay(st, d, t) {
   try {
     if (!st || !st.ok || !st.sent || st.sent === d) return;
-    // No delivery recorded yet: the last attempt may still be in flight (a send times out after 5 s), so only an
-    // attempt at least a minute old counts as failed and is sent again here.
-    if (st.sentHash == null && st.sentAt != null && t - st.sentAt >= 0 && t - st.sentAt < RETRY_MIN_MS) return;
+    // The last attempt may still be in flight (a send times out after 5 s), and its delivered hash is recorded only
+    // when it answers: within a minute of it, whatever the record's hash says, nothing is sent again (review 3).
+    if (st.sentAt != null && t - st.sentAt >= 0 && t - st.sentAt < RETRY_MIN_MS) return;
     const body = feedback.readBody(st.sent);
     if (body != null && bodyHash(body) !== st.sentHash) maybeSend(st.sent);
   } catch { /* best effort */ }
@@ -623,8 +625,8 @@ function sendNow(date, now) {
       const data = payload(d);
       if (!data) return done('none');
       const keep = st.sent === d ? st.sentHash : null;
-      flushChangedDay(st, d, t);   // #5317 review 2: before the record leaves the day it names
       if (!markSent(d, keep, t).ok) return done('unsent');
+      flushChangedDay(st, d, t);   // #5317: the day the record named before this mark (review 3: only once the mark held)
       const post = sender || ((url, init) => fetch(url, init));
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 5000);

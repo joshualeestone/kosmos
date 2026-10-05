@@ -52,6 +52,16 @@ feedback-triage 23, cli.feedback-2037 14, server.feedback-2037 7, windows verbs 
   fresh lock); it needs a crashed writer and two writes within 50 ms. NITs accepted: a whitespace-only legacy body and a
   re-spelled agent name each cost one identical re-send; a store file copied by hand into `triage --dir` shows markers.
 
+## Review 3 (opus, blind)
+- W fixed: the in-flight rule held only with no delivered hash, so a re-send of the day before still in flight was sent
+  again by the new day's send in the same tick. Now any attempt under a minute old is in flight. Test: one tick at
+  01:30 sends the changed day once; the old rule reds it.
+- W fixed: the flush ran before the new day's mark, so with an unwritable settings file every write posted the day
+  before again (a flood). It runs only after the mark held. Test: three writes with the folder read-only post nothing
+  extra; the old order reds it.
+- NIT fixed: the flush's post refuses redirects under test, as sendNow's does. NIT accepted: an old record with no time
+  sends the day before once more (the same one-POST rule already accepted for unknown content).
+
 ## Weakest premise
 That one combined record per day is what the team wants, rather than one record per agent. It needs no collector
 change and every report arrives; if per-agent records are wanted later, the sections are already separable.

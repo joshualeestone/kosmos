@@ -1009,3 +1009,35 @@ test('#5317 review 2: a changed yesterday is sent before TODAY\'s send moves the
   feedbacksend.sweepTick(at('2026-10-12T04:30:00')); await settle();
   assert.equal(sent.length, 3, 'something was sent again with nothing changed');
 });
+
+test('#5317 review 3: a re-send still in flight is not sent again by the next day\'s send in the same tick', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  const settle = () => new Promise((r) => setImmediate(r));
+  feedback.write('the first report', { date: '2026-11-01', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-11-01T22:00:00')); await settle();
+  feedback.write('the second report', { date: '2026-11-01', from: 'mara' });
+  feedback.write('the new day', { date: '2026-11-02', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-11-02T01:30:00')); await settle();
+  assert.deepEqual(sent, ['2026-11-01', '2026-11-01', '2026-11-02'], 'the changed day went out twice in one tick');
+});
+
+test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  feedback.write('the first report', { date: '2026-11-05', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-11-05T20:00:00'));
+  await new Promise((r) => setImmediate(r));
+  feedback.write('the second report', { date: '2026-11-05', from: 'mara' });
+  feedback.write('the new day', { date: '2026-11-06', from: 'leo' });
+  const file = feedbacksend.FILE;
+  fs.chmodSync(nodePath.dirname(file), 0o500);
+  try {
+    for (const h of ['00:10', '00:20', '00:30']) await feedbacksend.sendNow('2026-11-06', at('2026-11-06T' + h + ':00'));
+  } finally { fs.chmodSync(nodePath.dirname(file), 0o700); }
+  assert.deepEqual(sent, ['2026-11-05'], 'an unsaved mark still posted the day before');
+});
