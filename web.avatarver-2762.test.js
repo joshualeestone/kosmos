@@ -173,9 +173,11 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
   // both versioned (`/avatar?v=${a.avatarVer || 0}`) since the lit circles repaint every poll; 21 -> 23.
   // #3946 item 15: those two became ONE (swarmCircles draws the swarm avatar for every view); 23 -> 22.
   // #4557: the team step sets a seeded member's portrait through PUT /api/agent/<name>/avatar; 22 -> 23.
-  assert.equal(count, 23,
-    'the page now has ' + count + ' avatar URLs, not 23. NOTE: this counts every occurrence, '
-    + 'including 7 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
+  // kosmos#5302: refitOldPictures reads a picture (GET, cache: 'no-store') and saves it fitted (PUT); two fetches, no
+  // render; 23 -> 25.
+  assert.equal(count, 25,
+    'the page now has ' + count + ' avatar URLs, not 25. NOTE: this counts every occurrence, '
+    + 'including 9 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
     + 'that is deliberate fail-closed noise rather than a hole. If you ADDED a RENDER: is it painted through '
     + 'setLive / setIfChanged / paintThreadInto? Then it needs `?v=` the avatar version, or it will '
     + 'keep showing the old picture after a profile-image update (#2698, #2762, #2770). If it is '
