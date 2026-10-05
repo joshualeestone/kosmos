@@ -514,10 +514,11 @@ function history(sessionName) {
    person (person, human, user, operator, boss, founder, me, you; optionally after the, my, our or your), or an email
    address. A name that is also an agent on this board is that agent, never a person. Anything else (a deploy, a
    review, a provider, an outside company) gets no note: a missed person costs the old behaviour, a false one only a
-   line of advice. The note names no owner and holds no quote or backslash, so the macOS CLI can lift it with sed. */
+   line of advice. The note names no owner and holds no double quote or backslash, so the macOS CLI can lift it with
+   sed; its question is in single quotes, as the nudge's is (unquoted, a ? stops zsh). */
 const PERSON_WORDS = /^(?:(?:the|my|our|your) )?(?:person|human|user|operator|boss|founder|me|you)$/;
 const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
-  + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you <your question>';
+  + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you \'<your question>\'';
 function blockedOwnerNote(state, owner, opts) {
   if (state !== 'blocked') return '';
   const norm = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase();

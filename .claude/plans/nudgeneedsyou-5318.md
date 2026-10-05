@@ -47,3 +47,16 @@ narrow PERSON_WORDS, not to drop the note.
   - Control: with the server's note removed, the route test goes red.
 - engine/agentnudge.test.js: the nudge offers blocked for an agent, deploy or review, and needs_you for a person.
 - 306 related and audit files: 6577 tests, 0 fail.
+
+## Review round 1 (opus)
+- [W] FIXED: the template was unquoted, so a real question (`Can Josh pick the cover?`) stops zsh on the `?` ("no
+  matches found") and an apostrophe opens a quote: exactly the person-blocker this card is for. The nudge and the note
+  now write `kosmos report needs_you '<your question>'` (single quotes: the nudge keeps double quotes to the two around
+  the task sentence, and the macOS CLI's sed cannot carry a double quote). A test runs zsh both ways (control:
+  unquoted fails).
+- [N] FIXED: the note's work (About-you read, roster walk) runs only for a blocked report, not on every automatic
+  `working`.
+- [N] FIXED: `note` is local in cmd_report.
+- [N] FIXED: the CLI tests RUN the code: the macOS CLI's own sed line on real answers, and the Windows CLI's main()
+  with a stubbed fetch, each with a no-note control.
+- [N] not changed: the person test's width (Josh (sign-off), the team, a bot's email) is the plan's decided trade-off.
