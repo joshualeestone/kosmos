@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fedshared-4649-main
-diff_hash: 9c5eb3ba0651e8d39e5798d126885928ec6e77ee21e8f265146d726a32a426a8
+diff_hash: 2fd75ab378a054183129caeccf5311120791e4b74891525c5cbd2d682eff83a6
 validation: engine/fedmembers.test.js + server.fedmembers-4649 + federation + server.federation-3311 + fedseats + server.guide-secrets-3769 206/206; tools/test-connector-verbs.sh 27/27. Mutations, each red: shared always true (the never-shared control); the raw because passed to Remove (the plain-text test). Full suite on Mortals: queued.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-05T07:24:10Z
