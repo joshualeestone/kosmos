@@ -18,14 +18,14 @@ its folder (compare actual folders, not the account), its account (claude.ai con
 
 Knowledge only: the block stays constant (no argument, no machine state), as its tests require. It deliberately names no
 file inside a provider folder: where Codex records an enabled plugin, and how account-synced Claude plugins arrive, were
-not measured (review iteration 1).
+not measured.
 
 ## Tests
 `engine/connections.test.js`: one new test pinning the section's facts, its position before the Connections tab
 section, and no em dash. Red-capable: with origin/main's connections.js substituted in (`git show origin/main:engine/connections.js`), `node --test
 engine/connections.test.js` gives 10 pass, 1 fail; with the change 11/11.
 Related files (`node --test server.connections-refresh-1649.test.js engine/connections.test.js engine/discover.adopt.test.js
-engine/create.test.js`, from the worktree): 263/263 at the first commit and again after review iteration 6. Full validation: Mortals, at the final head.
+engine/create.test.js`, from the worktree): 263/263 at the first commit and again at f13b85c84. Full validation: Mortals, at the final head.
 
 ## What each claim rests on (connections.js's own rule: only what was read off the product)
 - Measured on Agent1s: each Claude config folder has its own `plugins/installed_plugins.json` (two folders, different
@@ -36,13 +36,16 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit and agai
   excluded) for enabledPlugins, installed_plugins, `plugin install`, `plugin add` and 'plugin': 0 hits (control:
   CLAUDE_CONFIG_DIR, 131 hits in the same scope).
 - `.claude.json`: measured at `~/.claude.json` beside `~/.claude`, and at `<CLAUDE_CONFIG_DIR>/.claude.json` inside an
-  account folder. That MCP servers are recorded there is from review iteration 5 (a project-scope server is in the project's
-  `.mcp.json` instead, per iteration 6, which is why the text no longer says anything narrower) and
+  account folder. That MCP servers are recorded there was reported by a reviewer, not measured here (no server is configured on this box); likewise that a
+  `--scope project` server is kept in the project's `.mcp.json` and
   matches the file's role; no server is configured on this box to show the exact keys.
 - `claude mcp add` defaults to `--scope local` (measured: its `--help`, default "local"); that local scope ties the
-  server to the folder it was added from is from review iteration 7.
-- The read-only commands named first: `claude plugin list` ("List installed plugins"), `claude mcp list`, `claude auth
-  status` ("Show authentication status") and `codex mcp list`, each read from its own `--help` on this box. Not
+  server to the project folder it was added from was reported by a reviewer, not measured here.
+- Codex's folder: `CODEX_HOME`, default `~/.codex` (bin/agent-supervisor.sh defaults it to `$HOME/.codex`; `codex mcp
+  --help` names `~/.codex/config.toml`).
+- The commands named first: `claude plugin list` ("List installed plugins"), `claude mcp list`, `claude auth
+  status` ("Show authentication status") and `codex mcp list`, each read from its own `--help` on this box. Not called read-only:
+  `claude mcp list`'s help says approved servers are health-checked. Not
   `codex plugin list`: its help says it lists plugins AVAILABLE from marketplaces, not installed ones.
 - That a connector added from the desktop app's Connectors screen belongs to the account is not measured; worded as
   "may", with the account check as the action.
