@@ -122,7 +122,7 @@ const roomhold = require('./roomhold');
 const withDeliverAuto = (fn) => { const real = { a: chat.deliverAutomaticAsync }; chat.deliverAutomaticAsync = fn(real.a); return () => { chat.deliverAutomaticAsync = real.a; }; };
 const postAs = (roster, who, text, extra) => messages.sendPostAsync(Object.assign({ sender: { ok: true, card: roster.find((c) => c.sessionName === who) }, project: 'room4926', projectName: 'Room', text }, extra || {}), roster, roster.map((c) => c.sessionName));
 
-test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quota is kept as asking it (never dropped as stale)', async () => {
+test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quota is kept as asking it (not dropped as stale; under a day, unanswered)', async () => {
   await withRoom(async (roster) => {
     arm();
     roomhold.forget('bix');
@@ -157,6 +157,24 @@ test('#4926 review 1 (Opus): the held line riding a typed arrival leaves out a s
     const typed = calls.map((a) => a.join(' ')).join('\n');
     assert.ok(typed.includes('(' + after.id + ')'), 'fixture: the typed arrival carried no held line naming the fresh post (cannot see the drop)');
     assert.ok(!new RegExp('\\b' + before.id + '\\b').test(typed), 'a stale held post rode the arrival');
+    roomhold.forget('dee');
+  });
+});
+
+test('#4926 R2: the held line riding a typed arrival leaves out an ask the member answered, and names one it did not', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    roomhold.forget('dee');
+    const asked = await postAs(roster, 'cy', '@dee which file?');
+    const open = await postAs(roster, 'cy', '@dee and which branch?');
+    await postAs(roster, 'dee', 'hello.txt', { replyTo: asked.id });   // dee answered the first in the room
+    roomhold.forget('dee');
+    roomhold.hold('dee', 'room4926', roomhold.addressedId(asked.id)); roomhold.hold('dee', 'room4926', roomhold.addressedId(open.id));
+    calls.length = 0;
+    await postAs(roster, 'ava', '@dee one more');
+    const typed = calls.map((a) => a.join(' ')).join('\n');
+    assert.ok(new RegExp('\\b' + open.id + '\\b').test(typed), 'fixture: the typed arrival carried no held line naming the unanswered ask');
+    assert.ok(!new RegExp('\\b' + asked.id + '\\b').test(typed), 'an ask the member had answered rode the arrival');
     roomhold.forget('dee');
   });
 });

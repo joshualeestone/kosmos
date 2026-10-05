@@ -403,6 +403,30 @@ test('#4588 B review 6: a post whose ONLY recipient is a STOPPED agy member is r
   });
 });
 
+test('#4926 R2: flushReleased (the quota-release flush) drops an ask held over a day, through the real staleHeld; CONTROL: a fresh one is told', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara please' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.addressedId(sent.id)], 'fixture: the ask was not held on the quota');
+    poolReset();
+    const r = rosterOf(board, null);
+    const at = (later) => ({ ...releasedDeps(r, Date.now()), stale: (p, ids, who) => messages.staleHeld(p, ids, undefined, Date.now() + later, who) });
+    let tmux = arm();
+    // A day and an hour after the post: the ask is dropped, nothing is typed.
+    const late = await roomhold.flushReleased(r, at(messages.HELD_ASKED_MAX_MS + 3600000));
+    assert.deepEqual(typedTo(tmux, 'mara'), [], 'an ask held over a day was typed after the quota released');
+    assert.deepEqual(late, [], 'a flush that told nothing reported a result');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'the dropped ask was kept');
+    // CONTROL: the same ask held again, released within the day, is told.
+    roomhold.hold('mara', PROJECT, roomhold.addressedId(sent.id));
+    tmux = arm();
+    await roomhold.flushReleased(r, at(0));
+    assert.equal(typedTo(tmux, 'mara').length, 1, 'a fresh ask was not told after the quota released');
+  });
+});
+
 test('#4588 B review 6: flushReleased skips a STOPPED agy member holding posts (no try, no log line, ids kept); CONTROL: reachable, it is told', async () => {
   await withFleetAsync(room3Stopped(), async (board) => {
     report('mara', 'idle');

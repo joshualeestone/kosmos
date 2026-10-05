@@ -3,7 +3,7 @@
  * #4926: a held room post that asks nothing of the member and has gone stale (older than messages.HELD_TELL_MAX_MS, or
  * the room's loop guard stopped the conversation after it) is dropped at the flush instead of told: telling it is a wake
  * into an idle agent, which then answers it, hours after the person asked the room for quiet. A held post that names
- * the member and asks for an answer is always told.
+ * the member and asks for an answer is told, unless the member answered it in the room or it is over a day old (R2).
  *
  *   node --test engine/roomhold-stale-4926.test.js
  */
@@ -117,4 +117,68 @@ test('#4926 review 5 (Opus): a post held on the member\'s QUOTA is aged from the
   assert.ok(messages.staleHeld('p1', ['m2'], [ended], NOW, 'gem').has('m2'), 'a pause that ended long ago kept it fresh');
   const stopped = [Object.assign(post('m3', 30), { heldUntil: { gem: new Date(NOW).toISOString() } }), valve(10)];
   assert.ok(messages.staleHeld('p1', ['m3'], stopped, NOW, 'gem').has('m3'), 'the loop guard no longer applied to a quota hold');
+});
+
+/* #4926 R2 (10-05 user diagnostic, 0.7.22): a session was woken on 10-05 for posts from 10-02 and 10-03 it had already
+   handled. A held post the member has ANSWERED in the room (its own post with replyTo = that id), or one over a day old,
+   is dropped even when it names the member. */
+test('#4926 R2: staleHeld marks a post the member answered, or one over a day old, as dropped even if asked', () => {
+  const reply = (min, to, project = 'p1', from = 'kim') => ({ kind: 'post', id: 'r' + min, project, from, to: ['ann'], text: 'y', replyTo: to, at: ago(min) });
+  const dayMin = messages.HELD_ASKED_MAX_MS / 60000;
+  let s = messages.staleHeld('p1', ['m1'], [post('m1', 30), reply(10, 'm1')], NOW, 'kim');
+  assert.ok(s.has('m1') && s.evenIfAsked.has('m1'), 'a post the member answered was kept');
+  // CONTROLS: kim's later post that answers something else (review 1's BLOCKER: a held post was never shown, so a
+  // later post is no proof it was seen), someone else's answer, kim's answer in another room, no member named.
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), reply(10, 'm9')], NOW, 'kim');
+  assert.equal(s.size, 0, 'a later post of the member that answers another post dropped this one');
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), { ...reply(10, 'm1'), project: 'p1', from: 'bob' }], NOW, 'kim');
+  assert.equal(s.size, 0, 'someone else\'s answer handled it for the member');
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), reply(10, 'm1', 'p2')], NOW, 'kim');
+  assert.equal(s.size, 0, 'an answer in another room handled it');
+  s = messages.staleHeld('p1', ['m1'], [post('m1', 30), reply(10, 'm1')], NOW);
+  assert.equal(s.size, 0, 'with no member named, a post was taken as answered');
+  // Over a day old: dropped even if asked; just under a day (and past the 2 h rule): stale but still told if asked.
+  s = messages.staleHeld('p1', ['m1', 'm2'], [post('m1', dayMin + 5), post('m2', dayMin - 5)], NOW, 'kim');
+  assert.ok(s.evenIfAsked.has('m1'), 'a post over a day old was kept for an ask');
+  assert.ok(s.has('m2') && !s.evenIfAsked.has('m2'), 'a post under a day old was dropped even when asked');
+  // Review 4: the day rule counts from the POST even after a quota pause, so a pause of days does not deliver old
+  // asks; the 2-hour rule still counts from the pause's end (CONTROL: a post 3 h old, paused until 1 h ago, is not stale).
+  const paused = { ...post('m3', dayMin + 60), heldUntil: { kim: ago(60) } };
+  s = messages.staleHeld('p1', ['m3'], [paused], NOW, 'kim');
+  assert.equal(s.evenIfAsked.has('m3'), true, 'a day-old ask was kept because a quota pause ended recently');
+  const recent = { ...post('m4', 180), heldUntil: { kim: ago(60) } };
+  assert.equal(messages.staleHeld('p1', ['m4'], [recent], NOW, 'kim').size, 0, 'the 2-hour rule stopped counting from the pause\'s end');
+});
+
+test('#4926 R2: withoutStale drops an addressed id the judge marks evenIfAsked, and keeps the other addressed ones', () => {
+  const ids = [roomhold.addressedId('m1'), roomhold.addressedId('m2'), 'm3', 'm4'];
+  const judge = () => { const g = new Set(['m1', 'm2', 'm3']); g.evenIfAsked = new Set(['m1']); return g; };
+  assert.deepEqual(roomhold.withoutStale('p1', ids, judge), [roomhold.addressedId('m2'), 'm4']);
+  // CONTROL: a judge without evenIfAsked (the earlier shape) keeps every addressed id, as before.
+  assert.deepEqual(roomhold.withoutStale('p1', ids, () => new Set(['m1', 'm2', 'm3'])), [roomhold.addressedId('m1'), roomhold.addressedId('m2'), 'm4']);
+});
+
+test('#4926 R2 review 1: through the real idle flush, a fresh held post survives the member\'s own later post; an answered or day-old ask does not', async () => {
+  const dayMin = messages.HELD_ASKED_MAX_MS / 60000;
+  const log = [post('m5', 3), post('m6', dayMin + 5), post('m7', 40),
+    { kind: 'post', id: 'k1', project: 'p1', from: 'kim', to: ['ann'], text: 'my turn\'s answer', at: ago(1) },
+    { kind: 'post', id: 'k2', project: 'p1', from: 'kim', to: ['ann'], text: 'done', replyTo: 'm7', at: ago(2) }];
+  assert.ok(roomhold.hold('kim', 'p1', 'm5'));
+  assert.ok(roomhold.hold('kim', 'p1', roomhold.addressedId('m6')));
+  assert.ok(roomhold.hold('kim', 'p1', roomhold.addressedId('m7')));
+  const typed = [];
+  const DELIVERY = { PLACED: 'placed', COULD_NOT: 'could_not' };
+  await roomhold.flushOnIdle('kim', { deliver: async (n, line) => { typed.push(line); return { state: DELIVERY.PLACED }; }, roster: [], shownOf: () => 'p1', DELIVERY, env: {},
+    stale: (p, ids, n) => messages.staleHeld(p, ids, log, NOW, n) });
+  assert.equal(typed.length, 1, 'nothing was told: ' + JSON.stringify(typed));
+  assert.match(typed[0], /\bm5\b/, 'a fresh held post was dropped because the member posted after it');
+  assert.doesNotMatch(typed[0], /\bm6\b/, 'a day-old ask was told');
+  assert.doesNotMatch(typed[0], /\bm7\b/, 'an ask the member already answered was told');
+});
+
+test('#4926 R2 review 4: every staleHeld call in server.js passes the member (without it the answered rule is off)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const calls = src.match(/messages\.staleHeld\(([^)]*)\)/g) || [];
+  assert.ok(calls.length >= 2, 'fixture: fewer than the two server flush call sites found: ' + calls.length);
+  for (const c of calls) assert.match(c, /^messages\.staleHeld\(p, ids, undefined, undefined, who2\)$/, 'a server call does not pass the flush\'s member: ' + c);
 });
