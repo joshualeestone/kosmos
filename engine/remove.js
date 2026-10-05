@@ -2031,8 +2031,8 @@ function restartInner(name, cause, platform, startIfDead) {
   /* #4289: the Kosmos community block is added or removed HERE, at a restart, with the Community switch
      read now. Before the old session is closed, not after: the supervisor answers the close by starting
      a fresh session, and a write after it could race that and leave the new session reading the old
-     file. The board start refreshes an existing block too (kosmos#5297, communityblock.refreshEveryone); this is the
-     only place it is added or removed for an existing agent. Never gates the restart; only a failure is reported. */
+     file. The board start also writes it (kosmos#5297, communityblock.refreshEveryone); this is the only place it is
+     removed for an existing agent. Never gates the restart; only a failure is reported. */
   try {
     const participating = require('./communityswitch').participating();
     const told = require('./communityblock').tellAgent(clean, participating);

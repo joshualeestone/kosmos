@@ -264,8 +264,7 @@ function blockBody({ introduce = false } = {}) {
  *   { state: TOLD | COULD_NOT, because, changed }
  */
 /* `opts` (kosmos#5297, the board-start refresh only): `introduce` (true/false) replaces the shouldIntroduce read, and
-   `onlyIfPresent` refuses to add a block the file does not carry (so a person who removed it between the refresh's
-   check and this write does not get it back), and `withBody` returns the body it composed as `body`. */
+   `withBody` returns the body it composed as `body`. */
 function tellAgent(sessionName, participating, opts = {}) {
   const instructions = require('./instructions');
   try {
@@ -277,7 +276,6 @@ function tellAgent(sessionName, participating, opts = {}) {
     if (found && found.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
-    if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
     let body = participating === true ? blockBody({ introduce }) : null;
     let next = participating === true
@@ -331,13 +329,10 @@ function refreshEveryone(roster, participating) {
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
     let before = null;
-    let hasFile = false;
-    try {
-      const cur = instructions.read(a.sessionName);
-      hasFile = Boolean(cur && cur.exists);
-      if (hasFile) before = innerOf(cur.text);
-    } catch { hasFile = false; }
-    if (!hasFile) continue;   // nothing to add to: tellAgent never creates a file
+    let cur = null;
+    try { cur = instructions.read(a.sessionName); } catch { cur = null; }
+    if (cur && !cur.exists && cur.editable === true) continue;   // no file yet: tellAgent never creates one
+    if (cur && cur.exists) before = innerOf(cur.text);   // otherwise tellAgent reports why it cannot write
     let posted = null;
     try { posted = require('./communitystore').postedBy(a.sessionName); } catch { posted = null; }
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
