@@ -192,12 +192,11 @@ until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARG
     # Said as an attempt: an unwritable marker dir, or a cut-guard lib older than #4911, keeps no place (review 1).
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') re-marked its place in the queue (joined $(date -r "$QH_JOINED" '+%H:%M:%S')) (#5064): $WHAT"
   fi
-  # Test seam (#5332): QH_TEST_LOST_PAUSE_S pauses a main-lane loser here, after any re-mark, so a later joiner's poll
-  # lands while the loser holds only the place the re-mark gave it (none, in the test's copy without the re-mark).
+  # Test seam (#5332): QH_TEST_LOST_PAUSE_S pauses each main-lane lost take here, after any re-mark, so a later joiner's
+  # poll lands while the loser holds only the place the re-mark gave it (none, in the test's copy without the re-mark).
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ "${QH_TEST_LOST_PAUSE_S:-0}" -gt 0 ] 2>/dev/null; then sleep "$QH_TEST_LOST_PAUSE_S"; fi
   # A side wait returns before any sleep, so a take that keeps losing (say, a marker dir it cannot write) would spin.
-  # Side lane only: a main-lane loser is re-marked at its old place above, and a pause there only lets a later
-  # joiner past it.
+  # Side lane only: a main-lane wait sleeps between its own polls, so the main lane needs no backoff here.
   [ "${KOSMOS_WAIT_LANE:-main}" = side ] && sleep "${KOSMOS_WAIT_EVERY_S:-30}"
 done
 RENEWER=""
@@ -303,7 +302,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S   # review 5: a command that queues on its own must not claim to be one of these; the test seams stay out of it too
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
