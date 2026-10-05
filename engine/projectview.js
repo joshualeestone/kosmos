@@ -176,7 +176,7 @@ function overviewOf(p, roster, o) {
          same downloaded catalogue the page learns its titles from. The CLI only prints it: requiring roles.js in
          the CLI would read the store there and can print a catalogue line on stderr (review 1). */
       roleTitle: m.role ? require('./roles').roleTitle(m.role) : null,
-      roleHere: m.roleHere === true,   // #5300: the role is the one the member set for this project
+      roleHere: typeof m.roleHere === 'string' && m.roleHere ? m.roleHere : null,   // #5300: what it does on this project
       state: m.present && m.tied ? m.state : 'unknown',
       present: Boolean(m.present),
       family: m.tied ? familyOf(m.runner) : null,
@@ -337,7 +337,7 @@ function renderShow(payload) {
     const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
     /* #4896: the board's own spelling of the role (overviewOf's roleTitle); an older board sends none, and then
        the role is printed as it is stored, as before. */
-    const role = (m.roleTitle || m.role || '') + (m.roleHere === true && (m.roleTitle || m.role) ? ' (on this project)' : '');
+    const role = m.roleHere ? m.roleHere + ' (on this project)' : (m.roleTitle || m.role || '');
     out.push('  ' + one(m.name) + (role ? ', ' + one(role) : '') + '  | ' + fam + '  | ' + where
       + '  | summary: ' + sum);
   }

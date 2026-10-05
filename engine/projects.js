@@ -628,15 +628,18 @@ function folderState(folder) {
  * `describe` read `name`, `state` and `because` off a producer that emits none
  * of them). Asking whether the key is there says which of the two this is.
  */
-/* #5300: the role a member set for this project, or null. */
-function roleHereOf(p, key) {
-  const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
-  return typeof r === 'string' && r.trim() ? r : null;
-}
 function profileRole(card) {
   const profile = card && card.profile;
   if (!profile || typeof profile !== 'object') return null;
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
+}
+
+/* #5300: the role a member set for this project, or null. Shown beside the member's role, never in place of it
+   (review 1): `role` decides who a room opens on (chat.defaultAgentFor) and the two-coordinators warning, and a
+   role the person saved wins there (#4896). */
+function roleHereOf(p, key) {
+  const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
+  return typeof r === 'string' && r.trim() ? r : null;
 }
 
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
@@ -950,9 +953,9 @@ function describe(project, roster, all) {
       // and no test can hold it live (round 15 measured its removal green;
       // the gate-bites test in chat.test.js holds it with a produced card
       // whose tie flag is deliberately flipped).
-      role: (card && card.isNamedOurs) ? (roleHereOf(project, sessionName) || profileRole(card) || card.role || null) : null,
-      // #5300: whether that role is the one the member set for this project (roleHereOf), not its agent's own.
-      roleHere: Boolean(card && card.isNamedOurs && roleHereOf(project, sessionName)),
+      role: (card && card.isNamedOurs) ? (profileRole(card) || card.role || null) : null,
+      // #5300: what the member said it does on this project (kosmos project role), or null. Display only.
+      roleHere: (card && card.isNamedOurs) ? roleHereOf(project, sessionName) : null,
       // #4557: who this member reports to (the session name the org chart stores), under the same
       // isNamedOurs gate as role. chat.defaultAgentFor prefers the member others report to, so a
       // seeded team's room opens on its lead, not on whichever role text says "manager".

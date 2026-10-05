@@ -18589,7 +18589,7 @@ const server = http.createServer(async (req, res) => {
   /* #5300 (10-05 user diagnostic R10): a member says what it does on THIS project (`kosmos project role`). Body
      { role } (empty clears it). An agent sets only its own, identified by its token or pane as task built does; the
      screen names the member (`name`). Shown by projects.describe ahead of the agent's own role. Not valved: one field
-     per member per project, rewritten in place, moves no membership and types into nobody. */
+     per member per project, rewritten in place; display only (describe's roleHere), so it decides no routing. */
   const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
   if (roleHere && req.method === 'POST') {
     const id = decodeSegment(roleHere[1]);
@@ -18627,7 +18627,7 @@ const server = http.createServer(async (req, res) => {
       try { out = projects.setRoleHere(id, name, body.role); }
       catch (err) {
         const because = String((err && err.message) || 'the role was not set');
-        sendJson(res, err && err.code === 'UNREADABLE' ? 500 : /no project by that name/.test(because) ? 404 : /not on this project/.test(because) ? 403 : 400, { error: because });
+        sendJson(res, err && err.code === 'UNREADABLE' ? 500 : /no project by that name/.test(because) ? 404 : (/not on this project/.test(because) && !viaScreen) ? 403 : 400, { error: because });
         return;
       }
       sendJson(res, 200, { ok: true, role: out.role });

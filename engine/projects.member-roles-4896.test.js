@@ -76,9 +76,9 @@ test('#4896: a role the person saved on one member wins for that member only', (
 });
 
 /* #5300 (10-05 user diagnostic R10): five agents made as Project Managers read as five Project Managers on every
-   project. A member's role HERE wins over its agent's own role (and over a person-saved profile role), for that
-   member on that project only, and leaves with the membership. */
-test('#5300: a role set for one project wins for that member there only, over the agent\'s own and a saved profile role', () => {
+   project. A member can say what it does on one project (roleHere). It is shown beside the member and changes
+   nothing else: `role` (who a room opens on, the coordinators warning, a person-saved role winning) is untouched. */
+test('#5300: a role set for one project is that member\'s roleHere there only; role itself is unchanged', () => {
   projects.writeAll([]);
   store.writeProfile('cw', { role: 'Account Manager' });
   try {
@@ -86,20 +86,17 @@ test('#5300: a role set for one project wins for that member there only, over th
     const a = projects.create({ name: 'Here', folder: folder('here'), agents: ['pm', 'cw'], roster });
     const b = projects.create({ name: 'Elsewhere', folder: folder('elsewhere'), agents: ['pm', 'cw'], roster });
     assert.deepEqual(projects.setRoleHere(a.id, 'pm', 'Researcher'), { role: 'Researcher' });
-    assert.deepEqual(projects.setRoleHere(a.id, 'cw', 'Editor'), { role: 'Editor' });
     const here = projects.get(a.id, roster);
-    assert.deepEqual(rolesOf(here), { pm: 'Researcher', cw: 'Editor' }, 'the role here did not win over the agent\'s and the profile\'s');
-    assert.deepEqual(Object.fromEntries(here.agents.map((m) => [m.sessionName, m.roleHere])), { pm: true, cw: true });
-    // CONTROL: the other project still shows each agent's own role (the profile role for cw).
-    const there = projects.get(b.id, roster);
-    assert.deepEqual(rolesOf(there), { pm: 'Project Manager', cw: 'Account Manager' });
-    assert.deepEqual(Object.fromEntries(there.agents.map((m) => [m.sessionName, m.roleHere])), { pm: false, cw: false });
-    // Leaving takes it; joining again starts from the agent's own role.
+    assert.deepEqual(rolesOf(here), { pm: 'Project Manager', cw: 'Account Manager' }, 'the role here replaced role (routing and the person-saved role)');
+    assert.deepEqual(Object.fromEntries(here.agents.map((m) => [m.sessionName, m.roleHere])), { pm: 'Researcher', cw: null });
+    // CONTROL: the other project carries no role here.
+    assert.deepEqual(Object.fromEntries(projects.get(b.id, roster).agents.map((m) => [m.sessionName, m.roleHere])), { pm: null, cw: null });
+    // Leaving takes it; joining again starts with none.
     projects.removeAgent(a.id, 'pm');
     projects.addAgent(a.id, 'pm', roster);
-    assert.equal(rolesOf(projects.get(a.id, roster)).pm, 'Project Manager', 'a role here outlived the membership');
+    assert.equal(projects.get(a.id, roster).agents.find((m) => m.sessionName === 'pm').roleHere, null, 'a role here outlived the membership');
     // A non-member is refused; the role is one line.
     assert.throws(() => projects.setRoleHere(b.id, 'nobody', 'x'), /not on this project/);
-    assert.deepEqual(projects.setRoleHere(b.id, 'pm', 'line one\nline‮two'), { role: 'line one line two' });
+    assert.deepEqual(projects.setRoleHere(b.id, 'pm', 'line one\nline\u202etwo'), { role: 'line one line two' });
   } finally { store.writeProfile('cw', {}); }
 });

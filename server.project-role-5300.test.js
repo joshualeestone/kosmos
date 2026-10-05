@@ -99,6 +99,7 @@ test('#5300: refusals: not a member, too long, not text, nobody named; the scree
     assert.equal(r.status, 404);
     // The screen names the member; without a name it is refused.
     assert.equal((await asScreen(p.id, { role: 'Editor' })).status, 400);
+    assert.equal((await asScreen(p.id, { role: 'Editor', name: 'nobody-here' })).status, 400, 'the screen naming a non-member is a bad request');
     r = await asScreen(p.id, { role: 'Editor', name: bo });
     assert.equal(r.status, 200, await r.clone().text());
     assert.equal(stored(p.id).rolesHere[bo], 'Editor');

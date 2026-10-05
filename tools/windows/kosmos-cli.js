@@ -970,7 +970,7 @@ async function projectRole(ctx, args) {
   const project = args[0];
   const slug = projectSlug(project);
   if (slug !== project || !slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
-  if (/^--[A-Za-z]/.test(args[1])) { ctx.err('kosmos project role takes no ' + args[1] + '. ' + usage); return 2; }
+  if (/^--[A-Za-z]/.test(args[1])) { ctx.err(args[1] + ' is not an option of kosmos project role, so nothing was done.'); return 2; }
   const r = await ctx.call('POST', '/api/project/' + slug + '/role', { role: args[1] });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')

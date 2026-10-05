@@ -4210,9 +4210,9 @@ cmd_project() {
       ;;
     role)
       local _rtok="" _rbt rc=0 body because esc_role esc_pane
-      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
       _rbt="$(agent_board_token || true)"
-      esc_role=$(printf '%s' "$2" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_role=$(printf '%s' "$2" | tr '\000-\037' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       body=$(kosmos_curl "$_rbt" "$_rtok" -sS -m 15 -X POST "$URL/api/project/$1/role" \
         -H 'content-type: application/json' --data "{\"role\":\"$esc_role\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
