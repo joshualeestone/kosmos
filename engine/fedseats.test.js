@@ -3560,3 +3560,51 @@ test('#5285: a post too long to ever send asks nothing; a clock set back does no
   await settle();
   assert.strictEqual(h.asked, asked1 + 1, 'the window was stretched by the clock step');
 });
+
+test('#5285: when Kosmos+ cannot answer the check, a follow-up asks again at the window\'s end', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 6_000_000 });
+  federation.recordLink('proj-fail', { role: 'owner', ref: 'ref-fail' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-fail');
+  h.edges = null;   // Kosmos+ answers with a failure
+  fedseats.post('proj-fail', { from: 'Josh', kind: 'person', text: 'after a failure' });
+  await settle();
+  const asked = h.asked;
+  h.edges = [{ id: 'edge-fail', project_ref: 'ref-fail', status: 'active' }];
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.ok(h.asked > asked, 'no follow-up after a failed answer');
+  const seat = h.spawned.find((c) => c.edge === 'edge-fail');
+  assert.ok(seat, 'the follow-up did not bring the seat up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /after a failure/);
+});
+
+test('#5285: a check still out when its seat is stopped does nothing when it answers', async () => {
+  federation.recordLink('proj-stop2', { role: 'owner', ref: 'ref-stop2' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-stop2');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  fedseats.post('proj-stop2', { from: 'Josh', kind: 'person', text: 'gone soon' });
+  await tick();
+  const notesBefore = h.notes.length;
+  const spawnedBefore = h.spawned.length;
+  fedseats.stop('proj-stop2');
+  h.edges = [{ id: 'edge-stop2', project_ref: 'ref-stop2', status: 'active' }];
+  release(); h.gate = null;
+  await settle();
+  assert.strictEqual(h.notes.length, notesBefore, 'a stopped seat\'s check said something: ' + JSON.stringify(h.notes.slice(notesBefore)));
+  assert.ok(!h.spawned.slice(spawnedBefore).some((c) => c.edge === 'edge-stop2' && c.written.join('').includes('gone soon')), 'a stopped seat\'s post was sent');
+});
+
+test('#5285: the owner sees ONE line per outcome: nothing while the check runs, then "nobody joined"', async () => {
+  federation.recordLink('proj-one', { role: 'owner', ref: 'ref-one' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-one');
+  fedseats.post('proj-one', { from: 'Josh', kind: 'person', text: 'hi' });
+  await settle();
+  const said = h.notes.filter((n) => n.projectId === 'proj-one').map((n) => n.text);
+  assert.deepStrictEqual(said, ['That message stayed on this computer: nobody outside has joined this shared project yet.'], JSON.stringify(said));
+});

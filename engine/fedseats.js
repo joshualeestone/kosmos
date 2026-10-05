@@ -722,7 +722,9 @@ function revokeCheck(projectId, link, edges) {
     check while it is younger than EDGE_FRESH_MS (the answer lists every project's edges),
     so the number of busy rooms does not set how often this Mac asks Kosmos+. A failed
     answer is shared too, for the same 15 s: an outage must not turn every busy room into
-    its own request. */
+    its own request. Exception (kosmos#5285): an owner room's join check passes notBeforeMono, so it
+    never reuses an answer asked before it started; it is bounded per room instead (one per
+    JOIN_CHECK_MS, and only when someone posts). */
 let macEdges = null;
 /** Whether something done at `at` is less than EDGE_FRESH_MS old. A time ahead of the
     clock (the clock stepped back) is not fresh, so the hold cannot be switched off by it. */
@@ -1179,7 +1181,8 @@ function holdPost(projectId, s, msg, why, when, heldAt) {
   }
   s.outbox.push({ msg, at: heldAt || Date.now(), mono: mono() });
   s.reheld = true;   // flushHeld's signal that this post is waiting again (not refused for good)
-  if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
+  // #5285: a post waiting on a join check is held quietly; the check's outcome says one line (sent, or nobody joined).
+  if (!heldAt && !msg.joinWait) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
   return false;
 }
 /** Held more than HELD_POSTS_AGE_MS, or held more than FUTURE_SKEW_MS 'in the future' (the
@@ -1329,6 +1332,8 @@ function kickJoinCheck(projectId, s) {
       // An ensure that returned without asking (a start or a pass already under way) answers nothing: ask again
       // when the window ends, like a post held while a check was out.
       if (!ask) { s.joinCheckAgain = true; return; }
+      // Kosmos+ could not answer (ensure turns that into 'reconnecting'): ask again at the window's end.
+      if (status === 'reconnecting') { s.joinCheckAgain = true; return; }
       if (status === 'waiting') dropJoinWait(projectId, s, ask.mono);
       // Anything else: the seat is starting or connected, and its connect flushes what is held.
       else if (s.status === 'connected') flushHeld(projectId, s);
@@ -1338,7 +1343,7 @@ function kickJoinCheck(projectId, s) {
       s.joinCheck = null;
       const again = s.joinCheckAgain;
       s.joinCheckAgain = false;
-      if (again && seats.get(projectId) === s && !s.stopped && s.status === 'waiting' && hasJoinWait(s)) scheduleJoinCheck(projectId, s);
+      if (again && seats.get(projectId) === s && !s.stopped && (s.status === 'waiting' || s.status === 'reconnecting') && hasJoinWait(s)) scheduleJoinCheck(projectId, s);
     });
 }
 function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, behindHeld, joinWait }, heldAt) {
@@ -1370,7 +1375,7 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
          nobody, which releases it with the sentence below. At most one check per seat per JOIN_CHECK_MS; a post
          inside that window waits for the next check (scheduleJoinCheck), it is never refused at once. */
       if (heldAt === 0 && deps) {
-        holdPost(projectId, s, Object.assign({}, msg, { joinWait: true }), 'checking whether someone has just joined', 'once they are connected');
+        holdPost(projectId, s, Object.assign({}, msg, { joinWait: true }), 'it is waiting to hear whether someone has joined', 'once they are connected');
         if (hasJoinWait(s)) scheduleJoinCheck(projectId, s);   // a post holdPost refused (too long, full) waits on nothing
         return false;
       }

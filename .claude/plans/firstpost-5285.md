@@ -39,3 +39,9 @@ shared hold time across rooms and gains little at this scale).
 Reasoned, not measured: the 60 s pass's own "did not ask" guard. The staging review 3 sketched does not order
 deterministically: the pass blocks on its first request, and by the time it reaches the room the room's own check
 has resolved and the seat is no longer 'waiting'.
+
+Review 4 (0 blockers): a failed answer comes back from ensure as 'reconnecting', not a throw, so it now also
+schedules the follow-up (and the follow-up runs while 'reconnecting'); the hold is quiet, so the owner sees one
+line per outcome ("nobody outside has joined", or the post's "was sent"), as before this change; #5191's comment
+now states the join check's exception. Tests: follow-up after a failed answer; a check out when its seat stops does
+nothing; one line per outcome.
