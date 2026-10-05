@@ -18570,25 +18570,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
-     (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
-     advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
-     a proof (an enforcing board still needs the board token, or the agent's own token via
-     AGENT_TOKEN_ROUTE_PATTERNS (#4491), to reach this at all). An identified agent may mark or
-     clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
-     only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
-     process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
-     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
-     no agent (review round 11). The real
-     boundary is the board token or the agent's own token, and the person's own mark rests on the screen posture (isViaScreen), advisory
-     as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
-     process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
-     task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
-     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   /* #5300 (10-05 user diagnostic R10): a member says what it does on THIS project (`kosmos project role`). Body
-     { role } (empty clears it). An agent sets only its own, identified by processCaller (token, else pane); the
-     screen names the member (`name`). describe carries it as `roleHere`, beside `role`. Not valved: one field
+     { role } (empty clears it). A token or pane caller sets only its own, identified by processCaller; the screen
+     names the member (`name`), and a local process that claims to be the screen (isViaScreen) is taken at its word,
+     as on the sibling routes. describe carries it as `roleHere`, beside `role`. Not valved: one field
      per member per project, rewritten in place; display only (describe's roleHere), so it decides no routing. */
   const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
   if (roleHere && req.method === 'POST') {
@@ -18632,6 +18617,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
+     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
+     advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
+     a proof (an enforcing board still needs the board token, or the agent's own token via
+     AGENT_TOKEN_ROUTE_PATTERNS (#4491), to reach this at all). An identified agent may mark or
+     clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
+     only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
+     process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
+     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
+     no agent (review round 11). The real
+     boundary is the board token or the agent's own token, and the person's own mark rests on the screen posture (isViaScreen), advisory
+     as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
+     process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
+     task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
+     already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);

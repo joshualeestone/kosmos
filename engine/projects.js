@@ -2878,7 +2878,7 @@ function addAgent(id, sessionName, roster, made) {
 const ROLE_HERE_MAX = 60;
 function cleanRoleHere(role) {
   if (typeof role !== 'string') throw new Error('say the role in words');
-  const one = require('./projectview').one(role);   // review 3: the line filter project show uses, not a narrower copy
+  const one = require('./projectview').one(role);   // the filter project show prints it through, so the two cannot differ
   if (one.length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
   return one;
 }
@@ -2886,7 +2886,8 @@ function setRoleHere(id, sessionName, role) {
   const key = String(sessionName || '').trim();
   const words = cleanRoleHere(role);
   let out = null;
-  // Unchanged (review 3): no write, so re-running the verb is not project activity (updatedAt).
+  // Unchanged: no write, so re-running the verb is not project activity (updatedAt). A non-member goes on to mutate,
+  // which refuses it.
   const cur = readAll().find((p) => p && p.id === id);
   if (cur && (cur.agents || []).includes(key) && roleHereOf(cur, key) === (words || null)) return { role: words || null };
   mutate(id, (p) => {
