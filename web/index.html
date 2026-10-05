@@ -63633,7 +63633,11 @@ function msgCopyPressed(btn, row) {
   if (msgCopyTouch()) {
     if (!msgCopyText(row) && !msgRefText(row)) { msgToast('There is nothing to copy in this message.'); return; }   // the menu would not open: say so
     const r = btn.getBoundingClientRect();
-    setTimeout(() => { if (row && row.isConnected) msgMenuOpen(row, r.left, r.bottom + 4); }, 0);
+    const ref = { row, host: row && row.closest && row.closest('#pj-room') ? 'pj-room' : 'd-dmthread', mid: (row && row.getAttribute && row.getAttribute('data-mid')) || '' };
+    setTimeout(() => {   // a repaint in between replaced the row: find it again by its id, as the menu does
+      const now = msgMenuRow(ref);
+      if (now && now.isConnected) msgMenuOpen(now, r.left, r.bottom + 4); else msgToast('That message changed just now. Try again.');
+    }, 0);
     return;
   }
   msgTextCopy(row);

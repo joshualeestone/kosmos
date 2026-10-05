@@ -27,5 +27,7 @@ test('#5312: the touch bar hides Copy message id inside the (hover: none) block 
   const mq = /const PJ_TOUCH_MQ = '([^']+)';/.exec(html);
   assert.ok(mq, 'PJ_TOUCH_MQ is declared');
   assert.equal(mq[1], '(hover: none)', 'the script asks the same question as the CSS');
-  assert.match(html, /function msgCopyTouch\(\) \{\s*\/\/[^\n]*\n\s*try \{ return !!window\.matchMedia && window\.matchMedia\(PJ_TOUCH_MQ\)\.matches; \}/, 'msgCopyTouch reads PJ_TOUCH_MQ');
+  const fn = html.slice(html.indexOf('function msgCopyTouch()'), html.indexOf('function msgCopyButton()'));
+  assert.ok(fn.length > 0 && fn.length < 400, 'msgCopyTouch is found, just before msgCopyButton');
+  assert.match(fn, /window\.matchMedia\(PJ_TOUCH_MQ\)\.matches/, 'msgCopyTouch reads PJ_TOUCH_MQ');
 });

@@ -364,6 +364,13 @@ async function paintRoom(page) {
         const dmTaken = await page.evaluate(() => { const row = document.querySelector('#d-dmthread .msg.you .msg-bd'); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }); row.dispatchEvent(ev); return ev.defaultPrevented; });
         chk(dmTaken === true, tag + "R6 right-click works on the person's own DM row too (it has no hover bar)", String(dmTaken));
         await page.keyboard.press('Escape');
+        /* A reply still on its way (pending:) has words and no id: right-click takes it, with Copy message alone. */
+        const pend = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg you dm-pending'; d.setAttribute('data-mid', 'pending:1759680000000');
+          d.innerHTML = '<div class="msg-b"><div class="msg-bd">On its way<span class="msg-t">Sending</span></div></div>'; document.getElementById('d-dmthread').appendChild(d);
+          const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }); d.querySelector('.msg-bd').dispatchEvent(ev);
+          const m = document.getElementById('msg-menu'); const out = { taken: ev.defaultPrevented, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|'), text: msgCopyText(d) };
+          msgMenuClose(false); d.remove(); return out; });
+        chk(pend.taken && pend.items === 'msg-menu-text' && pend.text === 'On its way', tag + 'C5 a reply still on its way: right-click offers Copy message alone, its words only', JSON.stringify(pend));
         const none = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', ''); document.getElementById('d-dmthread').appendChild(d); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); d.dispatchEvent(ev); d.remove(); return ev.defaultPrevented; });
         chk(none === false, tag + 'CONTROL: a row with nothing to name offers no menu', String(none));
 
