@@ -9,7 +9,7 @@
     {
       "icon": "tasks",
       "title": "See what a task changed",
-      "line": "A closed task now shows what its agents did while they held it: files created or edited, how many commands ran, and tokens used."
+      "line": "A closed task now shows what its agents did while they worked on it: files created or edited, how many commands ran, and tokens used."
     },
     {
       "icon": "list",
@@ -19,7 +19,7 @@
     {
       "icon": "spark",
       "title": "Token Usage for every provider",
-      "line": "Settings > Token Usage now counts your OpenAI, Gemini and Grok agents beside Claude, per day, model and agent."
+      "line": "Settings > Token Usage now counts your OpenAI, Gemini and Grok agents alongside Claude, by day, model and agent."
     },
     {
       "icon": "shield",
