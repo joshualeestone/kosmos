@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reread-sections-5304
-diff_hash: 182500e794a938531a2d6a9c2f4c46db36e8ee3ee75343cd3187da1107883711
-validation: pending (focused: the five modules' tests, the new #5304 test file, instructionreread, every board-booting test (13 files) and the file-scanning guards, 120/120 and 92/92 at 494fd72c3; stacked on #5310, whose full node suite passed; Mortals full and PR CI to come)
+diff_hash: 005380c2eaa393d7faa68d9557f2737cd69eb0f001e9d3a88743fe2146f6a547
+validation: focused after rebase onto main (post #5310 merge e77fc2f5d): the five modules' tests, the #5304 test file, instructionreread, every board-booting test (13 files) and the file-scanning guards incl. the Windows guards, 59 files, 1258 pass 0 fail at 12555a201; PR CI to come
 subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-05T17:47:52Z
+timestamp: 2026-10-05T20:07:02Z
 iterations: 2
 converged: true
 ---
