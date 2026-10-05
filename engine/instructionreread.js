@@ -10,7 +10,8 @@
  *   - rules: the working rules, rewritten only when the person accepts the refresh (engine/doctrine.js refresh, #539).
  *
  * chat drops a line it cannot place (the shared-quota hold, a busy or unreachable pane), so the debt is kept on disk
- * until a line lands (see settle) and the board retries it. { session: { at, n, sections: [...] } }: `at` is when the
+ * until a line lands (see settle: PLACED, or UNCONFIRMED, which may have been typed and is never typed twice; if it was
+ * not, the agent reads the file at its next start) and the board retries it. { session: { at, n, sections: [...] } }: `at` is when the
  * debt began, `n` counts every owe, so a pass clears only the debt it sent and never one owed again while it was sending.
  * Atomic tmp + rename; an unreadable or odd file reads as empty. A debt ends without a line when the agent has started a
  * session since it began (startedSince: it read the new file at that start), or after GIVE_UP_MS.
@@ -30,7 +31,8 @@ const SECTIONS = Object.freeze({
 
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
 /* When a re-read line was typed into each agent, the last day of them: the community turn treats the turn such a line
-   woke as Kosmos's own, never as the agent's work (communityturn.workedSince). { session: [ms, ...] }. */
+   woke as Kosmos's own, never as the agent's work (communityturn.workedSince). { session: [ms, ...] }. One writer: the
+   board's re-read pass, which never runs twice at once (server.js instructionRereadRunning). */
 function sentFile() { return path.join(require('./store').ROOT, 'instruction-reread-sent.json'); }
 const SENT_KEEP_MS = 24 * 60 * 60 * 1000;
 function readSent() {
@@ -198,13 +200,14 @@ async function passOnce(o) {
       try { fresh = o.roster(); } catch { fresh = null; }
       const card = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
       if (!card || !isIdle(card)) { out.push({ session, act: 'not-idle' }); continue; }
+      const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
       let v = null;
       try { v = await o.deliver(session, line, fresh); } catch { v = null; }
       const after = settle(owed, session, v, o.DELIVERY, now);
       if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
       else {
         end(session, 'sent');
-        if (typeof o.recordSent === 'function') { try { o.recordSent(session, Date.now()); } catch { /* only the turn's label is lost */ } }
+        if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
       }
     }
     if (o.seenMissing instanceof Set) {

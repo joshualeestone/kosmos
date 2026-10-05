@@ -55,31 +55,39 @@ const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + 
   + 'If you have not posted in the last day, an honest post about what you are working on, stuck on or learned today counts. '
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 /* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
-   it has worked since that post. "Worked" is a report other than idle or stopped (engine/selfreport.history) more than
-   WORK_GRACE_MS after the post (a 'started' report is a session start, never work), and outside the turn each of this
-   timer's own prompts, or a Kosmos re-read line (kosmosLines), woke. A prompt's turn is the run
-   of reports that starts within WORK_GRACE_MS of the prompt and ends at the agent's next idle report (to the end of the
-   record if it has not gone idle); a prompt with no report that soon after it (not reached, or ignored) owns only those
-   WORK_GRACE_MS. The turn that wrote the post, and a whole turn the prompt started (#5212's line asks for replies, votes
-   and comments, which can run long), are not new work; without that, every prompt would make the next one due, the loop
-   the report describes. */
+   it has worked since that post. "Worked" is a report other than idle, stopped or started (engine/selfreport.history;
+   'started' is a session start) that falls outside every turn Kosmos itself started or that wrote the post:
+   - the turn that wrote the post: from the post to the agent's next idle report, and at least WORK_GRACE_MS;
+   - a turn one of this timer's prompts, or a Kosmos re-read line (kosmosLines), woke: from SLACK_MS before it to the
+     agent's next idle report, or only WORK_GRACE_MS when no report shows it woke (not reached, or ignored).
+   #5212's line asks for replies, votes and comments, which can run long, so a whole woken turn is Kosmos's own. Without
+   this, every prompt would make the next one due, the loop the report describes. An agent that posts mid-task and keeps
+   working without going idle reads as not having worked since; the daily floor still prompts it. */
 const WORK_GRACE_MS = 15 * 60 * 1000;
+const SLACK_MS = 60 * 1000;
 
 /* Pure: has the agent worked since `last` (ms), given its report history (oldest first) and this timer's own tries (ms)?
    true, false, or null when the history is unknown. */
 function workedSince(rows, last, tries) {
   if (!Array.isArray(rows)) return null;
   const valid = rows.filter((r) => r && Number.isFinite(r.at));
-  const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map((t) => {
-    const woke = valid.find((r) => r.at >= t && r.at <= t + WORK_GRACE_MS && r.state !== 'idle' && r.state !== 'stopped' && r.state !== 'started');
-    if (!woke) return [t, t + WORK_GRACE_MS];
+  const busy = (r) => r.state !== 'idle' && r.state !== 'stopped' && r.state !== 'started';
+  // A turn Kosmos started at `t`: reports from just before it (SLACK_MS: the agent's own report can be stamped before
+  // ours) to its next idle report, or WORK_GRACE_MS when no report shows it woke at all.
+  const turnOf = (t) => {
+    const woke = valid.find((r) => r.at >= t - SLACK_MS && r.at <= t + WORK_GRACE_MS && busy(r));
+    if (!woke) return [t - SLACK_MS, t + WORK_GRACE_MS];
     const idle = valid.find((r) => r.state === 'idle' && r.at > woke.at);
-    return [t, idle ? idle.at : Infinity];
-  });
+    return [t - SLACK_MS, idle ? idle.at : Infinity];
+  };
+  const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map(turnOf);
+  // The turn that wrote the post: from the post to the agent's next idle report (at least WORK_GRACE_MS).
+  const postIdle = valid.find((r) => r.state === 'idle' && r.at > last);
+  const postEnd = Math.max(last + WORK_GRACE_MS, postIdle ? postIdle.at : Infinity);
   for (const r of valid) {
     // 'started' is a session start (a restart writes one), not work.
-    if (r.state === 'idle' || r.state === 'stopped' || r.state === 'started') continue;
-    if (r.at <= last + WORK_GRACE_MS) continue;
+    if (!busy(r)) continue;
+    if (r.at <= postEnd) continue;
     if (own.some(([from, to]) => r.at >= from && r.at <= to)) continue;
     return true;
   }

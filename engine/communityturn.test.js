@@ -308,14 +308,16 @@ test('#5296 workedSince: the posting turn and a turn this timer woke are not wor
   const post = NOW - 4 * H;
   // The turn that wrote the post: working before it and up to WORK_GRACE_MS after it.
   assert.equal(ct.workedSince([{ state: 'working', at: post - 5 * MIN }, { state: 'working', at: post + 10 * MIN }, { state: 'idle', at: post + 12 * MIN }], post, []), false);
-  assert.equal(ct.workedSince([{ state: 'working', at: post + ct.WORK_GRACE_MS + MIN }], post, []), true, 'CONTROL: past the grace it is work');
+  // Every agent goes idle when the posting turn ends (the Stop report); the fixtures below start there.
+  const done = { state: 'idle', at: post + 2 * MIN };
+  assert.equal(ct.workedSince([done, { state: 'working', at: post + ct.WORK_GRACE_MS + MIN }], post, []), true, 'CONTROL: past the grace, after the posting turn ended, it is work');
   // A turn this timer's own prompt woke (the loop in the user's report): not work.
   const tried = post + 3 * H;
-  assert.equal(ct.workedSince([{ state: 'working', at: tried + 2 * MIN }, { state: 'idle', at: tried + 3 * MIN }], post, [tried]), false);
-  assert.equal(ct.workedSince([{ state: 'working', at: tried + 2 * MIN }], post, []), true, 'CONTROL: the same turn with no prompt before it is work');
+  assert.equal(ct.workedSince([done, { state: 'working', at: tried + 2 * MIN }, { state: 'idle', at: tried + 3 * MIN }], post, [tried]), false);
+  assert.equal(ct.workedSince([done, { state: 'working', at: tried + 2 * MIN }], post, []), true, 'CONTROL: the same turn with no prompt before it is work');
   // Idle and stopped are never work; needs_you and blocked are (the agent was on something).
   assert.equal(ct.workedSince([{ state: 'idle', at: post + 2 * H }, { state: 'stopped', at: post + 2 * H }], post, []), false);
-  assert.equal(ct.workedSince([{ state: 'needs_you', at: post + 2 * H }], post, []), true);
+  assert.equal(ct.workedSince([done, { state: 'needs_you', at: post + 2 * H }], post, []), true);
   assert.equal(ct.workedSince(null, post, []), null, 'no record is unknown, never "did not work"');
 });
 
@@ -343,7 +345,7 @@ test('#5296 due: the daily floor stands: no post in 24 h is due with no work at 
 test('#5296 tickOnce: the reported loop ends: a prompt that wakes an idle agent does not make it due again', () => {
   // ann posted 7 h ago, was prompted 4 h ago (tick book), woke for a minute and went idle; now 4 h on, she is not due.
   const book = new Map([['ann', [NOW - 4 * H]]]);
-  const hist = () => [{ state: 'working', at: NOW - 4 * H + MIN }, { state: 'idle', at: NOW - 4 * H + 2 * MIN }];
+  const hist = () => [{ state: 'idle', at: NOW - 7 * H + 2 * MIN }, { state: 'working', at: NOW - 4 * H + MIN }, { state: 'idle', at: NOW - 4 * H + 2 * MIN }];
   const { sent, o } = tickArgs({ roster: () => [card('ann')], book, postTimes: () => [ago(7 * H)], history: hist, idleSeen: new Set(['ann']) });
   assert.deepEqual(ct.tickOnce(o), []);
   assert.deepEqual(sent, []);
@@ -378,19 +380,31 @@ test('#5296 review 3: a prompt that woke nothing (no report within the grace) do
   const post = NOW - 8 * H;
   const tried = NOW - 4 * H;
   // Unreached (or ignored): nothing until real work an hour later, then idle. That work counts.
-  assert.equal(ct.workedSince([{ state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), true);
+  const done = { state: 'idle', at: post + 2 * MIN };
+  assert.equal(ct.workedSince([done, { state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), true);
   // CONTROL: the same work starting inside the grace is the prompt's own turn.
-  assert.equal(ct.workedSince([{ state: 'working', at: tried + 5 * MIN }, { state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), false);
+  assert.equal(ct.workedSince([done, { state: 'working', at: tried + 5 * MIN }, { state: 'working', at: tried + H }, { state: 'idle', at: tried + 2 * H }], post, [tried]), false);
 });
 
 test('#5296 review 5: a session start is not work, and a turn a Kosmos re-read line woke is not work; CONTROLS', () => {
   const post = NOW - 8 * H;
   assert.equal(ct.workedSince([{ state: 'started', at: NOW - 2 * H }, { state: 'idle', at: NOW - 2 * H + MIN }], post, []), false);
-  assert.equal(ct.workedSince([{ state: 'started', at: NOW - 2 * H }, { state: 'working', at: NOW - 2 * H + MIN }], post, []), true, 'CONTROL: work after the start is work');
+  const done = { state: 'idle', at: post + 2 * MIN };
+  assert.equal(ct.workedSince([done, { state: 'started', at: NOW - 2 * H }, { state: 'working', at: NOW - 2 * H + MIN }], post, []), true, 'CONTROL: work after the start is work');
   const reread = NOW - 3 * H;
-  const rows = [{ state: 'working', at: reread + MIN }, { state: 'idle', at: reread + 3 * MIN }];
+  const rows = [done, { state: 'working', at: reread + MIN }, { state: 'idle', at: reread + 3 * MIN }];
   const only = (s) => (s === 'ann' ? [ago(8 * H)] : [ago(H)]);
   assert.deepEqual(ct.due(args({ postTimes: only, history: () => rows, kosmosLines: () => [reread] })), []);
   assert.deepEqual(ct.due(args({ postTimes: only, history: () => rows })).map((d) => d.session), ['ann'], 'CONTROL: without the send time, that turn reads as work');
   assert.deepEqual(ct.due(args({ postTimes: only, history: () => rows, kosmosLines: () => { throw new Error('boom'); } })).map((d) => d.session), ['ann']);
+});
+
+test('#5296 review 6: the posting turn runs to the next idle report, and a report stamped just before a re-read send is that turn', () => {
+  const post = NOW - 8 * H;
+  // Kept working 40 minutes after posting, then idle: still the posting turn.
+  assert.equal(ct.workedSince([{ state: 'working', at: post + 40 * MIN }, { state: 'idle', at: post + 45 * MIN }], post, []), false);
+  assert.equal(ct.workedSince([{ state: 'working', at: post + 40 * MIN }, { state: 'idle', at: post + 45 * MIN }, { state: 'working', at: post + 2 * H }], post, []), true, 'CONTROL: a later turn is work');
+  // The re-read line was stamped at t, the agent's working report 20 s earlier.
+  const t = NOW - 3 * H;
+  assert.equal(ct.workedSince([{ state: 'working', at: t - 20e3 }, { state: 'idle', at: t + 2 * MIN }], post, [t]), false);
 });

@@ -21048,7 +21048,7 @@ if (require.main === module) {
       process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${(stuck[0] && stuck[0].agent) || 'the list of agents'} - ${why}\n`);
     }
     const ir = require('./engine/instructionreread');
-    if (!ir.writeOwed(ir.oweChanged(told, ir.readOwed()))) {
+    if (told.some((t) => t && t.rulesChanged === true) && !ir.writeOwed(ir.oweChanged(told, ir.readOwed()))) {
       process.stderr.write('Kosmos refreshed the Kosmos+ community section but could not record which running agents to tell; they read it at their next start\n');
     }
   } catch (err) {
