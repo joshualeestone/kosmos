@@ -31,6 +31,13 @@ are Josh's words; a long message copies in full; attachments copy as their file 
 - The person's own rows in a direct conversation have no hover bar (never had, #4256), so on a touchscreen, where there is
   no right-click, they copy as before, by the system's long-press selection. Giving them a bar is out of this card.
 - On a touchscreen Copy is named "Copy message or its id" with aria-haspopup="menu"; with a pointer it is "Copy message".
+- "As written" includes markdown: a formatted message pastes with its marks (**bold**, [text](url), fences), which is
+  what an agent reading the paste wants. Not a bug to file.
+- A touchscreen with a keyboard (an iPad with one): Enter on Copy closes the bar before the menu opens, so Escape returns
+  focus to the page, not the message. Accepted: rare, nothing is lost, and the bar it would return to is closed.
+- Checked: the touch menu in the room (render-msgref-4631 C6) and in a direct conversation (render-dm-tapreact-718, four
+  phone sizes), in Chromium touch emulation. Real iOS WebKit is not
+  driven here; R12 covers WebKit's pointer menu.
 
 ## Weakest premise
 That a phone user finds Copy message one tap further in (Copy, then Copy message) acceptable. Josh asked for two

@@ -254,6 +254,21 @@ function repaint() {
         }));
         chk(!picked.error && picked.focusedFirst && picked.sent.length === 1 && picked.sent[0] === picked.rowAt && picked.shown === 0 && !picked.focusInBar,
           `${tag} picking an emoji reacts to that message, closes the bar and lets go of focus`, JSON.stringify(picked));
+        // #5312: Copy in a tapped-open bar opens the menu with both items, and Copy message copies that message whole.
+        await lastAgent.tap(); await page.mouse.move(1, 1); await page.waitForTimeout(300);
+        const cpAt = await page.evaluate(() => {
+          window.__copied = [];
+          Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } });
+          const r = document.querySelector('#d-dmthread .msg.rxn-show'); return r ? r.querySelector('.rxns').getAttribute('data-at') : null;
+        });
+        if (cpAt) await page.locator('#d-dmthread .msg.rxn-show .rxn-copy').tap();   // no bar or no Copy (main): a clean FAIL below
+        await page.waitForTimeout(200);
+        const cpMenu = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return { open: !!m && !m.hidden, items: m ? [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|') : '' }; });
+        if (cpMenu.open) await page.locator('#msg-menu-text').tap();
+        await page.waitForTimeout(200);
+        const cp = await page.evaluate((a) => ({ copied: window.__copied.slice(), want: (typeof DM_ROWS !== 'undefined' && DM_ROWS.get(a)) ? DM_ROWS.get(a).text : null }), cpAt);
+        chk(!!cpAt && cpMenu.open && cpMenu.items === 'msg-menu-text|msg-menu-copy' && !!cp.want && cp.copied[0] === cp.want,
+          `${tag} Copy in the bar opens the menu with Copy message and Copy message id, and Copy message copies that message whole (#5312)`, JSON.stringify(Object.assign({ cpAt }, cpMenu, cp)));
         // The full emoji list, opened from a tapped bar: a pick reacts to that message and closes the bar too.
         await lastAgent.tap(); await page.mouse.move(1, 1); await page.waitForTimeout(300);
         const beforeMore = await page.evaluate(() => { window.__reacts = []; const r = document.querySelector('#d-dmthread .msg.rxn-show'); return r ? r.querySelector('.rxns').getAttribute('data-at') : null; });
