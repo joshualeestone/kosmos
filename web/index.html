@@ -3602,8 +3602,11 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   /* margin-left: -50px (its 44px plus the row's 6px gap) keeps it out of the scroll range, so showing or hiding it never
      changes how far the row scrolls (with it in the flow, the row jumped about 37px at the end). */
   #s-nav #s-nav-more { position: sticky; right: -32px; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -50px; scroll-snap-align: none;
-                      display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
-                      background: var(--k-bg); color: var(--k-ink); box-shadow: 0 0 0 1px var(--k-rule); }
+                      display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 0;
+                      background: var(--k-bg); color: var(--k-ink); box-shadow: none; }
+  /* The box is a solid SQUARE and the ring is drawn inside it: a round box let the next pill's outline show in its four
+     corners, which the fade cannot reach (the chevron's own 44px stays unmasked). */
+  #s-nav #s-nav-more::before { content: ""; position: absolute; inset: 0; border-radius: 22px; box-shadow: inset 0 0 0 1px var(--k-rule); pointer-events: none; }
   #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
   #s-nav button[data-dot] { padding-right: 28px; }
   #panel-settings input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
