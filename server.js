@@ -4189,6 +4189,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
    (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
+/* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
+   own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
@@ -18570,11 +18572,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #5300 (10-05 user diagnostic R10): a member says what it does on THIS project (`kosmos project role`). Body
-     { role } (empty clears it). The caller is identified by processCaller and sets its own: a token names it exactly;
-     a pane (from_pane) is taken as given, and the screen names the member (`name`), with a local process that claims
-     to be the screen (isViaScreen) taken at its word, as on the sibling routes. describe carries it as `roleHere`, beside `role`. Not valved: one field
-     per member per project, rewritten in place; display only (describe's roleHere), so it decides no routing. */
+  /* #5300: a member says what it does on THIS project (`kosmos project role`). Body { role } (empty clears it).
+     The caller is identified by processCaller and sets its own: a token names it exactly; a pane (from_pane) is taken
+     as given, and the screen names the member (`name`), with a local process that claims to be the screen
+     (isViaScreen) taken at its word, as on the sibling routes. describe carries it as `roleHere`, beside `role`.
+     Not valved: one field per member per project, rewritten in place; display only, so it decides no routing. */
   const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
   if (roleHere && req.method === 'POST') {
     const id = decodeSegment(roleHere[1]);
