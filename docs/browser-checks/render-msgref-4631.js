@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-room d-dmthread rxns rxn-quick rxn-ref msg-menu msg-menu-copy msg-toast pj-one-name
+// Browser-check-surface: pj-room d-dmthread rxns rxn-quick rxn-ref rxn-copy msg-menu msg-menu-copy msg-menu-text msg-toast pj-one-name
 'use strict';
 /* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
  * message to then reference it to an agent later on". In the real page (web/index.html from disk, fetch stubbed):
@@ -17,6 +17,14 @@
  *   R12 REAL WebKit: a right-click on a word opens the menu and a real click on the item copies (SKIPPED, said so, where
  *       WebKit is not installed)
  * Controls: the number is hidden until hover (the bar's own opacity), and a row with nothing to name offers no menu.
+ *
+ * #5312 (Josh, 2026-10-05): "two buttons instead for a 'copy message' and 'copy message id'":
+ *   C1  the bar starts Copy message, then Copy message id; Copy message copies the whole text as written
+ *   C2  a long message copies in full (no "[cut]"), line breaks kept; attachments copy as their file names
+ *   C3  the menu offers Copy message then Copy message id; the arrow keys move between them; each copies its own
+ *   C4  an outside guest's row (no id) offers Copy message alone, from what the row shows
+ *   C5  a direct-conversation row copies its own record's words; a failed copy says so without the words
+ *   C6  on a touchscreen both buttons are there and the bar still fits the phone
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-msgref-4631.js [shots-dir]
  */
@@ -46,7 +54,12 @@ async function paintRoom(page) {
     const rows = [
       { kind: 'post', id: 'm530', from: 'april', to: [], project: 'p1', at: a0, text: 'The AtlasGrid deck is ready for review.' },
       { kind: 'post', id: 'm531', from: 'april', to: [], project: 'p1', at: a1, text: 'Notes are at https://example.com/notes for later.' },
+      { kind: 'post', id: 'm532', from: 'april', to: [], project: 'p1', at: a1, text: 'First line\n\n' + 'word '.repeat(900) + 'END' },
+      { kind: 'post', id: 'm533', from: 'april', to: [], project: 'p1', at: a1, text: 'Here are both.',
+        attachments: [{ name: 'Brief.pdf', url: '/api/files/1', kind: 'pdf' }, { name: 'Logo.png', url: '/api/files/2', kind: 'image' }] },
+      { kind: 'post', id: 'm534', from: 'april', to: [], project: 'p1', at: a1, text: 'Deck.pptx', attachments: [{ name: 'Deck.pptx', url: '/api/files/3', kind: 'other' }] },
     ];
+    PJ_ROOM_POSTS = new Map(rows.map((r) => [r.id, r]));
     const room = document.getElementById('pj-room');
     room.innerHTML = rows.map((m) => pjRoomRow(m, p, false)).join('');
     // Reveal the room's own column: every hidden ancestor, as opening the project would.
@@ -63,7 +76,7 @@ async function paintRoom(page) {
   try {
     // R11: on a touchscreen a long-press is how text is selected, so the page does not take contextmenu there.
     {
-      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, timezoneId: 'America/Chicago', locale: 'en-US' });
+      const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true, timezoneId: 'America/Chicago', locale: 'en-US' });   // #5312: the narrow common phone
       const page = await ctx.newPage();
       await page.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
       await page.goto(PAGE);
@@ -74,6 +87,20 @@ async function paintRoom(page) {
         bd.dispatchEvent(ev); return { taken: ev.defaultPrevented, touch: matchMedia('(hover: none)').matches };
       });
       chk(touchTaken.touch && touchTaken.taken === false, '[touch] R11 a long-press on a touchscreen keeps the system menu', JSON.stringify(touchTaken));
+      // C6: both copy buttons on a thumb's bar, each a room-sized target, and the bar inside the phone's width. Opened by
+      // a real tap on the message, so the page's own placement runs (a class added by hand skips it).
+      const tp = await page.evaluate(() => { const bd = document.querySelector('#pj-room .msg[data-mid="m530"] .msg-bd'); const r = bd.getBoundingClientRect(); return { x: r.right - 12, y: r.bottom - 6 }; });
+      await page.touchscreen.tap(tp.x, tp.y);
+      await page.waitForTimeout(250);
+      const c6 = await page.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg[data-mid="m530"]');
+        const q = row.querySelector('.rxn-quick'); const qr = q.getBoundingClientRect();
+        const b = (sel) => { const r = q.querySelector(sel).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+        return { open: row.classList.contains('rxn-show'), copy: b('.rxn-copy'), id: b('.rxn-ref'), barW: Math.round(qr.width), barH: Math.round(qr.height),
+          left: Math.round(qr.left), right: Math.round(qr.right), vw: innerWidth };
+      });
+      chk(c6.open && c6.copy[0] >= 36 && c6.copy[1] >= 36 && c6.id[0] >= 36 && c6.id[1] >= 36 && c6.left >= 0 && c6.right <= c6.vw && c6.barH < 50,
+        '[touch] C6 a tapped-open bar has both copy buttons as room-sized targets, on one line, inside the phone', JSON.stringify(c6));
       await ctx.close();
     }
     for (const platform of ['Win32', 'MacIntel']) {
@@ -104,14 +131,17 @@ async function paintRoom(page) {
         await page.waitForTimeout(250);
         const bar = await post.evaluate((row) => {
           const q = row.querySelector('.rxn-quick');
-          const kids = [...q.children].map((k) => k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?');
+          const kids = [...q.children].map((k) => k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-copy') ? 'copy' : k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?');
           const ref = q.querySelector('.rxn-ref');
           const r = ref.getBoundingClientRect();
-          return { kids: kids.join(','), n: (ref.querySelector('.rxn-ref-n') || {}).textContent, label: ref.getAttribute('aria-label'),
+          const cp = q.querySelector('.rxn-copy');
+          return { kids: kids.join(','), n: (ref.querySelector('.rxn-ref-n') || {}).textContent, label: ref.getAttribute('aria-label'), title: ref.title,
+            copyLabel: cp && cp.getAttribute('aria-label'), copyTitle: cp && cp.title,
             op: Number(getComputedStyle(q).opacity), h: r.height, w: r.width };
         });
-        chk(bar.kids === 'ref,pick,pick,pick,more,speak,reply', tag + 'R1 the bar starts with Copy reference and keeps Reply last (an agent\'s post, so read aloud, #4409, sits before it)', bar.kids);
-        chk(bar.n === '530' && bar.label === 'Copy a reference to message 530' && bar.op === 1, tag + 'R1 on hover it shows the number, and says what it copies', JSON.stringify(bar));
+        chk(bar.kids === 'copy,ref,pick,pick,pick,more,speak,reply', tag + 'C1 the bar starts Copy message, then Copy message id, and keeps Reply last (an agent\'s post, so read aloud, #4409, sits before it)', bar.kids);
+        chk(bar.n === '530' && bar.label === 'Copy message id 530' && bar.title === 'Copy message id' && bar.op === 1, tag + 'R1 on hover Copy message id shows the number, and says what it copies', JSON.stringify(bar));
+        chk(bar.copyLabel === 'Copy message' && bar.copyTitle === 'Copy message', tag + 'C1 Copy message is labelled in Josh\'s words', JSON.stringify(bar));
         chk(bar.h >= 24 && bar.w >= 24, tag + 'R1 the button is a 24px target (WCAG 2.5.8)', bar.w + 'x' + bar.h);
         if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await post.screenshot({ path: path.join(SHOTS, 'hover-bar.png') }); }
         await post.locator('.rxn-ref').click();
@@ -120,14 +150,40 @@ async function paintRoom(page) {
         chk(r2.copied[0] === 'message 530 in Kosmos Growth', tag + 'R2 the button copies the reference', JSON.stringify(r2.copied));
         chk(r2.shown && /Copied "message 530 in Kosmos Growth"\. Paste it to any agent\./.test(r2.toast || ''), tag + 'R2 a toast says what was copied', r2.toast);
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'toast.png') });
+
+        // C1: Copy message copies the whole text, as written.
+        await page.evaluate(() => { window.__copied.length = 0; });
+        await post.hover();
+        await post.locator('.rxn-copy').click();
+        await page.waitForTimeout(100);
+        const c1 = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: document.getElementById('msg-toast').textContent }));
+        chk(c1.copied[0] === 'The AtlasGrid deck is ready for review.' && c1.toast === 'Copied the message.', tag + 'C1 Copy message copies the whole text and says so', JSON.stringify(c1));
+        // C2: a long message in full, its blank line kept; attachments by name; a files-only post names them once.
+        const c2 = await page.evaluate(() => ['m532', 'm533', 'm534'].map((id) => msgCopyText(document.querySelector('#pj-room .msg[data-mid="' + id + '"]'))));
+        chk(c2[0].startsWith('First line\n\nword word') && c2[0].endsWith('word END') && c2[0].length === 'First line\n\n'.length + 'word '.length * 900 + 3 && !/\[cut\]/.test(c2[0]),
+          tag + 'C2 a long message copies in full, line breaks kept, with no [cut]', c2[0].length + ' ' + JSON.stringify(c2[0].slice(-20)));
+        chk(c2[1] === 'Here are both.\nBrief.pdf\nLogo.png', tag + 'C2 attachments copy as their file names, each on its own line', JSON.stringify(c2[1]));
+        chk(c2[2] === 'Deck.pptx', tag + 'C2 a post that is only a file copies its name once', JSON.stringify(c2[2]));
       }
 
       // R3: right-click (on a Mac this is also ctrl-click).
       await page.evaluate(() => { window.__copied.length = 0; });
       const box = await post.locator('.msg-bd').boundingBox();
       await page.mouse.click(box.x + 20, box.y + box.height / 2, { button: 'right' });
-      const menu = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return m ? { shown: !m.hidden, item: m.textContent.trim(), focus: document.activeElement && document.activeElement.id } : null; });
-      chk(menu && menu.shown && menu.item === 'Copy message reference' && menu.focus === 'msg-menu-copy', tag + 'R3 right-click opens the menu with its item focused', JSON.stringify(menu));
+      const menu = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return m ? { shown: !m.hidden,
+        items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|'), focus: document.activeElement && document.activeElement.id } : null; });
+      chk(menu && menu.shown && menu.items === 'Copy message|Copy message id' && menu.focus === 'msg-menu-text', tag + 'C3 right-click opens the menu, Copy message then Copy message id, the first focused', JSON.stringify(menu));
+      await page.keyboard.press('ArrowDown');
+      const down = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      await page.keyboard.press('ArrowDown');
+      const wrap = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(down === 'msg-menu-copy' && wrap === 'msg-menu-text', tag + 'C3 the arrow keys move between the two items, and wrap', JSON.stringify({ down, wrap }));
+      await page.click('#msg-menu-text');
+      await page.waitForTimeout(100);
+      const c3 = await page.evaluate(() => ({ copied: window.__copied.slice(), hidden: document.getElementById('msg-menu').hidden }));
+      chk(c3.copied[0] === 'The AtlasGrid deck is ready for review.' && c3.hidden, tag + 'C3 Copy message in the menu copies the whole text and closes the menu', JSON.stringify(c3));
+      await page.evaluate(() => { window.__copied.length = 0; });
+      await page.mouse.click(box.x + 20, box.y + box.height / 2, { button: 'right' });
       if (SHOTS && platform === 'Win32') await page.screenshot({ path: path.join(SHOTS, 'menu.png') });
       await page.click('#msg-menu-copy');
       await page.waitForTimeout(100);
@@ -203,7 +259,16 @@ async function paintRoom(page) {
       chk(plainTaken === true, tag + 'CONTROL: the same right-click without a selection is taken', String(plainTaken));
       const guest = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg ext'; d.setAttribute('data-mid', 'x-1b2c'); d.innerHTML = '<div class="msg-bd">Hi</div>';
         document.getElementById('pj-room').appendChild(d); const t = msgRefText(d); d.remove(); return t; });
-      chk(guest === '', tag + 'CONTROL: a room row with no number (an outside guest) offers nothing to copy', JSON.stringify(guest));
+      chk(guest === '', tag + 'CONTROL: a room row with no number (an outside guest) has no id to copy', JSON.stringify(guest));
+      const c4 = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg ext'; d.setAttribute('data-mid', 'x-1b2c');
+        d.innerHTML = '<div class="msg-b"><div class="msg-bd"><b class="msg-nm">Ben</b> <span class="msg-ext-tag">External</span><div class="msg-ext-tx">Hi there<br>second line</div><span class="msg-t">2:31 PM</span></div></div>';
+        document.getElementById('pj-room').appendChild(d);
+        const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }); d.querySelector('.msg-ext-tx').dispatchEvent(ev);
+        const m = document.getElementById('msg-menu');
+        const out = { text: msgCopyText(d), taken: ev.defaultPrevented, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|'), focus: document.activeElement && document.activeElement.id };
+        msgMenuClose(false); d.remove(); return out; });
+      chk(c4.text === 'Hi there\nsecond line' && c4.taken && c4.items === 'msg-menu-text' && c4.focus === 'msg-menu-text',
+        tag + 'C4 an outside guest\'s row offers Copy message alone, its words without the name, tag or time', JSON.stringify(c4));
       await page.keyboard.press('Escape');
 
       if (platform === 'Win32') {
@@ -235,6 +300,15 @@ async function paintRoom(page) {
         }, at(4));
         chk(r6b.before === '77' && r6b.after === '77' && r6b.text === 'message 77 in my conversation with April',
           tag + 'R6b a numbered DM row names the conversation and keeps its number after a reaction', JSON.stringify(r6b));
+        // C5: a DM row copies its own record's words (as written, before the screen drops a leading name), found by `at`.
+        const c5 = await page.evaluate((a5) => {
+          const t = document.getElementById('d-dmthread');
+          const rec = { from: 'april', at: a5, text: 'April: the record says this\nand this' };
+          DM_ROWS = new Map([[a5, rec]]);
+          t.insertAdjacentHTML('beforeend', dmRow(rec, 'April', false));
+          const row = t.lastElementChild; const out = msgCopyText(row); row.remove(); DM_ROWS = new Map(); return out;
+        }, at(5));
+        chk(c5 === 'April: the record says this\nand this', tag + 'C5 a direct-conversation row copies its record\'s words', JSON.stringify(c5));
         const dmTaken = await page.evaluate(() => { const row = document.querySelector('#d-dmthread .msg.you .msg-bd'); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }); row.dispatchEvent(ev); return ev.defaultPrevented; });
         chk(dmTaken === true, tag + "R6 right-click works on the person's own DM row too (it has no hover bar)", String(dmTaken));
         await page.keyboard.press('Escape');
@@ -253,7 +327,11 @@ async function paintRoom(page) {
         await page.evaluate(() => msgRefCopy(document.querySelector('#d-dmthread .msg:not(.you)')));
         await page.waitForTimeout(120);
         const r7b = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: document.getElementById('msg-toast').textContent }));
+        await page.evaluate(() => msgTextCopy(document.querySelector('#d-dmthread .msg:not(.you)')));
+        await page.waitForTimeout(120);
+        const c5b = await page.evaluate(() => document.getElementById('msg-toast').textContent);
         await page.evaluate(() => { document.execCommand = window.__execNo; window.__clipFails = false; });
+        chk(c5b === 'Could not copy. Select the message and copy it instead.', tag + 'C5 when Copy message cannot copy, the toast says so without the words (a message can be long)', JSON.stringify(c5b));
         chk(r7b.copied.length === 0 && r7b.toast === "Could not copy. The reference is: April's message to me at 2:33 PM on Sep 29",
           tag + 'R7 when nothing can copy, the toast shows the words to copy by hand', JSON.stringify(r7b));
       }
