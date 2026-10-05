@@ -61,7 +61,7 @@ function readForWrite() {
     fs.renameSync(file(), aside);
     /* Review 4: record the move at once, whatever the calling write goes on to do, so the page can always name it. */
     const fresh = { agents: Object.create(null), movedAside: path.basename(aside), movedAt: new Date().toISOString() };
-    try { writeAll(fresh); } catch { /* the caller's own write retries it */ }
+    try { writeAll(fresh); } catch { /* not recorded: if no later write succeeds either, the kept file goes unnamed */ }
     return fresh;
   } catch { return BUSY; }
 }
@@ -85,8 +85,9 @@ function keyFor(agent) { return instructions.registryKey(agent); }
 function headingLine(askedBy, askedAt, id) {
   const d = new Date(askedAt);
   const day = Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : 'an unknown date';
-  /* Review 4: the proposal's own id, in a comment the agent's reader ignores, so "this exact addition is already at the
-     end" can only ever mean THIS proposal (a re-proposal of the same words the same day is a different one). */
+  /* Review 4: the proposal's own id, in a comment line (an agent sees it, but it is not a rule), so "this exact addition
+     is already at the end" can only ever mean THIS proposal (a re-proposal of the same words the same day is a different
+     one). Proposals themselves may not hold comments (propose refuses them), so this line is always Kosmos's own. */
   return `## Added on ${day}, asked by ${askedBy}` + (id ? `\n<!-- kosmos addition ${id} -->` : '');
 }
 
@@ -107,6 +108,12 @@ function propose(agent, text, askedBy, now) {
   if (!k) return { ok: false, code: 'bad', because: 'that is not a name we can look up' };
   const body = String(text == null ? '' : text);
   if (!body.trim()) return { ok: false, code: 'bad', because: 'the addition is empty' };
+  /* Review 5: never Kosmos's own markers. An addition carrying `<!-- kosmos:projects:start -->` (or any comment) would
+     give the target two managed blocks, and the projects / doctrine sync would stop for that agent for good. Refused as
+     engine/catalogue.js refuses a role text with a comment, for the same reason. */
+  if (body.includes('<!--') || body.includes('-->')) {
+    return { ok: false, code: 'bad', because: 'the addition holds an HTML comment (<!-- or -->), which Kosmos uses for its own markers in instructions; take it out and propose again' };
+  }
   if (Buffer.byteLength(body, 'utf8') > MAX_TEXT_BYTES) {
     return { ok: false, code: 'bad', because: `the addition is too long (at most ${MAX_TEXT_BYTES / 1024} KB)` };
   }

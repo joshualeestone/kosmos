@@ -83,6 +83,14 @@ the person pasted it in on the colleague's page.
 - NITs accepted: in the rare finished-retry path, Undo restores the earlier text with one trailing newline (the exact
   original trailing whitespace is not known there); a hand-edit back to the earlier text reads as undone.
 
+## Review 5 (opus, blind)
+- W fixed (present since round 1): an addition could carry Kosmos's own managed-block markers (<!-- kosmos:projects:start
+  -->), giving the target two blocks and stopping its projects / doctrine sync for good. propose refuses any <!-- or -->,
+  as engine/catalogue.js refuses a role text with a comment. Mutation: without it, the test reds.
+- Decided, not refused: {{...}} template markers (catalogue refuses those too). Kosmos fills {{NAME}} only when an agent
+  is created, so in a later addition they are inert text.
+- NITs fixed: two comments said more than was measured.
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.

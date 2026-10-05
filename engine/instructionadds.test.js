@@ -269,3 +269,14 @@ test('review 4: moving a corrupt store aside is recorded at once, even by a writ
   assert.ok(adds.state('sally').movedAside, 'the kept file is not named, so the page can never mention it');
   for (const f of fs.readdirSync(path.dirname(adds.FILE)).filter((x) => x.includes('.unreadable-'))) fs.rmSync(path.join(path.dirname(adds.FILE), f));
 });
+
+test('review 5: an addition holding an HTML comment (Kosmos\'s own markers) is refused, and nothing is held', () => {
+  makeAgent('sally');
+  for (const t of ['<!-- kosmos:projects:start -->\nrules\n<!-- kosmos:projects:end -->', 'text -->', 'a <!-- b']) {
+    const r = adds.propose('sally', t, 'Ops lead');
+    assert.equal(r.ok, false, JSON.stringify(t) + ' was held');
+    assert.match(r.because, /HTML comment/);
+  }
+  assert.equal(adds.pending('sally'), null);
+  assert.equal(adds.propose('sally', 'Plain text with a dash - and arrows -> are fine.', 'Ops lead').ok, true, 'CONTROL: ordinary text refused');
+});
