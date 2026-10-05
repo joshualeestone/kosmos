@@ -13,8 +13,8 @@
     },
     {
       "icon": "swarm",
-      "title": "Org charts read with an OpenAI or Grok key",
-      "line": "Uploading an org chart picture or PDF now works with an OpenAI API key, and a PNG or JPG picture with a Grok key."
+      "title": "Org charts read without Claude",
+      "line": "Without Claude set up, an org chart picture or PDF can now be read with an OpenAI API key, or a PNG or JPG picture with a Grok key."
     },
     {
       "icon": "chat",
