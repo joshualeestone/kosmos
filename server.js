@@ -20558,6 +20558,7 @@ function start(port = PORT) {
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
           inCommunity,
+          history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
@@ -20997,6 +20998,36 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
+  }
+  /* kosmos#5297: the community block, refreshed at boot in the agents that already carry it, for the reason the sweeps
+     above give: the board restarting is the update. A user's 0.7.22 report found five running agents still told "at
+     most one post a day" three days after Josh's 2026-10-02 rules, because the block was written only at birth and at
+     restart. Unlike the sweeps above, the file is not enough on its own here: the rules are what an agent does all day,
+     so each agent whose block changed is also told, once, to read it again (communityblock.REREAD_TEXT), through
+     deliverAutomatic (held on the shared-quota pause) and only with live execution on. Never adds or removes the block,
+     and never fatal. */
+  try {
+    const told = require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+    const changed = told.filter((t) => t && t.changed === true && t.agent).map((t) => t.agent);
+    if (changed.length && liveExecution.liveExecutionAllowed()) {
+      const reread = require('./engine/communityblock').REREAD_TEXT;
+      /* After the board is serving, one agent at a time: each delivery waits on that pane's own queue. */
+      const t = setTimeout(async () => {
+        for (const session of changed) {
+          let v = null;
+          try { v = await chat.deliverAutomaticAsync(session, reread, safeRoster(), undefined, undefined); } catch { v = null; }
+          process.stdout.write(`community-refresh: ${session} told to re-read its community section - ${(v && v.state) || 'not reached'}${v && v.held ? ' (held)' : ''}\n`);
+        }
+      }, 30 * 1000);
+      if (t && typeof t.unref === 'function') t.unref();
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
   }
   /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
      setting changed): written when the Mac's setting is not English, removed when it is; off a Mac, or when the read

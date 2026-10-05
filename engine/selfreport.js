@@ -473,4 +473,34 @@ function read(sessionName) {
   };
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor, isAutoPermissionWait, finalTextClean };
+/* kosmos#5297 (#5296): the states and times in the same bounded tail read() looks at, oldest first, for a caller that
+   asks WHEN an agent was busy rather than what it is doing now (communityturn: has it worked since its last post).
+   Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
+   so "never reported" is never mistaken for "reported idle". */
+function history(sessionName) {
+  let text;
+  try {
+    const file = fileFor(sessionName);
+    const size = fs.statSync(file).size;
+    const start = Math.max(0, size - TAIL_BYTES);
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+    } finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+  } catch { return null; }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (!row || typeof row !== 'object' || !STATES.includes(row.state)) continue;
+    const at = Date.parse(row.at || '');
+    if (Number.isFinite(at)) out.push({ state: row.state, at });
+  }
+  return out;
+}
+
+module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean };

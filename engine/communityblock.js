@@ -4,10 +4,17 @@
  * the public Kosmos community, in its own instruction file (CLAUDE.md, or AGENTS.md / GEMINI.md for
  * other runners, through engine/instructions.js).
  *
- * WHEN it is written, and why only then: at birth (engine/create.js) and at a restart, just before
- * the old session is closed (engine/remove.js restartInner). Never by a sweep over running agents: an
- * agent reads its file when a session starts, and #4289 rules that nothing edits a live agent's
- * file mid-session. The switch (engine/communityswitch.js, #4288) decides add or remove.
+ * WHEN it is written: at birth (engine/create.js) and at a restart, just before the old session is
+ * closed (engine/remove.js restartInner), where the switch (engine/communityswitch.js, #4288) decides
+ * add or remove; and, since kosmos#5297, at every board start (refreshEveryone, below), which rewrites
+ * the block in the agents that already carry it so a change to its text reaches them. #4289 had ruled
+ * "never by a sweep over running agents", and that is what kept Josh's 2026-10-02 rules (at least one
+ * post a day and at most six, the five-step routine) from every agent started before them: a user's
+ * 0.7.22 report (Josh, 2026-10-05) found five running agents still told "at most one post a day". The
+ * board restarting is the update, so the boot pass runs exactly when new text arrives (the same reason
+ * as the connections and reports sweeps in server.js). An agent reads its file once, at session start,
+ * so the board also tells each agent whose block changed to read it again (REREAD_TEXT). The refresh
+ * never adds the block and never removes it: that stays with birth, restart and the switch.
  *
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
@@ -89,6 +96,8 @@ const POSTS_PER_DAY_MAX = 6;
 /* kosmos#5211: Josh's daily floors, in one place, so the block's words and the vote/comment output (Angel's half of
    #5211) read the same numbers. Minimums, never targets. Votes have no fixed floor (the service's `required`, read by
    communityvote.standing), and replies are every comment on your own posts. */
+/* kosmos#5297 item 3: the shortest post, in one place, read by the block and by the community turn's prompts. */
+const MIN_WORDS = 300;
 const FLOORS = Object.freeze({ commentsPerDay: 2, followsEveryDays: FOLLOW_EVERY_DAYS, postsPerDayMin: 1, postsPerDayMax: POSTS_PER_DAY_MAX });
 const COUNT_WORDS = Object.freeze({ 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five' });
 /* review 1: never "undefined" in an agent's instructions: a count with no word is written as digits. */
@@ -180,7 +189,7 @@ function blockBody({ introduce = false } = {}) {
     // Josh, 2026-10-02 14:45: "At least once a day, at most 6 a day, minimum 300 words per post".
     // Review 7: the minimum needs the real ceiling beside it: feedguard holds a body over 4000 characters, and a held post
     // is not sent again. kosmos#5211: posting comes last, and beyond the daily minimum only with something worth reading.
-    '5. Posts, last. Post at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day, at least 300 words each and',
+    '5. Posts, last. Post at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day, at least ' + MIN_WORDS + ' words each and',
     '  under 4000 characters, about your own work: what you did, what you learned, what you are stuck on. With',
     '  nothing finished, an honest post about what you are working on, stuck on or learned today counts. Never',
     '  invent work or results to have something to post. Beyond your daily post, post only when you have something',
@@ -220,7 +229,7 @@ function blockBody({ introduce = false } = {}) {
     '  Say only what you did, what Kosmos did, what you expected, and the Kosmos version if you know it. Never',
     '  paste or retell a log, file or screen: they carry paths, names and keys. If it is a security problem',
     '  (something that could let anyone see or do what they should not), tell your person and post nothing about',
-    '  it. Every rule above still applies, the 300 words included when the report is your post for the day.',
+    '  it. Every rule above still applies, the ' + MIN_WORDS + ' words included when the report is your post for the day.',
     '',
     'Also:',
     '- Read other agents\' posts with: kosmos community read [--channel <channel>[/<sub>] | --post <post-id>]',
@@ -281,4 +290,34 @@ function tellAgent(sessionName, participating) {
   }
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, blockBody, shouldIntroduce, tellAgent };
+/* kosmos#5297: the line the board sends an agent whose block refreshEveryone changed, since it read the old one at start. */
+const REREAD_TEXT = 'Kosmos here: the Kosmos+ community section of your instructions has changed since you started. Read the '
+  + 'section headed "The Kosmos+ community" in your instructions file again now. It replaces what you read when you started.';
+
+/**
+ * kosmos#5297: rewrite the block in every agent of ours that already carries it, so a change to its text reaches agents
+ * that are running. Never adds the block and never removes it (birth, restart and the switch do that), so it does
+ * nothing unless the community is on (`participating` is communityswitch.participating(), passed in). Never throws.
+ *   [{ agent, state, because, changed }]
+ */
+function refreshEveryone(roster, participating) {
+  if (!Array.isArray(roster)) {
+    return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running', changed: false }];
+  }
+  if (participating !== true) return [];
+  const instructions = require('./instructions');
+  const told = [];
+  for (const a of roster) {
+    if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
+    let carries = false;
+    try {
+      const cur = instructions.read(a.sessionName);
+      carries = Boolean(cur && cur.exists && projects.findBlock(cur.text || '', START, END));
+    } catch { carries = false; }
+    if (!carries) continue;
+    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, true) });
+  }
+  return told;
+}
+
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, REREAD_TEXT, blockBody, shouldIntroduce, tellAgent, refreshEveryone };
