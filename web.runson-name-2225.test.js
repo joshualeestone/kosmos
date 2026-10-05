@@ -82,4 +82,3 @@ test('#2225 CONTROL: the caller still gates on the return, so "" omits the paren
   // falsy value there rather than a stray space or 'null'.
   assert.ok(!acctParenthetical({ account: null }), 'account-less must be falsy so the parenthetical is omitted');
 });
-

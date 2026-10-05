@@ -20082,7 +20082,9 @@ function menuRunsOn(a) {
    carries keyTail for those agents (accountForAgent is handed the Gemini and Grok lists too), so the open-the-
    agent paint and the provider-switch repaint (which reads /api/accounts) name an account the same way: a named
    account by its slug, a default key account by its key. The order (key after label) follows the server's whoami
-   chain; the picker's acctPrimaryName puts the key first. */
+   chain; the picker's acctPrimaryName puts the key first. OpenAI is left out of /api/status on purpose (codex
+   agents keep their account shape), so an OpenAI key account is named by its key after a provider switch (the
+   /api/accounts row) but not on opening the agent; that difference is known and accepted. */
 function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || acct.label || (acct.keyTail ? 'API key ending ' + acct.keyTail : ''))) || '';

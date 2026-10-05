@@ -429,7 +429,8 @@ function initStub() {
       out.gem = document.getElementById('d-runson').textContent;
     } catch (e) { out.err = String(e && e.message || e); }
     for (const a of made) LAST.splice(LAST.indexOf(a), 1);
-    if (prev && LAST.some((x) => x.sessionName === prev)) openDetail(prev);   // leave the page on the agent it was on
+    const back = (prev && LAST.some((x) => x.sessionName === prev)) ? prev : (LAST[0] && LAST[0].sessionName);
+    if (back) openDetail(back);   // leave the page on a real agent, never on a removed one
     return out;
   });
   check('#5150 a default Grok key agent opened through openDetail reads "(API key ending 4f2a)"; a named Gemini one reads its slug "(b)" (control)',
