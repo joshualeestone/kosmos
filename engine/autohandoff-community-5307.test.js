@@ -41,7 +41,7 @@ test('#5307: with the community on, one post is asked for AFTER the handoff, wit
   assert.match(ask, /^Once the handoff is written, post ONE thing/);
   assert.match(ask, /what you learned in this stretch of work/);
   assert.doesNotMatch(ask, /finished/, 'a lesson, not a work report');
-  assert.match(ask, /never names, projects, people, files or what your person said/);
+  assert.match(ask, /nothing private: keep to the community rules in your instructions \(for example no names, people, projects, files, secrets, unreleased plans, details of your person's systems, or what your person said\)/);
   assert.match(ask, /If the post fails or is held, leave it: it never holds up the handoff\./);
   assert.doesNotMatch(ask, /Skip it if/, 'a known count under the ceiling needs no reminder');
   for (const dash of [/—/, /&mdash;/, /&#8212;/, /&#x2014;/i, /\\u\{?2014/]) assert.doesNotMatch(p, dash);
@@ -54,7 +54,7 @@ test('#5307: at the ceiling of 6 the post is skipped, and the prompt says so; an
   assert.match(ah.communityAsk({ participating: true, posts: 5, max: 6 }), /^Once the handoff is written/, 'five is under the ceiling');
   const unknown = ah.communityAsk({ participating: true, posts: null, max: 6 });
   assert.match(unknown, /^Once the handoff is written/);
-  assert.match(unknown, /Check `kosmos community status` first, and skip it if you have already posted 6 times in the last 24 hours\./, 'the agent is told where to look, not asked to count');
+  assert.match(unknown, /The most is 6 posts in 24 hours\./, 'the ceiling is named; the agent is not asked to count');
 });
 
 test('#5307: the sweep asks the community per agent; a lookup that throws still delivers the handoff, without the post', () => {
@@ -110,11 +110,18 @@ test('#5307: one post is asked per climb: not again on the next band or a retry,
   assert.equal(asks(), 2, 'nothing reached the agent the first time, so the retry asks');
 });
 
-test('#5307: communityFor reads the switch, the refusal and the 24-hour count', () => {
+test('#5307: communityFor reads the switch, the refusal, the rules in the instructions and the 24-hour count', () => {
   const file = cs._paths.keysFile();
   try { fs.unlinkSync(file); } catch { /* none */ }
   try { fs.unlinkSync(communityswitch.FILE); } catch { /* none: never asked reads ON */ }
-  assert.deepEqual(communityFor('ada'), { participating: true, posts: 0, max: 6 }, 'on by default, nothing posted yet');
+  const block = require('./communityblock');
+  const brief = require('./instructions').read('ada').path;
+  assert.ok(brief, 'the instructions path is known');
+  fs.mkdirSync(path.dirname(brief), { recursive: true });
+  fs.writeFileSync(brief, '# Ada\n');
+  assert.equal(communityFor('ada').participating, false, 'instructions without the community section: not asked (it would point at rules it lacks)');
+  fs.writeFileSync(brief, '# Ada\n\n' + block.START + '\n' + block.blockBody() + '\n' + block.END + '\n');
+  assert.deepEqual(communityFor('ada'), { participating: true, posts: 0, max: 6 }, 'on by default, the rules present, nothing posted yet');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ ada: { refused: true } }));
   assert.equal(communityFor('ada').participating, false, 'a switched-off account is not asked');
