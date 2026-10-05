@@ -77,22 +77,22 @@ const PORT = freePort();
     const state = (await shown(p.locator('#pj-one-folder-state'))).trim();
     chk(/not there any more, or it was moved/.test(state), 'the settings say the folder is not there', JSON.stringify(state));
     const label = (await shown(p.locator('label[for="pjs-move-path"]'))).trim();
-    chk(/paste where it is now/.test(label) && (await shown(p.locator('#pjs-move-btn'))).trim() === 'Move project folder',
+    chk(label === 'If you moved this folder, paste where it is now and Kosmos will use it from there.' && (await shown(p.locator('#pjs-move-btn'))).trim() === 'Use this location',
       'the move form is offered with its label and button', JSON.stringify(label));
 
     // A wrong path is refused with the board's own sentence, and nothing moves.
     await p.fill('#pjs-move-path', path.join(roots.PROJECTS, 'nowhere at all'));
     await p.click('#pjs-move-btn');
-    await p.waitForFunction(() => /Not moved:/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
+    await p.waitForFunction(() => /Not changed:/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
     const refused = (await shown(p.locator('#pjs-move-msg'))).trim();
-    chk(refused === 'Not moved: there is no folder at that path.', 'a wrong path is refused in plain words', JSON.stringify(refused));
+    chk(refused === 'Not changed: there is no folder at that path.', 'a wrong path is refused in plain words', JSON.stringify(refused));
 
     // The right path saves: the form goes away and the project reads its folder again.
     await p.fill('#pjs-move-path', newFolder);
     await p.click('#pjs-move-btn');
-    await p.waitForFunction(() => /^Moved/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
+    await p.waitForFunction(() => /^Done/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
     const said = (await shown(p.locator('#pjs-move-msg'))).trim();
-    chk(said === 'Moved. The agents on this project were told where it is now.', 'the move is confirmed', JSON.stringify(said));
+    chk(said === 'Done. Kosmos and this project\'s agents now use the new location.', 'the move is confirmed', JSON.stringify(said));
     await p.waitForFunction(() => document.getElementById('pjs-move').hidden === true, null, { timeout: 8000 });
     chk(true, 'the move form is gone once the folder is there');
     chk((await shown(p.locator('#pj-one-folder-state'))).trim() === '', 'the folder warning is gone');

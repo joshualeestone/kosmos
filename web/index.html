@@ -16681,9 +16681,9 @@ window.kosmosMeasureScrollbarWidth();
       <!-- kosmos#5340: the folder was moved on this computer. Shown only when the recorded folder is not there; the
            person gives its new place, the board checks it as it checks a new project's folder, and the members are told. -->
       <div id="pjs-move" hidden>
-        <label class="fhint" for="pjs-move-path">If you moved it, paste where it is now (its full path), and Kosmos will use it from now on.</label>
+        <label class="fhint" for="pjs-move-path">If you moved this folder, paste where it is now and Kosmos will use it from there.</label>
         <input class="t" id="pjs-move-path" type="text" spellcheck="false" autocomplete="off" autocapitalize="off">
-        <button class="btn" id="pjs-move-btn" type="button">Move project folder</button>
+        <button class="btn" id="pjs-move-btn" type="button">Use this location</button>
         <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
       </div>
       <button class="btn" id="pjs-reveal" type="button">Show me where it is</button>
@@ -68945,7 +68945,7 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
   const btn = document.getElementById('pjs-move-btn');
   const want = box.value.trim();
   said.textContent = '';
-  if (!want) { said.textContent = 'Paste the folder\'s full path first.'; box.focus(); return; }
+  if (!want) { said.textContent = 'Paste where the folder is now first.'; box.focus(); return; }
   btn.disabled = true;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
@@ -68958,11 +68958,11 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     box.value = '';
     if (!(await loadProjects())) await loadProjects();
     said.textContent = PJ_READ_FAILED
-      ? 'Moved, but we could not re-read your projects just then.'
-      : 'Moved. The agents on this project were told where it is now.';
+      ? 'Done, but we could not re-read your projects just then.'
+      : 'Done. Kosmos and this project\'s agents now use the new location.';
   } catch (e) {
     const t = String((e && e.message) || 'we could not move it');
-    said.textContent = 'Not moved: ' + t + '.';
+    said.textContent = 'Not changed: ' + t + '.';
   } finally {
     btn.disabled = false;
   }

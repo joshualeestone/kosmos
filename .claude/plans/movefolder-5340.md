@@ -28,7 +28,8 @@ saves and the warning goes, and the project reads its new folder.
 - "Every member can read it": the board checks only that IT can read the folder. An agent's own access (a sandbox or a
   macOS privacy grant) cannot be seen from the board.
 - No folder picker: the person pastes the path. The native app's Finder picker is not exposed to this page today.
-- Copy is for Mona Lisa to approve.
+- Copy is Mona Lisa's (15:58): Kosmos moves nothing, it changes where it looks, so no "Move"/"Moved"; no "full path".
+  Paste-only is right (no picker), so "paste" stays.
 
 ## Weakest premise
 That a person knows where they moved the folder. If not, "Show me where it is" (beside it) cannot help, since the old

@@ -60,7 +60,7 @@ test('#5340 the person moves a project whose folder moved: saved, and the room i
   assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
   assert.equal(stored(p.id).folder, now);
   assert.equal(projects.folderState(stored(p.id).folder).state, 'readable');
-  assert.ok(notes(p.id).some((t) => t.includes(now) && /was moved/.test(t)), 'the room was not told: ' + JSON.stringify(notes(p.id)));
+  assert.ok(notes(p.id).some((t) => t === 'This project\'s folder is now at ' + now + '. Work there from now on.'), 'the room was not told: ' + JSON.stringify(notes(p.id)));
 });
 
 test('#5340 an agent cannot move it; a non-folder, a missing one, a relative path and another project\'s folder are refused', async () => {

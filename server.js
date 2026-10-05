@@ -17050,7 +17050,7 @@ const server = http.createServer(async (req, res) => {
           const moved = projects.moveFolder(id, body.folder);
           const rosterM = safeRoster();
           try { for (const a of (moved.agents || [])) projects.syncAgent(a, rosterM); } catch { /* the row's told verdict reports it */ }
-          try { messages.roomNote(id, 'This project\'s folder is now ' + moved.folder + ' (it was moved). Work there from now on.'); } catch { /* best effort */ }
+          try { messages.roomNote(id, 'This project\'s folder is now at ' + moved.folder + '. Work there from now on.'); } catch { /* best effort */ }
           let projectM = null;
           try { projectM = projects.get(id, rosterM); } catch { projectM = null; }
           sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null });
