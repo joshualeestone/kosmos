@@ -14335,7 +14335,7 @@ const server = http.createServer(async (req, res) => {
         /* #5318: a blocked report whose owner is a person is recorded as sent, with a note pointing at needs_you
            (the only state Kosmos follows up). Both CLIs print the note under "Recorded." */
         let note = '';
-        try {
+        if (body.state === 'blocked') try {
           let personName = '';
           try { const y = require('./engine/you').read(); if (y.state === 'saved' && y.you && y.you.name) personName = y.you.name; } catch { /* no name */ }
           const agentNames = [];

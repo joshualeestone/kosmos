@@ -70,8 +70,8 @@ test('#5318: who counts as a person in --owner (pure)', () => {
 });
 
 test('#5318: the note can be lifted by the macOS CLI and is one plain line', () => {
-  assert.doesNotMatch(NOTE, /["\\\n]/, 'no quote, backslash or newline: install/kosmos lifts it with sed');
-  assert.match(NOTE, /kosmos report needs_you <your question>/);
+  assert.doesNotMatch(NOTE, /["\\\n]/, 'no double quote, backslash or newline: install/kosmos lifts it with sed');
+  assert.match(NOTE, /kosmos report needs_you '<your question>'/, 'the question is single-quoted, as the nudge writes it');
   assert.match(NOTE, /never followed up or escalated/);
 });
 
@@ -106,14 +106,49 @@ test('#5318: the route records a blocked report naming a person, and answers wit
   } finally { board.restore(); }
 });
 
-test('#5318: both CLIs print the note under Recorded', () => {
+const { execFileSync } = require('node:child_process');
+
+test('#5318: the macOS CLI lifts the note from a real answer and prints it only when there is one', () => {
   const mac = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
   const i = mac.indexOf('say "Recorded. The board reads it from here."');
   assert.ok(i > 0, 'the macOS CLI still says Recorded');
   const after = mac.slice(i, i + 600);
-  assert.match(after, /note=\$\(printf '%s' "\$body" \| sed -n 's\/\.\*"note":"\\\(\[\^"\]\*\\\)"\.\*\/\\1\/p'\)/, 'the macOS CLI lifts the note');
-  assert.match(after, /if \[ -n "\$note" \]; then say "\$note"; fi/, 'and prints it only when there is one (an if, so no note never fails the command)');
-  const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
-  assert.match(win, /ctx\.out\('Recorded\. The board reads it from here\.'\);\n\s+if \(typeof r\.json\.note === 'string' && r\.json\.note\) ctx\.out\(r\.json\.note\);/,
-    'the Windows CLI prints the note after Recorded');
+  const lift = (after.match(/^\s*(note=\$\(printf '%s' "\$body" \| sed -n .*\))$/m) || [])[1];
+  assert.ok(lift, 'the macOS CLI lifts the note with one sed line after Recorded');
+  assert.match(after, /if \[ -n "\$note" \]; then say "\$note"; fi/, 'and prints it only when there is one (an if: no note never fails the command)');
+  // Run the CLI's own line on real answers (bash, as install/kosmos is).
+  const run = (body) => execFileSync('/bin/bash', ['-c', lift + '; printf %s "$note"'], { env: { body, PATH: process.env.PATH } }).toString();
+  assert.equal(run(JSON.stringify({ recorded: true, note: NOTE })), NOTE, 'the whole note comes out');
+  assert.equal(run(JSON.stringify({ recorded: true })), '', 'CONTROL: no note, nothing printed');
+});
+
+test('#5318: the question survives zsh only quoted, as the nudge and the note write it', () => {
+  const zsh = '/bin/zsh';
+  if (!fs.existsSync(zsh)) return;
+  const quoted = "print -r -- needs_you 'Can Josh pick the cover?'";
+  assert.equal(execFileSync(zsh, ['-c', quoted]).toString().trim(), 'needs_you Can Josh pick the cover?');
+  let unquotedFailed = false;
+  try { execFileSync(zsh, ['-c', 'print -r -- needs_you Can Josh pick the cover?'], { stdio: 'pipe' }); } catch { unquotedFailed = true; }
+  assert.ok(unquotedFailed, 'CONTROL: unquoted, zsh stops on the ? (no matches found), the failure this quoting avoids');
+  assert.match(NOTE, /kosmos report needs_you '<your question>'/);
+});
+
+test('#5318: the Windows CLI prints the note after Recorded (run, not read)', async () => {
+  const cli = require('./tools/windows/kosmos-cli');
+  const realHook = require('./engine/kosmos-report-hook');
+  const hook = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => 'BOARD5318', agentToken: realHook.agentToken };
+  const go = async (answer) => {
+    const out = []; const err = [];
+    const code = await cli.main(['report', 'blocked', '--on', 'the founder meeting', '--owner', 'Josh'], {
+      env: { KOSMOS_AGENT_TOKEN: 'cd'.repeat(16) }, hook,
+      out: (x) => out.push(x), err: (x) => err.push(x),
+      fetch: async () => ({ status: 200, text: async () => JSON.stringify(answer) }),
+    });
+    return { code, out: out.join('\n'), err: err.join('\n') };
+  };
+  const withNote = await go({ recorded: true, note: NOTE });
+  assert.equal(withNote.code, 0, withNote.err);
+  assert.equal(withNote.out, 'Recorded. The board reads it from here.\n' + NOTE);
+  const without = await go({ recorded: true });
+  assert.equal(without.out, 'Recorded. The board reads it from here.', 'CONTROL: no note, one line');
 });

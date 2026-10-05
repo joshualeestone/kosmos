@@ -2547,7 +2547,7 @@ cmd_report() {
     # are back at it. `clear` is that, by a name a person or an agent would guess.
     clear) _clear=1; shift 2>/dev/null || true; set -- working "$@" ;;
   esac
-  local state text body because on="" owner="" until="" project="" auto=0
+  local state text body because note on="" owner="" until="" project="" auto=0
   state="${1:-}"
   shift 2>/dev/null || true
   # Bash 3.2 flag loop: the three optional fields blocked carries, and the
