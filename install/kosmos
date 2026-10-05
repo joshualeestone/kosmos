@@ -4407,7 +4407,7 @@ cmd_agent() {
       # kosmos#5293: the board holds it as <name>'s one waiting addition, named by this agent's token or pane (never a
       # name typed here). The person applies or dismisses it on <name>'s page. The text goes on stdin (#1970).
       local ia_name="$1" ia_from="$3" ia_data ia_path ia_parsed ia_out ia_who ia_when ia_because
-      ia_data=$(KOSMOS_IA_FILE="$ia_from" KOSMOS_IA_PANE="${TMUX_PANE:-}" "$_node" -e 'const fs=require("fs");const e=process.env;process.stdout.write(JSON.stringify({text:fs.readFileSync(e.KOSMOS_IA_FILE,"utf8"),from_pane:e.KOSMOS_IA_PANE||""}))') \
+      ia_data=$(KOSMOS_IA_FILE="$ia_from" KOSMOS_IA_PANE="${TMUX_PANE:-}" "$_node" -e 'const fs=require("fs");const e=process.env;process.stdout.write(JSON.stringify({text:fs.readFileSync(e.KOSMOS_IA_FILE,"utf8").replace(/^\uFEFF/,""),from_pane:e.KOSMOS_IA_PANE||""}))') \
         || { say "We could not read $ia_from."; exit 1; }
       ia_path=$(KOSMOS_IA_NAME="$ia_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_IA_NAME))') || { say "We could not use that name."; exit 1; }
       body=$(printf '%s' "$ia_data" | kosmos_curl "$_bt" "$_rtok" -sS -m 30 -X POST "$URL/api/agent/$ia_path/instruction-add" \

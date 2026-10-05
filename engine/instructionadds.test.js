@@ -133,3 +133,41 @@ test('state is per agent: one agent\'s pending addition does not appear on anoth
   assert.equal(adds.state('bob').pending, null);
   assert.equal(adds.state('sally').pending.askedBy, 'Ops lead');
 });
+
+test('review 1: forget drops an agent\'s waiting addition and Undo record (a new agent of that name inherits nothing)', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  assert.equal(adds.forget('sally').ok, true);
+  assert.equal(adds.pending('sally'), null);
+  assert.deepEqual(adds.state('sally'), { pending: null, last: null });
+});
+
+test('review 1: a store that cannot be parsed is REFUSED, never overwritten (other agents\' records survive)', () => {
+  makeAgent('sally');
+  fs.mkdirSync(path.dirname(adds.FILE), { recursive: true });
+  fs.writeFileSync(adds.FILE, '{"agents": {"bob": {"pending": {"text": "x", "askedBy": "y"');   // cut off mid-write
+  const r = adds.propose('sally', ADD, 'Ops lead');
+  assert.equal(r.ok, false, 'a propose overwrote an unreadable store');
+  assert.match(fs.readFileSync(adds.FILE, 'utf8'), /"bob"/, 'the unreadable store was replaced');
+});
+
+test('review 1: an agent named like an Object property is just a key', () => {
+  makeAgent('constructor');
+  assert.equal(adds.pending('constructor'), null, 'a prototype property read as a waiting addition');
+  assert.equal(adds.propose('constructor', ADD, 'Ops lead').ok, true);
+  assert.equal(adds.pending('constructor').text, ADD);
+  assert.equal(adds.pending('sally'), null);
+});
+
+test('review 1: Undo is not offered when the earlier text is below the minimum and could never be written back', () => {
+  makeAgent('tiny', 'Be brief.\n');
+  adds.propose('tiny', ADD, 'Ops lead');
+  assert.equal(adds.apply('tiny').ok, true);
+  assert.equal(adds.state('tiny').last.undoable, false, 'the page would offer an Undo that can never work');
+});
+
+test('review 1: the store is private (mode 600): it holds the agent\'s earlier instructions', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  assert.equal(fs.statSync(adds.FILE).mode & 0o777, 0o600);
+});

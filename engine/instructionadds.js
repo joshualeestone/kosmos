@@ -11,8 +11,12 @@
  *
  * One pending addition per target (Splinter 10-05): a second proposal is REFUSED, naming the waiting one, never a
  * silent replacement. Apply appends a line saying who asked and when, then the text, through instructions.write with
- * the version just read, so a concurrent edit is refused rather than overwritten. It keeps the text from just before
- * and the version it wrote; Undo puts that text back only while the file is still that version.
+ * the version just read (in one synchronous call, so this guards against another PROCESS editing the file, not against
+ * this board). It keeps the text from just before and the version it wrote; Undo puts that text back only while the
+ * file is still that version.
+ *
+ * Keyed by the agent's SESSION name: the route resolves whatever spelling it was given to the one agent first (review
+ * 1: a case variant was stored apart and never shown). Removing an agent forgets its entry (engine/remove.js).
  */
 
 const fs = require('node:fs');
@@ -20,21 +24,34 @@ const path = require('node:path');
 const store = require('./store');
 const instructions = require('./instructions');
 
-const FILE = path.join(store.ROOT, 'instruction-adds.json');
 const MAX_TEXT_BYTES = 16 * 1024;
+/* Resolved per call, not frozen at require (the #1443 shape): a later AGENT_WORKFORCE_DATA is honoured. */
+function file() { return path.join(store.ROOT, 'instruction-adds.json'); }
+const UNREADABLE = Symbol('unreadable');
+const UNREADABLE_SAID = 'the file that holds waiting additions could not be read, so nothing was changed';
 
+/* Review 1: a missing file is empty; a file that is there but cannot be parsed is UNREADABLE, and every write refuses
+   rather than overwrite it (which would silently drop every other agent's waiting addition and Undo record). Entries
+   live in a null-prototype map, so an agent named like an Object property ('constructor') is just a key. */
 function readAll() {
+  let raw;
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? { agents: Object.create(null) } : UNREADABLE; }
   try {
-    const parsed = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    return parsed && typeof parsed === 'object' && parsed.agents && typeof parsed.agents === 'object' ? parsed : { agents: {} };
-  } catch { return { agents: {} }; }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.agents || typeof parsed.agents !== 'object') return UNREADABLE;
+    return { agents: Object.assign(Object.create(null), parsed.agents) };
+  } catch { return UNREADABLE; }
 }
+function recOf(all, k) { return all !== UNREADABLE && Object.prototype.hasOwnProperty.call(all.agents, k) ? all.agents[k] : null; }
 
+/* Mode 0600: the Undo record holds the agent's full earlier instructions, which instructions.js keeps private too. */
 function writeAll(all) {
-  fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  const tmp = FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(all) + '\n');
-  fs.renameSync(tmp, FILE);
+  const f = file();
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  const tmp = f + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(all) + '\n', { mode: 0o600 });
+  try { fs.chmodSync(tmp, 0o600); } catch { /* best effort: a filesystem without modes */ }
+  fs.renameSync(tmp, f);
 }
 
 function keyFor(agent) { return instructions.registryKey(agent); }
@@ -50,7 +67,7 @@ function headingLine(askedBy, askedAt) {
 function pending(agent) {
   const k = keyFor(agent);
   if (!k) return null;
-  const rec = readAll().agents[k];
+  const rec = recOf(readAll(), k);
   return rec && rec.pending ? rec.pending : null;
 }
 
@@ -69,7 +86,8 @@ function propose(agent, text, askedBy, now) {
   const who = String(askedBy == null ? '' : askedBy).trim();
   if (!who) return { ok: false, code: 'bad', because: 'we could not tell which agent is asking' };
   const all = readAll();
-  const rec = all.agents[k] || {};
+  if (all === UNREADABLE) return { ok: false, code: 'bad', because: UNREADABLE_SAID };
+  const rec = recOf(all, k) || {};
   if (rec.pending) return { ok: false, code: 'pending', pending: rec.pending, because: 'an addition is already waiting' };
   rec.pending = { text: body, askedBy: who, askedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString() };
   all.agents[k] = rec;
@@ -82,10 +100,22 @@ function dismiss(agent) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
   const all = readAll();
-  const rec = all.agents[k];
+  if (all === UNREADABLE) return { ok: false, because: UNREADABLE_SAID };
+  const rec = recOf(all, k);
   if (!rec || !rec.pending) return { ok: false, code: 'none', because: 'there is no addition waiting' };
   delete rec.pending;
   all.agents[k] = rec;
+  writeAll(all);
+  return { ok: true };
+}
+
+/** Review 1: removing an agent forgets its entry, so a new agent with that name inherits nothing. */
+function forget(agent) {
+  const k = keyFor(agent);
+  if (!k) return { ok: false };
+  const all = readAll();
+  if (all === UNREADABLE || !recOf(all, k)) return { ok: true };
+  delete all.agents[k];
   writeAll(all);
   return { ok: true };
 }
@@ -95,7 +125,8 @@ function apply(agent, now) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
   const all = readAll();
-  const rec = all.agents[k];
+  if (all === UNREADABLE) return { ok: false, because: UNREADABLE_SAID };
+  const rec = recOf(all, k);
   if (!rec || !rec.pending) return { ok: false, code: 'none', because: 'there is no addition waiting' };
   const cur = instructions.read(agent);
   if (!cur || !cur.exists) return { ok: false, because: (cur && cur.because) || 'these instructions could not be read' };
@@ -120,7 +151,9 @@ function apply(agent, now) {
 function publicLast(agent, last) {
   if (!last) return null;
   let undoable = false;
-  try { undoable = instructions.read(agent).version === last.version; } catch { undoable = false; }
+  // Review 1: an earlier text below the instructions' minimum could never be written back, so Undo is not offered.
+  const restorable = typeof last.before === 'string' && last.before.trim().length >= instructions.MIN_CHARS;
+  try { undoable = restorable && !last.undoneAt && instructions.read(agent).version === last.version; } catch { undoable = false; }
   return { appliedAt: last.appliedAt, askedBy: last.askedBy, undoable, undone: Boolean(last.undoneAt) };
 }
 
@@ -129,7 +162,8 @@ function undo(agent) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
   const all = readAll();
-  const rec = all.agents[k];
+  if (all === UNREADABLE) return { ok: false, because: UNREADABLE_SAID };
+  const rec = recOf(all, k);
   const last = rec && rec.last;
   if (!last || last.undoneAt) return { ok: false, code: 'none', because: 'there is no addition to undo' };
   const cur = instructions.read(agent);
@@ -152,8 +186,8 @@ function undo(agent) {
 function state(agent) {
   const k = keyFor(agent);
   if (!k) return { pending: null, last: null };
-  const rec = readAll().agents[k] || {};
+  const rec = recOf(readAll(), k) || {};
   return { pending: rec.pending || null, last: publicLast(agent, rec.last) };
 }
 
-module.exports = { FILE, MAX_TEXT_BYTES, headingLine, pending, propose, dismiss, apply, undo, state };
+module.exports = { get FILE() { return file(); }, MAX_TEXT_BYTES, headingLine, pending, propose, dismiss, apply, undo, state, forget };

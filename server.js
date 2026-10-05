@@ -4190,7 +4190,7 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
    (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -16205,10 +16205,15 @@ const server = http.createServer(async (req, res) => {
      a wall, until #4491 keeps the board token out of agents' reach. One pending per target: a second is refused. */
   const instrAdd = pathname.match(/^\/api\/agent\/([^/]+)\/instruction-add(?:\/(apply|dismiss|undo))?$/);
   if (instrAdd) {
-    const name = decodeSegment(instrAdd[1]);
+    const asked = decodeSegment(instrAdd[1]);
     const act = instrAdd[2] || null;
-    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(asked)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* Review 1 (BLOCKER): resolve the spelling to the ONE agent and key everything by its session name, which is what
+       the page reads by. A case or punctuation variant the gate accepts was stored apart: shown nowhere, and a second
+       "one pending" beside the first. */
+    const card = claimantFor(asked);
+    const name = card && typeof card.sessionName === 'string' && card.sessionName ? card.sessionName : asked;
     if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
       try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
       return;

@@ -40060,7 +40060,8 @@ function instrAddPaint(sessionName, data) {
     meta.textContent = 'Asked by ' + who + ' \u00b7 ' + instrAddWhen(p.askedAt)
       + '. Apply adds it at the end of these instructions, under a line saying who asked and when.';
     text.append(title, body);
-    if (body.textContent.length > COMMUNITY_HELD_READ_ALL_CHARS || body.textContent.split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
+    /* Review 1: a trailing newline is not a fifth line (a file ends with one), so it is not counted. */
+    if (body.textContent.length > COMMUNITY_HELD_READ_ALL_CHARS || body.textContent.replace(/\n+$/, '').split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
       const more = document.createElement('button');
       more.className = 'linkish community-held-more';
       more.type = 'button';
@@ -40143,6 +40144,8 @@ async function instrAddAct(sessionName, act, note, buttons) {
   } catch { ok = false; }
   if (!CURRENT || CURRENT.sessionName !== sessionName) return;
   if (!ok) {
+    /* Review 1: the addition is already gone (applied or dismissed elsewhere): show where it stands now. */
+    if (out && out.code === 'none') { loadInstrAdd(sessionName); return; }
     buttons.forEach((b) => { b.disabled = false; });
     note.textContent = (out && (out.because || out.error)) || 'That did not work. Try again.';
     return;

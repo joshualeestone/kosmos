@@ -38,6 +38,20 @@ the person pasted it in on the colleague's page.
 - The target must be one of this board's agents (claimantFor, so a look-alike session cannot be targeted). An agent
   may not propose to itself? It may: a person still has to apply it.
 
+## Review 1 (opus, blind)
+- BLOCKER fixed: the store was keyed by the raw URL spelling; a case variant the gate accepts was stored apart, shown
+  nowhere, and let a second addition wait beside the first. The route now resolves the spelling to the one agent
+  (claimantFor) and keys by its session name. Test: a proposal to "Mara" shows on mara's page and blocks a second.
+- W2 fixed: propose is an everyday agent route, so it joins AGENT_TOKEN_ROUTE_PATTERNS (an agent with only its own
+  token can propose on an enforcing board; apply still refused). W3 fixed: removing an agent forgets its entry.
+- NITs fixed: null-prototype map; an unparseable store is refused, never overwritten; Undo is not offered when the
+  earlier text is below the instructions' minimum; the store is mode 600; its path is resolved per call; Read all
+  ignores a trailing newline; a press whose addition is already gone repaints; the Mac CLI strips a BOM like Windows.
+- W1 ACCEPTED, stated: on a Mac agent with no token, the asker is resolved from the caller's pane, as every Mac
+  message's sender is (/api/msg, /api/post). A process holding the board token could name another agent's pane, so
+  "asked by" is a label with the same trust as a message's sender, not an authority. The person still reads the text
+  and decides. Refusing the pane fallback (denyPaneFallback) would refuse every Mac agent that has no token today.
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.

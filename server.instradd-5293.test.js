@@ -120,3 +120,26 @@ test('#5293 a name that is not one of this board\'s agents is refused', async (t
   const r = await call('/api/agent/nobody/instruction-add', { body: { text: ADD }, headers: asLeo() });
   assert.equal(r.status, 404);
 });
+
+test('#5293 review 1: a case variant of the name reaches the SAME agent: shown on its page, and a second is refused', async (t) => {
+  board(t);
+  const r = await call('/api/agent/Mara/instruction-add', { body: { text: ADD }, headers: asLeo() });
+  assert.equal(r.json.ok, true, JSON.stringify(r.json));
+  const g = await call('/api/agent/mara/instruction-add', { method: 'GET' });
+  assert.equal(g.json.pending && g.json.pending.text, ADD, 'a proposal to "Mara" is invisible on mara\'s page');
+  const second = await call('/api/agent/mara/instruction-add', { body: { text: 'another' }, headers: asLeo() });
+  assert.equal(second.json.code, 'pending', 'two waiting additions for one agent');
+});
+
+test('#5293 review 1: on a board that enforces its token, an agent with ONLY its own token can propose', async (t) => {
+  board(t);
+  const { boardAuthState } = require('./server');
+  const prev = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true; boardAuthState.token = 'BOARDTOKEN_test_5293_0123456789';
+  t.after(() => { boardAuthState.on = prev.on; boardAuthState.token = prev.token; });
+  const r = await call('/api/agent/mara/instruction-add', { body: { text: ADD }, headers: asLeo() });
+  assert.equal(r.status, 200, 'an agent token alone was refused at the board gate: ' + JSON.stringify(r.json));
+  assert.equal(r.json.ok, true);
+  const apply = await call('/api/agent/mara/instruction-add/apply', { body: {}, headers: Object.assign({}, asLeo(), SCREEN) });
+  assert.notEqual(apply.status, 200, 'an agent token applied on an enforcing board');
+});
