@@ -458,21 +458,33 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   }
   /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
      before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  let capSlot = null;   // #4588 ask 3 review 2: the Assigner's own reservation (its tell is not deliverAutomatic)
+  // Only the Assigner is gated: a part a person or an agent gives is not held by the quota or the cap, by decision (plan).
   if (assigner) {
     let heldUntil = null;
-    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
+    const agyq = require('./engine/agyquota');
+    const r = roster || safeRoster();
+    const now = Date.now();
+    try { heldUntil = agyq.heldForQuota(who, r, now); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+    // #4588 ask 3: the person's cap on how many Gemini agents work at once.
+    try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini subscription agents on this computer are at the limit set for working at once" };
+    // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
+    try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
-  if (!out.ok) return { ok: false, status: 400, because: out.because };
+  if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
+  if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
   let heard;
   if (noPage) {
     heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
+    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver); }
+    catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // #4588 ask 3: a throw reached nothing
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -481,11 +493,16 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
       const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
   };
-  return heard && typeof heard.then === 'function' ? heard.then(finish) : finish(heard);
+  /* #4588 ask 3 review 6: DEFENSIVE. heardBy turns a rejected tell into a failed verdict today, so finish runs and gives
+     the slot back; this handler only matters if heardBy ever lets a rejection through. */
+  return heard && typeof heard.then === 'function'
+    ? heard.then(finish, (err) => { require('./engine/agyquota').releaseCapStart(capSlot); throw err; })
+    : finish(heard);
 }
 function engineFreshness() {
   const now = Date.now();
@@ -1063,6 +1080,7 @@ function connlostHealEnabled() {
   return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
 }
 const heartbeatSetting = require('./engine/heartbeat-setting');
+const agycapSetting = require('./engine/agycap-setting');   // #4588 ask 3
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
@@ -1296,7 +1314,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
            next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
         let held = null;
-        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        try { held = require('./engine/agyquota').heldForAgy(card.sessionName, board(), now); } catch { held = null; }   // #4588 ask 3: the cap too
         if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
@@ -8091,7 +8109,8 @@ const server = http.createServer(async (req, res) => {
     /* #4959: the pickup is the board's own line after a restart (the handoff twin of the wake hello), so it goes
        through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
        below, and the page shows its manual line. */
-    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    // #4588 ask 3: the person's own restart click started this, so the Gemini cap does not hold it (the quota does).
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined, { cap: false }); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -9601,6 +9620,33 @@ const server = http.createServer(async (req, res) => {
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = heartbeatSetting.read();
         sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #4588 ask 3: how many Gemini (Antigravity) agents on this computer may work at once before automatic messages to
+     the others wait (Settings > Automation). maxWorking 0 is no limit, the default. A STATUS control like the
+     heartbeat's: a read error is a 500. The PUT refuses an agent's token and a caller with no browser header
+     (isViaScreen). That is ADVISORY, as on the Recommender: a local process that sends a browser header, or edits the
+     file, can still change it. */
+  if (pathname === '/api/agycap-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = agycapSetting.read();
+      sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/agycap-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = agycapSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = agycapSetting.read();
+        sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -15714,8 +15760,10 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
+        /* #4588 ask 3: the automatic hello is the page's wake after the person's own restart or team-create click, so the
+           Gemini cap does not hold it (cap: false); the shared-quota hold still does. */
         const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
-          envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+          envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
         /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
            says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
            a client reads delivery.held on either. */
@@ -15724,7 +15772,9 @@ const server = http.createServer(async (req, res) => {
            heldUntil included, and the caller treats anything but placed as not said. */
         if (automatic && delivery && delivery.held === true) {
           sendJson(res, 200, { delivery, recorded: false,
-            recordedBecause: 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+            recordedBecause: delivery.heldBy === 'cap'   // defensive: this route's automatic hello sends with { cap: false }
+              ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
+              : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
           return;
         }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
@@ -19109,6 +19159,7 @@ const server = http.createServer(async (req, res) => {
         }
         for (const one of recipients) {
           let outcome;
+          // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
           try { outcome = await chat.deliverAsync(one, line, roster); }
           catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
@@ -20322,7 +20373,7 @@ function start(port = PORT) {
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold or the Gemini limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
@@ -20424,7 +20475,8 @@ function start(port = PORT) {
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
         /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
-           would spend its budget (#4588 PR B review 2). */
+           would spend its budget (#4588 PR B review 2). For the same reason the Gemini cap (#4588 ask 3) does not hold
+           it: a reconnect line to a lost agent is let through. */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
@@ -20536,7 +20588,9 @@ function start(port = PORT) {
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
+            heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now()),   // #4588 ask 3: the cap too
+            reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
+            release: (slot) => agyQuota.releaseCapStart(slot),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
@@ -20545,7 +20599,7 @@ function start(port = PORT) {
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
-              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota or the Gemini limit, not convened yet\n`);
               continue;
             }
             process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
@@ -20833,7 +20887,7 @@ function start(port = PORT) {
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
-          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
@@ -20844,7 +20898,7 @@ function start(port = PORT) {
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
-         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by the Gemini cap). unref'd;
          first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
@@ -20867,7 +20921,7 @@ function start(port = PORT) {
           readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
-          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3 (review 15): the cap too, or capped agents fill every slot each pass
           inCommunity,
           history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
           kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke

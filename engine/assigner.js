@@ -279,8 +279,8 @@ function askText(item) {
 }
 
 /**
- * One Assigner step. Pure apart from one read: #4588 PR B asks agyquota.heldForQuota, which also records the
- * Antigravity quota pool's reset in that module's memory (POOL_MEMO).
+ * One Assigner step. Pure apart from two reads: agyquota.heldForAgy records the Antigravity quota pool's reset in that
+ * module's memory (POOL_MEMO, #4588 PR B) and reads the Gemini cap setting from disk (#4588 ask 3).
  * @param {object} o
  * @param {{idleSince: Map, log: Array}|undefined} o.prev  memory from the last step
  * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
@@ -322,7 +322,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     /* #4588 PR B: an agent held on its machine's shared Google quota is neither given a part nor asked. Skipped here,
        after its idle clock is kept, so no part is reserved for it that an unheld colleague could have had. */
     let held = null;
-    try { held = require('./agyquota').heldForQuota(session, roster, now); } catch { held = null; }
+    try { held = require('./agyquota').heldForAgy(session, roster, now); } catch { held = null; }   // #4588 ask 3: the cap too
     if (held !== null) continue;
     const choice = pick(session, projects, taken);
     if (choice) {
