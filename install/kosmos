@@ -760,6 +760,22 @@ kosmos_engine_module() {
 # WORLD_HEADER_CHARSET (a newline must never start a second header), `default`
 # when nothing is left: the same rule as its worldIdForHeader, and a test pins
 # the character set here equal to that one.
+# #5333 (a day-one report): an agent whose token Kosmos no longer recognises is refused by whoami, inbox and reply
+# with the board's one sentence (sendertoken NO_MATCH), and nothing said what to do. The board keeps that sentence
+# exact on purpose (it must not tell a probe whether a token was ever real), so the next step is said HERE, and only
+# when this session itself sent a token: the caller already knows that much, so nothing is disclosed. A running
+# session cannot take on a new token (it is fixed when the session starts), and `kosmos adopt` mints one that never
+# reaches it, so the recovery is a restart from Kosmos. Printed after the board's words, never instead of them.
+token_refused_hint() {   # <token-sent> <board-answer>
+  [ -n "${1:-}" ] || return 0
+  case "${2:-}" in *'we could not match that to one of your agents'*) ;; *) return 0 ;; esac
+  say ""
+  say "Kosmos did not recognise the agent token this session started with, so it cannot tell which agent you are."
+  say "A running session cannot pick up a new token by itself. Ask your person to restart you from Kosmos"
+  say "(your page, Restart): the new session starts with a fresh token and this works again."
+  say "\`kosmos adopt\` does not help here: the token it makes never reaches a session that is already running."
+}
+
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
   local _hf _rc _world
@@ -1905,6 +1921,7 @@ cmd_reply() {
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that: ${because:-it did not say why}."
+      token_refused_hint "$_tok" "$body"   # #5333
       _keep_piped
       exit 1 ;;
     *'"kept":true'*)
@@ -1922,6 +1939,7 @@ cmd_reply() {
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "That was not kept: ${because:-we could not tell why}."
+      token_refused_hint "$_tok" "$body"   # #5333: the board refuses a reply as {kept:false, because}, not as "error"
       _keep_piped
       exit 1 ;;
   esac
@@ -2454,6 +2472,7 @@ cmd_whoami() {
     *'"because"'*) printf '%s\n' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p' ;;
     *) printf '%s\n' "$body" ;;
   esac
+  token_refused_hint "$_tok" "$body"   # #5333
 }
 
 # ---- kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [words…]
@@ -2726,7 +2745,7 @@ cmd_inbox() {
   _body="${_body%$'\n'*}"
   printf '%s' "$_body"
   case "$_code" in
-    4??|5??) exit 1 ;;
+    4??|5??) token_refused_hint "$_tok" "$_body"; exit 1 ;;   # #5333
   esac
 }
 
