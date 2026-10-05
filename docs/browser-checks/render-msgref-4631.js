@@ -105,6 +105,12 @@ async function paintRoom(page) {
           inside: qr.left >= inL - 0.5 && qr.right <= inR + 0.5, bar: [Math.round(qr.left), Math.round(qr.right)], thread: [Math.round(inL), Math.round(inR)] };
       });
       chk(c6.name === 'Copy message or its id' && c6.popup === 'menu', '[touch] C6 Copy is named for what it opens (a menu with both)', JSON.stringify(c6));
+      // The touch test changing (a pointer attached) renames it for what a press then does, and back.
+      const relabel = await page.evaluate(() => { const real = window.matchMedia; const b = document.querySelector('#pj-room .msg[data-mid="m530"] .rxn-copy');
+        window.matchMedia = (q) => ({ matches: false, media: q }); msgCopyRelabel(); const pointer = [b.getAttribute('aria-label'), b.getAttribute('aria-haspopup')];
+        window.matchMedia = real; msgCopyRelabel(); const touch = [b.getAttribute('aria-label'), b.getAttribute('aria-haspopup')]; return { pointer, touch }; });
+      chk(relabel.pointer[0] === 'Copy message' && relabel.pointer[1] === null && relabel.touch[0] === 'Copy message or its id' && relabel.touch[1] === 'menu',
+        '[touch] C6 a change of the touch test renames Copy for what a press then does', JSON.stringify(relabel));
       chk(c6.open && c6.shown === 'rxn-copy,rxn-pick,rxn-pick,rxn-pick,rxn-more,rxn-speak,rxn-reply' && c6.copy[0] >= 36 && c6.copy[1] >= 36 && c6.barH < 50 && c6.inside,
         '[touch] C6 a tapped-open bar keeps seven buttons (Copy, no Copy message id), Copy a room-sized target, on one line inside the thread', JSON.stringify(c6));
       await page.locator('#pj-room .msg[data-mid="m530"] .rxn-copy').tap();
