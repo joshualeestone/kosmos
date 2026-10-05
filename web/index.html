@@ -9693,8 +9693,8 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedinv-can b { color: var(--label); font-weight: 600; }
 #fedinv-modal .rm-acts { justify-content: flex-end; margin-top: var(--space-6); }
 /* kosmos#4649 slice C (Mona's NIT 4): shot 02 has no hairline between the title and the first question or
-   between the two questions. Those rules were the page-wide .field top border; the sheet's sibling, #am-modal
-   (opened from the same menu), has none either. And the sheet sits inside #panel-projects, where
+   between the two questions. Those rules were the page-wide .field top border; the add-agent dialog opened from
+   the same menu has none either. And the sheet sits inside #panel-projects, where
    `.panel h2` (0,1,1) out-ranks `.rm-title` (0,1,0) and made its title smaller than every other dialog's,
    so the title takes .rm-title's own size back here. */
 #fedinv-modal .field { border-top: 0; padding-top: 0; }
@@ -45086,16 +45086,22 @@ let PLUS_COPY_TIMER = null;
    answer cannot interleave with the next press or write a stale note after a success. */
 let PLUS_COPY_BUSY = false;
 let PLUS_COPY_SAY_TIMER = null;
-function plusCopyViaExec() {
-  // execCommand first because it runs synchronously inside the press (no await before it); the clipboard API is the
-  // second try. Both copy the same full URL.
-  const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
+/* Select-and-copy of any text through an off-screen read-only textarea, then focus back on `back`. Synchronous, so
+   a caller that runs it before any await keeps the press's activation. Shared by the Plus address copy and the
+   federation invitation (kosmos#4649 slice C), so the two cannot drift. */
+function copyTextViaExec(text, back) {
+  const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', '');
   t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
   let ok = false;
   try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
   catch { ok = false; }
-  finally { t.remove(); const b = document.getElementById('plus-copy'); if (b) b.focus(); }
+  finally { t.remove(); if (back && back.isConnected) back.focus(); }
   return ok;
+}
+function plusCopyViaExec() {
+  // execCommand first because it runs synchronously inside the press (no await before it); the clipboard API is the
+  // second try. Both copy the same full URL.
+  return copyTextViaExec(PLUS_ACCOUNT_URL, document.getElementById('plus-copy'));
 }
 async function plusCopyAddress() {
   const btn = document.getElementById('plus-copy');
@@ -67582,6 +67588,7 @@ let FEDINV_OPENER = null;
 let FEDINV_PROJECT = null;
 let FEDINV_SEQ = 0;            // a reply that arrives after the sheet was closed or reopened is dropped
 let FEDINV_COPY_TIMER = null;
+let FEDINV_COPY_BUSY = false;  // slice C: Copy the invitation is waiting on the clipboard
 let FEDINV_MADE = null;        // slice C: the code on screen, for "Copy the invitation" ({ label, code, expires_at, project, projectId })
 const FEDINV_TITLE = 'Invite someone outside your Kosmos';
 /* kosmos#4649 slice B: `prefill` ({ label, kind }) is an expired row's "Make a new code" (Mona's Q-M2):
@@ -67719,7 +67726,7 @@ function fedInviteText(made) {
   // One line each: a name or project with a newline or a control character must not break the invitation's lines.
   // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, zero-width
   // characters, the BOM), so a name cannot visually reorder or hide text in the paste.
-  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b-\u200f\u061c\ufeff]/g, '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+  const line = (v) => String(v || '').replace(/[\u202a-\u202e\u2066-\u2069\u200b-\u200f\u061c\ufeff]/g, '').replace(/[\u0080-\u009f]/g, ' ').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
   const name = line(typeof YOU_NAME === 'string' ? YOU_NAME : '');
   const fm = FED_MEMBERS;
   const handle = (fm && fm.ok && fm.project === made.projectId && fm.body && typeof fm.body.owner_name === 'string'
@@ -67747,20 +67754,30 @@ async function fedInviteCopyAll() {
   const seq = FEDINV_SEQ;
   const btn = document.getElementById('fedinv-copy-all');
   const status = document.getElementById('fedinv-status');
+  if (FEDINV_COPY_BUSY) return;   // a second press while the clipboard is still being asked would race the first
   const text = fedInviteText(made);
-  let ok = false;
-  const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', '');
-  t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
-  try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
-  catch { ok = false; }
-  finally { t.remove(); if (btn && btn.isConnected) btn.focus(); }
+  let ok = copyTextViaExec(text, btn);
   if (!ok && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    FEDINV_COPY_BUSY = true;
     let limit = null;
     const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
-    // If the limit wins, a late write may still land the (same, correct) invitation afterwards; harmless.
-    try { await Promise.race([navigator.clipboard.writeText(text), late]); ok = true; }
-    catch { ok = false; }
-    finally { if (limit) clearTimeout(limit); }
+    const write = navigator.clipboard.writeText(text);
+    try { await Promise.race([write, late]); ok = true; }
+    catch {
+      ok = false;
+      // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if this sheet still
+      // shows the refusal.
+      write.then(() => {
+        if (seq !== FEDINV_SEQ) return;
+        if (status.textContent.startsWith('Kosmos could not copy the invitation.')) {
+          fedInviteCopyReset();
+          btn.textContent = 'Copied';
+          status.textContent = 'Invitation copied.';
+          FEDINV_COPY_TIMER = setTimeout(fedInviteCopyReset, 2000);
+        }
+      }, () => {});
+    }
+    finally { if (limit) clearTimeout(limit); FEDINV_COPY_BUSY = false; }
     if (seq !== FEDINV_SEQ) return;   // the sheet was closed or reopened while the clipboard answered
   }
   fedInviteCopyReset();

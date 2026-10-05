@@ -98,6 +98,8 @@
  *      the same finder, given a phrase the page does not have ("Join a shared project"), finds nothing.
  *  C4  writeText rejecting AND select-and-copy failing: the message line says "Kosmos could not copy the
  *      invitation. ...", the button keeps its words, the sheet stays open, and nothing throws. Control: C1 says Copied.
+ *  C5  a page loaded as Windows (navigator.platform Win32) names Ctrl C and Ctrl+C in the copy-yourself lines;
+ *      control: the same page loaded as a Mac (MacIntel) names Command C and the Command glyph.
  *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
  *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
  *
@@ -257,8 +259,10 @@ const closeAll = (page) => page.evaluate(() => {
     console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
     process.exit(1);
   }
-  const newPage = async (width, fed) => {
+  const newPage = async (width, fed, platform) => {
     const ctx = await browser.newContext({ viewport: { width, height: 900 }, timezoneId: 'UTC', locale: 'en-US' });
+    // C5: a page that believes it runs on another platform (MSG_MENU_MAC is read once, at load).
+    if (platform) await ctx.addInitScript((p) => { Object.defineProperty(navigator, 'platform', { configurable: true, get: () => p }); }, platform);
     await ctx.addInitScript(initStub, { fed, code: CODE, expires: EXPIRES });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => check('no page error', false, e.message));
@@ -1082,6 +1086,7 @@ const closeAll = (page) => page.evaluate(() => {
         const hit = await find(page, w);
         found.push({ word: w, hit });
         if (!hit) break;
+        if (found.length === 3) break;   // Verify is found as a label; not pressed (no side effect on the stub)
         await page.click('[data-c3-hit]');
         await page.waitForTimeout(200);
       }
@@ -1091,6 +1096,21 @@ const closeAll = (page) => page.evaluate(() => {
     const none = await find(page, 'Join a shared project');
     check('C3 control: the same finder finds nothing for a phrase the page does not have', none === null, String(none));
     await ctx.close();
+
+    /* C5: a Windows page names Ctrl C (Mona: Command C is wrong on Windows). The helper serves all four copy-yourself
+       lines (the invite sheet's two, pjCopyInvite's and the create form's), so this arm covers them. Control: a Mac
+       page (MacIntel) names Command C, whatever the runner is. */
+    {
+      const words = {};
+      for (const plat of ['Win32', 'MacIntel']) {
+        const pw = await newPage(1280, SHOW, plat);
+        words[plat] = await pw.page.evaluate(() => ({ word: copyKeysWord(), glyph: copyKeysGlyph() }));
+        await pw.ctx.close();
+      }
+      check('C5 Windows names Ctrl C and Ctrl+C; the Mac names Command C and \u2318C (control)',
+        words.Win32.word === 'Ctrl C' && words.Win32.glyph === 'Ctrl+C' && words.MacIntel.word === 'Command C' && words.MacIntel.glyph === '\u2318C',
+        JSON.stringify(words));
+    }
 
     // C0 with a label that is not a name: they/their, never "my's".
     const p2 = await newPage(1280, SHOW);
