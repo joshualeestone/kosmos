@@ -66456,11 +66456,13 @@ function pjFedMessage(body, fallback, opts) {
   // writes every one of them itself), so it is shown as given.
   if (reason === 'unchecked' && typeof body.error === 'string' && body.error) return body.error;
   // Withdraw's 409 `joined`: the board's own sentence, as given; the map below is only for a body without one.
-  if (reason === 'joined' && typeof body.error === 'string' && body.error) return body.error;
+  // Only for Remove and Withdraw (opts.change): any other caller keeps the contract that an unknown reason gets its
+  // own safe fallback, not the board's text.
+  if (opts && opts.change && reason === 'joined' && typeof body.error === 'string' && body.error) return body.error;
   /* kosmos#4649 slice B: Withdraw's 409 `unsupported` (a coordinator older than the withdraw route).
      The board's sentence ends "...stops working on its own when it lapses."; the screen adds the date
      (Kitty's Q-K2), passed as opts.lapses ("Oct 11"). Shown as given when there is no date. */
-  if (reason === 'unsupported' && typeof body.error === 'string' && body.error) {
+  if (opts && opts.change && reason === 'unsupported' && typeof body.error === 'string' && body.error) {
     // Only a sentence that ends "...lapses." takes the date; any other wording is shown as given.
     return (opts && opts.lapses && /lapses\.\s*$/.test(body.error)) ? body.error.replace(/\.\s*$/, '') + ' on ' + opts.lapses + '.' : body.error;
   }
@@ -68050,7 +68052,8 @@ function fedRemoveOpen(btn, r) {
   // capitalised word first, no apostrophe anywhere, not an article or title. "my sister", "The Smiths" and
   // "Lee's laptop" get the they/their sentence instead (the title still uses the label as typed).
   const word = who ? who.split(/\s+/)[0] : '';
-  const first = (/^\p{Lu}\p{Ll}+$/u.test(word) && !/['\u2019]/.test(who)
+  // A person only: an agent's or a computer's label ("Work laptop", "Marketing Team") is never a first name.
+  const first = (r.kind === 'person' && /^\p{Lu}\p{Ll}+$/u.test(word) && !/['\u2019]/.test(who)
     && !/^(The|My|Our|Your|Their|His|Her|A|An|Mr|Mrs|Ms|Mx|Dr)$/.test(word)) ? word : '';
   if (FED_BUSY.has(fedRowKey(r))) return;   // a Remove for this row is still being asked
   fedRemoveReset();
@@ -68256,7 +68259,9 @@ function fedSay(text) {
     document.body.appendChild(el);
   }
   el.textContent = '';
-  setTimeout(() => { el.textContent = text || ''; }, 50);
+  // One pending sentence at a time: a second call within 50 ms replaces the first instead of racing it.
+  clearTimeout(fedSay.t);
+  fedSay.t = setTimeout(() => { el.textContent = text || ''; }, 50);
 }
 // Made at load too, so the region exists before its first sentence (a region inserted just before an update
 // is not reliably announced).
