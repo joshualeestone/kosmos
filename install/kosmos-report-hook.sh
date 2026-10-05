@@ -405,6 +405,15 @@ case "$EVENT" in
     date +%s > "$MARK" 2>/dev/null || true
     report working --auto answering a prompt ;;
   PreToolUse)
+    # #5153 slice 4: just before Claude edits a file, ask the board to keep a copy (it does only while the person's
+    # undo switch is on). Waits at most 3 s and always lets the edit go ahead.
+    case "$(json_field '.tool_name' 'tool_name')" in
+      Edit|Write|MultiEdit|NotebookEdit)
+        KC_FILE=$(json_field '.tool_input.file_path // .tool_input.notebook_path' 'file_path')
+        if [ -n "$KC_FILE" ] && [ -n "$KOSMOS" ]; then
+          "$KOSMOS" keep-copy "$KC_FILE" "$(json_field '.cwd' 'cwd')" "$(json_field '.session_id' 'session_id')" </dev/null >/dev/null 2>&1 || true
+        fi ;;
+    esac
     if heartbeat_due; then
       TOOL=$(json_field '.tool_name' 'tool_name'); TOOL="${TOOL:-a tool}"
       report working --auto "running ${TOOL}"

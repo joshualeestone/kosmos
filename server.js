@@ -4125,7 +4125,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
+  'POST /api/undo/keep']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -6392,6 +6393,24 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 405, { ok: false, because: verb === 'download' ? 'use GET for that' : verb ? 'use POST for that' : 'the Files list is read-only; use open, reveal or download' });
     return;
   }
+  /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
+     with its own part of each task's receipt. For the person's page, so an agent's token is refused, as on the task
+     receipt route. ?limit= (1..50, default 10); `more` says older ones exist. */
+  const agentReceipts = pathname.match(/^\/api\/agent\/([^/]+)\/receipts$/);
+  if (agentReceipts && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'an agent\'s receipts are for the person, not for agents' }); return; }
+    const name = decodeSegment(agentReceipts[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const limit = Number(new URL(req.url, 'http://x').searchParams.get('limit')) || 10;
+    require('./engine/receipt').forAgent(name, { limit })
+      .then((out) => sendJson(res, 200, out))
+      .catch((err) => {
+        console.error('receipts: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { ok: false, because: 'we could not work out the receipts just now' });
+      });
+    return;
+  }
+
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
   if (agentSkills && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(agentSkills[1]);
@@ -8353,6 +8372,81 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #5153 slice 4: undo a closed task's file changes (engine/undo.js; off by default, Josh can override).
+     - GET/PUT /api/undo-setting { on }: the switch. The person's: an agent's token is refused on PUT.
+     - POST /api/undo/keep { path, cwd, session }: the report hook's call just before a Claude agent edits a file. The
+       board keeps a copy only while the switch is on; the answer says whether it did. Agents' hooks call it, so an
+       agent's token is accepted here (it copies a file on this computer into Kosmos's own data, nothing more); it is
+       in AGENT_TOKEN_ROUTES (Baron's review), and a token-only caller gets copies for its own sessions only.
+     - GET /api/project/:id/task/:n/undo: what an undo would do, file by file. POST { paths }: do it for those files.
+       The person's: an agent's token is refused, and nothing happens with the switch off. */
+  if (pathname === '/api/undo-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/undo').read();
+    sendJson(res, 200, { on: r.on, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/undo-setting' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this setting is the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'on must be true or false' }); return; }
+        const r = require('./engine/undo').setOn(body.on);
+        sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  if (pathname === '/api/undo/keep' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { kept: false, because: 'unreadable request' }); return; }
+        /* Baron's review: a token-only agent (#4491) reaches this route on its agent token alone, so the copy is
+           kept only for that agent's OWN session or folder; anyone else's is refused (not-yours). A caller holding
+           the board token (the person, every agent's CLI today) is not narrowed, as before. */
+        const only = agentTokenOnlyCaller(req);
+        if (only === '') { sendJson(res, 403, { kept: false, because: 'that agent token names nobody' }); return; }
+        sendJson(res, 200, require('./engine/undo').keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
+      })
+      .catch(() => sendJson(res, 400, { kept: false, because: 'unreadable request' }));
+    return;
+  }
+  const taskUndo = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/undo$/);
+  if (taskUndo && (req.method === 'GET' || req.method === 'POST')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'undoing a task is the person\'s, not an agent\'s' }); return; }
+    const id = decodeSegment(taskUndo[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const undo = require('./engine/undo');
+    let task = null;
+    try {
+      const proj = (require('./engine/projects').readAll() || []).find((x) => x && x.id === id);
+      task = proj ? require('./engine/tasks').byNumber(proj, Number(taskUndo[2])) || null : null;
+    } catch { task = null; }
+    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
+    if (req.method === 'GET') {
+      /* Off: nothing to offer, and no index or task files read on every receipt view (review 2). */
+      try { const on = undo.read().on; sendJson(res, 200, on ? { on, ...undo.plan(id, task) } : { on, ready: false, because: 'off', files: [] }); }
+      catch { sendJson(res, 500, { error: 'we could not work out the undo just now' }); }
+      return;
+    }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!Array.isArray(body.paths) || !body.paths.every((x) => typeof x === 'string')) { sendJson(res, 400, { error: 'paths must be a list of files' }); return; }
+        const out = undo.apply(id, task, body.paths);
+        if (out.because === 'off') { sendJson(res, 409, { error: 'undo is turned off in Settings', ...out }); return; }
+        sendJson(res, 200, out);
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* #4375: the owner's industry, shared on their agents' public Community profiles ("Works for ...").
      Optional, from a FIXED list (engine/communityindustry.js), never free text. GET gives the list with
      the setting so the page draws exactly the keys the board will accept; `ok:false` is an unreadable
@@ -18125,6 +18219,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5153 slice 1: a closed task's change receipt (engine/receipt.js): per agent that held a part, the files it changed,
+     how many commands it ran (a count only), its tokens per model, and how often the task was put back or handed on.
+     Worked out here when the page asks, never in the close path; kept once the close has settled. Read-only, beside
+     the activity route and gated the same way. An open task answers { ready: false, because: 'open' }. */
+  const taskReceipt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/receipt$/);
+  if (taskReceipt && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* For the person's page: it names every holding agent's files and folder, more than the activity route shows, so a
+       caller presenting an agent's token is refused (review 1). */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'a task\'s receipt is for the person, not for agents' }); return; }
+    const id = decodeSegment(taskReceipt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let task = null;
+    try {
+      const proj = (require('./engine/projects').readAll() || []).find((x) => x && x.id === id);
+      task = proj ? require('./engine/tasks').byNumber(proj, Number(taskReceipt[2])) || null : null;
+    } catch { task = null; }
+    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
+    require('./engine/receipt').forTask(id, task)
+      .then((out) => sendJson(res, 200, out))
+      .catch((err) => {
+        console.error('receipt: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { error: 'we could not work out the receipt just now' });
+      });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
@@ -20501,6 +20621,7 @@ if (require.main === module) {
      require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
      and no notice is owed to either (a new install decides it in first run). */
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
+  try { require('./engine/undo').sweep(); } catch { /* #5153 slice 4: copies past their days go; never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();
   } else {
