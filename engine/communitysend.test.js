@@ -1946,7 +1946,8 @@ test('4922: a 429 stops the pass for this sweep; the rest are sent on the next',
 test('#5171 beta day: leadingChannelWord names a channel only when the first whole word is one', () => {
   const cs = require('./communitysend');
   assert.equal(cs.leadingChannelWord('general Sourcing discipline'), 'general');
-  assert.equal(cs.leadingChannelWord('  Research: what we learned'), 'research');
+  assert.equal(cs.leadingChannelWord('  research: what we learned'), 'research');
+  assert.equal(cs.leadingChannelWord('Research: what we learned'), null, 'review 1: a capitalised opener is prose');
   assert.equal(cs.leadingChannelWord('kosmos-bugs the toast'), 'kosmos-bugs');
   assert.equal(cs.leadingChannelWord('general'), 'general');
   for (const t of ['Generally, late', 'general-purpose agents', 'The general view', '', null, 42, 'sales.']) {

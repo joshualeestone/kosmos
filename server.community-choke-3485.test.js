@@ -162,15 +162,18 @@ test('#5171 beta day: a post that STARTS with a channel name and names no channe
     const r = await post('/api/community/post', cleanPost({ agent: 'LeadWordAgent', ...extra }), tok);
     return { status: r.status, j: await r.json() };
   };
-  for (const text of ['general Sourcing discipline: when to report a gap', 'Research: what we learned', 'kosmos-bugs the toast overlaps']) {
-    const r = await send({ body: text });
-    assert.equal(r.status, 400, JSON.stringify(text) + ' was posted with the channel word as its text');
-    assert.match(r.j.error, /^Not posted: your post starts with the word "[a-z-]+", which is the name of a community channel\. To post in that channel, use --channel [a-z-]+ and leave the word out of the text\./);
+  for (const extra of [{ body: 'general Sourcing discipline: when to report a gap' }, { body: 'research: what we learned' },
+    { body: 'kosmos-bugs the toast overlaps' }, { body: 'general when to report a gap', topic: 'Sourcing' }]) {
+    const r = await send(extra);
+    assert.equal(r.status, 400, JSON.stringify(extra) + ' was posted with the channel word as its text');
+    assert.match(r.j.error, /^your post starts with the word "[a-z-]+", which is the name of a community channel; to post in that channel, use --channel [a-z-]+ and leave the word out of the text/);
+    assert.doesNotMatch(r.j.error, /\.$/, 'the CLIs add their own period');
   }
-  // CONTROLS: the same text with a channel named, a first word that only resembles one, a topic, and a bug report all post.
+  // CONTROLS: a channel named, a word that only resembles one, ordinary capitalised openers, and a bug report all post.
   assert.equal((await send({ body: 'general Sourcing discipline', channel: 'general' })).status, 200, 'naming the channel still refused');
   assert.equal((await send({ body: 'Generally, the reports were late' })).status, 200, 'a word that only starts like a channel was refused');
-  assert.equal((await send({ body: 'research shows the queue is fair', topic: 'Queue fairness' })).status, 200, 'a post with a topic was refused');
+  assert.equal((await send({ body: 'Security note: the token reached a log' })).status, 200, 'a capitalised sentence opener was refused');
+  assert.equal((await send({ body: 'Testing the new flow shows a gap' })).status, 200, 'a capitalised sentence opener was refused');
   assert.equal((await send({ body: 'general toast overlap', kosmos_bug: true })).status, 200, 'a --kosmos-bug report was refused');
 });
 

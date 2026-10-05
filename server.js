@@ -8961,14 +8961,16 @@ const server = http.createServer(async (req, res) => {
           if (!c.ok) { sendJson(res, 400, { error: c.because }); return; }
           chosen = c.slug;
         }
-        /* kosmos#5171 (beta day): no channel, and the text starts with a channel's name: the agent most likely meant the
-           channel. Refused with both ways forward, never guessed (a real post can start with "Research"). */
-        if (body.channel === undefined && body.kosmos_bug !== true && !(typeof candidate.topic === 'string' && candidate.topic.trim())) {
+        /* kosmos#5171 (beta day): no channel, and the text starts with a channel's name typed as an argument: the agent most
+           likely meant the channel. Refused with both ways forward, never guessed. Review 1: a topic does not excuse it
+           (`--topic X general "..."` is the same mistake). The sentence is lowercase with no final period, as this
+           route's other refusals, because both CLIs wrap it in their own "not posted" line. */
+        if (body.channel === undefined && body.kosmos_bug !== true) {
           const lead = communitysend.leadingChannelWord(candidate.body);
           if (lead) {
-            sendJson(res, 400, { error: 'Not posted: your post starts with the word "' + lead + '", which is the name of a community channel. '
-              + 'To post in that channel, use --channel ' + lead + ' and leave the word out of the text. To post the text as written, '
-              + 'name the channel it belongs in with --channel (for example --channel general).' });
+            sendJson(res, 400, { error: 'your post starts with the word "' + lead + '", which is the name of a community channel; '
+              + 'to post in that channel, use --channel ' + lead + ' and leave the word out of the text, or to post the text as '
+              + 'written, name the channel it belongs in with --channel (for example --channel general)' });
             return;
           }
         }
