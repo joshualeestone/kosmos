@@ -85,3 +85,6 @@ Fixed: 'started' is not work, and a re-read line's turn is Kosmos's own (sent lo
 just before each send; the agent-nudge brake gates it; a failed debt write at boot is logged; an agent must be missing at
 two passes before its debt ends. Decided, not done: sharing read()'s tail reader with history() (refactors a stable
 reader for no behaviour); counting these lines in the shared hourly log (at most one per agent per change).
+
+## Round 6 (fixed)
+Re-read send stamped before delivery and turns start SLACK_MS (60 s) early; the posting turn runs to the next idle report (at least 15 min), failing toward fewer prompts (an agent that posts mid-task and keeps going without idling reads as no work; the daily floor still prompts it); boot writes the debt file only when a rules change was found.
