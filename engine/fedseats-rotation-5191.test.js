@@ -1,52 +1,74 @@
 'use strict';
 /**
  * kosmos#5191 / #5197 follow-up (Renet's review): both revoke graces rest on one assumption. The owner's
- * graceAfter and the member's REVOKE_GRACE_MS treat EVERY room-key rotation as a revoke. That holds only
- * while the one place an owner advances the room's epoch is rotateForRevoked. A rotation added for any other
- * reason (a periodic key change, a new member) would silently give a non-revoke rotation the revoke grace,
- * or a revoke a different one, and no behavioural test would notice.
+ * graceAfter and the member's REVOKE_GRACE_MS treat EVERY room-key rotation as a revoke. That holds only while
+ * the one place an owner advances the room's epoch is the revoke step. A rotation added for any other reason (a
+ * periodic key change, a new member) would silently get the revoke grace, and no behavioural test would notice.
  *
- * So this pins the structure: across the federation engine there is exactly ONE epoch advance, and it is
- * inside revokeCheck, the step that rotates a room once a member's edge is found revoked (rotateForRevoked is
- * its thin wrapper, and checkRoom calls it on the edge check). Exactly one (not "at least one"): zero means the pattern no longer matches the
- * code (the guard went blind), two means a second rotation path exists and graceAfter needs re-deciding.
+ * Two guards, the second because the first can only see the spellings it knows (review round 1):
+ * 1. WHO WRITES THE ROOM STATE. Across every engine file, fedseal.setRoomState is called only from a pinned set
+ *    of functions: revokeCheck (the rotation, and its clock clamp), ownerHello (the room's creation, epoch 0) and
+ *    onKeyFrame (a member ADOPTING the owner's rotation from a frame verified against the pinned owner key, which
+ *    creates no rotation of its own). A new caller is a new way the room's key can change: re-decide the graces.
+ * 2. HOW THE EPOCH ADVANCES. Exactly one advance spelled "epoch + 1" / "+= 1" / "++", inside revokeCheck. Exactly
+ *    one, not "at least one": zero means that spelling is gone and this guard went blind.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const FILES = ['fedseats.js', 'fedseal.js', 'federation.js', 'fedmembers.js'];
-// An epoch advance: "<something>.epoch + 1", "epoch + 1" or "epoch += 1" / "epoch++".
+const ENGINE = __dirname;
+const WRITERS = { 'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame'] };
+const FED_FILES = ['fedseats.js', 'fedseal.js', 'federation.js', 'fedmembers.js'];
 const ADVANCE = /\bepoch\s*\+\s*1\b|\bepoch\s*\+=\s*1\b|\bepoch\+\+/;
+const TOP_FN = /^(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/;
 
-/** The body of a top-level `function name(` in src, up to the next top-level function or the end. */
-function body(src, name) {
-  const start = src.indexOf('\nfunction ' + name + '(');
-  assert.notEqual(start, -1, 'no top-level function ' + name + ': the guard must be updated with the code');
-  const next = src.indexOf('\nfunction ', start + 1);
-  return src.slice(start, next === -1 ? undefined : next);
+/** For each line of a file, the name of the top-level function it sits in (or null). */
+function enclosing(src) {
+  let fn = null;
+  return src.split('\n').map((line) => {
+    const m = TOP_FN.exec(line);
+    if (m) fn = m[1];
+    else if (/^(?:const|let|var|module\.exports|class)\b/.test(line)) fn = null;   // a top-level statement ends it
+    return { line, fn };
+  });
 }
+const code = (line) => line.replace(/(^|[^:])\/\/.*$/, '$1');   // strip a // comment, not a URL's "://"
 
-test('#5191: the one place the room epoch advances is revokeCheck, so every rotation is a revoke', () => {
-  const hits = [];
-  for (const f of FILES) {
-    const p = path.join(__dirname, f);
-    if (!fs.existsSync(p)) continue;
-    fs.readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
-      const code = line.replace(/\/\/.*$/, '');   // a comment that mentions epoch + 1 is not an advance
-      if (ADVANCE.test(code)) hits.push(f + ':' + (i + 1) + ': ' + line.trim());
+test('#5191: only revokeCheck, ownerHello and onKeyFrame write a room\'s key state', () => {
+  const engineFiles = fs.readdirSync(ENGINE).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
+  assert.ok(engineFiles.includes('fedseats.js') && engineFiles.includes('fedseal.js'), 'the federation engine files moved: update this guard');
+  const found = {};
+  for (const f of engineFiles) {
+    enclosing(fs.readFileSync(path.join(ENGINE, f), 'utf8')).forEach(({ line, fn }) => {
+      if (!/setRoomState\s*\(/.test(code(line))) return;
+      if (f === 'fedseal.js' && /^function setRoomState\s*\(/.test(line)) return;   // its definition
+      (found[f] = found[f] || new Set()).add(fn || '(top level)');
     });
   }
-  assert.equal(hits.length, 1, 'expected exactly one epoch advance (in revokeCheck), found:\n' + hits.join('\n'));
-  const rotate = body(fs.readFileSync(path.join(__dirname, 'fedseats.js'), 'utf8'), 'revokeCheck');
-  assert.ok(rotate.includes(hits[0].split(': ').slice(1).join(': ')), 'the epoch advance is not inside revokeCheck: ' + hits[0]);
+  const got = Object.fromEntries(Object.entries(found).map(([f, s]) => [f, [...s].sort()]));
+  const want = Object.fromEntries(Object.entries(WRITERS).map(([f, a]) => [f, [...a].sort()]));
+  assert.deepEqual(got, want, 'a room\'s key state has a new writer: is it a rotation that is not a revoke? Re-decide graceAfter and REVOKE_GRACE_MS (#5191, #5197), then update WRITERS.');
 });
 
-test('#5191: graceAfter gives the revoke grace to every rotation a member can see, and none to an owner with no member', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'fedseats.js'), 'utf8');
-  const grace = body(src, 'graceAfter');
-  // The shape that makes "every rotation is a revoke" the only reading: no branch on why the room rotated.
-  assert.doesNotMatch(grace, /reason|why|kind|cause/i, 'graceAfter now branches on why a room rotated; re-decide #5191 and #5197 together');
+test('#5191: the one epoch advance is inside revokeCheck', () => {
+  const hits = [];
+  for (const f of FED_FILES) {
+    const p = path.join(ENGINE, f);
+    assert.ok(fs.existsSync(p), f + ' is gone: update this guard');
+    enclosing(fs.readFileSync(p, 'utf8')).forEach(({ line, fn }, i) => {
+      if (ADVANCE.test(code(line))) hits.push({ where: f + ':' + (i + 1), fn, line: line.trim() });
+    });
+  }
+  assert.equal(hits.length, 1, 'expected exactly one epoch advance, found:\n' + hits.map((h) => h.where + ' ' + h.line).join('\n'));
+  assert.equal(hits[0].fn, 'revokeCheck', 'the epoch advances outside revokeCheck: ' + hits[0].where);
+});
+
+test('#5191: graceAfter does not branch on why a room rotated, and still gives the revoke grace', () => {
+  const lines = enclosing(fs.readFileSync(path.join(ENGINE, 'fedseats.js'), 'utf8')).filter((l) => l.fn === 'graceAfter');
+  assert.ok(lines.length > 0, 'graceAfter is gone: update this guard');
+  const grace = lines.map((l) => code(l.line)).join('\n');
+  assert.doesNotMatch(grace, /reason|why|kind|cause/i, 'graceAfter branches on why a room rotated; re-decide #5191 and #5197 together');
   assert.match(grace, /REVOKE_GRACE_MS/, 'graceAfter no longer gives the revoke grace');
 });
