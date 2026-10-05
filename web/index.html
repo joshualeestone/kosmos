@@ -3572,12 +3572,25 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
    the end padding lets the last pill clear the fade. A switch keeps its drawn 42x24 size and
    gains an invisible 44px-tall hit area instead. The 10px group labels (.con-group) go up to
    12px, which is legible at arm's length. */
+/* #5303: the "More sections" chevron exists only on a phone (the rule below); a wider Settings nav is a column. */
+#s-nav .snav-more { display: none; }
 @media (max-width: 40rem) {
   #s-nav { width: 100%; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
            scroll-snap-type: x proximity; scrollbar-width: none; padding: 4px 32px 4px 4px;
            -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
            mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
   #s-nav::-webkit-scrollbar { display: none; }
+  /* #5303: the fade follows the scroll (data-edge, set by the script beside the nav): the right edge fades while there
+     is more to the right, the left once the row has moved, and no edge at the end. The chevron sits on the right edge,
+     a whole 44px target, while there is more; a tap moves the row along. */
+  #s-nav[data-edge="l"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+  #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 56px), transparent);
+                           mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 56px), transparent); }
+  #s-nav[data-edge=""] { -webkit-mask-image: none; mask-image: none; }
+  #s-nav .snav-more { position: sticky; right: 0; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -12px;
+                      display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
+                      background: var(--k-bg); color: var(--k-ink); box-shadow: 0 0 0 1px var(--k-rule); }
+  #s-nav:not([data-edge="r"]):not([data-edge="lr"]) .snav-more { display: none; }
   #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
   #s-nav button[data-dot] { padding-right: 28px; }
   #panel-settings input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
@@ -17134,6 +17147,9 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos+</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
+    <!-- #5303: on a phone the row scrolls sideways; this says there is more and moves it along. No data-go, so the
+         nav's click handler and the Settings menu (pnav-settings) both pass it by. Shown only by the phone rule below. -->
+    <button type="button" class="snav-more" id="s-nav-more" aria-label="More sections" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
   </nav>
   <div class="dsecs">
   <section class="dsec" id="s-sec-you" data-sec="you" tabindex="-1" aria-label="Your Profile">
@@ -39283,6 +39299,27 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   if (!b) return;
   settingsOpen(b.dataset.go);
 });
+/* #5303: which edges of the Settings row have more beyond them, for the phone rule's fade and its "More sections"
+   chevron. Recomputed on scroll and resize; a row that does not scroll (desktop) has no edge, so nothing shows. */
+(function snavEdges() {
+  const nav = document.getElementById('s-nav');
+  const more = document.getElementById('s-nav-more');
+  const mark = () => {
+    const room = nav.scrollWidth - nav.clientWidth;
+    const left = room > 2 && nav.scrollLeft > 2;
+    const right = room > 2 && nav.scrollLeft < room - 2;
+    nav.dataset.edge = (left ? 'l' : '') + (right ? 'r' : '');
+    more.hidden = !right;
+  };
+  more.addEventListener('click', () => {
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    nav.scrollBy({ left: Math.round(nav.clientWidth * 0.7), behavior: smooth ? 'smooth' : 'auto' });
+  });
+  nav.addEventListener('scroll', mark, { passive: true });
+  window.addEventListener('resize', mark);
+  if (window.ResizeObserver) new ResizeObserver(mark).observe(nav);
+  mark();
+})();
 
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
    The list is whatever the runtime's folder holds right now; painting from
