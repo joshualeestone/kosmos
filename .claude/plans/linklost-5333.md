@@ -26,6 +26,11 @@ nothing on the board said so ("a message from the person can sit unanswered inde
   separate design question.
 - Not telling the running agent itself here: slice 1's CLI hint reaches it on its next verb.
 
+- Any token revoke other than a removal (a rename, a handoff-restart's retire landing before its session closes)
+  shows this notice by design if it lasts past two polls: the agent really cannot answer, and Restart is its remedy.
+- Two polls in a row, each counted once (a new card object), within six polls of each other (30 s): a slow answer or
+  a throttled hidden tab still shows it; a visit long ago never counts.
+
 ## Weakest premise
 That the board's own store is the one the supervisor minted into. If the cause on the reporter's machine was a
 supervisor minting into a DIFFERENT store, this notice would fire for every agent (correctly: none can be matched),

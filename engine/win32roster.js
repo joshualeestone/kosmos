@@ -226,6 +226,7 @@ function make(opts) {
     const claudeAgents = claudeOk ? agents : [];
     const owned = record.read();
     const lines = [];
+    const COLUMNS = require('./status').PANE_COLUMNS;   // #5333: lazily, once per call (status requires this module)
     for (const a of claudeAgents.concat(codexRows)) {
       if (!a || typeof a !== 'object') continue;
       const id = a.sessionId;
@@ -260,7 +261,7 @@ function make(opts) {
       // shifted every Windows row, putting the name in the new column and dropping the title. A column this does not
       // know is left empty (win32roster.test.js asserts every column is known here).
       const value = { session: name, pane: '0.0', command: WIN32_COMMAND, inMode: '0', claim: name, runner, tokenInstance: '', title: name };
-      lines.push(require('./status').PANE_COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t'));
+      lines.push(COLUMNS.map((c) => (Object.prototype.hasOwnProperty.call(value, c.key) ? value[c.key] : '')).join('\t'));
     }
     // Trailing newline so the last row parses like every other (matches tmux's
     // own output shape); an empty roster is a valid, readable answer (no agents),
