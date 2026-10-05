@@ -175,7 +175,9 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   /* A connector belongs to an ACCOUNT, not a folder (review: it is never in a plugins file); desktop-app chat additions
      are in neither (review 3). */
   assert.match(flat, /A connector added on the claude\.ai website is tied to a Claude account rather than to a folder/);
-  assert.match(flat, /Something added to the Claude desktop app's own chat side is kept by that app, not in any Claude Code folder/);
+  assert.match(flat, /A server or extension set up in the Claude desktop app's own settings is kept by that app, not in any Claude Code folder/);
+  /* The direct instruments first (review 11; each verb confirmed in its own --help on Codex 0.149.1 / this Claude Code). */
+  assert.match(flat, /`claude plugin list` \(installed plugins\), `claude mcp list` \(servers\) and `claude auth status` \(your account\); for Codex, `codex mcp list`/);
   /* Restart is ruled out only for the other-folder/account/app case. */
   assert.match(flat, /Restarting does not change that, so do not suggest it then/);
   assert.match(flat, /whether it was added after you started/);
