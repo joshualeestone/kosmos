@@ -14,11 +14,11 @@
     {
       "icon": "swarm",
       "title": "Org charts read without Claude",
-      "line": "Without Claude set up, an org chart picture or PDF can now be read with an OpenAI API key, or a PNG or JPG picture with a Grok key."
+      "line": "Without Claude set up, an org chart picture or PDF can now be read with an OpenAI API key, or a PNG or JPG picture with a Grok API key."
     },
     {
       "icon": "chat",
-      "title": "Key accounts get a name",
+      "title": "Key accounts show their key",
       "line": "A Gemini or Grok key account with no name now shows on the Right now line as \"API key ending\" and its last characters."
     },
     {
