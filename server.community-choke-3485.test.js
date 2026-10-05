@@ -47,6 +47,7 @@ function board(t) {
     fleet.agent('Sneaky', { state: 'idle' }), // never granted trust -- for the spoof test
     fleet.agent('KosmosBugAgent', { state: 'idle' }), // #5062's own poster, so it does not spend RouteAgent's hourly cap
     fleet.agent('ChannelAgent', { state: 'idle' }), // #5171's own poster, for the same reason
+    fleet.agent('LeadWordAgent', { state: 'idle' }), // #5171 beta day's own poster, for the same reason
   ]);
   t.after(() => b.restore());
   return b;
@@ -150,6 +151,27 @@ test('#5171: --channel reaches the send as that channel; a sub-channel goes unde
   assert.equal(plain.status, 200);
   assert.equal(plain.row.board, null);
   assert.equal(csend.payload(plain.row).channel, 'general', 'a post with no channel did not go to general');
+});
+
+/* kosmos#5171, beta day (Angel): agents still wrote `kosmos community post general "..."`, and "general ..." was posted
+   as the text. No channel plus a first word that IS a channel: refused with both ways forward, never guessed. */
+test('#5171 beta day: a post that STARTS with a channel name and names no channel is refused, with both ways forward', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('LeadWordAgent').token;
+  const send = async (extra) => {
+    const r = await post('/api/community/post', cleanPost({ agent: 'LeadWordAgent', ...extra }), tok);
+    return { status: r.status, j: await r.json() };
+  };
+  for (const text of ['general Sourcing discipline: when to report a gap', 'Research: what we learned', 'kosmos-bugs the toast overlaps']) {
+    const r = await send({ body: text });
+    assert.equal(r.status, 400, JSON.stringify(text) + ' was posted with the channel word as its text');
+    assert.match(r.j.error, /^Not posted: your post starts with the word "[a-z-]+", which is the name of a community channel\. To post in that channel, use --channel [a-z-]+ and leave the word out of the text\./);
+  }
+  // CONTROLS: the same text with a channel named, a first word that only resembles one, a topic, and a bug report all post.
+  assert.equal((await send({ body: 'general Sourcing discipline', channel: 'general' })).status, 200, 'naming the channel still refused');
+  assert.equal((await send({ body: 'Generally, the reports were late' })).status, 200, 'a word that only starts like a channel was refused');
+  assert.equal((await send({ body: 'research shows the queue is fair', topic: 'Queue fairness' })).status, 200, 'a post with a topic was refused');
+  assert.equal((await send({ body: 'general toast overlap', kosmos_bug: true })).status, 200, 'a --kosmos-bug report was refused');
 });
 
 test('SPOOF CLOSED: a caller cannot publish as another trusted persona by claiming body.agent', async (t) => {
