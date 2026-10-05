@@ -16,7 +16,14 @@ BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 3: by PARENTAGE (a reused pid cannot be this shell's child unless this shell made it) and by THIS tree's path.
 ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
   case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*"$REAL_QH"*) return 0;; *) return 1;; esac; }
-trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do wait $p 2>/dev/null; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"' EXIT
+trap '[ -n "${WD:-}" ] && { pkill -KILL -P $WD 2>/dev/null; kill -KILL $WD 2>/dev/null; }; w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; for p in $w; do wait $p 2>/dev/null; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"' EXIT
+# #5331: a whole-file deadline that outlives anything this file runs: past it the file stops itself and FAILS, so a hang
+# in here can never hold the canary, a full validation or CI that runs it (one held Agent1s 1 h 43 min on 10-05).
+QH_FILE_DEADLINE="${QH_FILE_DEADLINE:-900}"
+trap 'exit 124' TERM
+( trap - EXIT TERM; sleep "$QH_FILE_DEADLINE" </dev/null >/dev/null 2>&1
+  echo "FAIL  tools/test-queued-heavy-4977.sh: still running after ${QH_FILE_DEADLINE}s (#5331), stopped"
+  kill -TERM $$ 2>/dev/null; sleep 15; kill -KILL $$ 2>/dev/null ) & WD=$!
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SIDE_MIN_HOLD_S KOSMOS_LIGHT_SIDE_COOKIE \
@@ -52,6 +59,9 @@ ok() { if eval "$2"; then echo "OK   $1"; oks=$((oks+1)); else echo "BAD  $1"; b
 # until_true <seconds> <condition>: poll instead of a fixed sleep (review 1); returns 1 at the deadline.
 until_true() { local end=$(( $(date +%s) + $1 )); while ! eval "$2"; do [ "$(date +%s)" -ge "$end" ] && return 1; sleep 0.3; done; return 0; }
 gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
+# #5331: wait for a wrapper this file stopped, but never without a bound: 0 when it exited within $2 quarter-seconds,
+# 1 (and KILLed, so nothing is left holding a claim) when it did not.
+reap() { local p=$1 i=0; while [ "$i" -lt "${2:-40}" ]; do case "$(ps -o stat= -p "$p" 2>/dev/null)" in ''|Z*) wait "$p" 2>/dev/null; return 0;; esac; sleep 0.25; i=$((i+1)); done; kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 1; }
 hold
 o=$(/bin/bash $QH --light "a" sh -c 'cut -d" " -f4- $KOSMOS_RUN_MARKER_DIR/light-side-claim' 2>&1)
 o2=$(cd /tmp && QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB KOSMOS_RUN_MARKER_DIR=$S/mlab /bin/bash $QH "lab" sh -c 'cat $KOSMOS_RUN_MARKER_DIR/machine-claim; echo "CL=${KOSMOS_CLAIM_LABEL:-unset}"' 2>&1)
@@ -75,7 +85,8 @@ ok "side turn runs beside a heavy holder and releases" '[[ "$o" == *"SIDE TURN"*
 until_true 30 '[ -e $S/m/light-side-claim ] && [ ! -e $S/m/suitewait.$B ] && grep -q "SIDE TURN: running" $S/b.log'; b_started=$?; rm -f $S/m/machine-claim
 o=$(KOSMOS_NO_WAIT=1 /bin/bash $QH "b-heavy" true 2>&1)
 ok "heavy main turn refused beside a live side turn" '[ "$b_started" = 0 ] && [[ "$o" == *"side turn beside the heavy one"* && "$o" == *REFUSED* ]]'
-for p in $(pgrep -f "^sleep $((U+8))$"); do kill -KILL $p; done; kill $B 2>/dev/null; wait $B 2>/dev/null   # review 4: no 6-second race; review 5: fail fast
+for p in $(pgrep -f "^sleep $((U+8))$"); do kill -KILL $p; done; kill $B 2>/dev/null; reap $B 80; b_reaped=$?   # review 4: no 6-second race; review 5: fail fast; #5331: bounded
+ok "#5331: a stopped side turn's wrapper exits within 20 s (its teardown never blocks)" '[ "$b_reaped" = 0 ]'
 o=$(QUEUED_HEAVY_RENEW_SEC=1 /bin/bash $QH "d" sleep 3 2>&1); until_true 20 '[ ! -e $S/m/machine-claim ]'
 ok "main turn: renewer stops, no claim after release" '[[ "$o" == *"claim released"* && ! -e $S/m/machine-claim ]]'
 hold
@@ -203,7 +214,27 @@ ok "#5064: a main-lane waiter that lost its take kept its place and ran before t
 sed '/kosmos_mark_suite_waiting "\$QH_JOINED"/d' "$REAL_QH" > $S/qh-no5064.sh
 o=$(run5064 $S/qh-no5064.sh $S/m5064n)
 ok "#5064 CONTROL: without the re-mark the later joiner runs first (the arm above is not vacuous)" '[[ "$o" == *"ORDER=B A "* ]] && ! grep -q "kosmos_mark_suite_waiting \"\$QH_JOINED\"" $S/qh-no5064.sh'
-EXPECTED=82   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms
+# #5331: the teardown never blocks on its capper, even one that is not a group leader AND is stopped (the shape of the
+# canary hang: the group kill missed it and an unbounded wait held the claim). Both copies drop the capper's own `set -m`
+# so it is not a group leader; the control also keeps the old teardown (group kill, then wait), which hangs.
+sed 's/^  set -m$/  :/' "$REAL_QH" > $S/qh-nojc5331.sh
+sed -e 's/^  set -m$/  :/' -e 's/^  _qh_stop_capper$/  if [ -n "$CAPPER" ]; then kill -KILL -- "-$CAPPER" 2>\/dev\/null; wait "$CAPPER" 2>\/dev\/null; fi/' "$REAL_QH" > $S/qh-old5331.sh
+capper_of() { local c; for c in $(pgrep -P "$1"); do case "$(ps -o command= -p "$c" 2>/dev/null)" in *qh-*5331.sh*) echo "$c"; return 0;; esac; done; return 1; }
+side5331() {   # $1 the copy, $2 its marker dir: prints 0 (reaped in time), 1 (hung, KILLed) or 2 (never started)
+  local q="$1" m="$2" w cap r
+  mkdir -p "$m"; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" exec /bin/bash "$q" --light "c5331" sleep $((U+3)) ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
+  until_true 30 "grep -q 'SIDE TURN: running' '$m.log' && capper_of $w >/dev/null" || { kill -KILL $w 2>/dev/null; echo 2; return; }
+  cap="$(capper_of $w)"; kill -STOP "$cap"
+  for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
+  kill $w 2>/dev/null; reap $w 40; r=$?
+  kill -KILL "$cap" 2>/dev/null; wait "$cap" 2>/dev/null
+  echo $r
+}
+r5331="$(side5331 $S/qh-nojc5331.sh $S/m5331)"; c5331="$(side5331 $S/qh-old5331.sh $S/m5331c)"
+ok "#5331: a capper that is not a group leader and is stopped does not hold the teardown (it stops, releases)" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ]'
+ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
+EXPECTED=85   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
