@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: taps-5200
-diff_hash: 95b9a482fb4149c9814e59019659e2e40404f7ed8223ffff725f5c73d13017bb
+diff_hash: d7af038dc699d590efadc2edf14046fc47d9d089472733b4824dff21dda47767
 validation: passed on every affected check (render-task-taps-5200.js all PASS, light and dark at 390 with touch, plus the desktop control; mobile-shots task-page taps<44 = 0 on 16 shots; tools.browser-checks-wired + browser-checks-indexed 12/12). Controls: against main all 10 size checks FAIL; against round 0's CSS the overlap, underline and Close-this-task checks FAIL. The full suite runs on the PR's CI; the merge is held until after Monday and after #5184 (same page).
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-04T01:47:02Z
@@ -27,3 +27,10 @@ converged: true
 - [NIT] the rule-off baseline was not the base look, and sideways shift was unasserted --> FIXED (baseline keeps the base border, which caught a real 1px row change, now kept; name and Done text edges pinned)
 - [NIT] "unchanged" wording for + Add subtask's gap on touch --> FIXED in the plan (its box's own centring; 12px measured)
 - [STRENGTH] the name's leftward reach lands on span.lav (aria-hidden), nothing clickable; consecutive rows' hit boxes do not overlap; desktop identical (the moved margin-top is the same 10px)
+
+
+### Re-hashed 2026-10-05 09:18 CDT (rebase onto main)
+Angel's #5184, the base of this stack, landed on main inside #5205's squash (52d152af1). These six commits were rebased onto
+origin/main with `git rebase --onto origin/main ef5e5a76d`. One conflict was resolved: main's #5218-#5221 touch block and this branch's #5200
+block are independent, so both are kept. `git range-diff` shows the same changes, differing only in context lines. render-task-taps-5200.js on the
+rebased head: All checks passed (40). The diff_hash above is the rebased diff against origin/main.
