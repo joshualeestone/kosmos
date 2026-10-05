@@ -67599,6 +67599,7 @@ function fedInviteOpen(opener, prefill) {
   FEDINV_PROJECT = PJ_CURRENT;
   FEDINV_SEQ++;
   if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
+  FEDINV_COPY_BUSY = false;   // a clipboard still being asked belongs to the sheet that was closed (its seq check drops it)
   document.getElementById('fedinv-t').textContent = FEDINV_TITLE;
   document.getElementById('fedinv-ask').hidden = false;
   document.getElementById('fedinv-done').hidden = true;
@@ -67694,7 +67695,7 @@ async function fedInviteCopy() {
   const btn = document.getElementById('fedinv-copy');
   const status = document.getElementById('fedinv-status');
   const text = codeEl.value;
-  if (!text) return;
+  if (!text || FEDINV_COPY_BUSY) return;   // Copy the invitation is still asking the clipboard: one answer at a time
   const seq = FEDINV_SEQ;
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
