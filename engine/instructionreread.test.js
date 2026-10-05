@@ -160,3 +160,36 @@ test('review 4: oweChanged owes a community re-read to exactly the agents whose 
   assert.deepEqual(next, { dot: { at: T - 5, n: 1, sections: ['rules'] }, ann: { at: T, n: 1, sections: ['community'] } });
   assert.deepEqual(ir.oweChanged(null, {}, T), {});
 });
+
+test('review 5: just before typing, the card is read again; one that stopped being idle is not typed into', async () => {
+  let calls = 0;
+  const flip = () => { calls += 1; return calls === 1 ? CARDS : CARDS.map((c) => (c.sessionName === 'ida' ? CARDS.find((x) => x.sessionName === 'ned') && { ...CARDS.find((x) => x.sessionName === 'ned'), sessionName: 'ida' } : c)); };
+  const p = passArgs({ owed: { ida: debt() }, o: { roster: flip } });
+  const r = await ir.passOnce(p.o);
+  assert.deepEqual(p.sent, [], 'typed into a card that was no longer idle at the moment of sending');
+  assert.deepEqual(r.map((x) => x.act), ['not-idle']);
+  assert.ok(p.file().ida, 'the debt was lost');
+});
+
+test('review 5: an agent missing from one roster keeps its debt; missing at two passes ends it', async () => {
+  const seenMissing = new Set();
+  const p = passArgs({ owed: { zed: debt() }, o: { seenMissing } });
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['missing']);
+  assert.ok(p.file().zed);
+  assert.ok(seenMissing.has('zed'));
+  assert.deepEqual((await ir.passOnce(p.o)).map((x) => x.act), ['gone']);
+  assert.deepEqual(p.file(), {});
+});
+
+test('review 5: a landed line is recorded with its time (the community turn reads it); a refused one is not', async () => {
+  const rec = [];
+  const ok = passArgs({ owed: { ida: debt() }, o: { recordSent: (s, at) => rec.push([s, at]) } });
+  await ir.passOnce(ok.o);
+  assert.deepEqual(rec.map((x) => x[0]), ['ida']);
+  const no = passArgs({ owed: { ida: debt() }, o: { recordSent: (s, at) => rec.push([s, at]), deliver: async () => ({ state: D.COULD_NOT }) } });
+  await ir.passOnce(no.o);
+  assert.equal(rec.length, 1);
+  assert.ok(ir.recordSent('ida', T));
+  assert.ok(ir.sentTimes('ida').includes(T));
+  assert.ok(ir.sentFile().startsWith(SANDBOX));
+});
