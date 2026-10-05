@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: community-refresh-5297
-diff_hash: a37be6bee9f3d6f14a43b533835933123c5bc36e0dd815f80473e048409e7176
-validation: pending (focused 702/702 incl. the file-scanning guards on the rebased head deac5bcec; full suite queued on Mortals and PR CI, merge waits on both)
+diff_hash: 410c8ff161cf3244e9b5a76e5e89d516e31e96b5f024c084b2f4425cd52def67
+validation: pending (focused 730/730 incl. the file-scanning guards on the rebased head f5166d668; full suite queued on Mortals and PR CI, merge waits on both)
 subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-05T15:46:39Z
-iterations: 10
+timestamp: 2026-10-05T16:43:33Z
+iterations: 18
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 10
-**Converged:** Yes (iteration 10: no BLOCKER, WARNING or CONVENTION; NITs only)
+**Iterations:** 18 (converged at 10; reopened at 11 when Splinter's 11:16 and 11:37 calls changed the code; converged again at 18)
+**Converged:** Yes (iteration 18: three WARNINGs, each DEFERRED with reasoning below; no new actionable finding)
 **Total findings:** 1 BLOCKER, 26 WARNINGs, 4 CONVENTIONs, about 30 NITs
 **Fixed:** all BLOCKER/WARNING findings except those recorded DEFERRED below | **Asked (awaiting user):** 0
 
@@ -114,6 +114,73 @@ Self-generated (6c-bis) counts were not measured by blame; recorded as not measu
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** not measured
+**Converged**: no new actionable findings.
+
+
+### Reopened after convergence (Splinter 11:16: add the block to agents that never had one; 11:37: connected agents refreshed only)
+
+#### Iteration 11
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 4 NITs
+**Self-generated:** not measured
+- [WARNING] engine/remove.js stale "only place it is added" comment --> FIXED
+- [WARNING] plan Changes/Decided contradict the add --> FIXED
+- [CONVENTION] engine/communityblock.js unused onlyIfPresent --> FIXED (removed; restored for connected agents at 17)
+- [NIT] a folderless agent reported as the siblings do; re-read wording for a new section --> FIXED
+
+#### Iteration 12
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** not measured
+- [WARNING] postedBy per agent at boot --> FIXED (one postTimesAll read)
+- [WARNING] two spellings of the Community gate --> FIXED
+- [WARNING] .previous rotation; cut history and startedSince --> DEFERRED (recorded in the plan)
+
+#### Iteration 13
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** not measured
+- [WARNING] a switched-off section held the whole debt --> FIXED (per section)
+- [WARNING] the Prompter gated the person's consented rules line --> FIXED (Prompter gates community only)
+
+#### Iteration 14
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** not measured
+- [WARNING] rules line says "updated" for a first add --> FIXED ("added or updated")
+- [WARNING] first-boot burst --> DEFERRED (decided; paced by the idle gate)
+- [WARNING] prompt tries lost on restart --> DEFERRED: not a defect, the book is on disk (communityturn.readBook)
+
+#### Iteration 15
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** not measured
+- [WARNING] give-up from the first owe dropped a late rules line --> FIXED (from the latest owe)
+- [WARNING] the add reaches connected agents --> resolved by Splinter's 11:37 call (refresh only)
+
+#### Iteration 16
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** not measured
+- [WARNING] hourly limit --> DEFERRED (duplicate of iteration 9's decision)
+- [WARNING] two automatic lines back to back --> DEFERRED (benign; chat serialises per pane)
+- [WARNING] no intro for an added agent when the store is unreadable --> DEFERRED (the safe direction)
+
+#### Iteration 17
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 2 CONVENTIONs, 5 NITs
+**Self-generated:** not measured
+- [WARNING] a connected agent could be added to if the block vanished between reads --> FIXED (onlyIfPresent at write time)
+- [CONVENTION] header and plan omit the connected exception --> FIXED
+- [NIT] pass-end write must not replace an unreadable debt file --> FIXED
+
+#### Iteration 18
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** not measured
+- [WARNING] engine/communityturn.js a post made while idle masks the next turn --> DEFERRED: one missed prompt, the decided direction (fewer prompts), the floor still applies
+- [WARNING] engine/communityblock.js refreshing a connected agent's file leaves a diff --> DEFERRED: Splinter's 11:37 call (refresh when it already carries the block)
+- [WARNING] engine/communityblock.js connected() reads "..x" as outside --> DEFERRED: unreachable (nameUsable refuses ".."), and it fails toward no add
 **Converged**: no new actionable findings.
 
 ### Final Ledger (summary)
