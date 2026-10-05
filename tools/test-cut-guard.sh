@@ -707,60 +707,77 @@ KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4609 two light runs keep oldest-first order between them" \
   || fail "#4609 a later light run went ahead of an earlier one (rc=$rc, $out)"
-# --- #5272 the main canary waits first among waiters, one canary at a time ---
+# --- #5272 the main canary waits first among waiters, one canary at a time, and only a REAL main canary ---
 # cw <pid> <queue time> <class>: a CURRENT-lib marker (6 lines: line 5 the class, line 6 the side flag, empty here).
 # lwait above writes 5 lines, which every reader takes as an older lib and switches to the legacy order (no canary),
 # so these arms need the 6-line shape; the legacy arm below uses lwait on purpose.
 cw() { printf '%s %s\n%s\n%s\n%s\n%s\n\n' "$2" "$1" "$(ps -ww -o command= -p "$1")" "$(_kosmos_pid_started_local "$1")" "$(_kosmos_pid_started "$1")" "$3" > "$W/markers/suitewait.$1"; }
-sleep 60 & wp2=$!
-cw "$wp" $((NOW - 3000)) heavy                        # heavy, starving (past the 2700 s line)
+# A canary is honoured only when it IS one: `bash <absolute tree>/tools/run-tests.sh` on a commit already on that tree's
+# origin/main (_kosmos_canary_genuine). Stand-ins: the same fake run-tests.sh in a tree ON main and one OFF it.
+CT="$(mktemp -d /tmp/canary5272.XXXXXX)"
+ctree() {   # <dir> <on|off>: a git tree whose HEAD is (on) or is not (off) an ancestor of refs/remotes/origin/main
+  mkdir -p "$1/tools"; printf '#!/bin/bash\nwhile :; do sleep 1; done\n' > "$1/tools/run-tests.sh"
+  git -C "$1" init -q && git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m one || return 1
+  if [ "$2" = on ]; then git -C "$1" update-ref refs/remotes/origin/main HEAD
+  else git -C "$1" update-ref refs/remotes/origin/main HEAD; git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m two; fi
+}
+ctree "$CT/main" on; ctree "$CT/branch" off
+# The light arms above leave the stand-in's marker in the 5-line (older-lib) shape, which switches every reader to the
+# legacy order where a canary is heavy. Clear it, or these arms test the legacy path while their names say otherwise.
+rm -f "$W/markers/suitewait.$wp"
+bash "$CT/main/tools/run-tests.sh" & g1=$!
+bash "$CT/main/tools/run-tests.sh" & g2=$!
+bash "$CT/branch/tools/run-tests.sh" & g3=$!
+sleep 0.3   # each stand-in's command line must read as its run-tests.sh: bash stays the process (no exec)
+NOW="$(date +%s)"
+cw "$g1" $((NOW - 10)) canary                         # a real main canary, newest of all
+kosmos_mark_suite_waiting $((NOW - 3000))              # this run: heavy, STARVING
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+has_pid "$ahead" "$g1" && pass "#5272 a real main canary goes ahead of an older STARVING heavy run" \
+  || fail "#5272 a real main canary waited behind a starving heavy run (ahead: $ahead)"
+cw "$g1" $((NOW - 10)) heavy                          # CONTROL: the same waiter, heavy
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+! has_pid "$ahead" "$g1" && pass "#5272 CONTROL: the same waiter queued heavy is behind the starving run" \
+  || fail "#5272 CONTROL: a newer heavy waiter was ahead of a starving one (ahead: $ahead)"
+rm -f "$W/markers/suitewait.$g1"
+cw "$wp" $((NOW - 10)) canary                         # a run that only SAYS canary (not a main suite)
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+! has_pid "$ahead" "$wp" && pass "#5272 a run that only names itself canary (not a main suite) is read as heavy" \
+  || fail "#5272 a self-declared canary jumped the queue (ahead: $ahead)"
+cw "$g3" $((NOW - 10)) canary                         # a full suite, but on a commit NOT on origin/main
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+! has_pid "$ahead" "$g3" && pass "#5272 a suite of a commit not on origin/main is read as heavy, though it claims canary" \
+  || fail "#5272 a branch suite claiming canary jumped the queue (ahead: $ahead)"
+rm -f "$W/markers/suitewait.$wp" "$W/markers/suitewait.$g3"
+# One canary at a time: of two real canaries only the older ranks as canary.
+cw "$g1" $((NOW - 100)) canary; cw "$g2" $((NOW - 10)) canary
+kosmos_mark_suite_waiting $((NOW - 50))                # this run: heavy, between them
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+{ has_pid "$ahead" "$g1" && ! has_pid "$ahead" "$g2"; } && pass "#5272 of two canaries only the older ranks as canary; the newer waits as heavy" \
+  || fail "#5272 two canaries were both ahead, or neither (ahead: $ahead)"
+cw "$g1" $((NOW - 10)) canary                         # equal queue times: the lower pid is the canary
+lo="$g1"; hi="$g2"; [ "$g2" -lt "$g1" ] && { lo="$g2"; hi="$g1"; }
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+{ has_pid "$ahead" "$lo" && ! has_pid "$ahead" "$hi"; } && pass "#5272 two canaries queued in the same second: the lower pid is the canary" \
+  || fail "#5272 the equal-time canary tie went the wrong way (lo $lo, hi $hi, ahead: $ahead)"
+rm -f "$W/markers/suitewait.$g2"
+# Mixed generations: while a waiter from an older lib is live (a 5-line marker), every reader uses the older order,
+# which has no canary, so the canary is heavy there and all readers still agree.
+cw "$g1" $((NOW - 10)) canary; lwait $((NOW - 200)) heavy
+ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
+! has_pid "$ahead" "$g1" && pass "#5272 with an older-lib waiter live, a canary is heavy (the older order has none)" \
+  || fail "#5272 a canary used its rank under an older lib's order (ahead: $ahead)"
+rm -f "$W/markers/suitewait.$g1" "$W/markers/suitewait.$wp"
+# This run asks for canary but is not a main suite: the marker records the ask, the order reads heavy, and it is told.
+cw "$wp" $((NOW - 100)) heavy
 KOSMOS_QUEUE_CLASS=canary kosmos_mark_suite_waiting $((NOW - 30))
-[ "$(sed -n '5p' "$W/markers/suitewait.$$")" = canary ] && pass "#5272 the marker records canary on line 5" \
+[ "$(sed -n '5p' "$W/markers/suitewait.$$")" = canary ] && pass "#5272 the marker records the canary ask on line 5" \
   || fail "#5272 the marker's line 5 is $(sed -n '5p' "$W/markers/suitewait.$$"), not canary"
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && pass "#5272 a canary goes ahead of an older STARVING heavy waiter" \
-  || fail "#5272 a canary waited behind a starving heavy one (rc=$rc, $out)"
-kosmos_mark_suite_waiting $((NOW - 30))                # CONTROL: the same place, heavy
-out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#5272 CONTROL: a heavy run in the same place waits behind the starving one" \
-  || fail "#5272 CONTROL: a heavy run jumped a starving heavy waiter (rc=$rc, $out)"
-# A heavy run keeps its place: a canary that queued AFTER it goes first, and nothing else moves.
-cw "$wp" $((NOW - 10)) canary                         # the canary, newest of all
-cw "$wp2" $((NOW - 100)) heavy                        # an older heavy run
-kosmos_mark_suite_waiting $((NOW - 200))               # this run: heavy, older than wp2
-ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
-{ has_pid "$ahead" "$wp" && ! has_pid "$ahead" "$wp2"; } && pass "#5272 a heavy run has only the canary ahead of it, and keeps its place ahead of a newer heavy" \
-  || fail "#5272 a heavy run's place moved behind a canary (ahead: $ahead)"
-kosmos_mark_suite_waiting $((NOW - 50))                # CONTROL: this run newer than wp2
-ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
-{ has_pid "$ahead" "$wp" && has_pid "$ahead" "$wp2"; } && pass "#5272 CONTROL: a newer heavy run has the canary AND the older heavy ahead" \
-  || fail "#5272 CONTROL: the order behind a canary is wrong (ahead: $ahead)"
-# One canary at a time: a second canary ranks as heavy, behind the first AND behind an older heavy run.
-cw "$wp" $((NOW - 100)) canary                        # the first canary
-cw "$wp2" $((NOW - 60)) heavy                         # an older heavy run (not starving)
-KOSMOS_QUEUE_CLASS=canary kosmos_mark_suite_waiting $((NOW - 30))
-ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
-{ has_pid "$ahead" "$wp" && has_pid "$ahead" "$wp2"; } && pass "#5272 a second canary waits as heavy, behind the first canary and an older heavy run" \
-  || fail "#5272 a second canary jumped the queue (ahead: $ahead)"
-out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && has "$out" "#5272" && has "$out" "one canary at a time"; } && pass "#5272 and its refusal says why a canary is waiting" \
-  || fail "#5272 a waiting canary was not told why (rc=$rc, $out)"
-cw "$wp" $((NOW - 100)) heavy                         # CONTROL: the same places, but this run is the ONLY canary
-ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
-[ -z "${ahead// /}" ] && pass "#5272 CONTROL: the only canary has nobody ahead of it" \
-  || fail "#5272 CONTROL: the only canary had waiters ahead (ahead: $ahead)"
-# Two canaries in the OTHER order: this run is the older, so it keeps canary rank and the newer one waits.
-cw "$wp" $((NOW - 10)) canary
-ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
-[ -z "${ahead// /}" ] && pass "#5272 of two canaries the older keeps canary rank" \
-  || fail "#5272 the older canary was put behind a newer one (ahead: $ahead)"
-# Mixed generations: while a waiter from an older lib is live (a 5-line marker), every reader uses the older order,
-# which has no canary, so a canary is heavy there and all readers still agree.
-rm -f "$W/markers/suitewait.$wp2"; lwait $((NOW - 60)) heavy
-ahead="$(_kosmos_suite_waiters_ahead | tr '\n' ' ')"
-has_pid "$ahead" "$wp" && pass "#5272 with an older-lib waiter live, a canary is heavy (the older order), so the older heavy is ahead" \
-  || fail "#5272 a canary used its rank against an older lib's order (ahead: $ahead)"
-kill "$wp2" 2>/dev/null; wait "$wp2" 2>/dev/null; rm -f "$W/markers/suitewait.$wp2"
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp" && has "$out" "#5272" && has "$out" "read as heavy"; } \
+  && pass "#5272 a run that asks for canary but is not one waits as heavy, and its refusal says why" \
+  || fail "#5272 a non-canary asking for canary was not held or not told (rc=$rc, $out)"
+kill "$g1" "$g2" "$g3" 2>/dev/null; wait "$g1" "$g2" "$g3" 2>/dev/null; rm -f "$W/markers/suitewait.$wp"; rm -rf "$CT"
 KOSMOS_QUEUE_CLASS=bogus kosmos_mark_suite_waiting $((NOW - 30))
 [ "$(sed -n '5p' "$W/markers/suitewait.$$")" = heavy ] && pass "#4609 an unknown class is recorded as heavy" \
   || fail "#4609 an unknown class was recorded as $(sed -n '5p' "$W/markers/suitewait.$$")"

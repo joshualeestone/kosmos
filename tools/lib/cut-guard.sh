@@ -649,8 +649,22 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_ko
 # of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
 # #5272: KOSMOS_QUEUE_CLASS=canary is the main canary (a full suite on origin/main's tip, the backstop for merges that
-# skip a re-run). It waits first among waiters (_kosmos_queue_rank), one canary at a time (_kosmos_suite_waiters_ahead).
+# skip a re-run). It waits first among waiters (_kosmos_queue_rank), one canary at a time (_kosmos_suite_waiters_ahead),
+# and only a waiter that IS a main canary is honoured (_kosmos_canary_genuine); any other that claims it reads heavy.
 _kosmos_queue_class() { case "${KOSMOS_QUEUE_CLASS:-}" in light) echo light ;; canary) echo canary ;; *) echo heavy ;; esac; }
+# _kosmos_canary_genuine <marker file>: the waiter is a full suite of a commit already on origin/main, so it is a main
+# canary whatever it is called. Line 2 (its command) must be `bash <tree>/tools/run-tests.sh` with an ABSOLUTE tree, and
+# that tree's HEAD an ancestor of its origin/main. Defined by what the run is, not by what it says, so naming a cargo
+# run, a browser run or a branch's suite "canary" gains nothing (Angel's review of #5272). A suite started as
+# `bash tools/run-tests.sh` (relative) is not recognised: the canary starts it by absolute path. Fails closed (heavy).
+_kosmos_canary_genuine() {
+  local cmd tree
+  cmd="$(sed -n '2p' "$1" 2>/dev/null)" || return 1
+  case "$cmd" in "bash /"*"/tools/run-tests.sh"|"bash /"*"/tools/run-tests.sh "*) ;; *) return 1 ;; esac
+  tree="${cmd#bash }"; tree="${tree%%/tools/run-tests.sh*}"
+  [ -d "$tree" ] || return 1
+  git -C "$tree" merge-base --is-ancestor HEAD refs/remotes/origin/main 2>/dev/null
+}
 # _kosmos_queue_rank <queue time> <class> <now>: 0 the canary, 1 any waiter past the starve line, 2 a light one, 3 any
 # other heavy. #5272: the canary ranks ABOVE a starving waiter. Ranked equal, it waited behind every heavy job past the
 # starve line, which on a busy day is most of the queue (6 h on 2026-10-04). It changes the order, never how many hold
@@ -697,6 +711,7 @@ _kosmos_suite_waiters_ahead() {
   fi
   if [ -n "$mine_ts" ]; then
     cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" || cls=""; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
+    [ "$cls" = canary ] && ! _kosmos_canary_genuine "$(_kosmos_suite_waiter_file "$$")" && cls=heavy   # #5272
     mine_cls="$cls"
   fi
   # Pass 1: the live waiters, with their class and whether an OLDER lib wrote the marker (fewer than 6 lines).
@@ -711,6 +726,7 @@ _kosmos_suite_waiters_ahead() {
     case "$ts" in ''|*[!0-9]*) continue ;; esac
     cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""   # an older lib's marker has no line 5 (or it just left): heavy
     case "$cls" in ''|*[!a-z]*) cls=heavy ;; esac
+    [ "$cls" = canary ] && ! _kosmos_canary_genuine "$f" && cls=heavy   # #5272: only a real main canary
     # Review 12: a marker of 4 lines or fewer is a lib from before #4609, which orders strictly oldest-first; one of 5
     # lines is #4609's (light ahead, starving heavy first). The oldest generation live decides the rule for everyone.
     lines="$(sed -n '$=' "$f" 2>/dev/null)"   # review 15: read once (a marker can go between two reads)
@@ -732,9 +748,12 @@ _kosmos_suite_waiters_ahead() {
   # other: an older reader that names this one has, by its own rule, this one ahead, which this reader's "both" test
   # then cannot contradict. The cost is the other direction, two waiters each reading themselves first, which the
   # claim and the live-suite checks already serialise.
-  # #5272: one canary at a time. Only the OLDEST live canary waiter (queue time, then pid; this run included) ranks as
-  # canary; any other canary waiter ranks as heavy, so naming a run canary cannot jump the queue twice. Every reader
-  # computes the same first canary from the same markers, so they all read one order.
+  # #5272: one canary at a time. Only the OLDEST live genuine canary waiter (queue time, then pid; this run included)
+  # ranks as canary; any other ranks as heavy. Readers of this lib compute the same first canary from the same markers.
+  # A reader of the #4911 lib (6-line markers too, so it cannot be told apart) reads every canary as heavy; it and the
+  # canary may then each read themselves first, which the live-suite check and the machine claim serialise. No wait
+  # cycle forms: the first canary names no one ahead of it. The bound is one canary waiting at a time, not one ever:
+  # once the first runs, the next genuine canary is first.
   first_canary="$(printf '%s' "$seen" | awk -v mp="${mine_pid:-}" -v mt="${mine_ts:-}" -v mc="${mine_cls:-}" '
     BEGIN { if (mc == "canary" && mt != "" && mp != "") { bt = mt + 0; bp = mp + 0; got = 1 } }
     $3 == "canary" { t = $2 + 0; q = $1 + 0; if (!got || t < bt || (t == bt && q < bp)) { bt = t; bp = q; got = 1 } }
@@ -767,9 +786,9 @@ kosmos_refuse_if_earlier_suite_waiter() {
   pid="$(_kosmos_suite_waiters_ahead | { read -r p || true; printf '%s' "$p"; cat >/dev/null; })" || true
   [ -n "$pid" ] || return 0
   echo "another queued run (pid $pid) is ahead of $what in the queue (it has waited longer, or it is a light run, #4609); it goes first." >&2
-  # #5272: a canary named a waiter ahead of it only when it is ranked as heavy, for one of two reasons. Say both.
+  # #5272: a run that asked to be the canary and still has a waiter ahead is being read as heavy. Name the reasons.
   [ "$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" = canary ] \
-    && echo "  (this run is a canary, which waits first, #5272. It waits as heavy here because another canary queued before it (one canary at a time), or because a waiter from an older lib is live, whose order has no canary.)" >&2
+    && echo "  (this run asked to queue as the canary, #5272, and is read as heavy here: it is not a full suite started as bash <absolute tree>/tools/run-tests.sh on a commit already on origin/main, or another canary queued before it (one at a time), or a waiter from an older lib is live, whose order has no canary.)" >&2
   return 1
 }
 
