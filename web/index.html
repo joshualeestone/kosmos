@@ -3583,9 +3583,13 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   /* #5303: the fade follows the scroll (data-edge, set by the script beside the nav): the right edge fades while there
      is more to the right, the left once the row has moved, and no edge at the end. The chevron sits on the right edge,
      a whole 44px target, while there is more; a tap moves the row along. */
+  /* While the chevron shows, the pills fade out just BEFORE its 44px and the chevron itself stays solid (it is inside
+     the masked row, so a plain right-edge fade would fade it too). */
+  #s-nav[data-edge="r"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
+                          mask-image: linear-gradient(to right, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
   #s-nav[data-edge="l"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
-  #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 56px), transparent);
-                           mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 56px), transparent); }
+  #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
+                           mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
   #s-nav[data-edge=""] { -webkit-mask-image: none; mask-image: none; }
   #s-nav .snav-more { position: sticky; right: 0; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; margin-left: -12px;
                       display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
