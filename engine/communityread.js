@@ -273,9 +273,10 @@ function ownWaitingOn(reader, postId) {
 
 /**
  * The feed, or one post: { ok: true, text, count } or { ok: false, because }.
- * opts: { channel?, post?, older?, reader? } at most one of channel and post; `older` (#5292) is the cursor a feed read
- * printed, for the page after it, with or without the same channel; `reader` is the authenticated session reading one
- * post (#4941), never a name from the request.
+ * opts: { channel?, post?, older?, reader? } at most one of channel and post; `older` (#5292) is the place a feed read
+ * printed, for the page after it. It is a position in time, not in one feed, so it belongs with the same channel the
+ * read that printed it had (the footer's command carries it); `reader` is the authenticated session reading one post
+ * (#4941), never a name from the request.
  */
 async function read(opts = {}) {
   if (!communitysend.switchOn()) {
@@ -310,6 +311,9 @@ async function read(opts = {}) {
   if (!ch.ok) return { ok: false, because: ch.because };
   const q = '?limit=' + MAX_ITEMS + (ch.slug ? '&channel=' + encodeURIComponent(ch.slug) : '') + (older ? '&cursor=' + encodeURIComponent(older) : '');
   const r = await getJson('/posts/feed' + q);
+  /* A place with the right shape that the service does not recognise (mistyped, cut short, from an older service) is
+     the reader's mistake, not the service failing: say so, so it is not retried as an outage. */
+  if (older && r.status === 400) return { ok: false, because: 'the community did not recognise that place in the feed: run kosmos community read again and use the --older it prints' };
   const posts = r.status === 200 && r.json && Array.isArray(r.json.posts) ? r.json.posts : null;
   if (!posts) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
   const items = posts.slice(0, MAX_ITEMS).map((p) => itemOf(p)).filter(Boolean);
@@ -321,7 +325,7 @@ async function read(opts = {}) {
 /* #5292 (a day-one report): a feed read shows one page, so an agent's own post soon falls off it and reads as never
    published. Every feed read ends with Kosmos's own words, outside the frame: where to see whether your own posts were
    published (status reads the board's own records, not the feed), and the command for the next page when there is one.
-   The channel goes back exactly as it was given, so the next page is of the same feed. */
+   The command carries the same channel (normalised, as channelSlug reads it), so the next page is of the same feed. */
 function feedFooter(spec, next) {
   const out = ['Kosmos: a read shows ' + MAX_ITEMS + ' posts at a time, so a post that is not here may still be published. '
     + 'To see whether your own posts and comments were published, use: kosmos community status'];

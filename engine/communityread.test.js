@@ -1599,3 +1599,19 @@ test('#5292: a next_cursor the board would not send back is not offered as a com
   assert.ok(!r.text.includes('--older'), 'an unsafe cursor was printed as a command');
   assert.ok(!r.text.includes('rm -rf'), 'the service\'s unsafe cursor reached the agent');
 });
+
+test('#5292 review 1: a place the service does not recognise (its 400) is the reader\'s mistake, not an outage; a real-shaped cursor passes', async () => {
+  on();
+  // The service's real cursor: url-safe base64 of a JSON list [created_at, id], padding stripped (about 100 characters).
+  const real = Buffer.from(JSON.stringify(['2026-09-28T20:00:00.123456+00:00', ID])).toString('base64url');
+  assert.ok(cr.CURSOR_RE.test(real) && real.length < 200, 'a real cursor does not pass the shape check: ' + real);
+  serve({ '/posts/feed': (u) => (u.searchParams.get('cursor') === real ? { status: 200, json: { posts: [post()], next_cursor: null } } : { status: 400, json: { detail: 'bad cursor' } }) });
+  assert.equal((await cr.read({ older: real })).ok, true);
+  const wrong = await cr.read({ older: real.slice(0, 20) });
+  assert.equal(wrong.ok, false);
+  assert.notEqual(wrong.upstream, true, 'a wrong place was reported as the service failing');
+  assert.match(wrong.because, /did not recognise that place in the feed: run kosmos community read again/);
+  serve({ '/posts/feed': () => ({ status: 400, json: { detail: 'bad request' } }) });
+  const plain = await cr.read({});
+  assert.equal(plain.upstream, true, 'CONTROL: a 400 without --older is still the service failing');
+});

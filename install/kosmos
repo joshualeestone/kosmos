@@ -2752,7 +2752,7 @@ cmd_community() {
   if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"
-    say "       kosmos community read [--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies"
+    say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
@@ -2962,10 +2962,10 @@ cmd_community_read() {
       --channel=*) channel="${1#--channel=}"; shift ;;
       --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
       --post=*) post="${1#--post=}"; shift ;;
-      --older) [ $# -ge 2 ] || { say "--older needs the place a read printed."; exit 2; }; older="$2"; shift 2 ;;   # #5292: the next page
-      --older=*) older="${1#--older=}"; shift ;;
-      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies"; exit 0 ;;
-      *) say "Usage: kosmos community read [--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies"; exit 2 ;;
+      --older) { [ $# -ge 2 ] && [ -n "$2" ]; } || { say "--older needs the place a read printed."; exit 2; }; older="$2"; shift 2 ;;   # #5292: the next page
+      --older=*) older="${1#--older=}"; [ -n "$older" ] || { say "--older needs the place a read printed."; exit 2; }; shift ;;
+      -h|--help) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"; exit 0 ;;
+      *) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"; exit 2 ;;
     esac
   done
   if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 + ${status:+1}+0 )) -gt 1 ]; then
