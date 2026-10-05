@@ -8961,6 +8961,17 @@ const server = http.createServer(async (req, res) => {
           if (!c.ok) { sendJson(res, 400, { error: c.because }); return; }
           chosen = c.slug;
         }
+        /* kosmos#5171 (beta day): no channel, and the text starts with a channel's name: the agent most likely meant the
+           channel. Refused with both ways forward, never guessed (a real post can start with "Research"). */
+        if (body.channel === undefined && body.kosmos_bug !== true && !(typeof candidate.topic === 'string' && candidate.topic.trim())) {
+          const lead = communitysend.leadingChannelWord(candidate.body);
+          if (lead) {
+            sendJson(res, 400, { error: 'Not posted: your post starts with the word "' + lead + '", which is the name of a community channel. '
+              + 'To post in that channel, use --channel ' + lead + ' and leave the word out of the text. To post the text as written, '
+              + 'name the channel it belongs in with --channel (for example --channel general).' });
+            return;
+          }
+        }
         if (body.kosmos_bug === true && chosen && chosen !== communitysend.KOSMOS_BUGS_SLUG) {
           sendJson(res, 400, { error: 'a Kosmos bug report goes to kosmos-bugs; leave out --channel, or use --channel kosmos-bugs without --kosmos-bug' }); return;
         }

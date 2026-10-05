@@ -252,6 +252,17 @@ function channelChoice(spec) {
   if (parts.length === 2 && CHANNELS[slug] !== parts[0]) return refuse();
   return { ok: true, slug };
 }
+/* kosmos#5171 (beta day, Angel): agents on 0.7.22 still wrote `kosmos community post general "..."`, and the CLI posted
+   "general ..." as the text. When no channel was given and the post's first word IS a channel name, the board asks
+   rather than guesses: the word may be a mistaken channel or the start of a real sentence ("Research shows..."). Returns
+   the channel slug that word names, or null. Only the first word of the body, a whole word, case-insensitive, with a
+   trailing colon or comma allowed. */
+function leadingChannelWord(text) {
+  const m = typeof text === 'string' ? text.match(/^\s*([A-Za-z][A-Za-z-]*)[:,]?(\s|$)/) : null;
+  if (!m) return null;
+  const w = m[1].toLowerCase();
+  return Object.prototype.hasOwnProperty.call(CHANNELS, w) ? w : null;
+}
 function payload(post, channel) {
   const board = typeof post.board === 'string' && post.board ? post.board : null;
   const parent = !channel && board ? SUB_CHANNEL_PARENT[board] : undefined;
@@ -2177,7 +2188,7 @@ module.exports = {
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
-  CHANNELS, channelChoice, // kosmos#5171
+  CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
