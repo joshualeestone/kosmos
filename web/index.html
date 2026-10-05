@@ -67931,7 +67931,8 @@ function fedOutsideHtml() {
     return left.length ? '<p class="fmsg fedout-msg">' + esc(left.join(' ')) + '</p>' : '';
   }
   const rows = fm.ok ? fedOutsideRows(body) : [];
-  // A failed REFRESH that kept an answer with no rows says nothing: there is nothing on screen to be out of date,
+  // A failed REFRESH that kept an answer with no rows says nothing (unless that answer had shared:true, below): there
+  // is nothing on screen to be out of date,
   // and the line would appear for every owner who never invited anyone whenever one poll fails. A failed FIRST
   // load has no answer at all, so it says it could not check.
   // Not checked: the GET failed, or the board could not ask the coordinator and there are rows to show (with

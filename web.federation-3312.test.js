@@ -311,6 +311,8 @@ test('#4649 slice B: which outside rows show, and their keys', () => {
     { invite_id: 'x', label: 'Dana', state: 'expired', made_at: 300 }].concat(extra || []) }).map(fedRowKey);
   assert.deepEqual(dana(), ['e:e9', 'i:x']);
   assert.deepEqual(dana([{ invite_id: 'p', label: 'Dana', state: 'pending', made_at: 400 }]), ['e:e9', 'i:p']);
+  // The boundary: a code made in the SAME second as the expired one counts as newer ("made at or after it").
+  assert.deepEqual(dana([{ invite_id: 'q', label: 'Dana', state: 'pending', made_at: 300 }]), ['e:e9', 'i:q']);
   assert.deepEqual(fedOutsideRows({}), []);
   assert.deepEqual(fedOutsideRows(null), []);
 });
