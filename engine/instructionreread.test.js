@@ -21,7 +21,7 @@ test('the file is in the sandboxed data root, and an absent or odd file reads as
   fs.writeFileSync(ir.file(), '[1,2]');
   assert.deepEqual(ir.readOwed(), {});
   fs.writeFileSync(ir.file(), JSON.stringify({ a: { at: T, sections: ['community', 'nonsense'] }, b: { at: 'x', sections: ['rules'] }, c: { at: T, sections: [] } }));
-  assert.deepEqual(ir.readOwed(), { a: { at: T, sections: ['community'] } });
+  assert.deepEqual(ir.readOwed(), { a: { at: T, n: 1, sections: ['community'] } });
 });
 
 test('owe adds a section once and keeps the first time; an unknown section is ignored', () => {
@@ -29,11 +29,11 @@ test('owe adds a section once and keeps the first time; an unknown section is ig
   o = ir.owe(o, 'ann', 'rules', T + 1000);
   o = ir.owe(o, 'ann', 'community', T + 2000);
   o = ir.owe(o, 'ann', 'bogus', T + 3000);
-  assert.deepEqual(o, { ann: { at: T, sections: ['community', 'rules'] } });
+  assert.deepEqual(o, { ann: { at: T, n: 3, sections: ['community', 'rules'] } });
   assert.ok(ir.writeOwed(o));
   assert.deepEqual(ir.readOwed(), o);
   assert.ok(ir.oweNow('bea', 'rules', T));
-  assert.deepEqual(ir.readOwed().bea, { at: T, sections: ['rules'] });
+  assert.deepEqual(ir.readOwed().bea, { at: T, n: 1, sections: ['rules'] });
 });
 
 test('settle: a line that landed clears the debt; a held, busy or refused one keeps it; past GIVE_UP_MS it is dropped', () => {
@@ -54,4 +54,18 @@ test('lineFor names every owed section, the community one by its own heading', (
   assert.ok(both.includes(heading) && both.includes('the working rules'));
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
+});
+
+test('review 2: startedSince ends a debt only on a session start AFTER it began; unknown history keeps it', () => {
+  assert.equal(ir.startedSince([{ state: 'started', at: T - 1000 }, { state: 'working', at: T + 1000 }], T), false);
+  assert.equal(ir.startedSince([{ state: 'started', at: T + 1000 }], T), true);
+  assert.equal(ir.startedSince(null, T), null);
+});
+
+test('review 2: mergeCleared removes only the debt the pass ended; one owed again meanwhile (same section) survives', () => {
+  const sent = ir.owe({}, 'ann', 'rules', T);                 // n 1: what the pass read and sent
+  const reOwed = ir.owe(sent, 'ann', 'rules', T + 5000);      // n 2: owed again while the line was in flight
+  assert.deepEqual(ir.mergeCleared(reOwed, { ann: sent.ann.n }), reOwed, 'a debt owed during the send was dropped');
+  assert.deepEqual(ir.mergeCleared(sent, { ann: sent.ann.n }), {}, 'CONTROL: the debt the pass ended is removed');
+  assert.deepEqual(ir.mergeCleared({ bea: { at: T, n: 1, sections: ['rules'] } }, { ann: 1 }), { bea: { at: T, n: 1, sections: ['rules'] } });
 });

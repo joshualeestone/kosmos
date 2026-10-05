@@ -1058,28 +1058,35 @@ async function instructionRereadPass() {
   if (!Object.keys(ir.readOwed()).length) return;
   instructionRereadRunning = true;
   try {
+    /* An unreadable roster (null) or an empty one (the board has not seen its agents yet) cannot tell a gone agent from
+       one not yet seen: leave every debt for the next pass. */
+    const roster = safeRoster();
+    if (!Array.isArray(roster) || !roster.length) return;
     let owed = ir.readOwed();
-    const cleared = {};   // session -> the sections whose debt this pass ended
-    const ours = new Set((safeRoster() || []).filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
+    const cleared = {};   // session -> the `n` of the debt this pass ended
+    const ours = new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
     for (const session of Object.keys(owed)) {
-      const sections = owed[session].sections;
-      if (!ours.has(session)) { cleared[session] = sections; continue; }
+      const debt = owed[session];
+      if (!ours.has(session)) { cleared[session] = debt.n; continue; }
+      let rows = null;
+      try { rows = selfreport.history(session); } catch { rows = null; }
+      if (ir.startedSince(rows, debt.at) === true) {   // it read the new file when that session started
+        cleared[session] = debt.n;
+        process.stdout.write(`instruction-reread: ${session} (done) - it has started a session since, so it read the new file\n`);
+        continue;
+      }
       if (!liveExecution.liveExecutionAllowed()) break;
-      const line = ir.lineFor(sections);
-      if (!line) { cleared[session] = sections; continue; }
+      const line = ir.lineFor(debt.sections);
+      if (!line) { cleared[session] = debt.n; continue; }
       let v = null;
       try { v = await chat.deliverAutomaticAsync(session, line, safeRoster(), undefined, undefined); } catch { v = null; }
       owed = ir.settle(owed, session, v, chat.DELIVERY);
-      if (!owed[session]) cleared[session] = sections;
+      if (!owed[session]) cleared[session] = debt.n;
       process.stdout.write(`instruction-reread: ${session} (${owed[session] ? 'still owed' : 'done'}) - ${(v && v.state) || 'not reached'}${v && v.held ? ', refused on the quota hold' : ''}${v && v.busy ? ', pane busy' : ''}\n`);
     }
-    /* Merge onto the file as it is NOW: a refresh route may have owed a section during the awaits above, and that debt
-       must survive. A debt is removed only when every section it names was in what this pass ended. */
-    const latest = ir.readOwed();
-    for (const [session, sections] of Object.entries(cleared)) {
-      if (latest[session] && latest[session].sections.every((x) => sections.includes(x))) delete latest[session];
-    }
-    ir.writeOwed(latest);
+    /* Merged onto the file as it is NOW, by each debt's `n`: one owed again during the awaits above (any section)
+       survives. */
+    ir.writeOwed(ir.mergeCleared(ir.readOwed(), cleared));
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
 }
 function instructionRereadSoon(session) {
