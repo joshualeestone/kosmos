@@ -97,6 +97,17 @@ const LIST = {
 };
 const at = (hostname, protocol = 'https:') => ({ hostname, protocol });
 
+test('fake-dom: an element made focusable with a tabindex ATTRIBUTE takes focus, as in a browser', () => {
+  const t = makeDom();
+  const plain = t.add('plain');
+  plain.focus();
+  assert.notEqual(t.document.activeElement, plain, 'CONTROL: a plain div does not take focus');
+  const marked = t.add('marked');
+  marked.setAttribute('tabindex', '-1');
+  marked.focus();
+  assert.equal(t.document.activeElement, marked);
+});
+
 test('eligible only on this computer\'s own Kosmos+ address over https', () => {
   const { api } = load();
   assert.equal(api.oaEligible(LIST, at('laptop.kosmosplus.com')), true, 'control: this computer\'s own address');
