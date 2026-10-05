@@ -30,3 +30,12 @@ The first board start after this ships may owe several sections to many agents a
 engine/instructionreread-sections-5304.test.js (each module's changed flag, with the heading the line names checked
 against the real file), oweEach, server wiring pins, every board-booting test (13 files), the five modules' own tests,
 the file-scanning guards.
+
+## Round 1 (fixed / decided)
+The connections line names both headings its block writes (the Connections tab section is the newest part), and the
+test now checks every heading in each block is named. Switching the language back to English removes the block and owes
+nothing (`removed`); the agent drops the old language at its next start (decided: a line pointing at a section that is gone
+would mislead). personlanguage's early returns say changed: false; stale board-start comments note the re-read.
+Decided: you.tellAgent also reports changed when only the colleagues heal wrote (the line then names "Who you work for");
+accepted, rare. Follow-up, not this card: the per-agent profile save (role/reportsTo, server.js ~13638) rewrites the
+reports block for a running agent without owing a re-read.
