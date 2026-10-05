@@ -67145,7 +67145,8 @@ function memConfirmClose() {
   document.getElementById('mem-modal').hidden = true;
   const p = MEM_PENDING; MEM_PENDING = null;
   if (typeof fedRemoveReset === 'function') fedRemoveReset();   // kosmos#4649 slice B: the outside removal's look goes with it
-  if (p && p.btn && p.btn.isConnected && !p.btn.disabled) p.btn.focus();
+  // Only a visible opener: the gate hiding an outside section leaves its button in the page but unfocusable.
+  if (p && p.btn && p.btn.isConnected && !p.btn.disabled && p.btn.getClientRects().length) p.btn.focus();
   // kosmos#4649 slice B: an outside row's button is replaced on every repaint, so its opener may be gone.
   else if (p && p.fed && typeof fedRefocus === 'function') fedRefocus(p.fed.key);
 }
@@ -68105,6 +68106,10 @@ async function fedRemoveGo() {
   const go = document.getElementById('mem-go');
   const msg = document.getElementById('mem-msg');
   const fallback = 'Kosmos could not remove them just now. Try again in a moment.';
+  // A passing "signup" reading leaves this dialog open (fedGateMembers), but nothing is removed under it, as the
+  // invite sheet makes no code under it: said in the dialog, and nothing is sent.
+  if (!fedShow()) { msg.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
+  delete FED_MSGS[f.key];   // a retry clears this row's earlier sentence, as Withdraw does
   // Focus moves to Cancel BEFORE Remove is disabled: a focused button that becomes disabled drops focus to <body>
   // behind the open dialog, for up to the time limit. Cancel stays live (it closes; the request goes on).
   document.getElementById('mem-keep').focus();
@@ -68171,9 +68176,9 @@ async function fedRemoveGo() {
     if (PJ_CURRENT === f.project && gen === FED_GEN && !still) fedRefocus(f.key);
     return;
   }
-  // Repaint (the row's Remove is live again) and put focus back on Remove, which was disabled while it was asked,
-  // so a keyboard user is not left on <body> inside the dialog.
-  if (!(res && res.status === 404) && still) { msg.textContent = said; fedOutsidePaint(false); go.focus(); return; }
+  // Repaint (the row's Remove is live again). Focus stays on Cancel, where it moved before Remove was disabled:
+  // Enter lands on the harmless answer, as #761 asks of this dialog.
+  if (!(res && res.status === 404) && still) { msg.textContent = said; fedOutsidePaint(false); return; }
   // 404 (not a connection of this project any more): said beside the list, which is asked again; or the
   // dialog was closed meanwhile, so the refusal is said on the row instead.
   FED_MSGS[f.key] = said; fedSay(said);

@@ -781,7 +781,7 @@ const closeAll = (page) => page.evaluate(() => {
     let f = await readFed(page, '#pj-fed-outside');
     check('B3 remove 502: the dialog stays open with the board\'s sentence', m.open && m.msg === 'The connection service refused just now.', JSON.stringify(m));
     const refusedFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
-    check('B3 remove 502: focus is back on the Remove button (it was disabled while asked)', refusedFocus === 'mem-go', 'focus=' + refusedFocus);
+    check('B3 remove 502: focus is on Cancel, the harmless answer (it moved there before Remove was disabled)', refusedFocus === 'mem-keep', 'focus=' + refusedFocus);
     check('B3 remove 502: Dana\'s row stays', f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify(f.rows.map((r) => r.key)));
 
     // B2: the 200. The next members answer has Dana removed.
@@ -1076,6 +1076,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(200);
     const left = await modal(page);
     await page.click('#mem-keep');
+    // Dirty the dialog by hand (Cancel already cleaned it), so only openMemModal's own reset can clean it again.
+    await page.evaluate(() => { document.getElementById('mem-go').classList.add('danger-btn'); document.getElementById('mem-msg').textContent = 'stale'; document.getElementById('mem-go').disabled = true; });
     await page.click('#pj-one-agents .pj-minus[data-drop="ada"]');
     await page.waitForTimeout(100);
     const local = await modal(page);
@@ -1152,7 +1154,15 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: true, kosmos_plus: false }));
     await page.waitForTimeout(100);
     const sAfter = (await modal(page)).open;
+    // Remove pressed under that reading sends nothing and says so in the dialog (slice A's sheet makes no code then).
+    await page.evaluate(() => { window.__removes.length = 0; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(100);
+    const sMsg = (await modal(page)).msg;
+    const sSent = await page.evaluate(() => window.__removes.length);
     await page.click('#mem-keep');
+    check('B11c Remove pressed under a signup reading sends nothing and says it is not available', sSent === 0 && sMsg === 'Removing is not available just now. Try again in a moment.',
+      JSON.stringify({ sSent, sMsg }));
     check('B11c a passing signup reading leaves an open outside Remove open (control: B11b, hidden closes it)', sBefore === true && sAfter === true,
       JSON.stringify({ sBefore, sAfter }));
     await ctx.close();
