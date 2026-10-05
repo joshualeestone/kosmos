@@ -476,9 +476,11 @@ function read(sessionName) {
 /* kosmos#5297 (#5296): the states and times in the same bounded tail read() looks at, oldest first, for a caller that
    asks WHEN an agent was busy rather than what it is doing now (communityturn: has it worked since its last post).
    Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
-   so "never reported" is never mistaken for "reported idle". */
+   so "never reported" is never mistaken for "reported idle". `truncated` on the array is true when older rows exist
+   beyond the tail. */
 function history(sessionName) {
   let text;
+  let cut = false;
   try {
     const file = fileFor(sessionName);
     const size = fs.statSync(file).size;
@@ -489,7 +491,7 @@ function history(sessionName) {
       fs.readSync(fd, buf, 0, buf.length, start);
       text = buf.toString('utf8');
     } finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
-    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+    if (start > 0) { cut = true; text = text.slice(text.indexOf('\n') + 1); }
   } catch { return null; }
   const out = [];
   for (const line of text.split('\n')) {
@@ -500,6 +502,7 @@ function history(sessionName) {
     const at = Date.parse(row.at || '');
     if (Number.isFinite(at)) out.push({ state: row.state, at });
   }
+  out.truncated = cut;   // the record is longer than the tail: rows older than out[0] exist and are not here
   return out;
 }
 

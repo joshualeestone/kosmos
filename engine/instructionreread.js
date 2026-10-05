@@ -62,6 +62,18 @@ function recordSent(session, now = Date.now()) {
   } catch { return false; }
 }
 
+/* The debt file as written, null when it exists but cannot be read or parsed (a writer that would replace it must not:
+   that would drop every debt in it), {} when there is none. */
+function readOwedStrict() {
+  let raw;
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
+  try {
+    const d = JSON.parse(raw);
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  } catch { return null; }
+  return readOwed();
+}
+
 function readOwed() {
   try {
     const d = JSON.parse(fs.readFileSync(file(), 'utf8'));
@@ -97,7 +109,9 @@ function owe(owed, session, section, now = Date.now()) {
 
 /* Read, owe and write in one step, for a caller that is not holding the map. */
 function oweNow(session, section, now = Date.now()) {
-  return writeOwed(owe(readOwed(), session, section, now));
+  const cur = readOwedStrict();
+  if (cur === null) return false;
+  return writeOwed(owe(cur, session, section, now));
 }
 
 /* Pure: the map after one delivery verdict. A line that landed clears the agent's whole debt (it named every section
@@ -228,4 +242,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { GIVE_UP_MS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, lineFor, passOnce, recordSent, sentTimes, sentFile };

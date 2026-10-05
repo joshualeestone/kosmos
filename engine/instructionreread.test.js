@@ -225,3 +225,15 @@ test('review 7: a stood-down agent (every project paused for it) is held, not ty
   const ctl = passArgs({ owed: { ida: debt() }, o: { stoodDown: () => false } });
   assert.deepEqual((await ir.passOnce(ctl.o)).map((x) => x.act), ['sent'], 'CONTROL');
 });
+
+test('review 8: an unreadable debt file is never replaced (oweNow refuses); a missing one starts empty', () => {
+  fs.mkdirSync(path.dirname(ir.file()), { recursive: true });
+  fs.writeFileSync(ir.file(), '{not json');
+  assert.equal(ir.readOwedStrict(), null);
+  assert.equal(ir.oweNow('ann', 'rules', T), false);
+  assert.equal(fs.readFileSync(ir.file(), 'utf8'), '{not json', 'the unreadable file was replaced');
+  fs.rmSync(ir.file());
+  assert.deepEqual(ir.readOwedStrict(), {});
+  assert.equal(ir.oweNow('ann', 'rules', T), true);
+  assert.deepEqual(ir.readOwed().ann.sections, ['rules']);
+});

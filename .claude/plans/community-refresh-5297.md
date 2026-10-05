@@ -92,3 +92,6 @@ Re-read send stamped before delivery and turns start SLACK_MS (60 s) early; the 
 ## Round 7 (fixed / decided)
 A start between two owes no longer ends the newer one (`last`); a throw from deliver counts as reached (no double line);
 a stood-down agent is held. Decided: postedBy re-reads posts per agent at boot (agents x posts, small today).
+
+## Round 8 (fixed / decided)
+An unreadable debt file is never replaced (readOwedStrict; boot and oweNow skip and log); a CUT history (selfreport.history truncated) that starts after the post is unknown. Decided: turns woken by the reply nudge or agent nudge still read as work (can earn one more prompt, within PROMPTS_PER_DAY); stated in the comment.

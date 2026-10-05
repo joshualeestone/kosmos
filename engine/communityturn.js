@@ -62,7 +62,9 @@ const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + 
      agent's next idle report, or only WORK_GRACE_MS when no report shows it woke (not reached, or ignored).
    #5212's line asks for replies, votes and comments, which can run long, so a whole woken turn is Kosmos's own. Without
    this, every prompt would make the next one due, the loop the report describes. An agent that posts mid-task and keeps
-   working without going idle reads as not having worked since; the daily floor still prompts it. */
+   working without going idle reads as not having worked since; the daily floor still prompts it. A turn another Kosmos
+   line woke (the reply nudge, the agent nudge) still reads as work and can earn one more prompt, within PROMPTS_PER_DAY.
+   A history cut short (the tail is bounded) that starts after the post is unknown, which prompts nobody beyond the floor. */
 const WORK_GRACE_MS = 15 * 60 * 1000;
 const SLACK_MS = 60 * 1000;
 
@@ -71,6 +73,8 @@ const SLACK_MS = 60 * 1000;
 function workedSince(rows, last, tries) {
   if (!Array.isArray(rows)) return null;
   const valid = rows.filter((r) => r && Number.isFinite(r.at));
+  // The history is a bounded tail (selfreport.TAIL_BYTES): a cut one that starts after the post cannot place the posting turn.
+  if (rows.truncated === true && (!valid.length || valid[0].at > last)) return null;
   const busy = (r) => r.state !== 'idle' && r.state !== 'stopped' && r.state !== 'started';
   // A turn Kosmos started at `t`: reports from just before it (SLACK_MS: the agent's own report can be stamped before
   // ours) to its next idle report, or WORK_GRACE_MS when no report shows it woke at all.

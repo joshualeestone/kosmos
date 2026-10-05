@@ -73,7 +73,7 @@ test('#5297: at board start the community block is refreshed in the agents that 
   const r = SRC.indexOf("require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating())");
   assert.notEqual(r, -1, 'no board-start refresh of the community block');
   const win = SRC.slice(r, SRC.indexOf('could not refresh what agents know about the Kosmos+ community', r + 300));
-  assert.match(win, /told\.some\(\(t\) => t && t\.rulesChanged === true\) && !ir\.writeOwed\(ir\.oweChanged\(told, ir\.readOwed\(\)\)\)/, 'the refresh verdicts are not turned into re-read debts (oweChanged is tested in engine/instructionreread.test.js)');
+  assert.match(win, /told\.some\(\(t\) => t && t\.rulesChanged === true\)\) \{\s*const cur = ir\.readOwedStrict\(\);[\s\S]*?ir\.writeOwed\(ir\.oweChanged\(told, cur\)\)/, 'the refresh verdicts are not turned into re-read debts (oweChanged is tested in engine/instructionreread.test.js)');
   assert.ok(r < SRC.indexOf("/* #5050: the person's language block, refreshed at boot"), 'the refresh is not among the board-start sweeps');
   assert.ok(r > SRC.indexOf('const told = dmfiles.syncEveryone(safeRoster());'), 'the refresh is not among the board-start sweeps');
 });
