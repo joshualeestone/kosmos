@@ -366,12 +366,38 @@ test('an owner edge refused for good is not tried again', async () => {
   assert.strictEqual(h.spawned.length, 1, 'no second spawn on the refused edge');
 });
 
-test('while an owner waits for someone to join, a post says exactly that', async () => {
+test('while an owner waits for someone to join, a post says exactly that (#5285: after one check that nobody just joined)', async () => {
   federation.recordLink('proj-wait', { role: 'owner', ref: 'ref-wait' });
   const h = harness({ edges: [] });
   assert.strictEqual(await fedseats.ensure('proj-wait'), 'waiting');
+  const askedBefore = h.asked;
   assert.strictEqual(fedseats.post('proj-wait', { from: 'Josh', kind: 'person', text: 'anyone?' }), false);
-  assert.match(h.notes[0].text, /nobody outside has joined/);
+  await tick(); await tick(); await tick();
+  assert.strictEqual(h.asked, askedBefore + 1, 'the post did not ask whether someone had just joined');
+  const said = h.notes.filter((n) => n.projectId === 'proj-wait').map((n) => n.text);
+  assert.match(said[said.length - 1], /nobody outside has joined/, JSON.stringify(said));
+  // A check that just found nobody answers the next post at once, without asking again.
+  assert.strictEqual(fedseats.post('proj-wait', { from: 'Josh', kind: 'person', text: 'still nobody?' }), false);
+  await tick();
+  assert.strictEqual(h.asked, askedBefore + 1, 'a second post within the check window asked again');
+  assert.match(h.notes[h.notes.length - 1].text, /nobody outside has joined/);
+});
+
+test('#5285: an owner\'s post right after someone joins, before the seat noticed, is held and sent once the seat connects', async () => {
+  federation.recordLink('proj-gap', { role: 'owner', ref: 'ref-gap' });
+  const h = harness({ edges: [] });
+  assert.strictEqual(await fedseats.ensure('proj-gap'), 'waiting', 'CONTROL: nobody had joined at the last pass');
+  // Someone joins now; the seat would only notice on the next pass, up to a minute away.
+  h.edges = [{ id: 'edge-gap', project_ref: 'ref-gap', status: 'active' }];
+  assert.strictEqual(fedseats.post('proj-gap', { from: 'Josh', kind: 'person', text: 'welcome!' }), false);
+  await tick(); await tick(); await tick();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap').map((n) => n.text);
+  assert.ok(!said().some((t) => /nobody outside has joined/.test(t)), 'the post was refused as if nobody had joined: ' + JSON.stringify(said()));
+  assert.strictEqual(h.spawned.length, 1, 'the post did not bring the seat up at once');
+  assert.strictEqual(h.spawned[0].edge, 'edge-gap');
+  say(h.spawned[0], { event: 'connected', room: 'r', expires_at: 9 });
+  await tick(); await tick();
+  assert.match(h.spawned[0].written.join(''), /welcome!/, 'the held post was not sent once the seat connected: ' + JSON.stringify(said()));
 });
 
 test('a seat that ends says why in the room, once, and a later post says it has ended', async () => {
@@ -3267,4 +3293,39 @@ test('#5192: a post held for another reason after a behind hold ran out goes lik
   const out = lines(seat).map((f) => fedseal.open({ 0: k0 }, 'room-5192-anyold', f)).filter(Boolean);
   assert.deepStrictEqual(out.map((x) => x.m.text), ['held for the room name'], 'a post held for the room name was dropped like one held while behind');
   assert.ok(h.notes.some((n) => /under the key this computer has/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5285: two quick posts in the gap share one check, and both go once the seat connects', async () => {
+  federation.recordLink('proj-gap2', { role: 'owner', ref: 'ref-gap2' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap2');
+  h.edges = [{ id: 'edge-gap2', project_ref: 'ref-gap2', status: 'active' }];
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const askedBefore = h.asked;
+  fedseats.post('proj-gap2', { from: 'Josh', kind: 'person', text: 'one' });
+  fedseats.post('proj-gap2', { from: 'Josh', kind: 'person', text: 'two' });
+  await tick();
+  assert.strictEqual(h.asked, askedBefore + 1, 'two posts made two checks');
+  release(); h.gate = null;
+  await tick(); await tick(); await tick();
+  say(h.spawned[0], { event: 'connected', room: 'r', expires_at: 9 });
+  await tick(); await tick();
+  const out = h.spawned[0].written.join('');
+  assert.ok(/one/.test(out) && /two/.test(out) && out.indexOf('one') < out.indexOf('two'), 'not both sent, in order: ' + out);
+});
+
+test('#5285: when the check cannot ask, the post stays held; the next pass that finds nobody says so', async () => {
+  federation.recordLink('proj-gap3', { role: 'owner', ref: 'ref-gap3' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap3');
+  h.edges = null;   // Kosmos+ cannot be asked
+  fedseats.post('proj-gap3', { from: 'Josh', kind: 'person', text: 'hello?' });
+  await tick(); await tick(); await tick();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap3').map((n) => n.text);
+  assert.ok(!said().some((t) => /nobody outside has joined/.test(t)), 'a check that could not ask said nobody joined: ' + JSON.stringify(said()));
+  h.edges = [];   // the next pass can ask, and still nobody
+  await fedseats.ensureAll();
+  await tick();
+  assert.match(said()[said().length - 1], /nobody outside has joined/, 'the pass did not settle the held post: ' + JSON.stringify(said()));
 });

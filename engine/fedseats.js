@@ -1042,7 +1042,10 @@ async function ensureAll() {
   // A seat whose link is gone (its project removed some other way) stops.
   for (const id of [...seats.keys()]) if (!Object.prototype.hasOwnProperty.call(links, id)) stop(id);
   for (const id of Object.keys(links)) {
-    try { await ensure(id, edges); } catch { /* one project's seat never blocks another's */ }
+    try {
+      const st = await ensure(id, edges);
+      if (st === 'waiting') dropJoinWait(id, seats.get(id));   // #5285: a check that could not ask is settled here
+    } catch { /* one project's seat never blocks another's */ }
   }
   // #3728: a member still waiting for the room key says hello again (a dropped hello is
   // not a lost room), and a revoked member of a sealed room is rotated out (the same
@@ -1268,9 +1271,37 @@ function pinnedAny(projectId) {
   const st = roomSeal(projectId);
   return !!(st && st.peers && Object.keys(st.peers).length);
 }
-function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, behindHeld }, heldAt) {
+/* #5285: an owner's post in the gap between a join and the seat noticing it. */
+const NOBODY_JOINED = 'That message stayed on this computer: nobody outside has joined this shared project yet.';
+const JOIN_CHECK_MS = 10 * 1000;   // a check that found nobody answers the next posts for this long
+function joinCheckWanted(s) {
+  if (!deps) return false;
+  if (s.joinCheck) return true;   // one in flight: this post waits on it too
+  return !(s.joinCheckNoneAt && Date.now() - s.joinCheckNoneAt < JOIN_CHECK_MS);
+}
+/** Release only the posts held for a join that did not come, with the sentence a refusal would have had. */
+function dropJoinWait(projectId, s) {
+  if (!s || !s.outbox) return;
+  const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait));
+  const n = s.outbox.length - keep.length;
+  s.outbox = keep;
+  if (n) say(projectId, n === 1 ? NOBODY_JOINED : n + ' messages stayed on this computer: nobody outside has joined this shared project yet.');
+}
+function kickJoinCheck(projectId, s) {
+  if (s.joinCheck) return;
+  s.joinCheck = Promise.resolve()
+    .then(() => ensure(projectId, () => deps.macRequest('POST', MAC_EDGES, {})))
+    .then((status) => {
+      if (status === 'waiting') { s.joinCheckNoneAt = Date.now(); dropJoinWait(projectId, s); }
+      // Anything else: the seat is starting or connected, and its connect flushes what is held.
+      else if (s.status === 'connected') flushHeld(projectId, s);
+    })
+    .catch(() => { /* could not ask: held; the next pass checks again (ensureAll) */ })
+    .then(() => { s.joinCheck = null; });
+}
+function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, behindHeld, joinWait }, heldAt) {
   // sealedHeld: held while the room was known to be sealed (then it never goes in the clear).
-  const msg = { from, kind, text, files: files === true, invites, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true };
+  const msg = { from, kind, text, files: files === true, invites, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true, joinWait: joinWait === true };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has
@@ -1287,9 +1318,20 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
     if (s && s.status === 'waiting') {
       /* #5194: an owner's room key is made when the first member joins and kept through a revoke, so a key here
          means someone was in this project and is not now: "has joined yet" would be wrong. */
-      say(projectId, hasKey(roomSeal(projectId))
-        ? 'That message stayed on this computer: nobody else is in this shared project now.'
-        : 'That message stayed on this computer: nobody outside has joined this shared project yet.');
+      if (hasKey(roomSeal(projectId))) {
+        say(projectId, 'That message stayed on this computer: nobody else is in this shared project now.');
+        return false;
+      }
+      /* #5285: no key yet, so nobody was in before. But someone may have JUST joined: the seat only
+         learns of a join on the next pass (up to a minute), and a post in that gap used to be refused and
+         lost. Hold it and ask now; the check either connects the seat (the connect flushes it) or finds
+         nobody, which releases it with the sentence below. A check that just found nobody is not repeated. */
+      if (heldAt === 0 && joinCheckWanted(s)) {
+        holdPost(projectId, s, Object.assign({}, msg, { joinWait: true }), 'checking whether someone has just joined', 'once they are connected');
+        kickJoinCheck(projectId, s);
+        return false;
+      }
+      say(projectId, NOBODY_JOINED);
       return false;
     }
     say(projectId, 'That message stayed on this computer: the connection to ' + farSide(projectId) + ' is not up right now.');
