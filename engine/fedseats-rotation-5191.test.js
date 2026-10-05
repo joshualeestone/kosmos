@@ -47,7 +47,7 @@ test('#5191: only revokeCheck, ownerHello and onKeyFrame write a room\'s key sta
       // Any mention, not only a call: an alias (const set = fedseal.setRoomState) is a writer too.
       if (!/\bsetRoomState\b/.test(code(line))) return;
       // In fedseal.js, its definition and the top-level export list are not writers (a use inside any function is).
-      if (f === 'fedseal.js' && (/^function setRoomState\s*\(/.test(line) || fn === null)) return;
+      if (f === 'fedseal.js' && (/^function setRoomState\s*\(/.test(line) || (fn === null && /^\s+.*\bsetRoomState\s*,/.test(line)))) return;
       (found[f] = found[f] || new Set()).add(fn || '(top level)');
     });
   }
