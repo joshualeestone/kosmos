@@ -30,36 +30,41 @@ function file() { return path.join(store.ROOT, 'instruction-adds.json'); }
 const UNREADABLE = Symbol('unreadable');
 const UNREADABLE_SAID = 'the file that holds waiting additions could not be read, so nothing was changed';
 
-/* Review 1: a file that is there but cannot be parsed is UNREADABLE, never silently treated as empty and overwritten
-   (that would drop every other agent's waiting addition and Undo record). Review 2: and never a dead end either. A
-   write that finds it unreadable first MOVES it aside (instruction-adds.json.unreadable-<time>, kept for a person to
-   look at, never deleted) and carries on from empty, and the page's read says that happened. A missing file, an empty
-   one, and `{}` are just empty. Entries live in a null-prototype map, so 'constructor' is just a key. */
+/* Two different failures, kept apart (review 3). A READ ERROR (EMFILE, EACCES, EIO...) is BUSY: probably passing, and
+   the file may be fine, so a write refuses ("try again") and nothing is moved. A file that reads but cannot be PARSED is
+   UNREADABLE (corrupt): never silently overwritten (review 1), and not a dead end either (review 2): the next write moves
+   it aside (instruction-adds.json.unreadable-<time>, kept, never deleted) and records that in the fresh store, so the
+   page can name the kept file. A missing file, an empty one, and `{}` are just empty. Entries live in a null-prototype
+   map, so 'constructor' is just a key. */
+const BUSY = Symbol('busy');
+const BUSY_SAID = 'Kosmos could not read the file that holds waiting additions just now, so nothing was changed. Try again in a moment';
 function readAll() {
   let raw;
-  try { raw = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? { agents: Object.create(null) } : UNREADABLE; }
+  try { raw = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? { agents: Object.create(null) } : BUSY; }
   if (!raw.trim()) return { agents: Object.create(null) };
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return UNREADABLE;
-    if (parsed.agents === undefined) return { agents: Object.create(null) };
+    const moved = typeof parsed.movedAside === 'string' ? { movedAside: parsed.movedAside, movedAt: typeof parsed.movedAt === 'string' ? parsed.movedAt : null } : {};
+    if (parsed.agents === undefined) return Object.assign({ agents: Object.create(null) }, moved);
     if (!parsed.agents || typeof parsed.agents !== 'object' || Array.isArray(parsed.agents)) return UNREADABLE;
-    return { agents: Object.assign(Object.create(null), parsed.agents) };
+    return Object.assign({ agents: Object.assign(Object.create(null), parsed.agents) }, moved);
   } catch { return UNREADABLE; }
 }
-/* Review 2: the store a WRITE may use. An unreadable one is moved aside (kept), then the write starts from empty. */
+/* The store a WRITE may use: BUSY refuses (nothing moved); a CORRUPT one is moved aside (kept) and the fresh store
+   remembers the kept file's name. */
 function readForWrite() {
   const all = readAll();
   if (all !== UNREADABLE) return all;
   try {
     const aside = file() + '.unreadable-' + new Date().toISOString().replace(/[:.]/g, '-');
     fs.renameSync(file(), aside);
-    return { agents: Object.create(null) };
-  } catch { return UNREADABLE; }
+    return { agents: Object.create(null), movedAside: path.basename(aside), movedAt: new Date().toISOString() };
+  } catch { return BUSY; }
 }
-/** True when the store is there and cannot be read (the page says so, and the next write moves it aside). */
-function unreadable() { return readAll() === UNREADABLE; }
-function recOf(all, k) { return all !== UNREADABLE && Object.prototype.hasOwnProperty.call(all.agents, k) ? all.agents[k] : null; }
+function failedRead(all) { return all === BUSY || all === UNREADABLE; }
+function failSaid(all) { return all === BUSY ? BUSY_SAID : UNREADABLE_SAID; }
+function recOf(all, k) { return all !== UNREADABLE && all !== BUSY && Object.prototype.hasOwnProperty.call(all.agents, k) ? all.agents[k] : null; }
 
 /* Mode 0600: the Undo record holds the agent's full earlier instructions, which instructions.js keeps private too. */
 function writeAll(all) {
@@ -103,7 +108,7 @@ function propose(agent, text, askedBy, now) {
   const who = String(askedBy == null ? '' : askedBy).trim();
   if (!who) return { ok: false, code: 'bad', because: 'we could not tell which agent is asking' };
   const all = readForWrite();
-  if (all === UNREADABLE) return { ok: false, code: 'bad', because: UNREADABLE_SAID };
+  if (failedRead(all)) return { ok: false, code: 'bad', because: failSaid(all) };
   const rec = recOf(all, k) || {};
   if (rec.pending) return { ok: false, code: 'pending', pending: rec.pending, because: 'an addition is already waiting' };
   rec.pending = { text: body, askedBy: who, askedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString() };
@@ -117,7 +122,7 @@ function dismiss(agent) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
   const all = readForWrite();
-  if (all === UNREADABLE) return { ok: false, because: UNREADABLE_SAID };
+  if (failedRead(all)) return { ok: false, because: failSaid(all) };
   const rec = recOf(all, k);
   if (!rec || !rec.pending) return { ok: false, code: 'none', because: 'there is no addition waiting' };
   delete rec.pending;
@@ -131,7 +136,7 @@ function forget(agent) {
   const k = keyFor(agent);
   if (!k) return { ok: false };
   const all = readForWrite();
-  if (all === UNREADABLE) return { ok: false };
+  if (failedRead(all)) return { ok: false };
   /* Review 2: the removal may be handed another capitalisation of the name; every matching key goes. */
   const gone = Object.keys(all.agents).filter((key) => key === k || key.toLowerCase() === k.toLowerCase());
   if (!gone.length) return { ok: true };
@@ -145,43 +150,58 @@ function apply(agent, now) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
   const all = readForWrite();
-  if (all === UNREADABLE) return { ok: false, because: UNREADABLE_SAID };
+  if (failedRead(all)) return { ok: false, because: failSaid(all) };
   const rec = recOf(all, k);
   if (!rec || !rec.pending) return { ok: false, code: 'none', because: 'there is no addition waiting' };
   const cur = instructions.read(agent);
   if (!cur || !cur.exists) return { ok: false, because: (cur && cur.because) || 'these instructions could not be read' };
-  const before = String(cur.text == null ? '' : cur.text);
   const p = rec.pending;
-  const after = before.replace(/\s*$/, '') + '\n\n' + headingLine(p.askedBy, p.askedAt) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
-  let res;
-  try {
-    res = instructions.write(agent, after, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
-  } catch (e) {
-    return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
+  const block = '\n\n' + headingLine(p.askedBy, p.askedAt) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
+  const curText = String(cur.text == null ? '' : cur.text);
+  /* Review 3: IDEMPOTENT. If the file already ends with exactly this addition (an earlier press wrote it but could not
+     record it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail. */
+  const already = curText.endsWith(block);
+  const before = already ? curText.slice(0, curText.length - block.length) + '\n' : curText;
+  let version = cur.version;
+  if (!already) {
+    const after = curText.replace(/\s*$/, '') + block;
+    let res;
+    try {
+      res = instructions.write(agent, after, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
+    } catch (e) {
+      return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
+    }
+    version = res && res.version;
   }
-  const version = res && res.version ? res.version : instructions.read(agent).version;
+  /* Only a real content version can guard an Undo (instructions.read's sentinels 'absent'/'unreadable' cannot). */
+  if (typeof version !== 'string' || !version.startsWith('sha256:')) version = null;
   rec.last = { appliedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(), askedBy: p.askedBy, before, version };
   delete rec.pending;
   all.agents[k] = rec;
   try {
     writeAll(all);
   } catch {
-    /* Review 2: the instructions changed but the record of it did not, so the addition is still "waiting" and a retry
-       would add it twice, with no Undo. Take it back out (only if nothing else wrote since), and say so. */
-    try { instructions.write(agent, before, version, undefined, { who: 'person', because: 'Kosmos took back an addition it could not record' }); } catch { /* reported below */ }
-    return { ok: false, because: 'Kosmos could not record the addition, so it was taken back out; nothing changed. Try again' };
+    return { ok: false, code: 'unrecorded', because: 'The addition is in the instructions, but Kosmos could not record it. Press Apply again to finish; it will not be added twice' };
   }
   return { ok: true, last: publicLast(agent, rec.last) };
 }
 
-/** What the page shows about the last applied addition: when, who asked, and whether Undo is still possible. */
+/** What the page shows about the last applied addition: when, who asked, whether Undo can still work, and if not, why.
+ *  Review 3: read from the FILE, not only the record: a file back at the earlier text is undone (even if recording the
+ *  undo failed), and each reason Undo is not offered is told apart, so the page never says "edited" when nobody did. */
 function publicLast(agent, last) {
   if (!last) return null;
-  let undoable = false;
-  // Review 1: an earlier text below the instructions' minimum could never be written back, so Undo is not offered.
-  const restorable = typeof last.before === 'string' && last.before.trim().length >= instructions.MIN_CHARS;
-  try { undoable = restorable && !last.undoneAt && instructions.read(agent).version === last.version; } catch { undoable = false; }
-  return { appliedAt: last.appliedAt, askedBy: last.askedBy, undoable, undone: Boolean(last.undoneAt) };
+  let cur = null;
+  try { cur = instructions.read(agent); } catch { cur = null; }
+  const backToBefore = Boolean(cur && cur.exists && typeof last.before === 'string' && cur.text === last.before);
+  const undone = Boolean(last.undoneAt) || backToBefore;
+  let blocked = null;
+  if (!undone) {
+    if (typeof last.before !== 'string' || last.before.trim().length < instructions.MIN_CHARS) blocked = 'short';
+    else if (!last.version || !cur || !cur.exists) blocked = 'unknown';
+    else if (cur.version !== last.version) blocked = 'edited';
+  }
+  return { appliedAt: last.appliedAt, askedBy: last.askedBy, undoable: !undone && !blocked, undone, blocked };
 }
 
 /** The person undoes the last addition: the text from just before it, only if nothing was edited since. */
@@ -189,7 +209,7 @@ function undo(agent) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
   const all = readForWrite();
-  if (all === UNREADABLE) return { ok: false, because: UNREADABLE_SAID };
+  if (failedRead(all)) return { ok: false, because: failSaid(all) };
   const rec = recOf(all, k);
   const last = rec && rec.last;
   if (!last || last.undoneAt) return { ok: false, code: 'none', because: 'there is no addition to undo' };
@@ -205,7 +225,7 @@ function undo(agent) {
   last.undoneAt = new Date().toISOString();
   rec.last = last;
   all.agents[k] = rec;
-  writeAll(all);
+  try { writeAll(all); } catch { /* the file is back; publicLast reads it as undone from the file itself */ }
   return { ok: true };
 }
 
@@ -215,8 +235,9 @@ function state(agent) {
   if (!k) return { pending: null, last: null };
   const all = readAll();
   if (all === UNREADABLE) return { pending: null, last: null, unreadable: true };
+  if (all === BUSY) return { pending: null, last: null, busy: true };
   const rec = recOf(all, k) || {};
-  return { pending: rec.pending || null, last: publicLast(agent, rec.last) };
+  return { pending: rec.pending || null, last: publicLast(agent, rec.last), movedAside: all.movedAside || null, movedAt: all.movedAt || null };
 }
 
-module.exports = { get FILE() { return file(); }, MAX_TEXT_BYTES, headingLine, pending, propose, dismiss, apply, undo, state, forget, unreadable };
+module.exports = { get FILE() { return file(); }, MAX_TEXT_BYTES, headingLine, pending, propose, dismiss, apply, undo, state, forget };

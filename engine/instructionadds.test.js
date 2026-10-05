@@ -139,7 +139,8 @@ test('review 1: forget drops an agent\'s waiting addition and Undo record (a new
   adds.propose('sally', ADD, 'Ops lead');
   assert.equal(adds.forget('sally').ok, true);
   assert.equal(adds.pending('sally'), null);
-  assert.deepEqual(adds.state('sally'), { pending: null, last: null });
+  const st = adds.state('sally');
+  assert.equal(st.pending, null); assert.equal(st.last, null);
 });
 
 test('review 2: an unreadable store is reported, then MOVED ASIDE (kept, never deleted) by the next write, which goes on', () => {
@@ -150,6 +151,7 @@ test('review 2: an unreadable store is reported, then MOVED ASIDE (kept, never d
   assert.equal(adds.state('sally').unreadable, true, 'the page would show nothing and say nothing');
   const r = adds.propose('sally', ADD, 'Ops lead');
   assert.equal(r.ok, true, 'a broken store blocked every proposal for good: ' + JSON.stringify(r));
+  assert.ok(adds.state('sally').movedAside, 'the fresh store does not name the kept file for the page');
   const aside = fs.readdirSync(path.dirname(adds.FILE)).filter((f) => f.startsWith('instruction-adds.json.unreadable-'));
   assert.equal(aside.length, 1, 'the unreadable store was not kept aside');
   assert.equal(fs.readFileSync(path.join(path.dirname(adds.FILE), aside[0]), 'utf8'), broken, 'the kept copy is not the original');
@@ -168,18 +170,58 @@ test('review 2: an empty store, or {}, is just empty (not unreadable)', () => {
   }
 });
 
-test('review 2: if the record of an apply cannot be written, the addition is TAKEN BACK OUT (no double add on retry)', () => {
+test('review 3: an apply whose record fails is finished by pressing Apply again, never added twice (idempotent)', () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });   // the store's temp path is a folder, so its write fails
-  try {
-    const r = adds.apply('sally');
-    assert.equal(r.ok, false);
-    assert.equal(fileText('sally'), BASE, 'the instructions kept an addition that was never recorded');
-  } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  let r;
+  try { r = adds.apply('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(r.ok, false); assert.equal(r.code, 'unrecorded');
+  assert.match(r.because, /in the instructions, but Kosmos could not record it/);
   assert.equal(adds.pending('sally').text, ADD, 'the waiting addition was lost');
-  assert.equal(adds.apply('sally').ok, true, 'CONTROL: once the store can be written, the apply goes through');
+  const again = adds.apply('sally');
+  assert.equal(again.ok, true, JSON.stringify(again));
   assert.equal((fileText('sally').match(/## Added on/g) || []).length, 1, 'the addition went in twice');
+  assert.equal(adds.state('sally').last.undoable, true, 'Undo was lost after the finish');
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE, 'Undo after a finished retry did not restore the earlier text');
+});
+
+test('review 3: a passing READ error refuses and moves NOTHING (only a corrupt file is set aside)', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  const good = fs.readFileSync(adds.FILE, 'utf8');
+  fs.chmodSync(adds.FILE, 0o000);   // unreadable to this process: a read error, not corruption
+  let r;
+  try { r = adds.dismiss('sally'); } finally { fs.chmodSync(adds.FILE, 0o600); }
+  if (process.getuid && process.getuid() === 0) return;   // root reads it anyway; nothing to prove there
+  assert.equal(r.ok, false, 'a write went ahead on a store it could not read');
+  assert.equal(fs.readFileSync(adds.FILE, 'utf8'), good, 'the good store was changed or moved');
+  assert.equal(fs.readdirSync(path.dirname(adds.FILE)).filter((f) => f.includes('.unreadable-')).length, 0, 'a good store was set aside');
+});
+
+test('review 3: an undo whose record fails still reads as undone (from the file), never as "edited"', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  try { assert.equal(adds.undo('sally').ok, true); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(fileText('sally'), BASE);
+  const last = adds.state('sally').last;
+  assert.equal(last.undone, true, 'the page would say the addition is still there');
+  assert.equal(last.blocked, null);
+});
+
+test('review 3: the reason Undo is not offered is told apart: short is not "edited"', () => {
+  makeAgent('tiny2', 'Be brief.\n');
+  adds.propose('tiny2', ADD, 'Ops lead');
+  adds.apply('tiny2');
+  assert.equal(adds.state('tiny2').last.blocked, 'short');
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  instructions.write('sally', fileText('sally') + 'hand edit\n', instructions.read('sally').version, undefined, { who: 'person', because: 't' });
+  assert.equal(adds.state('sally').last.blocked, 'edited');
 });
 
 test('review 2: forget also removes another capitalisation of the name', () => {

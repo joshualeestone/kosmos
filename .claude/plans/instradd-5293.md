@@ -61,6 +61,19 @@ the person pasted it in on the colleague's page.
   take-back reds the test.
 - NITs fixed: forget removes every capitalisation of the name; the route refuses rather than key by a raw spelling.
 
+## Review 3 (opus, blind): round 2's fixes went too far, so they were SIMPLIFIED, not patched again
+- A read ERROR (EMFILE, EACCES) was treated as corruption, and the next write (even an agent's removal) moved a GOOD
+  store aside. Now a read error is BUSY: writes refuse, nothing moves. Only a file that reads but cannot be PARSED is
+  set aside, and the fresh store records the kept file's name; the page names it for a day. Test: chmod 000 refuses
+  and moves nothing.
+- The take-back write could itself fail (MIN_CHARS, a version sentinel) and was swallowed under "nothing changed".
+  Replaced by an IDEMPOTENT apply: if the file already ends with exactly this addition, it is only recorded. A failed
+  record says "press Apply again to finish; it will not be added twice", which is now true. Mutation: without the
+  idempotency check, the retry test reds.
+- Undo state is read from the FILE: back at the earlier text means undone, even if recording the undo failed. Only a
+  real sha256 version can guard an Undo. The page names the actual reason Undo is not offered (edited / too short /
+  unknown), never "edited" when nobody edited.
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.

@@ -40045,12 +40045,15 @@ function instrAddPaint(sessionName, data) {
   const last = data && data.last;
   const li = document.createElement('li');
   li.className = 'community-mine-row community-held-row';
-  if (data && data.unreadable) {
-    /* Review 2: never a silent empty block. The next proposal moves the unreadable file aside (kept) and starts over. */
+  if (data && (data.unreadable || data.busy)) {
+    /* Never a silent empty block (review 2). Busy: a passing read error, nothing moved. Unreadable: the file is corrupt;
+       the next change to it keeps it aside under its own name and starts a new one (review 3: said as what happens). */
     const line = document.createElement('p');
     line.className = 'dhint';
     line.style.margin = '0';
-    line.textContent = 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. The next one an agent proposes starts a new file; the old one is kept beside it.';
+    line.textContent = data.busy
+      ? 'Kosmos could not read the additions waiting for you just now. Open this agent again in a moment.'
+      : 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. It is kept as it is, and Kosmos starts a new one the next time an addition is proposed.';
     li.append(line);
   } else if (p) {
     const who = p.askedBy || 'another agent';
@@ -40115,7 +40118,11 @@ function instrAddPaint(sessionName, data) {
     line.className = 'dhint';
     line.style.margin = '0';
     line.textContent = 'Added on ' + instrAddWhen(last.appliedAt) + ', asked by ' + (last.askedBy || 'another agent') + '.'
-      + (last.undoable ? '' : ' This addition can no longer be undone here, because the instructions were edited after it was added. Edit them above instead.');
+      /* Review 3: the real reason, never "edited" when nobody did. */
+      + (last.undoable ? ''
+        : last.blocked === 'edited' ? ' This addition can no longer be undone here, because the instructions were edited after it was added. Edit them above instead.'
+        : last.blocked === 'short' ? ' This addition cannot be undone here, because the instructions before it were too short to put back. Edit them above instead.'
+        : ' This addition cannot be undone here. Edit the instructions above instead.');
     li.append(line);
     if (last.undoable) {
       const note = document.createElement('p');
@@ -40130,9 +40137,17 @@ function instrAddPaint(sessionName, data) {
       undo.addEventListener('click', () => instrAddAct(sessionName, 'undo', note, [undo]));
       li.append(undo, note);
     }
-  } else {
+  } else if (!(data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
     wrap.hidden = true;
     return;
+  }
+  /* Review 3: for a day after a corrupt file was set aside, name the kept file, so earlier additions are not lost silently. */
+  if (data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS) {
+    const kept = document.createElement('p');
+    kept.className = 'dhint';
+    kept.style.margin = '6px 0 0';
+    kept.textContent = 'An earlier file of waiting additions could not be read, so Kosmos started a new one. The old file is kept, as ' + data.movedAside + ', in the Kosmos data folder.';
+    li.append(kept);
   }
   list.append(li);
   wrap.hidden = false;
@@ -40153,6 +40168,8 @@ async function instrAddAct(sessionName, act, note, buttons) {
   if (!ok) {
     /* Review 1: the addition is already gone (applied or dismissed elsewhere): show where it stands now. */
     if (out && out.code === 'none') { loadInstrAdd(sessionName); return; }
+    /* Review 3: written but not recorded: the box shows the addition, and the row keeps Apply to finish (never adds twice). */
+    if (out && out.code === 'unrecorded') document.getElementById('d-instr-outdated').hidden = false;   // the box is behind the file now
     buttons.forEach((b) => { b.disabled = false; });
     note.textContent = (out && (out.because || out.error)) || 'That did not work. Try again.';
     return;
