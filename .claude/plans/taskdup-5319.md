@@ -106,3 +106,11 @@ with the strip removed, the row goes red.
   the superscript and the circled number.
 - [N] FIXED: the names say what it does: sameTextOpen (was similarOpen), this test file renamed, no "look-alike" left.
 - [N] FIXED (comment): the close command in the note needs no stripping, because idFor makes project ids of [a-z0-9_-].
+
+## Review round 6 (sonnet)
+- [W] FIXED: generic subtask text under two parents ("Write tests" under #3 and under #7) compared equal, so the
+  note would close a real task. Now only tasks under the SAME parent are compared (top-level with top-level). The
+  report's duplicates were top-level. Tests: another parent and top-level give no note; a sibling is named.
+- [N] FIXED: U+061C (a bidi mark) is stripped from the note too. My own round-1 edit had written that character class
+  as raw invisible characters in server.js; it is now ASCII \u escapes, and the diff carries no invisible characters.
+- [N] not changed: toLowerCase is not a symmetric fold for Greek final sigma; that is only a miss.

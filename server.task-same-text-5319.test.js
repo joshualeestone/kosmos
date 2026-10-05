@@ -75,7 +75,17 @@ test('#5319: which open tasks count as the same (pure)', () => {
   // Review round 1: two agents add the same ask at once (#40 and #41): only the OLDER copy is named, so never both close.
   assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 41).map((t) => t.number), [26, 40], 'the newest copy names the older ones');
   assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 40).map((t) => t.number), [26], 'the older copy never names the newer one');
-  assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [40], 'a subtask never names its own parent');
+  assert.deepEqual(tasks.sameTextOpen(P, 'Deep dive: Worlds', 41, { parent: 26 }).map((t) => t.number), [], 'a subtask never names its own parent, nor a top-level task');
+  // Review 6: subtasks are compared with their siblings only.
+  const kids = { tasks: [
+    { number: 3, sentence: 'Ship onboarding', closedAt: null, parent: null },
+    { number: 4, sentence: 'Write tests', closedAt: null, parent: 3 },
+    { number: 7, sentence: 'Ship billing', closedAt: null, parent: null },
+    { number: 8, sentence: 'Write tests', closedAt: null, parent: null },
+  ] };
+  assert.deepEqual(tasks.sameTextOpen(kids, 'Write tests', 9, { parent: 7 }).map((t) => t.number), [], 'under another parent, and top-level: two real tasks');
+  assert.deepEqual(tasks.sameTextOpen(kids, 'Write tests', 9, { parent: 3 }).map((t) => t.number), [4], 'a sibling with the same text is named');
+  assert.deepEqual(tasks.sameTextOpen(kids, 'Write tests', 9).map((t) => t.number), [8], 'top-level is compared with top-level only');
   // Review rounds 1 to 3: different asks a fuzzy rule matched; each judged against ONE open task.
   const pair = (open, added) => tasks.sameTextOpen({ tasks: [{ number: 1, sentence: open, closedAt: null }] }, added, 9).length > 0;
   for (const [open, added, want, why] of [
