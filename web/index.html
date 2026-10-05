@@ -67591,6 +67591,7 @@ let FEDINV_COPY_TIMER = null;
 const FEDINV_BUSY_LINE = 'One moment: Kosmos is still copying. Press again in a few seconds.';
 let FEDINV_COPY_TEXT = '';     // slice C: the text the newest copy press asked for
 let FEDINV_CLIP_HOLDS = '';    // slice C: the text a write on this sheet is known to have put on the clipboard
+let FEDINV_SAY = 0;            // slice C: the newest fedInviteSay; a reset or a newer sentence cancels an older one
 // Anything copied in another app replaces the clipboard without this page knowing, so leaving the window forgets the
 // record: a later refusal then says so honestly rather than claiming an earlier copy still stands. A permission
 // prompt that takes focus also forgets a record that was true; that only costs a "could not copy" line, never a
@@ -67763,7 +67764,7 @@ async function fedInviteCopy() {
   const text = codeEl.value;
   if (!text) return;
   if (FEDINV_COPY_BUSY) {   // the other copy is still asking the clipboard: one answer at a time, said rather than silent
-    status.textContent = FEDINV_BUSY_LINE;
+    fedInviteSay(FEDINV_BUSY_LINE);
     return;
   }
   const said = () => fedInviteCopySaid(btn, 'Code copied.');
@@ -67775,7 +67776,7 @@ async function fedInviteCopy() {
   try { codeEl.select(); } catch { /* the line below says what to do */ }   // ready for the keys named
   fedInviteCopyReset();
   btn.textContent = 'Press ' + copyKeysGlyph() + ' to copy';
-  status.textContent = 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
+  fedInviteSay('Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.');
   // Only the button reverts: the sentence stays, as Copy the invitation's refusal does, so neither can be missed.
   FEDINV_COPY_TIMER = setTimeout(() => { FEDINV_COPY_TIMER = null; btn.textContent = 'Copy'; }, 2000);
 }
@@ -67789,7 +67790,16 @@ function fedInviteCopySaid(btn, sentence) {
 }
 // Both copy buttons share one revert timer and one message line, so a press on one never leaves the other
 // saying "Copied" over a newer result.
+// A sentence on the sheet's message line, cleared first and said 30 ms later, so pressing again speaks it again in
+// the live region (the same way fedInviteCopySaid says Copied). A reset or a newer sentence cancels it.
+function fedInviteSay(sentence) {
+  const mine = ++FEDINV_SAY;
+  const status = document.getElementById('fedinv-status');
+  status.textContent = '';
+  setTimeout(() => { if (mine === FEDINV_SAY) status.textContent = sentence; }, 30);
+}
 function fedInviteCopyReset() {
+  FEDINV_SAY++;
   if (FEDINV_COPY_TIMER) clearTimeout(FEDINV_COPY_TIMER);
   FEDINV_COPY_TIMER = null;
   document.getElementById('fedinv-copy').textContent = 'Copy';
@@ -67838,7 +67848,7 @@ async function fedInviteCopyAll() {
   if (!made) return;
   const btn = document.getElementById('fedinv-copy-all');
   const status = document.getElementById('fedinv-status');
-  if (FEDINV_COPY_BUSY) { status.textContent = FEDINV_BUSY_LINE; return; }   // one answer at a time, said rather than silent
+  if (FEDINV_COPY_BUSY) { fedInviteSay(FEDINV_BUSY_LINE); return; }   // one answer at a time, said rather than silent
   const said = () => fedInviteCopySaid(btn, 'Invitation copied.');
   // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if the refusal still shows.
   const ok = await fedCopyText(fedInviteText(made), btn, said, 'the invitation');
@@ -67847,7 +67857,7 @@ async function fedInviteCopyAll() {
   fedInviteCopyReset();
   // The code is selected so the line is true as read; kept on screen (no revert timer) so it cannot be missed.
   try { document.getElementById('fedinv-code').select(); } catch { /* the line still says what to do */ }
-  status.textContent = 'Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ' to copy the code alone, then paste it into your message.';
+  fedInviteSay('Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ' to copy the code alone, then paste it into your message.');
 }
 document.getElementById('fedinv-make').addEventListener('click', fedInviteMake);
 document.getElementById('fedinv-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fedInviteMake(); } });
