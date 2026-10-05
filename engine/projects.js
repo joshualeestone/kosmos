@@ -2713,7 +2713,8 @@ function edit(id, fields = {}) {
  * an agent's own access (a sandbox or a privacy grant) is not something it can see from here.
  */
 function moveFolder(id, folder) {
-  const given = String(folder == null ? '' : folder).trim();
+  if (typeof folder !== 'string') throw new Error('that needs the path to the folder, as text');   // review 1: not an array
+  const given = folder.trim();
   if (!given) throw new Error('that needs the full path to the folder');
   if (!path.isAbsolute(given)) throw new Error('that needs to be the full path to a folder');
   const state = folderState(given);
@@ -2726,7 +2727,12 @@ function moveFolder(id, folder) {
   const all = readAll();
   const self = all.find((p) => p.id === id);
   if (!self) throw new Error('there is no project by that name');
-  if (folderState(self.folder).real === state.real) throw new Error('that is already this project\'s folder');
+  const now = folderState(self.folder);
+  /* Review 1: only a project whose folder is NOT there (moved, removed, a drive not connected, or a file in its place)
+     is re-pointed. Swapping a working project onto another folder would leave its brief and its work behind. */
+  if (now.state === FOLDER.READABLE || now.state === FOLDER.UNREADABLE) {
+    throw new Error('this project\'s folder is still there, so Kosmos keeps using it');
+  }
   const already = all.find((p) => p.id !== id && folderState(p.folder).real === state.real);
   if (already) {
     const taken = new Error(`that folder is already the project "${already.name}"`);
@@ -3470,6 +3476,10 @@ function membershipLine(project, kind) {
       ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
       : '';
     return 'Your instructions now list the project "' + name + '".' + lfolder + lroom;
+  }
+  /* #5340: the person pointed the project at its folder's new place. */
+  if (kind === 'moved') {
+    return 'The project "' + name + '" now uses its folder at `' + oneLine(String((project && project.folder) || '')) + '`. Work there from now on; your instructions say so too.';
   }
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';

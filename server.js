@@ -17015,7 +17015,7 @@ const server = http.createServer(async (req, res) => {
     const id = decodeSegment(proj[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {   // #5340: the folder move tells each member and waits for it
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -17049,11 +17049,21 @@ const server = http.createServer(async (req, res) => {
           }
           const moved = projects.moveFolder(id, body.folder);
           const rosterM = safeRoster();
-          try { for (const a of (moved.agents || [])) projects.syncAgent(a, rosterM); } catch { /* the row's told verdict reports it */ }
+          /* Review 1: each member separately (one failure skips nobody else): its instructions rewritten, then told on its
+             screen, as joining and leaving are. The page says how many were reached, never more. */
+          const members = moved.agents || [];
+          let reached = 0;
+          for (const a of members) {
+            try { projects.syncAgent(a, rosterM); } catch { /* its row's told verdict reports it */ }
+            try {
+              const r = await projects.speakOfMembershipAsync(a, moved, 'moved', rosterM);
+              if (r && r.state === require('./engine/chat').DELIVERY.PLACED) reached += 1;
+            } catch { /* not reached */ }
+          }
           try { messages.roomNote(id, 'This project\'s folder is now at ' + moved.folder + '. Work there from now on.'); } catch { /* best effort */ }
           let projectM = null;
           try { projectM = projects.get(id, rosterM); } catch { projectM = null; }
-          sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null });
+          sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null, members: members.length, reached });
           return;
         }
         /* ⚠️ Each field moves only when the request CARRIES it, and every

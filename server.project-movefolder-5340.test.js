@@ -64,23 +64,51 @@ test('#5340 the person moves a project whose folder moved: saved, and the room i
 });
 
 test('#5340 an agent cannot move it; a non-folder, a missing one, a relative path and another project\'s folder are refused', async () => {
-  const p = projects.create({ name: 'Ops', folder: folder('Ops') });
+  const opsAt = folder('Ops');
+  const p = projects.create({ name: 'Ops', folder: opsAt });
   const other = projects.create({ name: 'Sales', folder: folder('Sales') });
   const target = folder('Ops Elsewhere');
+  // A working project is not re-pointed (Sales's folder is there).
+  const still = await put(other.id, { folder: target }, SCREEN);
+  assert.equal(still.status, 400, 'a project whose folder is still there was re-pointed');
+  assert.match((await still.json()).error, /still there, so Kosmos keeps using it/);
+  fs.renameSync(opsAt, path.join(KEEP, 'Ops gone'));   // Ops's folder was moved, so each refusal below is about the TARGET
   const agent = await put(p.id, { folder: target }, { 'x-kosmos-agent-token': 'ab'.repeat(16) });
   assert.equal(agent.status, 403, 'an agent moved a project folder');
   const noScreen = await put(p.id, { folder: target });
   assert.equal(noScreen.status, 403, 'a request with no browser headers moved it');
   const file = path.join(KEEP, 'a-file.txt'); fs.writeFileSync(file, 'x');
   for (const [bad, why] of [[file, /a file, not a folder/], [path.join(KEEP, 'nowhere'), /no folder at that path/],
-    ['relative/path', /full path/], [stored(other.id).folder, /already the project "Sales"/], [stored(p.id).folder, /already this project's folder/]]) {
+    ['relative/path', /full path/], [stored(other.id).folder, /already the project "Sales"/]]) {
     const r = await put(p.id, { folder: bad }, SCREEN);
     const j = await r.json();
     assert.equal(r.status, 400, JSON.stringify(bad) + ' was accepted');
     assert.match(j.error, why);
   }
+  const arr = await put(p.id, { folder: [target] }, SCREEN);
+  assert.equal(arr.status, 400, 'an array was taken as a path');
   const mixed = await put(p.id, { folder: target, name: 'Ops 2' }, SCREEN);
   assert.equal(mixed.status, 400, 'a folder move mixed with a rename was accepted');
   assert.equal(stored(p.id).name, 'Ops', 'the mixed request renamed it');
   assert.notEqual(stored(p.id).folder, target, 'a refused request moved the folder');
+});
+
+test('#5340 review 1: every member\'s instructions name the new folder, and the answer counts who was told', async (t) => {
+  const b = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const WORKERS = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(path.join(WORKERS, 'mara'), { recursive: true });
+  fs.writeFileSync(path.join(WORKERS, 'mara', 'CLAUDE.md'), 'You are mara, the research agent. You find sources and summarise them.\n');
+  const old = folder('Research Old');
+  const p = projects.create({ name: 'Research', folder: old, agents: ['mara'] });
+  const now = path.join(KEEP, 'Research New');
+  fs.renameSync(old, now);
+  const r = await put(p.id, { folder: now }, SCREEN);
+  const j = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(j));
+  assert.equal(j.members, 1, 'the answer did not count the member');
+  assert.equal(typeof j.reached, 'number');
+  const file = fs.readFileSync(path.join(WORKERS, 'mara', 'CLAUDE.md'), 'utf8');
+  assert.ok(file.includes(now), 'the member\'s instructions do not name the new folder');
+  assert.ok(!file.includes(old), 'the member\'s instructions still name the old folder');
 });
