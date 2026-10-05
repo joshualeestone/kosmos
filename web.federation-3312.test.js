@@ -320,8 +320,6 @@ test('#4649 slice B: each row offers its action, and none of Withdraw or Make a 
 test('#4649 slice B: Remove and Withdraw get the owner-list sentences, not the invite sheet\'s or the joiner\'s', () => {
   const s = build();
   assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x', { change: true }), 'Only the owner of this project can change who is in it.');
-  assert.equal(s.pjFedMessage({ reason: 'expired' }, 'x', { change: true }), 'This code has already lapsed, so there is nothing to withdraw.');
   // Control: without the flag, the invite sheet and the joiner keep their own sentences.
   assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x'), 'Only the owner of this project can invite people to it.');
-  assert.match(s.pjFedMessage({ reason: 'expired' }, 'x'), /Ask for a fresh one/);
 });

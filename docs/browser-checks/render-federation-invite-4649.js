@@ -1219,12 +1219,15 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; window.__answerDelay = 3000; window.__remove = { status: 200, body: { removed: true } }; });
     const i0 = await gets(page);
     await page.click('#mem-go');
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(60);
+    const iBusyFocus = await focusedKey();   // in flight: on Cancel, not <body> (Remove is disabled while asked)
+    await page.waitForTimeout(540);
     const iModal = (await modal(page)).open;
     const iF = await readFed(page, '#pj-fed-outside');
     const iFocus = await focusedKey();
     const iAsked = (await gets(page)) - i0;
     await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
+    check('B15i while a Remove is asked, focus is on the dialog\'s Cancel (not <body>)', iBusyFocus === 'mem-keep', 'focus=' + iBusyFocus);
     check('B15i a Remove nobody answers: the dialog closes, the sentence beside the list, the list asked, focus placed (control: B15e for Withdraw)',
       !iModal && iF.msgs.some((m) => m.startsWith('Kosmos did not hear back in time.')) && iAsked >= 1 && iFocus && iFocus !== 'BODY',
       JSON.stringify({ iModal, msgs: iF.msgs, iAsked, iFocus }));
@@ -1251,6 +1254,26 @@ const closeAll = (page) => page.evaluate(() => {
     check('B15g rail: Remove asks the board for Dana\'s connection and her row goes (control: B11a\'s rail Withdraw)',
       sent.length === 1 && sent[0].body && sent[0].body.edge_id === 'edge-dana' && !rf.rows.some((r) => r.key === 'e:edge-dana') && rf.rows.length > 0,
       JSON.stringify({ sent, keys: rf.rows.map((r) => r.key) }));
+    await ctx.close();
+  }
+  {
+    // B16: a project this board joined (owner:false) and one shared with this account's own computers
+    // (self_shared) draw nothing, even with invites in the answer. Control: the same invites as owner draw rows.
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL, { owner: false }));
+    await openProjectIn(page, 'tabs');
+    const notOwner = await readFed(page, '#pj-fed-outside');
+    await setMembers(page, answer(ALL, { self_shared: true }));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const selfShared = await readFed(page, '#pj-fed-outside');
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    const owner = await readFed(page, '#pj-fed-outside');
+    check('B16 owner:false and self_shared draw no From outside section (control: the same invites as owner draw rows)',
+      notOwner.rows.length === 0 && notOwner.heads.length === 0 && selfShared.rows.length === 0 && selfShared.heads.length === 0 && owner.rows.length > 0,
+      JSON.stringify({ notOwner: notOwner.heads, selfShared: selfShared.heads, owner: owner.rows.length }));
     await ctx.close();
   }
   {

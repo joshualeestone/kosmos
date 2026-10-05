@@ -66461,7 +66461,6 @@ function pjFedMessage(body, fallback, opts) {
   // Remove and Withdraw (opts.change): the owner's own list, so the invite sheet's and the joiner's sentences do
   // not fit. Their callers ask the list again for these reasons (it may hide the section or the row).
   if (opts && opts.change && reason === 'not-owner') return 'Only the owner of this project can change who is in it.';
-  if (opts && opts.change && reason === 'expired') return 'This code has already lapsed, so there is nothing to withdraw.';
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',
@@ -68071,6 +68070,9 @@ async function fedRemoveGo() {
   const go = document.getElementById('mem-go');
   const msg = document.getElementById('mem-msg');
   const fallback = 'Kosmos could not remove them just now. Try again in a moment.';
+  // Focus moves to Cancel BEFORE Remove is disabled: a focused button that becomes disabled drops focus to <body>
+  // behind the open dialog, for up to the time limit. Cancel stays live (it closes; the request goes on).
+  document.getElementById('mem-keep').focus();
   go.disabled = true;
   msg.textContent = 'Removing…';
   FED_BUSY.add(f.key);
@@ -68119,7 +68121,7 @@ async function fedRemoveGo() {
   // A 403 means the request did not read as from this screen: nothing the person can act on.
   if (!said) said = res.status === 403 ? fallback : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback, { change: true });
   // The board says this is not (or no longer) the owner's list to change: ask it again, which may hide it.
-  const stale = !!(body && ['not-owner', 'self-shared', 'expired'].includes(body.reason));
+  const stale = !!(body && ['not-owner', 'self-shared'].includes(body.reason));
   if (stale) fedMembersLoad(f.project);
   // Repaint (the row's Remove is live again) and put focus back on Remove, which was disabled while it was asked,
   // so a keyboard user is not left on <body> inside the dialog.
@@ -68177,7 +68179,7 @@ async function fedWithdraw(r) {
   // more. Both ask again, and focus is placed after that repaint (the row's key changes or the row goes).
   let at = key;
   if (timedOut || (res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)
-    || (body && ['not-owner', 'self-shared', 'expired'].includes(body.reason))) {
+    || (body && ['not-owner', 'self-shared'].includes(body.reason))) {
     await fedMembersLoad(project);
     if (PJ_CURRENT !== project) return;
     // Joined meanwhile: the row is now keyed by its connection, so the sentence moves under it (it points to that
@@ -68209,8 +68211,8 @@ else fedSay('');
 // The repaint replaces the pressed button: focus goes to the same row's button if it is still shown, else to the
 // Members "+" (as fedRemoveDone does), never to <body>.
 function fedRefocus(key) {
-  // A disabled button cannot take focus (its row is still being asked), so it is skipped for the "+".
-  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent && !x.disabled);   // (busy rows use aria-disabled and stay focusable)
+  // A busy row's button is aria-disabled, not disabled, so it can take focus too.
+  const b = [...document.querySelectorAll('.fedout .fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === key && x.offsetParent);
   const plus = [document.getElementById('pj-add-member'), document.getElementById('rail-agents-new')].find((x) => x && x.offsetParent);
   const to = b || plus;
   // Only take focus back if nobody moved it: it fell to <body> with the repaint, or is still in the section or in
