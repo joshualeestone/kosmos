@@ -259,6 +259,7 @@ function chk(ok, label, extra) {
           await page.goto(URL + '/?tab=settings&sec=mac');
           await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
           await page.evaluate(() => {
+            const conn = document.getElementById('conn'); if (conn) conn.hidden = true;
             const slot = document.createElement('div'); slot.dataset.check5301 = 'slot';
             const n = document.createElement('div');
             n.className = 'utoast login-adv';
