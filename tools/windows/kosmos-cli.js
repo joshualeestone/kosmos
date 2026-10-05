@@ -635,12 +635,13 @@ function tokenRefusedHint(ctx, r) {
   const said = [j.because, j.error, j.delivery && j.delivery.because, r && r.json ? null : String((r && r.text) || '').trim()];
   if (!said.some((x) => x === TOKEN_REFUSED)) return;
   ctx.err('');
-  ctx.err('Kosmos could not match the agent token this session started with to one of your running agents.');
-  ctx.err('If your person removed you from Kosmos, that is expected. If not: a running session cannot pick up a new');
-  ctx.err('token by itself, so ask your person to restart you from Kosmos (your page, Restart; "Write a handoff, then');
-  ctx.err('restart" keeps what you were doing). The new session starts with a fresh token. `kosmos adopt` does not');
-  ctx.err('help: its token never reaches a running session. If you have no page in Kosmos at all, your person can add');
-  ctx.err('you from New agent. If it still happens after a restart, tell your person: then it is not this session.');
+  ctx.err('Kosmos could not match the agent token this session sent to one of your running agents.');
+  ctx.err('If your person removed you from Kosmos, that is expected.');
+  ctx.err('If not: a running session cannot pick up a new token by itself.');
+  ctx.err('Ask your person to restart you from Kosmos (your page, Restart; "Write a handoff, then restart" keeps what you were doing).');
+  ctx.err('The new session starts with a fresh token. `kosmos adopt` does not help: its token never reaches a running session.');
+  ctx.err('If you have no page in Kosmos at all, your person can add you from New agent.');
+  ctx.err('If it still happens after a restart, tell your person: then it is not this session.');
 }
 
 async function verbWhoami(ctx) {
