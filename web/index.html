@@ -25238,8 +25238,13 @@ function paintMuseOption(sel, current) {
   const creating = sel.id === 'create-provider' || sel.id === 'tc-provider';   // #4719: the team step makes agents too
   const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
   opt.disabled = !on;
-  if (on || !creating || !MUSE_CREATE || !MUSE_CREATE.on) delete opt.dataset.off;
-  else opt.dataset.off = 'Set up in Settings, AI Models';   // turned on here, not installed or not signed in
+  /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): the option was enabled, but its static text still
+     said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the same
+     state as `disabled`: usable, switched on here but not signed in, or not switched on (still coming soon). */
+  const signIn = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;
+  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : 'Meta Muse \u00b7 coming soon';
+  if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';   // the logo list's pill
+  else delete opt.dataset.off;
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
@@ -29659,6 +29664,7 @@ async function museAsk() {
   const opt = museMetaOption();
   if (opt) {
     opt.disabled = !on;
+    opt.textContent = on ? 'Meta Muse' : 'Meta Muse \u00b7 coming soon';   // #5316: the words follow `disabled`
     if (missing) opt.dataset.off = missing; else delete opt.dataset.off;
     // An open logo list re-reads its options (round 3), as paintAgyOption and paintKeyedProviderOptions do.
     const sel = opt.parentElement;
@@ -49067,9 +49073,9 @@ function enhanceProviderSelect(selectId) {
     const disabled = o.disabled;
     if (disabled) { li.setAttribute('aria-disabled', 'true'); li.classList.add('pcombo-off'); }
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
-    // The bare provider name: the <option> text carries " · coming soon"; strip it,
+    // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first"); strip it,
     // the widget shows a pill instead.
-    const label = o.textContent.replace(/\s*·\s*coming soon\s*$/i, '').trim();
+    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');
     if (disabled) mark.classList.add('dim');
@@ -49126,7 +49132,7 @@ function enhanceProviderSelect(selectId) {
        for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
        trigger must show blank too, not silently present the first option as selected. */
     const cur = opts.find((o) => o.value === select.value) || null;
-    const label = cur ? cur.textContent.replace(/\s*·\s*coming soon\s*$/i, '').trim() : '';
+    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first)\s*$/i, '').trim() : '';
     trigger.textContent = '';
     if (cur) {
       const mark = providerMarkNode(cur.value, label);
