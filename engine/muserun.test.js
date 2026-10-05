@@ -415,6 +415,9 @@ test('#4603 R7: a line longer than the cap is dropped whole, and the next line i
   w3(Buffer.from('x'.repeat(65 * 1024)));
   w3(Buffer.from('{"payload_type":"run.model.configured","payload":{"model_id":"tail-of-long"}}\n'));
   assert.deepEqual(w3seen, [], 'the tail of a dropped over-long line was read as its own line');
+  // A whole over-long line that arrives in ONE chunk, newline included, is dropped too.
+  w3(Buffer.from('{"payload_type":"run.model.configured","payload":{"model_id":"one-chunk-long","pad":"' + 'x'.repeat(65 * 1024) + '"}}\n'));
+  assert.deepEqual(w3seen, [], 'a complete over-long line in one chunk was read');
 });
 
 test('#4603 R7: runTurn tells onModel while Muse still runs, and a stopped turn still carries the model', { timeout: 10000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
