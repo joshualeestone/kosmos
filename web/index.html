@@ -40045,7 +40045,14 @@ function instrAddPaint(sessionName, data) {
   const last = data && data.last;
   const li = document.createElement('li');
   li.className = 'community-mine-row community-held-row';
-  if (p) {
+  if (data && data.unreadable) {
+    /* Review 2: never a silent empty block. The next proposal moves the unreadable file aside (kept) and starts over. */
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. The next one an agent proposes starts a new file; the old one is kept beside it.';
+    li.append(line);
+  } else if (p) {
     const who = p.askedBy || 'another agent';
     const text = document.createElement('div');
     const title = document.createElement('b');

@@ -16213,7 +16213,8 @@ const server = http.createServer(async (req, res) => {
        the page reads by. A case or punctuation variant the gate accepts was stored apart: shown nowhere, and a second
        "one pending" beside the first. */
     const card = claimantFor(asked);
-    const name = card && typeof card.sessionName === 'string' && card.sessionName ? card.sessionName : asked;
+    if (!card || typeof card.sessionName !== 'string' || !card.sessionName) { sendJson(res, 404, { error: 'no agent by that name' }); return; }   // review 2: never the raw spelling
+    const name = card.sessionName;
     if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
       try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
       return;

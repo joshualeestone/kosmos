@@ -142,13 +142,51 @@ test('review 1: forget drops an agent\'s waiting addition and Undo record (a new
   assert.deepEqual(adds.state('sally'), { pending: null, last: null });
 });
 
-test('review 1: a store that cannot be parsed is REFUSED, never overwritten (other agents\' records survive)', () => {
+test('review 2: an unreadable store is reported, then MOVED ASIDE (kept, never deleted) by the next write, which goes on', () => {
   makeAgent('sally');
   fs.mkdirSync(path.dirname(adds.FILE), { recursive: true });
-  fs.writeFileSync(adds.FILE, '{"agents": {"bob": {"pending": {"text": "x", "askedBy": "y"');   // cut off mid-write
+  const broken = '{"agents": {"bob": {"pending": {"text": "x", "askedBy": "y"';   // cut off mid-write
+  fs.writeFileSync(adds.FILE, broken);
+  assert.equal(adds.state('sally').unreadable, true, 'the page would show nothing and say nothing');
   const r = adds.propose('sally', ADD, 'Ops lead');
-  assert.equal(r.ok, false, 'a propose overwrote an unreadable store');
-  assert.match(fs.readFileSync(adds.FILE, 'utf8'), /"bob"/, 'the unreadable store was replaced');
+  assert.equal(r.ok, true, 'a broken store blocked every proposal for good: ' + JSON.stringify(r));
+  const aside = fs.readdirSync(path.dirname(adds.FILE)).filter((f) => f.startsWith('instruction-adds.json.unreadable-'));
+  assert.equal(aside.length, 1, 'the unreadable store was not kept aside');
+  assert.equal(fs.readFileSync(path.join(path.dirname(adds.FILE), aside[0]), 'utf8'), broken, 'the kept copy is not the original');
+  assert.equal(adds.pending('sally').text, ADD);
+  for (const f of aside) fs.rmSync(path.join(path.dirname(adds.FILE), f));
+});
+
+test('review 2: an empty store, or {}, is just empty (not unreadable)', () => {
+  makeAgent('sally');
+  for (const body of ['', '{}', '  \n']) {
+    fs.mkdirSync(path.dirname(adds.FILE), { recursive: true });
+    fs.writeFileSync(adds.FILE, body);
+    assert.equal(adds.state('sally').unreadable, undefined, JSON.stringify(body) + ' read as unreadable');
+    assert.equal(adds.propose('sally', ADD, 'Ops lead').ok, true);
+    fs.rmSync(adds.FILE, { force: true });
+  }
+});
+
+test('review 2: if the record of an apply cannot be written, the addition is TAKEN BACK OUT (no double add on retry)', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });   // the store's temp path is a folder, so its write fails
+  try {
+    const r = adds.apply('sally');
+    assert.equal(r.ok, false);
+    assert.equal(fileText('sally'), BASE, 'the instructions kept an addition that was never recorded');
+  } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(adds.pending('sally').text, ADD, 'the waiting addition was lost');
+  assert.equal(adds.apply('sally').ok, true, 'CONTROL: once the store can be written, the apply goes through');
+  assert.equal((fileText('sally').match(/## Added on/g) || []).length, 1, 'the addition went in twice');
+});
+
+test('review 2: forget also removes another capitalisation of the name', () => {
+  makeAgent('Mara');
+  adds.propose('Mara', ADD, 'Ops lead');
+  adds.forget('mara');
+  assert.equal(adds.pending('Mara'), null, 'a case variant at removal left the entry for the next agent of that name');
 });
 
 test('review 1: an agent named like an Object property is just a key', () => {

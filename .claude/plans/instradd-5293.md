@@ -52,6 +52,15 @@ the person pasted it in on the colleague's page.
   "asked by" is a label with the same trust as a message's sender, not an authority. The person still reads the text
   and decides. Refusing the pane fallback (denyPaneFallback) would refuse every Mac agent that has no token today.
 
+## Review 2 (sonnet, blind)
+- W fixed: an unreadable store was a dead end, and silent. Now the page says so, and the next write MOVES it aside
+  (instruction-adds.json.unreadable-<time>, kept, never deleted) and goes on from empty. An empty file or {} is just
+  empty. Test: the kept copy is byte-identical to the broken one.
+- W fixed: Apply wrote the instructions, then the store; if the store write failed, a retry added the text twice with
+  no Undo. Now a failed record takes the addition back out (only if nothing wrote since) and says so. Mutation: no
+  take-back reds the test.
+- NITs fixed: forget removes every capitalisation of the name; the route refuses rather than key by a raw spelling.
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.
