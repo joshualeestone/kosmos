@@ -136,14 +136,14 @@ test('control: two independent stand-aside handlers leave the first one\'s folde
    and thread-server loads it after lib-sandbox-home: every browser-check run left 3 `kosmos-bc-home-` folders and
    thread-server's `aw-thread-config-` folder. The registry now listens once more when it stands aside. */
 const REMOTE = path.join(__dirname, 'engine', 'remote.js');
-const REDIRECT = (base) => ({ AGENT_WORKFORCE_HOME: undefined, AGENT_WORKFORCE_DATA: path.join(base, 'data') });
 
 test('#5334: lib-sandbox-home beside the REAL engine/remote.js (its SIGTERM re-raise) leaves nothing on SIGTERM', { timeout: 15000 }, async (t) => {
   const base = freshBase(t);
   const code = `require(${JSON.stringify(SANDBOX)}); require(${JSON.stringify(REMOTE)});
     if (!process.listeners('SIGTERM').some((f) => String(f).includes('process.kill(process.pid, sig)') && String(f).includes('removeListener'))) { console.log('NO-REMOTE-RERAISE'); process.exit(7); }
     console.log('ready'); setInterval(()=>{},1000);`;
-  const env = { ...process.env, ...REDIRECT(base) }; delete env.AGENT_WORKFORCE_HOME;
+  // A home of its own from lib-sandbox-home (so not the caller's), and remote.js's data kept inside base.
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(base, 'data') }; delete env.AGENT_WORKFORCE_HOME;
   const c = spawn(process.execPath, ['-e', code], { env: { ...env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } });
   await new Promise((res, rej) => {
