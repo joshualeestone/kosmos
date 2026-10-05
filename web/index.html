@@ -3561,6 +3561,8 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
 }
+/* #5303: the "More sections" chevron exists only on a phone (the #718 phone block below); a wider Settings nav is a column. */
+#s-nav .snav-more { display: none; }
 /* #718 mobile (Josh, 2026-09-24: "make sure the designs fit well on mobile"). Settings on a
    PHONE, scoped to #panel-settings so the agent nav (#d-nav) and every shared token are
    untouched. Measured before this block at 375/393/430/412 wide: the eleven pills wrapped into
@@ -3572,8 +3574,6 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
    the end padding lets the last pill clear the fade. A switch keeps its drawn 42x24 size and
    gains an invisible 44px-tall hit area instead. The 10px group labels (.con-group) go up to
    12px, which is legible at arm's length. */
-/* #5303: the "More sections" chevron exists only on a phone (the rule below); a wider Settings nav is a column. */
-#s-nav .snav-more { display: none; }
 @media (max-width: 40rem) {
   #s-nav { width: 100%; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
            scroll-snap-type: x proximity; scrollbar-width: none; padding: 4px 32px 4px 4px;
