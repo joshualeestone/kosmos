@@ -1300,7 +1300,8 @@ function tasksTabShown() {
    symbols carry meaning, "-5" is not "5", "x > 5" is not "x < 5"), so the same words with other punctuation are a
    miss, which costs only today's behaviour.
    Only OPEN tasks numbered BELOW the new one: when two agents add the same ask at once, the newest copy is the one
-   told to close, never both. Never the task's own parent (a subtask may repeat it). At most three, oldest first. */
+   told to close, never both. Never the task's own parent (a subtask may repeat it), and only tasks under the same
+   parent (review 6: generic subtask text under two parents is two tasks). At most three, oldest first. */
 function sameTaskText(sentence) {
   // Review 4: EVERY character counts but case, runs of whitespace and Unicode form (NFC: one character written two
   // ways; review 5: never NFKC, which folds x² into x2 and ① into 1). Dropping punctuation and symbols
@@ -1315,6 +1316,9 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null } = {}) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
     if (Number.isInteger(beforeNumber) && t.number >= beforeNumber) continue;
     if (parent !== null && t.number === parent) continue;
+    // Review 6: only tasks under the SAME parent (top-level with top-level): "Write tests" under #3 and under #7 are
+    // two real tasks.
+    if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
     if (sameTaskText(t.sentence) === mine) out.push({ number: t.number, sentence: t.sentence });
   }
   out.sort((a, b) => a.number - b.number);
