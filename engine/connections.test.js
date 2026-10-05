@@ -158,13 +158,14 @@ test('#4451: the block teaches the Connections tab, the cheap read, and connecti
 test('#5309: it tells an agent where a plugin it cannot use may be (folder, account, app), and to say which', () => {
   const flat = connections.blockBody().replace(/\s+/g, ' ');
   assert.match(flat, /## A plugin the person installed in their own app/);
-  assert.match(flat, /the folder in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
+  assert.match(flat, /your folder is the one in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
+  assert.match(flat, /or set up for the project you are working in/);
   assert.match(flat, /Codex uses `CODEX_HOME`, or `\.codex` in the home folder/);
   assert.match(flat, /On Windows the home folder is `%USERPROFILE%`/);
   assert.match(flat, /compare the actual folders rather than assuming from the account/);
   /* A connector belongs to an ACCOUNT, not a folder (review: it is never in a plugins file); desktop-app chat additions
      are in neither (review 3). */
-  assert.match(flat, /A connector added on the claude\.ai website belongs to a Claude account, not to a folder/);
+  assert.match(flat, /A connector added on the claude\.ai website is tied to a Claude account rather than to a folder/);
   assert.match(flat, /Something added to the Claude desktop app's own chat side is kept by that app, not in any Claude Code folder/);
   /* Restart is ruled out only for the other-folder/account/app case. */
   assert.match(flat, /Restarting does not change that, so do not suggest it then/);
