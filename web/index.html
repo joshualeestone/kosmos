@@ -67744,6 +67744,9 @@ async function fedInviteMake() {
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
     if (PJ_CURRENT === askedFor) fedMembersLoad(askedFor);
   } catch (err) {
+    // Given up on, a code may still have been made: the From outside list asks again so it shows one if so (and
+    // the owner does not mint a second code for a row the list never showed).
+    if (err && err.name === 'AbortError' && PJ_CURRENT === askedFor) fedMembersLoad(askedFor);
     if (seq === FEDINV_SEQ) {
       msg.textContent = err && err.name === 'AbortError' ? FEDINV_TIMED_OUT : FED_UNREACHABLE;
       document.getElementById('fedinv-label').focus();   // Make is disabled until finally: keep focus in the sheet

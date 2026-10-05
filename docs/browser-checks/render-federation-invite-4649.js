@@ -60,6 +60,8 @@
  *  B6  the outside disc is dashed and untinted (computed border-top-style dashed, transparent background), in
  *      light AND dark, including the row labelled "Ada", the name of a local agent (#3851). Control: the local
  *      Ada's own disc in the same Members card IS tinted, so the page does tint that name where it should.
+ *  B7b a reply that lands after the sheet was force-closed still has the list asked again (the new row shows).
+ *  B7c a Make given up on (the time limit) asks the list again too, since a code may still have been made.
  *  B7  an expired row's "Make a new code" opens the invite sheet with its label and kind filled in and focus on
  *      "Make an invite code"; making it asks the list again, and the expired row goes once a pending one has
  *      the same label. Control: before the new code, the expired row is listed (B1).
@@ -963,6 +965,33 @@ const closeAll = (page) => page.evaluate(() => {
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',
       (await gets(page)) > before && f.rows.some((r) => r.key === 'i:inv-new' && r.sub === 'Invited · until Oct 11') && !f.rows.some((r) => r.key === 'i:inv-old'),
       JSON.stringify(f.rows.map((r) => r.key + ' ' + r.sub)));
+    // B7b: a reply that lands after the sheet was force-closed (the gate leaving "show" and coming back) still has the
+    // list asked again, so the code it made shows. Control: the count is read after the gate's own asks settle.
+    await page.evaluate(() => fedInviteOpen(null, { label: 'Kim Lo', kind: 'person' }));
+    await setMembers(page, answer([row({ invite_id: 'inv-kim', label: 'Kim Lo', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    await page.evaluate(() => { window.__inviteDelay = 600; });
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(50);
+    await page.evaluate(([off, on]) => { fedGateStamp(off); fedGateStamp(on); }, [OFF, SHOW]);
+    await page.waitForTimeout(150);
+    const lateClosed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
+    const lateBefore = await gets(page);
+    await page.waitForTimeout(700);
+    const lateRows = (await readFed(page, '#pj-fed-outside')).rows;
+    check('B7b a reply landing after a forced close still has the list asked again, and the new pending row shows (control: closed, counted after the gate settled)',
+      lateClosed && (await gets(page)) > lateBefore && lateRows.some((r) => r.key === 'i:inv-kim'), JSON.stringify({ lateClosed, keys: lateRows.map((r) => r.key) }));
+    // B7c: a Make given up on (the time limit) asks again too, since a code may still have been made.
+    await page.evaluate(() => { window.__inviteDelay = 2000; FEDINV_MAKE_LIMIT_MS = 200; fedInviteOpen(null, { label: 'Ray Oh', kind: 'person' }); });
+    await setMembers(page, answer([row({ invite_id: 'inv-ray', label: 'Ray Oh', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
+    const toBefore = await gets(page);
+    await page.click('#fedinv-make');
+    await page.waitForTimeout(600);
+    const toMsg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
+    const toRows = (await readFed(page, '#pj-fed-outside')).rows;
+    const toAsked = (await gets(page)) - toBefore;
+    await page.evaluate(() => { window.__inviteDelay = 0; FEDINV_MAKE_LIMIT_MS = 60000; });
+    check('B7c a Make given up on asks the list again and shows the code it may have made (control: the timed-out message)',
+      toMsg.startsWith('Kosmos did not hear back in time.') && toAsked >= 1 && toRows.some((r) => r.key === 'i:inv-ray'), JSON.stringify({ toMsg, toAsked, keys: toRows.map((r) => r.key) }));
     await ctx.close();
   }
 
