@@ -25238,9 +25238,10 @@ function paintMuseOption(sel, current) {
   const creating = sel.id === 'create-provider' || sel.id === 'tc-provider';   // #4719: the team step makes agents too
   const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
   opt.disabled = !on;
-  /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): the option was enabled, but its static text still
-     said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the same
-     state as `disabled`: usable, switched on here but not signed in, or not switched on (still coming soon). */
+  /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): this code enables the option, but its static text
+     still said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the
+     same state as `disabled`: usable, sign in first (installed, not signed in), set up first (switched on, not
+     installed), or coming soon (not switched on here). */
   const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
   opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';

@@ -312,10 +312,13 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
   // Turned on but Muse Code not installed: the option stays disabled and says why.
   await q(() => { window.__museInstalled = false; closeAcctAdd(); openAcctAdd(); }); await settle();
-  const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '' }; });
+  const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
   chk(missing.disabled && /not on this computer/.test(missing.off) && missing.off !== 'Not ready on this computer', 'turned on but not installed: the Meta option stays disabled and gives the engine\'s reason', JSON.stringify(missing));
+  chk(missing.text === 'Meta Muse \u00b7 set up first', '#5316: not installed, the option\'s words say to set it up first', JSON.stringify(missing));
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
-  chk(await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return !o.disabled && !o.dataset.off; }), 'installed again: live, with no leftover reason');
+  const live = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
+  chk(!live.disabled && !live.off, 'installed again: live, with no leftover reason', JSON.stringify(live));
+  chk(live.text === 'Meta Muse', '#5316: live, the option\'s words are "Meta Muse"', JSON.stringify(live));
 
   /* ---- round 4 of review: stuck, with and without a code ---- */
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
