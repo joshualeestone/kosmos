@@ -154,3 +154,16 @@ test('#4451: the block teaches the Connections tab, the cheap read, and connecti
   // CONTROL: the AI-provider section is still there, so the new text was added, not swapped in.
   assert.match(flat, /How connecting a provider works/);
 });
+
+test('#5309: it tells an agent a plugin may be in the person\'s folder and not in its own, and how to check', () => {
+  const flat = connections.blockBody().replace(/\s+/g, ' ');
+  assert.match(flat, /## A plugin the person installed in their own app/);
+  assert.match(flat, /`CLAUDE_CONFIG_DIR`, or `~\/\.claude` when that is not set/);
+  assert.match(flat, /`plugins\/installed_plugins\.json`/);
+  assert.match(flat, /`CODEX_HOME`, or `~\/\.codex` when that is not set/);
+  assert.match(flat, /Restarting does not change that, so do not suggest it/);
+  assert.match(flat, /never one running on an API key/);
+  /* The section sits before the Connections tab section, so the two "connected" meanings stay apart. */
+  assert.ok(flat.indexOf('## A plugin the person') < flat.indexOf('## The Connections tab'), 'the plugin section moved after the Connections tab section');
+  assert.doesNotMatch(flat, /—/, 'an em dash reached the agent block');
+});
