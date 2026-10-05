@@ -29,7 +29,7 @@ const path = require('node:path');
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
-  rules: 'the working rules (Kosmos updated them with your person\'s OK)',
+  rules: 'the working rules (Kosmos added or updated them with your person\'s OK)',
 });
 
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
@@ -245,6 +245,7 @@ async function passOnce(o) {
     }
     if (Object.keys(cleared).length) {
       const next = mergeCleared(read(), cleared);
+      // A debt owed again during the send already names every section, so a held one is kept only when there is none.
       for (const [session, debt] of Object.entries(keep)) if (!next[session]) next[session] = debt;
       write(next);
     }
