@@ -180,3 +180,7 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
 - The test counts quoted above (36/36) are history too; the file has grown with each fix.
 - Iteration 4 (sonnet): the attempt token is strictly increasing (two attempts in one millisecond differ). Review
   14's two LEFT comment nits were fixed in iteration 1. Adopt-row Enter: unchanged, as decided.
+- Iteration 5 (opus): an empty Name field no longer refuses before reading the file. A file the parse can name
+  (a Kosmos export header the scan does not read) adds under its own name in one click, as before this card; only a
+  file that names nothing asks for a name (same words, cursor in the field, nothing created). Unit tests for both;
+  browser check N2 now waits for the row's answer. Adopt-row Enter scope: unchanged, as decided.

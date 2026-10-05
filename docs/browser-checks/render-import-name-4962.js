@@ -13,7 +13,8 @@
  *
  * Checks, each engine:
  *   N1 the nameless row has a labelled Name field with its helper; the named row has none;
- *   N2 Add with the field empty says "Give this agent a name first.", puts the cursor in the field, sends nothing;
+ *   N2 Add with the field empty, on a file that names nothing, says "Give this agent a name first.", puts the cursor in
+ *      the field, creates nothing;
  *   N3 typing a name and pressing Enter adds it: the create body carries the typed name as name and label, and the
  *      row reads "Added to Kosmos";
  *   N4 control: the named row adds with the file's own name;
@@ -111,9 +112,13 @@ const PARSE = {
         chk((await row(NAMED).locator('.fr-importinput').count()) === 0, 'N1 the named row has no field');
 
         await nr.locator('.fr-importgo').click();
-        await page.waitForTimeout(300);
+        // The file is read first (it may name itself), so wait for the row's answer rather than a fixed pause.
+        await page.waitForFunction((f) => {
+          const s = document.querySelector('#import-found .fr-importrow[data-import-file="' + f + '"] .fr-importsaid');
+          return s && s.textContent;
+        }, NAMELESS, { timeout: 10000 }).catch(() => null);
         const n2 = await nr.evaluate((el) => ({ said: el.querySelector('.fr-importsaid').textContent, focused: document.activeElement === el.querySelector('.fr-importinput') }));
-        chk(n2.said === 'Give this agent a name first.' && n2.focused && creates.length === 0, 'N2 an empty field asks for a name, focuses it, sends nothing', JSON.stringify({ ...n2, creates: creates.length }));
+        chk(n2.said === 'Give this agent a name first.' && n2.focused && creates.length === 0, 'N2 an empty field on a file that names nothing asks for a name, focuses it, creates nothing', JSON.stringify({ ...n2, creates: creates.length }));
 
         await field.fill('Claude Pip');
         await field.press('Enter');

@@ -53229,17 +53229,11 @@ async function populateFoundImports() {
 async function addImportedInPlace(file, btn, row, viaKey) {
   if (!file || !btn || btn.disabled) return;
   const said = row && row.querySelector('.fr-importsaid');
-  /* kosmos#4962: a nameless file's row carries a Name field. Empty, it is asked for before anything is
-     sent (the first-run adopt rows' rule); filled, what was typed names the agent. */
+  /* kosmos#4962: a file the scan could not name gets a Name field. Filled, what was typed names the agent. Left
+     empty, the file is still read: its own name (the parse can find one the scan cannot, such as a Kosmos export
+     header) is used, and only a file that names nothing is asked for one, nothing created. */
   const field = row && row.querySelector('.fr-importinput');
   const typed = field ? field.value.trim() : '';
-  if (field && !typed) {
-    if (said) said.textContent = 'Give this agent a name first.';
-    field.setAttribute('aria-invalid', 'true');
-    if (field.classList) field.classList.add('bad');   // the page's flagged-field border (#2606), as on Create an agent
-    field.focus();
-    return;
-  }
   const was = btn.textContent;
   /* Where the keyboard was when the add began (the field, after Enter, or the button). Disabling it drops
      focus to the page, so it is given back on a refusal, and, for an add made FROM THE KEYBOARD (viaKey:
@@ -53302,13 +53296,12 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
      not mislabelled "that is not an agent file". */
   if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
-  /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). A row whose scan
-     found no name asks for one in its Name field before this point (kosmos#4962), so this
-     guard is reached only when the scan named the file but the parse gave no usable name:
-     it says so and stops rather than making a nameless agent. */
   /* What the person typed wins when the row asked for it; the engine folds it into a machine name
-     ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. */
+     ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. A raw CLAUDE.md may
+     carry no derivable name (recognizedFromContent): a row with a Name field asks for one there; a row without one
+     says so and stops rather than making a nameless agent. */
   const name = typed || String(data.name || '').trim();
+  if (!name && field) { fail('Give this agent a name first.', true); return; }
   if (!name) { fail('This file does not say what to call the agent, so it cannot be added in one click. Open it from Create an agent to name it.'); return; }
 
   // 2. Create from the parsed fields. Import maps to the `own` role, the same mapping

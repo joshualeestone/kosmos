@@ -80,14 +80,24 @@ function rig({ withField, parsed, created }) {
 const PARSED_NAMELESS = { ok: true, name: '', displayName: '', instructions: 'You help with the site.', provider: 'anthropic' };
 const CREATED = { ok: true, outcome: 'created' };
 
-test('an empty Name field asks for a name, sends nothing, and puts the cursor in the field', async () => {
+test('an empty Name field on a file that names nothing asks for a name, creates nothing, and puts the cursor in the field', async () => {
   const r = rig({ withField: true, parsed: PARSED_NAMELESS, created: CREATED });
   await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
-  assert.equal(r.calls.length, 0, 'nothing was sent');
+  assert.equal(r.calls.length, 1, 'the file was read');
+  assert.match(r.calls[0].url, /agent-import-file/);
   assert.equal(r.said.textContent, 'Give this agent a name first.');
   assert.equal(r.d.focused(), r.field);
   assert.equal(r.field.getAttribute('aria-invalid'), 'true');
   assert.equal(r.btn.disabled, false, 'the button stays usable');
+});
+
+test('an empty Name field on a file the PARSE can name adds it under its own name (one click, as before)', async () => {
+  const r = rig({ withField: true, parsed: { ...PARSED_NAMELESS, name: 'scout', displayName: 'Scout' }, created: CREATED });
+  await r.add('/Users/p/Downloads/scout.md', r.btn, r.row);
+  assert.equal(r.calls.length, 2, 'parsed, then created');
+  assert.equal(r.calls[1].body.name, 'scout');
+  assert.equal(r.calls[1].body.label, 'Scout');
+  assert.equal(r.said.textContent, '', 'no request for a name');
 });
 
 test('a typed name names the agent: it is sent as the name and as the label', async () => {
