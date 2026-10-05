@@ -30,7 +30,15 @@
  * another member's `from`, as today; the relay still sees who posts, when and how
  * much, and a relay that suppresses every newer-epoch frame to a member can keep that
  * member on the old key (it holds its posts once it sees a newer epoch). Freshness is judged against each Mac's own clock: a clock off by more than an
- * hour refuses genuine messages (the room says to check the clock). Nonces are random 96-bit under one room key, safe to about 2^32 messages per
+ * hour refuses genuine messages (the room says to check the clock). The 90 s grace after
+ * a key rotation is judged the same way, against the owner's rotation time: a member clock
+ * running ahead of the owner's shortens it (posts sealed just before a rotation refused), and
+ * one running behind lengthens it by up to that difference, since a late rotation and a slow
+ * clock look the same from the member's side (#5197). A member that misses a rotation for
+ * longer than that grace has its next old-key posts refused on the other boards, and its own
+ * board shows them as sent (nothing resends a post that went out and was refused; #5192
+ * holds only posts not yet sent).
+ * Nonces are random 96-bit under one room key, safe to about 2^32 messages per
  * epoch, far past any room's life at the inbound budget (2,000 rows a day).
  */
 const crypto = require('node:crypto');

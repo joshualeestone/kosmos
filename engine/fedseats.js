@@ -53,6 +53,30 @@ const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
 const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer
+/* #5193: a member's edge revoked by the owner, told in one plain sentence. The connector's own
+   reason for it reads "...that connection has been revoked. Ask to be re-invited. (HTTP 409 on
+   /v1/mac/federation/room-ticket)", which shows a raw path and says "ask" twice. */
+const REVOKED_REFUSAL = /that connection has been revoked/i;   // the connector's FINAL_REFUSALS phrase, not any 'revoked'
+const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
+/** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
+    (the room's sentence says what to do), and without a trailing full stop. The reason comes from
+    outside and can be a whole 64 KB line, so only its first REASON_SCAN characters are read, and
+    cleaned first (format characters out, whitespace runs collapsed) so neither a hidden character
+    nor a run of spaces defeats or slows the patterns; it is cut to its shown length only after,
+    so a long one cannot keep half a trailer (round 2). */
+const REASON_SCAN = 1000;
+function plainReason(why) {
+  let raw = typeof why === 'string' ? why.slice(0, REASON_SCAN) : why;
+  // Never half a character: a cut on the first half of a surrogate pair drops it (round 3).
+  if (typeof raw === 'string' && /[\ud800-\udbff]$/.test(raw)) raw = raw.slice(0, -1);
+  const r = clean(clean(raw, REASON_SCAN)
+    .replace(/ ?\(HTTP \d{3}[^)]*\)/gi, '')
+    .replace(/ ?Ask to be re-invited\.?/gi, ''), 200);
+  // Trimmed after the cut, so a long reason cannot end in its own full stop or a space (round 3).
+  let end = r.length;
+  while (end > 0 && (r[end - 1] === '.' || r[end - 1] === ' ')) end -= 1;
+  return r.slice(0, end) || 'the connection ended';
+}
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
 /* The longest stdout line kept while waiting for its newline. The connector
@@ -123,20 +147,23 @@ function handleEvent(projectId, line, heldAt) {
   try { ev = JSON.parse(line); } catch { return; }
   if (!ev || typeof ev !== 'object') return;
   const s = seats.get(projectId);
-  if (!s) return;
+  // #5193: a seat ended by the edge check ignores what its dying connector still has in the pipe
+  // (a late 'connected' or 'disconnected' would change the status; a message would be recorded).
+  if (!s || s.stopped) return;
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
   if (ev.event === 'connected') {
-    setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false;
+    setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false; s.endedNoted = false;
     // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
     sayHello(projectId, s);
     sendRotates(projectId, s);
+    flushHeld(projectId, s);   // a post held for the room id, or for a key that arrived meanwhile
     return;
   }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
-    s.ended = clean(ev.because, 200) || 'the connection ended';
+    s.ended = plainReason(ev.because);
     // Some final refusals are about THIS Mac or account, not the edge (the
     // connector's FINAL_REFUSALS). Signing in again fixes those, so nothing about
     // the edge is kept and the person is told the real fix.
@@ -153,6 +180,11 @@ function handleEvent(projectId, line, heldAt) {
     // the owner leaving, so the note (and its "ask the owner") is a member's.
     const link = safeLink(projectId);
     if (!link || link.role !== 'member') return;
+    // #5193: one ending sentence per seat, whichever path says it first (the edges check, or an
+    // earlier 'ended' line on this live seat): never two, never two that disagree (round 2).
+    if (s.endedNoted) return;
+    s.endedNoted = true;
+    if (REVOKED_REFUSAL.test(s.ended)) { say(projectId, REVOKED_NOTE); return; }
     say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
     return;
   }
@@ -184,7 +216,7 @@ function handleEvent(projectId, line, heldAt) {
           s.behindArmedAt = sealed.epoch;
           s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
         }
-        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile.');
+        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
       if (!opened && !sealed) {
@@ -195,15 +227,17 @@ function handleEvent(projectId, line, heldAt) {
       if (!opened) {
         // #5191: an owner refusing an older epoch's post re-sends the current key now (at most
         // once per EDGE_FRESH_MS), so a remaining member that missed a rotation catches up
-        // without waiting for the next pass. The refused post itself is not resent (#5192).
+        // without waiting for the next pass. The refused post itself is not resent (#5192 holds
+        // only posts not yet sent).
         // The epoch is unauthenticated, so a forger can trigger this too: the limit bounds it,
         // and it only re-sends sealed frames, one to each pinned member.
         if (sealed && sealed.role === 'owner' && ev.data.epoch < sealed.epoch && !isFresh(s.rotatesResentAt, now)) {
           s.rotatesResentAt = now;
           sendRotates(projectId, s);
         }
-        if (sealed && sealed.role === 'owner' && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)) {
-          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired (someone was removed from the shared project), so it was not shown.');
+        if (sealed && hasKey(sealed) && ev.data.epoch < sealed.epoch && !Object.prototype.hasOwnProperty.call(acceptedKeys(sealed, keysAt), ev.data.epoch)
+          && (sealed.role === 'owner' || Object.prototype.hasOwnProperty.call(sealed.keys, ev.data.epoch))) {   // a member that joined later never held it
+          noteOnce(projectId, s, 'retired', 'A message sealed with this room\'s earlier key arrived after that key was retired, so it was not shown. It is from someone removed from the shared project, or from a computer still catching up on the new key' + (sealed.role === 'owner' ? '.' : '. Or this computer\'s clock may be off.'));
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
@@ -299,6 +333,7 @@ function setStatus(projectId, status) {
   const s = seats.get(projectId);
   if (!s) return;
   s.status = status;
+  if (status === 'ended') dropHeld(projectId, s, 'the connection has ended');
   if (deps && typeof deps.onStatus === 'function') {
     try { deps.onStatus(projectId, status); } catch { /* status is furniture */ }
   }
@@ -486,20 +521,24 @@ function linkFor(projectId) {
    kept per seat run; one hour of ids is at most the minute budget times 60. */
 const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
-/* After a rotation, the previous epoch still opens for this long (a message sealed
-   just before it, still in flight), then never again: a revoked member cannot keep
-   posting under the key it was rotated out of. This is a MEMBER's grace: a member is
-   not told why the owner rotated. */
-const EPOCH_GRACE_MS = 10 * 60 * 1000;
-/* #5191: the OWNER's grace after a rotation. An owner rotates only when a member is
-   revoked, and during a grace the revoked member's old-key posts open too (a sealed post
-   does not say which member sealed it), so the owner's is short: in-flight posts plus
+/* #5191: the grace after a rotation, during which the previous epoch still opens (a
+   message sealed just before it, still in flight), then never again. An owner rotates
+   only when a member is revoked, and during a grace the revoked member's old-key posts open too (a sealed post
+   does not say which member sealed it), so it is short: in-flight posts plus
    the relay's room-ticket life (about 60 s). With no member left it is none at all:
    an old-key post can then only come from the revoked member. So with members left a
    revoked member can still be shown for about min(this, the ticket life) plus
    EDGE_FRESH_MS, about 75 s, relying on the relay to cut the revoked member at its ticket.
    Owner-side alone it is about 15 s + a 20 s round trip + this grace. While Kosmos+ cannot
-   answer, the pass shows held posts unchecked: then only the relay's ticket bounds it. */
+   answer, the pass shows held posts unchecked: then only the relay's ticket bounds it (a
+   sealed room does not trust the relay, so that is not a guarantee).
+   #5197: a member that has received the rotation uses the same grace. A member the relay
+   never sends the rotation to stays on the old key (fedseal.js NOT CLAIMED). Members hold nothing for
+   an edge check, so on a member's board a revoked member is shown until the owner detects
+   the revoke and the rotation reaches the member, plus at most this grace (longer by any amount the
+   member's clock runs behind the owner's: fedseal.js NOT CLAIMED). A member's grace runs from the
+   owner's rotation time on its own clock: a member clock running ahead shortens it
+   (fails closed: in-flight posts refused there). */
 const REVOKE_GRACE_MS = 90 * 1000;
 /* #5191: a sealed post to an owner whose last edge check is older than this waits for a
    check first, so a revoke is found then rather than at the next 60 s pass. One
@@ -517,7 +556,13 @@ const HELD_MAX = INBOUND_PER_WINDOW;
 /* How long a member holds its posts after seeing a message sealed one epoch ahead of
    its own (it missed a rotation; the owner re-sends each pass). The epoch on an
    envelope cannot be checked before it opens, so a forged one must cost no more than
-   this pause, which is no more than a relay can do anyway by dropping frames. */
+   this pause, which is no more than a relay can do anyway by dropping frames. Longer than
+   the 90 s grace (#5197), and armed no earlier than the rotation, so a post sent after it,
+   still under the old key, is past the grace and refused on the other boards (those whose
+   clock is not behind the owner's). It arms once per epoch this member holds, so a forged
+   envelope that armed it leaves a real miss of the next rotation, at that epoch, unheld
+   (nothing resends a refused post). Holding until the key arrives would let a forger pause
+   a member indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
@@ -552,11 +597,11 @@ function acceptedKeys(st, now) {
   return keys;
 }
 /** #5191: how long the previous epoch opens after this room's last rotation. An owner
-    rotates only on a revoke (rotateForRevoked), so every owner rotation gets the revoke
-    grace, read from the rooms file alone. "A member" is a pinned member PEER: when #4658
+    rotates only on a revoke (rotateForRevoked), so every rotation gets the revoke grace,
+    a member's too (#5197), read from the rooms file alone. "A member" is a pinned member PEER: when #4658
     lets the owner's own other computers in, they must count as the owner, never here. */
 function graceAfter(st) {
-  if (st.role !== 'owner') return EPOCH_GRACE_MS;
+  if (st.role !== 'owner') return REVOKE_GRACE_MS;
   return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
 }
 /** The link for the seal decisions: null when there is none, undefined when the record
@@ -683,6 +728,38 @@ function isFresh(at, now) {
   const age = now - (Number.isFinite(at) ? at : 0);
   return age >= 0 && age < EDGE_FRESH_MS;
 }
+/** #5193: end a member's seat whose edge the owner revoked, at once, as the connector's own
+    refusal (code 3) would about two minutes later: the room is told once, the link keeps the
+    ending across a restart, and held posts go with it (setStatus 'ended'). */
+function endRevokedMember(projectId, s, link) {
+  if (!s || s.stopped || s.status === 'ended') return;
+  // An ending already told keeps its own words on the link, so the room and the record agree (round 3).
+  if (!s.endedNoted) {
+    s.endedNoted = true;
+    s.ended = 'the owner removed this computer from the project';
+    say(projectId, REVOKED_NOTE);
+  }
+  try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended || 'the connection ended' })); } catch { /* ends again at its next ticket ask */ }
+  setStatus(projectId, 'ended');
+  s.stopped = true;   // the child's close then neither restarts it nor tells the room again, and
+                      // handleEvent ignores lines still in its pipe
+  if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+  if (s.child) letGo(s.child);
+}
+/** #5193: a member reads its own edge in the edges answer (the coordinator lists a revoked edge
+    with status 'revoked'). Only an edge listed as revoked ends the seat: a missing one or a
+    failed answer changes nothing (a partial answer must not lock a member out). */
+async function memberEdgeCheck(projectId, ask, seat) {
+  let r;
+  try { r = await ask; } catch { return; }
+  const s = seats.get(projectId);
+  if (!s || (seat && s !== seat)) return;
+  const link = safeLink(projectId);
+  if (!link || link.role !== 'member' || !link.edge_id) return;
+  if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_member)) return;
+  const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
+  if (e && e.status === 'revoked') endRevokedMember(projectId, s, link);
+}
 function sharedEdges(now) {
   if (macEdges && isFresh(macEdges.askedAt, now)) return macEdges;
   const ask = { askedAt: now, promise: null };
@@ -800,6 +877,7 @@ async function ownerHello(projectId, s, link, frame, me) {
   // #4649 slice 3: and remembers which account that is, so its posts can carry the owner's label.
   try { require('./fedmembers').noteMember(projectId, inv.invite, edge.member_account_id); } catch { /* the label is furniture */ }
   if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
+  flushHeld(projectId, s);
 }
 function onKeyFrame(projectId, s, frame) {
   const link = safeLink(projectId);
@@ -815,6 +893,7 @@ function onKeyFrame(projectId, s, frame) {
       if (!got) return;   // another member's share, or not genuine
       fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
       say(projectId, SEALED_LINE);
+      flushHeld(projectId, s);
       return;
     }
     if (frame.t === 'key-rotate' && link.role === 'member') {
@@ -823,10 +902,12 @@ function onKeyFrame(projectId, s, frame) {
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
       if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
       const keys = Object.assign({}, st.keys, { [got.epoch]: got.roomKey });
-      // The grace runs from the owner's rotation (sealed in the frame), never from now:
-      // a member catching up late must not reopen the old key for a revoked member.
-      // A time ahead of this clock counts as now.
+      // The grace runs from the owner's rotation (sealed in the frame), so a member catching
+      // up late does not reopen the old key. A time ahead of this clock counts as now, so on
+      // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
+      // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
+      flushHeld(projectId, s);
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
@@ -932,6 +1013,10 @@ function letGo(child, ms = STOP_KILL_MS) {
 function stop(projectId) {
   const s = seats.get(projectId);
   if (!s) return;
+  // Held posts go with the seat, silently: stop() also runs for an id that now names another
+  // project (a stale link, a reused id), where a note would land in the wrong room.
+  s.outbox = [];
+  s.staleHeld = 0;
   s.stopped = true;
   if (s.timer) clearTimeout(s.timer);
   if (s.child) letGo(s.child);
@@ -968,19 +1053,224 @@ async function ensureAll() {
   for (const id of Object.keys(links)) {
     const seat = seats.get(id);
     if (seat && seat.status === 'connected') { try { sayHello(id, seat); sendRotates(id, seat); } catch { /* next pass */ } }
+    if (seat) { try { ageHeld(id, seat); } catch { /* next pass */ } }   // connected or not
   }
   for (const id of Object.keys(links)) {
     const link = links[id];
+    // #5193: a member checks its own edge on the same one edges request.
+    if (link && link.role === 'member' && link.edge_id && !link.ended) {
+      const seat = seats.get(id);
+      if (seat) { try { await memberEdgeCheck(id, edges(), seat); } catch { /* next pass */ } }
+      continue;
+    }
     if (!link || link.role !== 'owner') continue;
     try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
   }
+  // #5192: the pass flushes after its own revoke check (a connect or a pin flushes at once, as a
+  // live post would go at once).
+  for (const id of Object.keys(links)) {
+    const seat = seats.get(id);
+    if (seat && seat.status === 'connected') { try { flushHeld(id, seat); } catch { /* next pass */ } }
+  }
 }
+
+/* #5192: posts held because the room's key has not arrived (or this member is behind on it)
+   are kept, in order, and sent when the key arrives, instead of staying on this computer
+   for good. Bounded: at most HELD_POSTS_MAX per seat, and one held longer than
+   HELD_POSTS_AGE_MS is not sent (the room says how many). Kept in this seat's memory:
+   a board restart loses them, and the room's own copy of each stays where it was.
+   Half the receiving board's minute COUNT budget for the room (INBOUND_PER_WINDOW), since a
+   flush sends them in one go and other members' posts in that minute share the same budget. */
+const HELD_POSTS_MAX = INBOUND_PER_WINDOW / 2;
+/* And bytes: a flush sends them in one go, and the receiving board keeps at most
+   INBOUND_BYTES_PER_WINDOW a minute for the whole room, so what is held stays well inside
+   it. Not a guarantee: other posts in that same minute share the receiver's budget. */
+const HELD_POSTS_BYTES = INBOUND_BYTES_PER_WINDOW * 3 / 4;
+const heldSize = (m) => Buffer.byteLength(String(m.text || '')) + Buffer.byteLength(String(m.from || ''));
+const HELD_POSTS_AGE_MS = 60 * 60 * 1000;
 
 /**
  * Post one local message out to the project's room. Returns true if a live seat
  * took it. Only the words and who said them leave this Mac.
  */
-function post(projectId, { from, kind, text }) {
+function post(projectId, msg) {
+  const m = msg || {};
+  // #5193: a member that posts asks whether it is still in the room (the shared answer, so at
+  // most one request per EDGE_FRESH_MS for the whole Mac), and a revoke is told within seconds.
+  const s = seats.get(projectId);
+  const l = s && s.status === 'connected' ? safeLink(projectId) : null;
+  if (l && l.role === 'member' && l.edge_id && deps) {
+    memberEdgeCheck(projectId, sharedEdges(Date.now()).promise, s).catch(() => {});
+  }
+  // Only the public fields: the hold's own (invites, sealedHeld...) cannot be set from outside.
+  return sendPost(projectId, { from: m.from, kind: m.kind, text: m.text, files: m.files }, 0);
+}
+/** Whether a post could ever go out: its line, sealed, within the connector's limit. Sealed
+    with a throwaway key, so the measure is the real one (the key changes no length; a large
+    epoch stands in for any epoch). */
+function fitsSealed(payload) {
+  try { return Buffer.byteLength(JSON.stringify(fedseal.seal(fedseal.randomSecret(), 999999, 'room', payload))) <= MAX_POST_LINE; } catch { return false; }
+}
+/** Hold one post until the room's key arrives. `why` finishes "That message is held on
+    this computer: ..."; `when` says when it goes. `heldAt`: when a post being flushed was
+    first held (its age carries over, so re-holding never resets the hour); 0 for a new one.
+    False, as post() returns for a post that did not go now. */
+function holdPost(projectId, s, msg, why, when, heldAt) {
+  // One that could never go is refused now, as it would be once the key arrived, and takes no place.
+  // Measured sealed only when the room is known sealed; otherwise in the clear (an unreadable
+  // record may turn out to be an unsealed room), and the exact check is made again at send.
+  const plain = { from: clean(msg.from, 80) || 'someone', kind: msg.kind === 'agent' ? 'agent' : 'person', text: String(msg.text || '') };
+  if (msg.sealedHeld ? !fitsSealed(plain) : Buffer.byteLength(JSON.stringify(plain)) > MAX_POST_LINE) {
+    if (!heldAt) say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
+    else s.lostHeld = (s.lostHeld || 0) + 1;   // a re-hold refused: the flush says so
+    return false;
+  }
+  // Posts held past the hour no longer count against the cap; the next flush says so.
+  const fresh = [];
+  for (const h of s.outbox || []) {
+    if (!heldStale(h)) fresh.push(h);
+    else s.staleHeld = (s.staleHeld || 0) + 1;
+  }
+  s.outbox = fresh;
+  if (s.outbox.length >= HELD_POSTS_MAX || s.outbox.reduce((n, h) => n + heldSize(h.msg), heldSize(msg)) > HELD_POSTS_BYTES) {
+    if (!heldAt) say(projectId, 'That message stayed on this computer: ' + why + ', and as many messages as Kosmos sends at once are already waiting for it.');
+    else s.lostHeld = (s.lostHeld || 0) + 1;   // a re-hold refused: the flush says so
+    return false;
+  }
+  // Who may read it: for an owner, the invite limit below (every edge of an owner's project
+  // opens the same room, so the edge says nothing). A member's held post, like any live post,
+  // goes to whoever is in the room when it is sent (within the hour).
+  // An owner's held post records the invites of the members already in plus those still
+  // waiting, and goes only while every pinned member came from one of them: never to someone
+  // invited afterwards. When the records cannot be read it is refused now (it cannot tell).
+  if (msg.invites === undefined) {
+    const l = sealLink(projectId);
+    const st = roomSeal(projectId);
+    let inv = null;
+    // Cannot tell whose room it is, or who an owner's room includes: nothing it could be held
+    // for is knowable, so it is refused now rather than promised and dropped later.
+    if (l === undefined || (st === undefined && l && l.role === 'owner')) {
+      if (!heldAt) say(projectId, 'That message stayed on this computer: it cannot read its shared-project records right now, so it cannot tell who this room includes.');
+      return false;
+    }
+    if (st === undefined) inv = null;   // a member's room: nobody to limit it to
+    else if (l && l.role === 'owner') {
+      // The members already in, and the invites still waiting: every computer pinned when it
+      // goes must have come from one of these.
+      const inRoom = st && st.peers ? Object.values(st.peers).map((p) => p && p.invite).filter(Boolean) : [];
+      try { inv = inRoom.concat(fedseal.pendingInvites(l.ref).map((p) => p.invite)); } catch {
+        if (!heldAt) say(projectId, 'That message stayed on this computer: it cannot read its shared-project records right now, so it cannot tell who this room includes.');
+        else s.lostHeld = (s.lostHeld || 0) + 1;
+        return false;
+      }
+    }
+    msg = Object.assign({}, msg, { invites: inv });
+  }
+  s.outbox.push({ msg, at: heldAt || Date.now() });
+  s.reheld = true;   // flushHeld's signal that this post is waiting again (not refused for good)
+  if (!heldAt) say(projectId, 'That message is held on this computer: ' + why + '. It is sent ' + when + ', while Kosmos keeps running.');
+  return false;
+}
+/** Held more than HELD_POSTS_AGE_MS, or held more than FUTURE_SKEW_MS 'in the future' (the
+    clock stepped back that far): not sent, as #5191 treats a time that far ahead of the clock
+    as not fresh. A smaller step back (a wake or a time sync) keeps them, so a post can be held
+    up to the hour plus that step. */
+function heldStale(h) {
+  const age = Date.now() - h.at;
+  return age < -FUTURE_SKEW_MS || age > HELD_POSTS_AGE_MS;
+}
+/** #5192: on every pass the hour runs out on held posts, whether or not the seat is connected
+    (one connected but unable to flush still ages them), and the room is told. */
+function ageHeld(projectId, s) {
+  if (!s.outbox) return;
+  const before = s.outbox.length;
+  s.outbox = s.outbox.filter((h) => !heldStale(h));
+  const n = before - s.outbox.length + (s.staleHeld || 0);
+  s.staleHeld = 0;
+  if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour, or this computer\'s clock was set back.');
+}
+/** #5192: a seat that ends with posts still held says so, once, instead of losing them
+    silently after its hold note promised they would go. */
+function dropHeld(projectId, s, why) {
+  const n = (s.outbox ? s.outbox.length : 0) + (s.staleHeld || 0);
+  s.outbox = [];
+  s.staleHeld = 0;
+  if (n) say(projectId, n + (n === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + why + '.');
+}
+/** Send the posts held for the key, oldest first, now that it may have arrived. One that
+    still cannot go is held again, with everything after it, in order. */
+function flushHeld(projectId, s) {
+  if (!s || s.flushing || ((!s.outbox || !s.outbox.length) && !s.staleHeld)) return;
+  s.outbox = s.outbox || [];
+  // Only through this seat while it is the project's live, connected seat: a seat replaced
+  // (an id reused) or not up keeps its posts held rather than sending or dropping them.
+  if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child || !s.child.stdin) return;
+  // A project no longer linked (unshared, not yet stopped) sends nothing held.
+  if (!safeLink(projectId)) return;
+  const held = s.outbox;
+  s.outbox = [];
+  s.flushing = true;
+  let sent = 0;
+  let files = 0;
+  let stale = s.staleHeld || 0;
+  s.staleHeld = 0;
+  let unmeant = 0;
+  let keyless = 0;
+  let i = 0;
+  try {
+    for (; i < held.length; i++) {
+      if (heldStale(held[i])) { stale += 1; continue; }
+      if (Array.isArray(held[i].msg.invites) && !pinnedFrom(projectId, held[i].msg.invites)) {
+        // Pinned members exist and not all came from an invite live when it was written.
+        if (pinnedAny(projectId)) { unmeant += 1; continue; }
+      }
+      s.reheld = false;
+      if (sendPost(projectId, held[i].msg, held[i].at) === true) { sent += 1; if (held[i].msg.files) files += 1; continue; }
+      // Held again (it is now at the end of the outbox): everything after it waits too, in
+      // order. Not held again: refused for good (its own line said why); carry on.
+      if (!s.reheld) continue;
+      const rest = held.slice(i + 1).filter((h) => !heldStale(h));
+      stale += held.length - i - 1 - rest.length;
+      s.outbox = s.outbox.concat(rest);
+      break;
+    }
+  } catch (err) {
+    // Whatever was not yet handled stays held, ahead of anything held during this flush.
+    s.outbox = held.slice(i).concat(s.outbox);
+    console.error('#5192: a flush of held posts for ' + JSON.stringify(projectId) + ' stopped: ' + String((err && err.message) || err));
+  } finally {
+    s.flushing = false;
+  }
+  stale += s.staleHeld || 0;   // pruned by a re-hold during this flush
+  s.staleHeld = 0;
+  const oldKey = s.oldKeySent || 0;   // counted per post where each was sealed (sendPost)
+  s.oldKeySent = 0;
+  if (sent) say(projectId, (sent === 1 ? 'The message held on this computer was sent' : sent + ' messages held on this computer were sent')
+    + (oldKey ? (oldKey === sent ? ' under the key this computer has; the others may not show ' + (sent === 1 ? 'it.' : 'them.') : '; ' + oldKey + ' of them under the key this computer has, which the others may not show.') : '.')
+    + (files ? (sent === 1 ? ' Its attached file stayed on this computer.' : ' ' + files + ' of them had an attached file, which stayed on this computer.') : ''));
+  if (stale) say(projectId, stale + (stale === 1 ? ' held message was' : ' held messages were') + ' not sent: held for more than an hour, or this computer\'s clock was set back.');
+  const lost = s.lostHeld || 0;
+  s.lostHeld = 0;
+  if (lost) say(projectId, lost + (lost === 1 ? ' held message was' : ' held messages were') + ' not sent: ' + (lost === 1 ? 'it' : 'they') + ' no longer fit what this room can send, or who it includes could not be read.');
+  keyless += s.keylessHeld || 0;
+  s.keylessHeld = 0;
+  if (keyless) say(projectId, keyless + (keyless === 1 ? ' held message was' : ' held messages were') + ' not sent: this computer could not confirm it had the newest key in time, so ' + (keyless === 1 ? 'it was' : 'they were') + ' not sent under the key it has.');
+  if (unmeant) say(projectId, unmeant + (unmeant === 1 ? ' held message was' : ' held messages were') + ' not sent: the computer that joined came from an invite made after ' + (unmeant === 1 ? 'it was' : 'they were') + ' written.');
+}
+/** Owner: whether any pinned member was pinned from one of these invites. */
+function pinnedFrom(projectId, invites) {
+  // EVERY pinned member, since a post goes to the whole room under its one key.
+  const st = roomSeal(projectId);
+  const peers = st && st.peers ? Object.values(st.peers) : [];
+  return peers.length > 0 && peers.every((p) => p && invites.includes(p.invite));
+}
+function pinnedAny(projectId) {
+  const st = roomSeal(projectId);
+  return !!(st && st.peers && Object.keys(st.peers).length);
+}
+function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, behindHeld }, heldAt) {
+  // sealedHeld: held while the room was known to be sealed (then it never goes in the clear).
+  const msg = { from, kind, text, files: files === true, invites, sealedHeld: sealedHeld === true, behindHeld: behindHeld === true };
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
     // Every room post passes through here; only a federated project's room has
@@ -1010,23 +1300,56 @@ function post(projectId, { from, kind, text }) {
   const sealed = roomSeal(projectId);
   const link = sealLink(projectId);
   const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, link);
+  // #5192 round 28: a post written while this member is behind (a hold on and short of the epoch
+  // that armed it) was promised the new key, whatever it is held for first (an unreadable record
+  // here), so it is marked now and dropped, not sent under the old key, if the hold runs out
+  // before the key arrives. Round 29: a member that caught up while the hold runs is not marked;
+  // with the record unreadable it cannot tell, so it is marked (the drop is the safe side). The
+  // `!hasKey(sealed)` term is what covers an unreadable (undefined) or keyless record; keep it.
+  if (!heldAt && s.behind && Date.now() < s.behind.until && (sealed === undefined || !hasKey(sealed) || s.behind.epoch > sealed.epoch)) msg.behindHeld = true;
   if (sealedRoom === undefined) {
-    say(projectId, 'That message stayed on this computer: it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed.');
+    // #5192: held, not dropped (a held one met here is held again): it goes once the record
+    // can be read and says whether the room is sealed.
+    return holdPost(projectId, s, msg, 'it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed', 'when it can, if that is within the hour', heldAt);
+  }
+  if (!sealedRoom && heldAt && msg.sealedHeld) {
+    // A post held for a sealed room never leaves in the clear, whatever the record says now.
+    say(projectId, 'A held message was not sent: this shared room no longer reads as sealed here.');
     return false;
   }
   if (sealedRoom) {
-    if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
-      say(projectId, 'That message stayed on this computer: it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one.');
+    msg.sealedHeld = true;
+    // #5192: a post held while behind, with the hold run out and this member still short of the
+    // epoch that armed it, is never sealed under the key it has (a removed member may hold it).
+    // Here, where the post is sealed, so no read of the record elsewhere can let it through.
+    // Only a post held DURING a behind hold (it was promised the new key) is dropped when the
+    // hold runs out; one held for another reason goes as a live post would now, under the key
+    // this member has (#5197), with the flush note saying so. Dropping every held post instead
+    // would let one forged far-ahead envelope disable holding for good (s.behind never clears),
+    // while live posts went under the same key anyway.
+    if (heldAt && msg.behindHeld && hasKey(sealed) && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && Date.now() >= s.behind.until) {
+      s.keylessHeld = (s.keylessHeld || 0) + 1;
       return false;
+    }
+    if (hasKey(sealed) && s.behind && s.behind.epoch > sealed.epoch && Date.now() < s.behind.until) {
+      // #5192: marked, so it goes only under the new key: if the hold runs out first it is
+      // dropped, never sent under a key a removed member may still hold.
+      msg.behindHeld = true;
+      return holdPost(projectId, s, msg, 'it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one', 'when the new key arrives; if it is still missing when this computer next checks after a few minutes, it is not sent', heldAt);
     }
     if (!hasKey(sealed) || !s.room) {
-      say(projectId, link && link.role === 'owner'
-        ? 'That message stayed on this computer: this shared room is sealed, and no member\'s computer has joined with its key yet. Nothing is sent until one has.'
-        : 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
-      return false;
+      return holdPost(projectId, s, msg, hasKey(sealed)
+        ? 'this computer has not heard this shared room\'s name from the relay yet'
+        : link && link.role === 'owner'
+        ? 'this shared room is sealed, and no member\'s computer has joined with its key yet'
+        : 'this shared room is sealed, and the owner\'s computer has not shared its key yet', hasKey(sealed)
+        ? 'when the relay names the room, if that is within the hour'
+        : !link || link.role !== 'owner'
+        ? 'when the key arrives, if it arrives within the hour, to everyone in the room by then'
+        : 'to the first computer that joins with its key from an invite already made, if one joins within the hour', heldAt);
     }
     try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
-      say(projectId, 'That message stayed on this computer: it could not be sealed.');
+      say(projectId, (heldAt ? 'A held message' : 'That message') + ' stayed on this computer: it could not be sealed.');
       return false;
     }
   }
@@ -1035,10 +1358,34 @@ function post(projectId, { from, kind, text }) {
   // frame). Measured on the line itself, escapes included, and said here before
   // sending rather than as a refusal after.
   if (Buffer.byteLength(line) > MAX_POST_LINE) {
-    say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
+    say(projectId, (heldAt ? 'A held message' : 'That post') + ' stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
     return false;
   }
-  try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
+  // #5192: posts still held for an earlier reason go first, so this one cannot overtake them.
+  // Defensive: nothing re-enters post() during a flush today (a room note never federates).
+  if (!heldAt && s.flushing) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
+  if (!heldAt && s.outbox && s.outbox.length) {
+    flushHeld(projectId, s);
+    if (s.outbox.length) return holdPost(projectId, s, msg, 'messages sent before it are still waiting to go', 'after them', 0);
+    if (seats.get(projectId) !== s || s.stopped || s.status !== 'connected' || !s.child || !s.child.stdin) return false;
+  }
+  try { s.child.stdin.write(line + '\n'); } catch {
+    if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
+    return false;
+  }
+  // A held post a member sent while still behind went under the key it has (#5197): counted
+  // once it is written, for the flush note.
+  if (heldAt && sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) s.oldKeySent = (s.oldKeySent || 0) + 1;
+  // #5197 (said once the post has gone): past the hold, still on the epoch it held when the hold armed (the armed epoch is
+  // unauthenticated, so a member that has rotated since is not warned): the post goes out
+  // under the old key, which the other boards refuse once the rotation is 90 s old. Said
+  // once per armed hold, the same as the hold: while this member stays on one epoch, a forged
+  // envelope that armed the hold uses up the note for a real miss at that epoch too (the
+  // #5192 class, stated in the plan).
+  if (sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) {
+    noteOnce(projectId, s, 'behindSent' + s.behind.epoch, 'This computer may be behind on this shared room\'s key, so a message sent now may not be shown to the others until the owner\'s computer sends the new key.');
+  }
+  return true;
 }
 
 /** Stop every seat. Only tests call it: on a board shutdown each connector
@@ -1052,4 +1399,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { farSide, retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { farSide, retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
