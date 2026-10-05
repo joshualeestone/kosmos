@@ -62,3 +62,15 @@ Weakest premise now: ACCOUNTS is loaded when the agent's page opens; if not, the
   default Grok reads its key, named Gemini reads its slug (control), state restored by reopening the prior agent.
 Weakest premise: that adding rows to `known` changes nothing for Claude agents: accountForAgent's dir-less arm
 skips keyed rows for a Claude runner (isKeyedRow), and a folder belongs to one provider.
+
+## Review 5 (Sonnet), 6 (Opus), 7 (Sonnet)
+- R5: the Claude control could not fail (no launch file) -> real dir-less Claude plist and a stubbed Claude default.
+  OpenAI's switch-vs-open difference stated in a comment (OpenAI left out of /api/status on purpose).
+- R6: on one panel 'Right now' said '(b)' and the Move dropdown 'API key ending 9999' -> key BEFORE the slug
+  (name > email > key > label), as acctPrimaryName and whoami. The previous commit message overstated the Claude
+  control; corrected in the next commit's message.
+- R7: stale order comments fixed. The gate is now exercised directly: a dir-less codex agent beside Claude, Gemini
+  and Grok defaults must get null; removing the gate fails the test (the Grok agent takes the Claude default).
+  R7's third WARNING (a default-door agent's Move dropdown changes) is NOT an issue: acctMoveWorld already falls
+  back to the movable default row when a.account is null, so currentDir, currentRow and acctLive are the same as
+  before, and onDefaultDoor needs !acctLive too; a default door with no key row still gets no server row.

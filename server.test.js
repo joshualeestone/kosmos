@@ -13354,6 +13354,7 @@ test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s accoun
       fleet.agent('gemnamed', { state: 'idle' }),
       fleet.agent('grokdef', { state: 'idle' }),
       fleet.agent('plainclaude3', { state: 'idle' }),
+      fleet.agent('defcodex5', { state: 'idle' }),
     ]);
     geminiAccounts.list = () => [
       { dir: '/Users/x/.gemini', provider: 'google', label: null, isDefault: true, keyTail: '1111', email: null },
@@ -13373,6 +13374,10 @@ test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s accoun
     fs.writeFileSync(create.plistPath('plainclaude3'),
       create.plistFor('plainclaude3', '/opt/homebrew/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'claude'), 'utf8');
     assert.equal(create.readJob('plainclaude3').configDir, null, 'the claude fixture carries a dir, so it is not the dir-less default shape');
+    // A dir-less CODEX agent: OpenAI's list is not in /api/status, so with Claude, Gemini and Grok defaults all in
+    // the list it must get NONE of them. This one exercises accountForAgent's provider gate directly.
+    fs.writeFileSync(create.plistPath('defcodex5'),
+      create.plistFor('defcodex5', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
     const board = await req('/api/status');
     if (!board.type.includes('application/json')) { t.skip('the status engine did not return a board on this machine'); return; }
     const agents = JSON.parse(board.body).agents || [];
@@ -13392,11 +13397,14 @@ test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s accoun
     assert.ok(claude && claude.account, 'the claude fixture has no account row: ' + JSON.stringify(claude && claude.account));
     assert.equal(claude.account.dir, '/Users/x/.claude');
     assert.ok(!claude.account.keyTail, JSON.stringify(claude.account));
+    const codex = row('defcodex5');
+    assert.ok(codex, 'the codex fixture is not on the board');
+    assert.equal(codex.account, null, 'a dir-less codex agent took another provider\'s default row: ' + JSON.stringify(codex.account));
   } finally {
     geminiAccounts.list = realGemini;
     grokAccounts.list = realGrok;
     accounts.list = realClaude;
-    for (const n of ['gemnamed', 'grokdef', 'plainclaude3']) {
+    for (const n of ['gemnamed', 'grokdef', 'plainclaude3', 'defcodex5']) {
       try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
     }
     fleet.restore();

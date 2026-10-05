@@ -20073,7 +20073,7 @@ function menuRunsOn(a) {
    now carried on `a.account` because the board reads it off the launch dir since
    #2225 -- so this line names the account the same way the pickers and the
    Settings row have since #2095, instead of the raw path slug. It falls back to
-   the email, then the slug (`label`), for accounts that were never named, and
+   the email, then an API key's last four (#5150), then the slug (`label`), for accounts that were never named, and
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
    directly.
@@ -37248,7 +37248,7 @@ function openDetail(sessionName, section, fromProject) {
      account dropdown too; the separate Signed-in-as sentence below was
      the fourth explains-the-visible line Josh cut tonight, and it went
      with this change. */
-  /* email, then label, and DELIBERATELY not the dir rung the picker
+  /* name, email, API key, then label (acctParenthetical), and DELIBERATELY not the dir rung the picker
      keeps: a raw filesystem path does not belong in the headline, and
      the dropdown below still shows it for the configured-but-unknown
      account state. And the parenthetical reads from the launch file,
