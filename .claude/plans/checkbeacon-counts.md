@@ -24,6 +24,15 @@ Removing the block reds two. All 63 browser-check-reading tests pass.
 The public count and its filter (Josh 10-03: do not alter the numbers). The junk ids already written stay excluded by
 #4253's rule. Checks that boot no board need nothing.
 
+## Review 1 (opus, blind)
+- W fixed: the community URL (AGENT_WORKFORCE_COMMUNITY_URL) was left out; a directly-run board with Community on
+  would sweep posts to the real community. Now all three, as tools/browser-checks.sh sets them.
+- W fixed in words: 19 checks' header recipes start the board in ANOTHER shell, which this process's env never
+  reaches. The comment now says so and what to give that shell; the recipes themselves are a follow-up, not covered.
+- W fixed: test-support/profile-board-load-4468.js (run outside node --test) set only the beacon; now the report and
+  the community too.
+- NITs fixed: the "nothing set" arm really unsets the variables; the CONTROL keeps a loopback stub for all three.
+
 ## Weakest premise
 That the other 52 are ours too. Unproven: their folders are gone. Nothing points to real users (no agent, no report,
 US Mac bursts matching our runs), and a real user who makes an agent is counted at once either way.
