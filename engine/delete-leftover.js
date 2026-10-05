@@ -448,6 +448,7 @@ function del(name, opts) {
      every agent that never spoke. */
   let tokens;
   try { require('./disruption').clear(p.name); } catch { /* #4006: best-effort, with the tokens below */ }
+  try { require('./crashloop').forget(p.name); } catch { /* #5154: its runs go with it */ }
   try { tokens = sendertoken.revoke(p.name); } catch (err) {
     tokens = { ok: false, because: String((err && err.message) || err) };
   }

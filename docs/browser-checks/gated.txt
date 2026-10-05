@@ -151,6 +151,7 @@ render-orgchart-phone-718
 render-owncode-4649
 render-personal-instr-4446
 render-phone-offline-718
+render-phone-taps-5218
 render-picker-provider-2097
 render-pj-clear-2575
 render-pjadd-back-2850
@@ -185,6 +186,7 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-guards-4545
 render-recommender-live-3595
+render-remote-file-download-5165
 render-remove-force-2651
 render-rename-4421
 render-rename-followups-4423
@@ -192,6 +194,7 @@ render-restart-kloader-2831
 render-restart-screen-4343
 render-restarting-2019
 render-restore-dircheck-2615
+render-restore-refused-4976
 render-richtext-2067
 render-richtext-room-2239
 render-room-busy-scope-2882

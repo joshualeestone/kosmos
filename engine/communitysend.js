@@ -218,7 +218,40 @@ function titleFor(post) {
    not know it (an older deploy), the unknown-channel fallback below resends it to the default channel with no
    sub-channel, so nothing is lost. */
 const KOSMOS_BUGS_SLUG = 'kosmos-bugs';
-const SUB_CHANNEL_PARENT = Object.freeze({ [KOSMOS_BUGS_SLUG]: 'engineering' });
+/* kosmos#5171 (Josh, 2026-10-03 14:34: "no agents posting anywhere but general"): the site's channels, slug -> its
+   parent's slug (null for a top-level channel), so an agent can post where its post fits. The site's controlled
+   inventory, as its own GET /api/channels answered on 2026-10-03 (seeded by kosmos-community's migrations; 0011 added
+   kosmos-bugs). A board only lets an agent pick from this list. If the site ever lacks one, the send's unknown-channel
+   fallback (below) still delivers the post to general rather than losing it; a channel the site ADDS appears here only
+   with the next Kosmos. */
+const CHANNELS = Object.freeze({
+  general: null, introductions: 'general', questions: 'general', wins: 'general',
+  engineering: null, 'code-review': 'engineering', testing: 'engineering', infrastructure: 'engineering', security: 'engineering', [KOSMOS_BUGS_SLUG]: 'engineering',
+  operations: null, processes: 'operations', scheduling: 'operations', 'tools-and-automation': 'operations', vendors: 'operations',
+  marketing: null, content: 'marketing', seo: 'marketing', social: 'marketing', 'email-campaigns': 'marketing', brand: 'marketing',
+  sales: null, prospecting: 'sales', proposals: 'sales', 'follow-up': 'sales',
+  support: null, triage: 'support', 'help-articles': 'support', escalations: 'support',
+  research: null, 'market-research': 'research', summaries: 'research', methods: 'research',
+});
+const SUB_CHANNEL_PARENT = Object.freeze(Object.fromEntries(Object.entries(CHANNELS).filter(([, parent]) => parent)));
+
+/* kosmos#5171: an agent's --channel, as the one board slug the post is stored with, or a refusal naming the choices.
+   Accepts a channel (engineering), a sub-channel (kosmos-bugs), or parent/sub (engineering/kosmos-bugs), in any case.
+   A sub under the wrong parent is refused, as the site refuses it. */
+function channelChoice(spec) {
+  const raw = typeof spec === 'string' ? spec.trim().toLowerCase() : '';   // review 1: a string only, as both CLIs send
+  const list = Object.entries(CHANNELS).filter(([, parent]) => !parent).map(([top]) => top + ' (' +
+    Object.entries(CHANNELS).filter(([, parent]) => parent === top).map(([sub]) => sub).join(', ') + ')').join('; ');
+  const refuse = () => ({ ok: false, because: 'there is no community channel "' + String(spec).slice(0, 60)
+    + '". Channels, with their sub-channels in brackets: ' + list });
+  if (!raw) return refuse();
+  const parts = raw.split('/');
+  if (parts.length > 2) return refuse();
+  const slug = parts[parts.length - 1];
+  if (!Object.prototype.hasOwnProperty.call(CHANNELS, slug)) return refuse();
+  if (parts.length === 2 && CHANNELS[slug] !== parts[0]) return refuse();
+  return { ok: true, slug };
+}
 function payload(post, channel) {
   const board = typeof post.board === 'string' && post.board ? post.board : null;
   const parent = !channel && board ? SUB_CHANNEL_PARENT[board] : undefined;
@@ -552,8 +585,10 @@ async function findExisting(agentKey, keys, body, sent) {
   const r = await asAgent(agentKey, keys, 'GET', '/agents/me/posts');
   if (r.status !== 200 || !Array.isArray(r.json)) return undefined;
   const taken = new Set(Object.values(sent).map((x) => x && x.remoteId).filter(Boolean));
+  /* #5174: the sub-channel too (null and absent alike), or a same-title post in the parent channel reads as this one
+     and the real post is never sent. The site answers sub_channel on every own post, null when there is none. */
   const hit = r.json.find((p) => p && !taken.has(String(p.id)) && p.title === body.title
-    && p.body === body.body && p.channel === body.channel);
+    && p.body === body.body && p.channel === body.channel && (p.sub_channel || null) === (body.sub_channel || null));
   return hit ? String(hit.id) : null;
 }
 
@@ -629,7 +664,9 @@ async function sendPost(post, keys, sent, now, from) {
   saveJson(sentFile(), sent);
   let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
-  if (unknownChannel(r) && body.channel !== DEFAULT_CHANNEL) {
+  /* kosmos#5171 review 1: a sub-channel of general (introductions, questions, wins) is sent as channel general too, so
+     "not already general" is not enough: any sub-channel the site does not know also falls back to plain general. */
+  if (unknownChannel(r) && (body.channel !== DEFAULT_CHANNEL || body.sub_channel != null)) {
     body = payload(post, DEFAULT_CHANNEL);
     rec.channel = DEFAULT_CHANNEL;
     /* #5062 review 1: written BEFORE the resend, as the first try's mark is. If the board stops while the resend is out,
@@ -2116,6 +2153,7 @@ module.exports = {
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
+  CHANNELS, channelChoice, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries

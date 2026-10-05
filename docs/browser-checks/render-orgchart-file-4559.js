@@ -15,7 +15,7 @@
  *             - Read it sends the file again with consent=1; an unsure line shows "Check this: <why>" and
  *               Create stays disabled until Looks right (or a new manager is chosen);
  *             - making a reporting loop by hand names it and disables Create again.
- *   NO CLAUDE the "needs a Claude connection" answer is shown and nothing else happens.
+ *   NO READER the "needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture)" answer is shown and nothing else happens.
  *   ORPHAN    a manager the team create refuses: the person under them is put under you (PUT profile
  *             reportsTo '') and the result says so.
  * Light and dark screenshots of the picture preview with its Check this line (SHOT_DIR).
@@ -465,7 +465,7 @@ async function run() {
     } else check('LEAVE: the panel offers a file', false);
     await pl.close();
 
-    // NO CLAUDE
+    // NO READER (no Claude and no key-connected provider)
     const p4 = await page();
     const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy
     await p4.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { unavailable: true, problems: [NO_MODEL] } }));
@@ -474,9 +474,69 @@ async function run() {
       await p4.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await p4.waitForTimeout(500);
       const u = await readPreview(p4);
-      check('NO CLAUDE: says a Claude connection is needed and offers CSV, Excel or typing; no consent box, no preview', /needs a Claude connection right now/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
-    } else check('NO CLAUDE: the panel offers a file', false);
+      check('NO READER: says Claude or an OpenAI key is needed (a Grok key for a picture) and offers CSV, Excel or typing; no consent box, no preview', /needs Claude or an OpenAI key \(a Grok key reads a PNG or JPG picture\)/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
+    } else check('NO READER: the panel offers a file', false);
     await p4.close();
+
+    // KEY PROVIDER (#4560): with a key-connected provider instead of Claude, the consent names that provider and
+    // account, and a kind it cannot read (Grok and a PDF) is said at once, with no consent box.
+    const pk = await page();
+    const okeys = require('../../engine/orgchartkeys');   // the engine's own sentences, not copies
+    const grokPdf = okeys.cannotRead('xai', 'application/pdf');
+    const grokKeeps = okeys.keeps({ provider: 'xai' });
+    let sentReader = null;
+    let changed = false;
+    // The first consented read is held until the page's reading message has been read (#4560 continuation round 3:
+    // nothing pinned that a key read says "up to two minutes", not Claude's "about ten seconds").
+    let releaseFirst = () => {};
+    const firstHeld = new Promise((res) => { releaseFirst = res; });
+    let heldOnce = false;
+    await pk.route('**/api/orgchart/read*', async (r) => {
+      const u = new URL(r.request().url());
+      const n = decodeURIComponent(r.request().headers()['x-orgchart-name'] || '');
+      if (/\.pdf$/.test(n)) return r.fulfill({ status: 200, json: { unavailable: true, problems: [grokPdf] } });
+      if (u.searchParams.get('consent') === '1') {
+        sentReader = u.searchParams.get('reader');
+        // The board's answer when the reader changed while the box was open: its sentence must reach the person.
+        if (changed) return r.fulfill({ status: 409, json: { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' } });
+        if (!heldOnce) { heldOnce = true; await firstHeld; }
+        return r.fulfill({ status: 200, json: { source: 'model', provider: 'xAI Grok (work)', rows: PICTURE_ROWS, problems: [] } });
+      }
+      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to your xAI Grok key', keeps: grokKeeps } });
+    });
+    await openPanel(pk);
+    if (await pk.$('#orgchart-file-btn')) {
+      await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await pk.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 }).catch(() => {});
+      const k1 = await readPreview(pk);
+      await pk.click('#orgchart-consent-go').catch(() => {});
+      await pk.waitForFunction(() => /Reading your chart/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+      // The page says "Reading your chart" as Read it is pressed, before its request reaches the stubbed route, so wait
+      // (bounded) for the request to arrive and be held there; read the message only once the read is in flight.
+      for (let i = 0; i < 50 && !heldOnce; i++) await pk.waitForTimeout(100);
+      const reading = await pk.$eval('#orgchart-msg', (e) => (e.hidden || e.closest('[hidden]') ? '(hidden) ' : '') + e.textContent).catch(() => '');
+      const heldReached = heldOnce;   // the consented read reached the route and is waiting there
+      releaseFirst();
+      await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 }).catch(() => {});
+      await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
+      await pk.waitForTimeout(500);
+      const k2 = await readPreview(pk);
+      check('KEY PROVIDER: the consent names the key provider and account, says which key it is billed to, and says what the provider keeps',
+        /xAI Grok \(work\), billed to your xAI Grok key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
+      check('KEY PROVIDER: Read it sends back the reader the consent named (the board refuses any other)', sentReader === 'xai:0123456789ab', JSON.stringify(sentReader));
+      check('KEY PROVIDER: while a key provider reads, the page shows that it can take up to two minutes, not Claude\'s ten seconds', heldReached && /^Reading your chart/.test(reading) && /up to two minutes/.test(reading) && !/ten seconds/.test(reading), JSON.stringify([heldReached, reading]));
+      // The board's refusal itself (Grok and a PDF, before any consent) is guarded in server.orgchart-read-4559.test.js;
+      // this route is stubbed, so the page can only show the board's sentence (round 5: a 'no consent box' half could not fail).
+      check('KEY PROVIDER: the page shows the board\'s sentence for a kind the key provider cannot read (Grok and a PDF)', k2.msg.includes(grokPdf), JSON.stringify(k2.msg));
+      changed = true;
+      await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await pk.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 }).catch(() => {});
+      await pk.click('#orgchart-consent-go').catch(() => {});
+      await pk.waitForFunction(() => /Who reads this file changed/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+      const k3 = await readPreview(pk);
+      check('KEY PROVIDER: a 409 (the reader changed while the box was open) tells the person to choose the file again', /Who reads this file changed since you were asked\. Choose the file again/.test(k3.msg), JSON.stringify(k3.msg));
+    } else check('KEY PROVIDER: the panel offers a file', false);
+    await pk.close();
 
     // ORPHAN: the manager is refused, the person under them is put under you
     const p5 = await page();

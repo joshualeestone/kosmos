@@ -515,9 +515,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { background: rgba(126,160,240,.14); }
   .askreq .askdev svg { stroke: #dfe6f5; }
   /* The ids keep a Settings text rule (an id-level p style) from shrinking the code, in either place it renders. */
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { margin: 6px 0 2px;
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-join .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
+  /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
+     sits on the page, so it takes the page's ink). */
+  #plus-join .askcodebig { color: var(--k-ink); }
+  #plus-join .plus-join-say { margin: 8px 0 0; }
+  #plus-join .acts { margin-top: 6px; }
+  /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
+  .askreq .askwait { grid-area: code; color: #9fb0d4; font-size: .85rem; margin: 6px 0 2px; }
   .askreq .btn.quiet, .askreq .btn.quiet:hover { background: none; border: 0; color: #b8c4de; text-decoration: underline; text-underline-offset: 3px; }
   .askrow.done .askok { font: 600 1rem var(--font-ui); color: #fff; }
   /* An answered line after a sheet keeps the gap sheets keep between each other (review NIT). */
@@ -1240,6 +1247,19 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    expiring login, so it moves down the same way. Only when the Allow card is hidden: a showing Allow card already
    moved down and #conn follows it in the flow. The agent talk view gives #conn its own top gap, plus the stack. */
 #askcard[hidden] + #conn { margin-top: var(--topnotes-clear, 0px); }
+/* #5140 (day-one): a new user on a phone with no agents yet has one thing to press, New agent, and it sits right
+   under the floating stack, so an update or offline notice clipped it. When the grid holds only its empty-state block
+   (no agents, or a sign-in / offline / cannot-read box) and only at phone widths, the board row moves below the stack,
+   by the same clearance. Below the row there is only that box, so Josh's ruling (notices float, never push the page)
+   holds wherever there is a page to push. When the Allow card or the Claude-unreachable line shows, it has already moved down and the row follows it. */
+@media (max-width: 720px) {
+  body:has(#grid > .pj-empty) #askcard[hidden] + #conn[hidden] ~ #boardbar:not([hidden]) { margin-top: var(--topnotes-clear, 0px); }
+}
+/* The Kosmos+ phone gives the row its own 16px (html.kremote #boardbar, under this same media condition); keep it as the
+   floor there, so with no notice nothing moves. Scoped exactly like that rule: wider, it would add 16px where none was. */
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  html.kremote body:has(#grid > .pj-empty) #askcard[hidden] + #conn[hidden] ~ #boardbar:not([hidden]) { margin-top: max(16px, var(--topnotes-clear, 0px)); }
+}
 /* Scoped to the two ranges where the talk view's own #conn gap applies (the rules beside #3708's), so between them
    nothing changes with no notice. */
 @media (min-width: 56.01rem), (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
@@ -3485,6 +3505,9 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 .dsec[data-tied="0"] #d-term-empty { display: block; }
 .dsec[data-tied="gone"] #d-term-gone { display: block; }
 #d-window-box:not([hidden]) ~ .dterm-note { display: none; }
+/* #5223: a Windows agent has no window, so the box's send-into-this-window composer is not offered
+   (the Direct Message composer is the way to reach it); see setWindowBoxNoWindow. */
+#d-window-box.nowin #d-term-composer, #d-window-box.nowin #d-term-say-msg { display: none; }
 /* Inside Fresh start the restart control keeps its own label, but the box
    already has a shouting heading; two uppercase labels stacked read as two
    boxes. The inner one speaks at sentence size. */
@@ -4357,6 +4380,11 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 3; grid-row: 1; margin-top: 0; min-width: 0; overflow: hidden; }
 .pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; }
 .pj-list:not(.asgrid) .pj-row .pj-who, .pj-list:not(.asgrid) .pj-row .pj-warn { grid-column: 1 / -1; }
+/* #5070: "Done not set" (#4583) at its own size in the plain list rows (the Roadmap places it on the row's line, below).
+   Unplaced, it took whatever cell was free: the status column when the row had no status pill, or a new row's first
+   track when it did, where a grid item stretches along the row (justify-self defaults to stretch; its align-self only
+   acts on the other axis). */
+.pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; justify-self: start; }
 @media (max-width: 52rem) {
   .pj-list:not(.asgrid) .pj-row { grid-template-columns: minmax(0, 1fr) auto; }
   .pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 1; grid-row: 2; }
@@ -4490,7 +4518,10 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) {
    left gutter for the absolutely-placed caret; the depth indent rides margin-left. */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
   position: relative;
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; align-items: center;
+  /* #5070: a fourth track, before the count, holds "Done not set" on the row's one line. No column-gap: an empty
+     track would still cost a gap, so most rows (no tag, and every phone row, where the tag moves under the name) would
+     lose name room. The 12px rides margin-left on each item after the name instead, so only a present item costs it. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; column-gap: 0; align-items: center;
   background: none; border: 0; border-radius: 6px; box-shadow: none;
   /* Depth indent rides PADDING-left, not margin: a margin on a stretched flex item
      overflows the column (its right edge is pushed past the container, clipping the
@@ -4518,9 +4549,23 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn {
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pc-t { display: none; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces > [aria-hidden] { display: none; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces {
-  grid-column: 2; grid-row: 1; justify-self: end; align-self: center; margin: 0; min-width: 0; overflow: visible; }
+  grid-column: 3; grid-row: 1; justify-self: end; align-self: center; margin: 0 0 0 12px; min-width: 0; overflow: visible; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
-body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 3; grid-row: 1; justify-self: end; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; margin-left: 12px; }
+/* #5070: "Done not set" on the Roadmap row's one line, in its own track at the start of the right-hand cluster (just
+   left of the count when there is one), at its own size; the row stays one line on a desktop (the outline stays dense,
+   the fold caret stays centred on the name). */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; margin-top: 0; margin-left: 12px; }
+/* #5070 round 2: on a phone the tag, the count and the status would leave the name almost no room (the auto tracks take
+   theirs first), so there the tag goes under the name, at its own size; the name is what a person reads first. */
+@media (max-width: 40rem) {
+  body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; grid-row: 2; justify-self: start; margin-left: 0; }
+}
+/* #5070 round 3: the ancestry chip on a top-level (orphan) row had no Roadmap placement, so the new empty track 2
+   pulled it onto the name's line, where an auto track takes its full nowrap width first and squeezes the name.
+   It stays in the name's column, on the next line (also where a row with no count and no status used to put it on the
+   name's line). */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-parent { grid-column: 1; }
 
 /* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
    display:none is out-specified here). Absolute in the reserved gutter so leaves and
@@ -4851,7 +4896,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          header is now a real bar with its own border-bottom, and (until #5018 floated them
          over the page) the notices rode inside it as they do in the tab view -- so a
          consolidated-only bottom margin made a shown notice the tallest item in the
-         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
+         header's row (then a flex row), growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -4879,16 +4924,15 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      bar now carries real content (the K mark, the Kosmos switcher on the left, the
      appearance + view-toggle controls on the right) flush to the top with no empty
      margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
-     ask) puts there. The center TABS stay hidden in this view (consolidated is one
-     screen, not separate tab screens) -- matching the mock's 2-column consolidated
-     header (left cluster + right cluster).
-     #4345 (Josh, 2026-09-28 09:21): the tabs come back. Agents, Projects and Tasks stay in
+     ask) puts there.
+     #4345 (Josh, 2026-09-28 09:21): the center tabs, hidden in this view until then, come back. Agents, Projects and Tasks stay in
      the top nav here and load into the display column (openConsolidatedAgents /
      openConsolidatedTasks; Projects returns the column to the board), so there is always
      a visible way back. Only the h1 stays hidden. */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
-    /* flex-start, not center: kosmos#2624, see the .apphead block near the top. */
-    display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5);
+    /* kosmos#2624: no display, columns or gap here. The header keeps the tab view's own (.apphead header, near the
+       top), so the center tabs sit on the same pixels in both views whatever the Kosmos name's width
+       (render-tophead-stable-2624, its long-name arm). This rule used flex space-between and moved them. */
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated > .apphead h1 { display: none; }
@@ -6228,6 +6272,30 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* The name as a control. It must read as the NAME at rest -- the row is a
    fact first and a menu second -- so it inherits everything and only picks up
    an affordance when somebody reaches for it. */
+/* kosmos#5218, #5219, #5220, #5221 (Monday's phone sweep): on a touch screen these reach 44px, and the AI settings terminal box
+   is 16px text, because iPhone Safari zooms the whole page on tapping a field under 16px. Boxed controls grow; the
+   Tasks back chevron keeps its 32px circle and takes a 44px hit area past it, so the Tasks head does not move.
+   Touch screens and any coarse pointer: desktop is unchanged. */
+@media (hover: none), (pointer: coarse) {
+  #d-term-say { font-size: 16px; min-height: 44px; }
+  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort) { min-height: 44px; }
+  #plus-site-link { display: inline-flex; align-items: center; }
+  #tsk-back { position: relative; }
+  #tsk-back::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+  /* #5218, the agents board: the agent's name (its way in), the menu's tabs, the sort menu and a notice's close. */
+  .namego, .utoast .ux { position: relative; }
+  :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  :is(.apphead .tab, #agent-sort) { min-height: 44px; }
+  /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
+     its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
+     10px to the left for a short name's area; nothing drawn moves. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { padding: 14px 0 14px 10px; margin: -14px 0 -14px -10px; }
+  /* #5219, a project's room: a document row and Try again grow to 44. The header's small controls keep their 36px
+     areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
+     answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
+  :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
+  #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
+}
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
               border-bottom: 1px dashed transparent; }
@@ -8467,7 +8535,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 /* #4583: "Done not set" on a project's row: a small outlined tag in the row's secondary ink, readable, not an alarm. */
-.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px;
+.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px; white-space: nowrap;
   border: 1px solid var(--border-strong); color: var(--label-2); font: var(--text-footnote, 600 .75rem/1.4 var(--font-ui)); }
 /* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
    says why and waits for "Looks right" before Create is allowed. */
@@ -18186,6 +18254,9 @@ window.kosmosMeasureScrollbarWidth();
       <div class="setrow">
         <div>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
+               in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
+          <div class="plus-join" id="plus-join" aria-live="polite" hidden></div>
           <!-- #1014. Setup used to end by handing you a URL and stopping, and
                a URL with no instruction is a thing a person stares at. Josh,
                with a working install in front of him, asked when he was
@@ -18809,6 +18880,57 @@ function plusMd() { return plusMD || (plusMD = plusMarkData()); }
 function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
+}
+/* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
+   over Kosmos+ the person is on another device, so a file click DOWNLOADS it to that device, as an attachment
+   already does (#4930), and a button that would open a folder window on the board's computer says where the folder
+   is instead. At the computer itself (kplusRemote() false) both keep opening there. */
+const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
+const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device.';
+const KPLUS_SETTINGS_ELSEWHERE = 'Those settings open on the computer Kosmos runs on, not on this device.';
+/* The download starts IN the person's click (an anchor clicked synchronously), so no browser can treat it as a
+   download nobody asked for. Alongside it the page looks at the same file with ?check=1 (the route's gates, then
+   204 with no body, so the look never moves the file again): on a refusal the board's own sentence is shown through
+   `say` (a kplusSayer), rather than left to the browser's downloads. At the click `say` gets `after` (a sentence
+   the line was already showing, such as a cut-short list), which a refusal then replaces. `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
+   written out here, once each, so every fetch on the page keeps a URL the route test can read. */
+const KPLUS_LATEST = new WeakMap();   // message line -> the last download asked through it
+function kplusDownload(kind, owner, name, say, after) {
+  const q = 'name=' + encodeURIComponent(name);
+  const ticket = {};
+  if (say && say.el) KPLUS_LATEST.set(say.el, ticket);   // an older look's answer then never lands on a newer click
+  const base = kind === 'agent'
+    ? '/api/agent/' + encodeURIComponent(owner) + '/files/download?' + q
+    : '/api/project/' + encodeURIComponent(owner) + '/file-download?' + q;
+  const a = document.createElement('a');
+  a.href = base;
+  a.download = String(name || '').split('/').pop() || '';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (say) say(after || '');
+  const look = kind === 'agent'
+    ? fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download?check=1&' + q, { cache: 'no-store' })
+    : fetch('/api/project/' + encodeURIComponent(owner) + '/file-download?check=1&' + q, { cache: 'no-store' });
+  look.then(async (res) => {
+    if (res.ok || (say && say.el && KPLUS_LATEST.get(say.el) !== ticket)) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
+    if (say) say(asSentence(said) || 'That file could not be downloaded.');
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+}
+/* A sentence-setter for one message line that writes only while `stillHere()` holds, so an answer that arrives after
+   the person moved to another project or agent never lands under the new one. */
+function kplusSayer(el, stillHere) {
+  const say = (text) => { if (el && (!stillHere || stillHere())) el.textContent = text; };
+  say.el = el;
+  return say;
+}
+function kplusFolderElsewhere(msg) {
+  if (!kplusRemote()) return false;
+  if (msg) { msg.textContent = KPLUS_FOLDER_ELSEWHERE; msg.hidden = false; }
+  return true;
 }
 function kplusBarDrawMark(cv, hh) {
   const md = plusMd(), h = hh || 14, w = Math.round(h * md.VBW / md.VBH), s = h / md.VBH;
@@ -19543,7 +19665,7 @@ const PRESSAY = {
 /* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
    off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
 const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
-function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.crashLoop && a.crashLoop.looping === true) return { st: 'attn', pres: (CARD_ST[a.state] || CARD_ST.unknown).pres }; /* #5154 slice A: a crash loop wears the needs-you look; review 1: its PRESENCE stays its state's (an offline agent between crashes keeps its offline dot, tense and Start), like #4006's failed restart */ if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -19576,6 +19698,9 @@ function glyphOf(a) {
   return GLYPH[st];
 }
 function stateCopyOf(a) {
+  /* #5154 slice A: Kosmos keeps restarting it and it keeps stopping. First, because between crashes its state can
+     read working or idle, and that word on a red card would contradict the sentence under it. */
+  if (a && a.crashLoop && a.crashLoop.looping === true) return { label: 'Keeps stopping', attn: true };
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
   // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
@@ -19707,6 +19832,14 @@ function waitingLine(w) {
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
+  /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
+     Placed before the state rules: between crashes the agent can read working or idle, which is what hid the loop.
+     Copy: Mona Lisa (10-03): no 'stop it' (there is no stop control, and launchd keeps restarting), and 'what it shows'
+     (after a restart the last screen is gone). */
+  if (a && a.crashLoop && a.crashLoop.looping === true) {
+    const n = Number(a.crashLoop.count) || 3;
+    return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -20091,7 +20224,9 @@ function roleLine(a, titles) {
    aligned with engine/status.js needsPerson. */
 function agentNeedsAttention(a) {
   return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
-    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')));
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
+    // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
+    || (a.crashLoop && a.crashLoop.looping === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
@@ -21202,12 +21337,33 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, service, provider, email, names }
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, worksUntil, service, provider, email, names }
    (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
 /* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
    the notice for this page's life, and it comes back on reload. */
 const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+/* #5164: when an advisory's agents stop working (epoch ms), while that is still ahead of this page's clock; else null.
+   The page's own clock decides, so a notice the board computed a minute before the time turns into "has expired" on
+   time rather than when the board next reads the credential. */
+function loginAdvWorksUntil(a) {
+  const t = a && typeof a.worksUntil === 'number' && Number.isFinite(a.worksUntil) ? a.worksUntil : null;
+  return t !== null && t > Date.now() ? t : null;
+}
+/* "at about 1:18 PM", or "tomorrow at about 1:05 AM" when it is not today on this page's clock (Mona Lisa: a bare 1:05 AM
+   read at 11 PM looks like the past). An access token lasts 8 hours (measured), so the time is never more than a day
+   ahead and "tomorrow" is the only other day it can be. "About": Claude Code tries its refresh around the time the token
+   runs out, not on the second. */
+function loginAdvWhen(ms) {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return 'at about ' + time;
+  if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at about ' + time;
+  // Never reached by an 8-hour token; a wrong page clock or a longer token still gets a true day, not "tomorrow".
+  return 'on ' + d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) + ' at about ' + time;
+}
 let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
@@ -21216,8 +21372,10 @@ function paintLoginAdvisories(advs) {
      or expired). The key is the notice's own state, kept per viewer in this browser. */
   /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
      bring a closed notice back. */
-  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new. */
-  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new.
+     #5164: except that "they stop at 1:18 pm" and "they have stopped" are two states: the second is news, so a closed
+     first notice comes back as the second. */
+  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? (loginAdvWorksUntil(a) ? 'w' : 'x') : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
   /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
      renewed, or its date could not be read this time) forgets it, so a later expiry of the same account is never born
      hidden. Keyed on the account, not the exact notice, so one agent's pane read failing for a moment does not bring a
@@ -21227,7 +21385,10 @@ function paintLoginAdvisories(advs) {
   const list = Array.isArray(advs)
     ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')).join('|');   // repaint on a new name or email too
+  /* #5164 (review): the stop time's words are in the signature too, so a notice painted before midnight as "tomorrow at
+     about 1:10 AM" repaints as "at about 1:10 AM" after it, rather than telling the person they have a day. */
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')
+    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
@@ -21238,12 +21399,20 @@ function paintLoginAdvisories(advs) {
     const who = names.map(esc).join(', ');
     // #5018: which provider and account they run under; when the email could not be read, the provider only, never a guess.
     const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
-    const head = a.expired
+    /* #5164 (measured on account-e, 2026-10-03): a login past its date keeps its agents working until the access token
+       they hold runs out, hours later. While that time is still ahead, the notice says when they stop, not that they
+       have: "expired" at 06:58 for agents that worked until 13:18 read as a false alarm. */
+    const until = a.expired ? loginAdvWorksUntil(a) : null;
+    const head = until
+      ? ((n === 1 ? 'An agent stops working ' : n + ' agents stop working ') + loginAdvWhen(until))
+      : a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
       : (a.daysLeft <= 0
         ? (n === 1 ? 'An agent’s login expires today' : n + ' agents’ login expires today')
         : ((n === 1 ? 'An agent’s login expires in ' : n + ' agents’ login expires in ') + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days')));
-    const tail = a.expired
+    const tail = until
+      ? ('Sign in again before then to keep ' + (n === 1 ? 'it' : 'them') + ' running.')   // Mona Lisa: the head carries the timing; the not-expired sibling's verb
+      : a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
     // role=status on the words, not the notice, so the close button is not read out with every announcement.
@@ -22745,6 +22914,8 @@ async function tick() {
          by the next writer and reappear from nowhere. */
       RESTORE_BLOCKED_SAID = null;
       RESTORE_BLOCKED_SAID_FOR = null;
+      RESTORE_REFUSED_SAID = null;   // #4976: the third held sentence goes with the region
+      RESTORE_REFUSED_SAID_FOR = null;
       const done = document.getElementById('removed-msg');
       if (done) done.textContent = '';
     }
@@ -23551,6 +23722,15 @@ function showTab(tab) {
     // Projects, describing a list those screens do not show.
     const msg = document.getElementById('removed-msg');
     if (msg) msg.textContent = '';
+    /* #4976 review 2: the held explanation and refusal go with the region they were blanked from, or the next writer
+       reprints them from nowhere after the person comes back. The in-flight RESTORE_WAITING_SENTENCE is kept: its
+       restore is still running, so it is still true, and only its arrival retires it. */
+    /* No guard needed (review 3, measured): the only showTab during load is showTab(BOOT_TAB), after these lets are
+       declared, and SURVIVAL_HELD below is assigned the same way. */
+    RESTORE_BLOCKED_SAID = null;
+    RESTORE_BLOCKED_SAID_FOR = null;
+    RESTORE_REFUSED_SAID = null;
+    RESTORE_REFUSED_SAID_FOR = null;
     /* Same reason: it describes the agents screen and must not stand under
        Projects or Settings. */
     const rw = document.getElementById('restart-wrap');
@@ -23715,6 +23895,7 @@ function wireMachineRows(mach) {
       // The pane opening IS the success feedback; words appear on refusal
       // (a click that silently does nothing reads as a broken button).
       const failMsg = document.getElementById('set-machine-msg');
+      if (kplusRemote()) { failMsg.hidden = false; failMsg.textContent = KPLUS_SETTINGS_ELSEWHERE; return; }   // #5165
       try {
         const r = await fetch('/api/open-sleep-settings', { method: 'POST' });
         failMsg.hidden = r.ok;
@@ -31601,6 +31782,7 @@ refreshYouName();
    sleep sibling states four thousand lines up. */
 document.getElementById('set-a11y-open').addEventListener('click', async () => {
   const failMsg = document.getElementById('set-machine-msg');
+  if (kplusRemote()) { failMsg.hidden = false; failMsg.textContent = KPLUS_SETTINGS_ELSEWHERE; return; }   // #5165
   try {
     const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
     failMsg.hidden = r.ok;
@@ -31615,6 +31797,7 @@ document.getElementById('set-a11y-open').addEventListener('click', async () => {
    buttons cannot open different places. The folder opening is the success feedback. */
 document.getElementById('upd-open-folder').addEventListener('click', async () => {
   const msg = document.getElementById('upd-open-folder-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
@@ -31627,6 +31810,7 @@ document.getElementById('upd-open-folder').addEventListener('click', async () =>
 });
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
@@ -34587,6 +34771,16 @@ function paintBusy(fresh, name) {
    project pages only since agent-page-nav); a refusal is said
    in the engine's own sentence, never rendered as an empty terminal. */
 let WINDOW_LOAD = 0;
+/* #5223: the ONE writer of the box's no-window state. A Windows agent has no window (the engine says so with
+   `noWindow`, per agent, from the card's own mark), so the heading stops naming one and the
+   send-into-this-window composer is hidden (CSS on `.nowin`). Every arm that answers calls it (capture,
+   refusal, thrown fetch), and so do the 404 arm that hides the box and the agent switch, so a Mac agent opened after a Windows one never
+   inherits the state; the arms that only hide the box leave it, since nothing hidden is drawn. Each answer
+   decides afresh: a tick that fails for another reason says so for that tick, which is true. */
+function setWindowBoxNoWindow(on) {
+  document.getElementById('d-window-box').classList.toggle('nowin', on === true);
+  document.getElementById('d-window-label').textContent = on === true ? 'No window to show' : 'The window it is running in';
+}
 /* A COUNTER: two rapid opens overlap their refreshes. DORMANT since
    agent-page-nav (every caller passes the cached flag); kept with the
    uncached branch it guards, to be deleted with it. */
@@ -34651,6 +34845,7 @@ async function paintAgentWindow(sessionName, opts) {
          stand until a tick flipped the tie, so the section says the bare
          thing now: no window to show. */
       detailSection('term').dataset.tied = 'gone';
+      setWindowBoxNoWindow(false);   // #5223: nothing is established about a window the route refused
       box.hidden = true; return;
     }
     if (r.text != null) {
@@ -34658,13 +34853,17 @@ async function paintAgentWindow(sessionName, opts) {
       pre.hidden = false;
       document.getElementById('d-window-hint').textContent = 'As it looks right now. It is not a transcript, and it is not what the agent said to you.';
       msg.hidden = true;
+      setWindowBoxNoWindow(false);
       box.hidden = false;
       detailSection('term').dataset.tied = '1';
     } else {
       pre.hidden = true;
       document.getElementById('d-window-hint').textContent = '';
-      msg.textContent = r.because || r.error || 'We could not read its window just now.';
+      /* #5223: a Windows agent's answer is a lasting fact, not a refusal, and it is the sentence every Windows
+         agent page shows, so it is set as a sentence. Other refusals keep their raw clause. */
+      msg.textContent = (r.noWindow === true ? pjSentence(r.because) : r.because) || r.error || 'We could not read its window just now.';
       msg.hidden = false;
+      setWindowBoxNoWindow(r.noWindow === true);
       box.hidden = false;
     }
   } catch {
@@ -34679,6 +34878,7 @@ async function paintAgentWindow(sessionName, opts) {
     document.getElementById('d-window-hint').textContent = '';
     msg.textContent = 'We could not read its window just now.';
     msg.hidden = false;
+    setWindowBoxNoWindow(false);
     box.hidden = false;
     box.dataset.gone = '';   // an answer of sorts: not the 404 the marker records
   }
@@ -36650,7 +36850,8 @@ async function paintAgentFilesAll(sessionName) {
   for (const f of files) list.append(agentFileRow(f));
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
-    more.textContent = 'And ' + rest + ' more in the folder. Open in Finder shows them all.';
+    // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
+    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() ? '' : ' Open in Finder shows them all.');
     more.hidden = false;
   }
 }
@@ -36659,6 +36860,10 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById(msgId);
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
+    return;
+  }
   let say;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
@@ -36684,6 +36889,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById('d-filesall-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   let failed = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -37153,6 +37359,7 @@ function openDetail(sessionName, section, fromProject) {
     document.getElementById('d-withdrawn').hidden = true;           // and the last agent's absence
     document.getElementById('d-window-hint').textContent = '';
     document.getElementById('d-window-msg').hidden = true;
+    setWindowBoxNoWindow(false);   // #5223: the last agent's no-window state is not this one's
     // The box itself too: a bare heading standing over nothing for two
     // round-trips is the same misattribution family, one notch quieter.
     document.getElementById('d-window-box').hidden = true;
@@ -42018,7 +42225,8 @@ let RESTORE_WAITING_SENTENCE = null;
    ⭐ A shared region needs every writer to know about every other writer, which
    is N-squared and is why the region keeps producing this bug. Both writers on
    THIS card now re-assert rather than clobber; the other pre-existing writers
-   are a named follow-up and are not this card. */
+   are a named follow-up and are not this card. #4976 added a third (a refused Restore's reason), and all
+   three re-assert one another. */
 let RESTORE_BLOCKED_SAID = null;
 /* 🛑 WHICH ROW THE HELD EXPLANATION IS ABOUT, so it can be checked for still
    being TRUE before it is re-asserted. Without this the sentence outlives its
@@ -42037,6 +42245,41 @@ let RESTORE_BLOCKED_SAID = null;
    undocumented behaviour on this card has twice turned out to be a defect
    nobody had decided on. */
 let RESTORE_BLOCKED_SAID_FOR = null;
+/* #4976: the THIRD writer to #removed-msg, a refused Restore's reason, held exactly like the blocked explanation
+   above and for the same reason: every writer re-asserts the others rather than clobbering them. Held only while
+   the row it names is still on the list with its Restore control (a later successful restore of that row retires
+   it; the arrival clears the region and all three). */
+let RESTORE_REFUSED_SAID = null;
+let RESTORE_REFUSED_SAID_FOR = null;
+/* The held refusal, if it is still TRUE now (its row is still listed), else retired and null. */
+function restoreRefusedStill() {
+  if (!RESTORE_REFUSED_SAID || !RESTORE_REFUSED_SAID_FOR) return null;
+  const still = [...document.querySelectorAll('#removed-list [data-restore]')]
+    .some((el) => el.dataset.restore === RESTORE_REFUSED_SAID_FOR);
+  if (!still) { RESTORE_REFUSED_SAID = null; RESTORE_REFUSED_SAID_FOR = null; }
+  return still ? RESTORE_REFUSED_SAID : null;
+}
+/* The held blocked explanation, if its row is still rendered blocked (the success branch's own scan). */
+function restoreBlockedStill() {
+  const still = RESTORE_BLOCKED_SAID && RESTORE_BLOCKED_SAID_FOR
+    && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
+         .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
+  if (!still) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
+  return still ? RESTORE_BLOCKED_SAID : null;
+}
+/* Review 3: a later press of the refused row that fails for ANOTHER reason (no answer) makes its held refusal untrue
+   of the row, which now reads "Restore failed. Try again." with its refusal name and title removed. Retired, and
+   the region rewritten without it when it was on screen, so the row and the region never disagree. */
+function restoreRetireRefusalOf(name) {
+  if (RESTORE_REFUSED_SAID_FOR !== name) return;
+  const was = RESTORE_REFUSED_SAID;
+  RESTORE_REFUSED_SAID = null;
+  RESTORE_REFUSED_SAID_FOR = null;
+  const say = document.getElementById('removed-msg');
+  if (say && was && (say.textContent || '').indexOf(was) !== -1 && onAgentsTab()) {
+    say.textContent = [restoreBlockedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
+  }
+}
 
 /**
  * ⚠️ Answers "we do not know" rather than inventing a date.
@@ -42122,9 +42365,8 @@ document.getElementById('removed-list').addEventListener('click', (e) => {
   const explain = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
   RESTORE_BLOCKED_SAID = explain;
   RESTORE_BLOCKED_SAID_FOR = blocked.dataset.restoreBlocked || null;
-  msg.textContent = RESTORE_WAITING_SENTENCE
-    ? explain + ' ' + RESTORE_WAITING_SENTENCE
-    : explain;
+  /* #4976: a held refusal for another row is still true, so it is still said. */
+  msg.textContent = [explain, restoreRefusedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
 });
 
 document.getElementById('removed-list').addEventListener('click', async (e) => {
@@ -42133,6 +42375,9 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
   const name = btn.dataset.restore;
   btn.disabled = true;
   btn.textContent = 'Restoring…';
+  /* #4976 review 2: a previous refusal's name and tooltip describe that press, not this one. */
+  btn.removeAttribute('aria-label');
+  btn.removeAttribute('title');
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restore', { method: 'POST' });
     const back = await res.json().catch(() => null);
@@ -42140,7 +42385,43 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
       // ⚠️ Says so ON THE ROW rather than silently re-rendering. A restore that
       // failed and a restore that worked must not look the same.
       btn.disabled = false;
-      btn.textContent = 'Restore failed. Try again.';
+      /* #4976: a REFUSED restore carries the engine's reason, and most refusals are
+         not cleared by a retry (another agent now holds the folder once #4896
+         lands, its account folder is gone), so "Try again" would send the person round forever. The
+         row says it was not restored and the reason goes to #removed-msg, the
+         region the blocked-row explanation already uses; an in-flight "Starting X
+         again" stays beside it, as that handler keeps it. A failure with no reason
+         (a dropped answer) keeps "Try again", which is true for it. */
+      const why = back && back.outcome === 'refused' && typeof back.because === 'string' && back.because.trim()
+        ? back.because.trim() : null;
+      if (why) {
+        btn.textContent = 'Not restored';
+        // The visible word is a status; the name says what pressing it does.
+        btn.setAttribute('aria-label', 'Not restored. Restore ' + (btn.dataset.shownAs || name) + ' again');
+        /* Review 2: the region holds ONE refusal (the most recent, as the blocked explanation holds one), so the
+           refused row also carries its own reason, on hover and as its accessible description. Review 3, stated:
+           only until the list's markup next changes (another agent removed, restored or blocked), when
+           paintRemoved rewrites every row back to a plain Restore. The row then claims nothing, so nothing false
+           is shown; an older row's reason is simply gone until it is pressed again. */
+        btn.setAttribute('title', 'Not restored: ' + why);
+        /* Prefixed, not capitalised: raising the first letter would turn a session name ("carl9 is not on the
+           removed list") into a name that does not exist. Held and re-asserted like the other two (see
+           RESTORE_REFUSED_SAID); what was just pressed leads. */
+        const line = 'Not restored: ' + why;
+        /* Review 2: not written under another screen (the person may have left the Agents tab while the request
+           was in flight; see the removedUnreadable note). Review 3: and then NOT HELD either: nothing writes the
+           region on the way back, so a held sentence would surface on some later, unrelated press. The row's own
+           title still carries the reason. */
+        const say = document.getElementById('removed-msg');
+        if (say && onAgentsTab()) {
+          RESTORE_REFUSED_SAID = line;
+          RESTORE_REFUSED_SAID_FOR = name;
+          say.textContent = [line, restoreBlockedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
+        }
+      } else {
+        btn.textContent = 'Restore failed. Try again.';
+        restoreRetireRefusalOf(name);
+      }
       return;
     }
     /**
@@ -42168,6 +42449,8 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
     if (back.outcome === 'partial') {
       btn.disabled = false;
       btn.textContent = 'Restore';
+      // #4976: this row's earlier refusal is not true of this press (one retire path; its own message follows).
+      restoreRetireRefusalOf(name);
       /**
        * ⚠️ THE MESSAGE GOES OUTSIDE THE LIST, because which of the two partials
        * happened decides whether the row survives, and it must not decide
@@ -42256,15 +42539,17 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
         && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
              .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
       if (!stillBlocked) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
-      say.textContent = stillBlocked
-        ? RESTORE_WAITING_SENTENCE + ' ' + RESTORE_BLOCKED_SAID
-        : RESTORE_WAITING_SENTENCE;
+      /* #4976: this row restoring retires its own held refusal; another row's is still true and still said. */
+      if (RESTORE_REFUSED_SAID_FOR === name) { RESTORE_REFUSED_SAID = null; RESTORE_REFUSED_SAID_FOR = null; }
+      say.textContent = [RESTORE_WAITING_SENTENCE, stillBlocked ? RESTORE_BLOCKED_SAID : null, restoreRefusedStill()]
+        .filter(Boolean).join(' ');
     }
     await tick();
     await paintRemoved();
   } catch {
     btn.disabled = false;
     btn.textContent = 'Restore failed. Try again.';
+    restoreRetireRefusalOf(name);
   }
 });
 
@@ -43078,6 +43363,7 @@ document.getElementById('d-open-terminal').addEventListener('click', async () =>
   const forAgent = CURRENT.sessionName;
   const btn = document.getElementById('d-open-terminal');
   const msg = document.getElementById('d-open-terminal-msg');
+  if (kplusRemote()) { msg.textContent = KPLUS_TERMINAL_ELSEWHERE; return; }   // #5165
   btn.disabled = true;
   msg.textContent = 'Opening the Terminal window…';
   try {
@@ -44376,6 +44662,16 @@ async function pollAsk() {
   }
   paintAsk();
 }
+/* #4794 (Mona Lisa, 2026-10-03): what a joining computer's empty code means on the computer already in, one line per
+   reason the tunnel gives (code_wait). <name> is the joining computer. Anything else keeps the default line. */
+const JOIN_WAIT_WORDS = {
+  attempts_used: '<name> used up its tries. Press Not me, then sign <name> in again.',
+  asked_another_computer: '<name> is pairing with another of your computers. Allow it there, or press Not me if it is not yours.',
+  another_computer: 'This computer is adding another computer right now. <name> waits until that one is done.',
+  daily_limit: 'This computer has added as many computers as it can today. Try again tomorrow.',
+  wait_a_few_minutes: 'This computer just added one. The code for <name> shows here in a few minutes.',
+  was_a_computer: 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.',
+};
 function paintAsk() {
   const card = document.getElementById('askcard');
   if (!card) return;
@@ -44442,19 +44738,39 @@ function paintAsk() {
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    /* #4637/#4773: a computer joining shows this same code on its own screen, and the person just signed it in. */
-    const say = d.joining_computer ? 'Allow it if you just signed it in, and it shows this code.'
+    /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
+       worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
+    const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
+    /* Keyed on code_wait too: was_a_computer comes on a row with no joining_computer (the tunnel's devices.rs). */
+    /* was_a_computer waits whatever its code: the tunnel still treats the row as a computer (review 3). */
+    const waitLine = ((d.joining_computer || d.code_wait) && !d.code) || d.code_wait === 'was_a_computer'
+      ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
+    /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
+       a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many');
+    const staleTag = tagged && e.code !== d.code;
+    /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
+    const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
+    const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
       : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
+    /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
+       happening, so an earlier refusal is not repeated beside it (review 1). */
+    const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
+      : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+        : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
+          : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
+            : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
+      '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
-      (d.code ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split('-').filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '">Allow</button>' +
+      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -44474,13 +44790,19 @@ async function askAct(act, id) {
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ device_id: id, name: d.name || undefined }) });
+      /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
   } catch { res = null; }
   if (res && res.ok) {
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
   } else {
     const said = res ? await res.json().catch(() => null) : null;
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
+    const why = said && said.error;
+    /* #4794: code_changed / code_pending are the tunnel's pairing refusals, worded on the card; the list is read again so a
+       new code repaints. */
+    const tag = why === 'code_changed' || why === 'code_pending' || why === 'code_many';
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code || '', because: tag ? why : plusWords(why || 'We could not save that. Try again.') };
+    if (tag && typeof pollAsk === 'function') pollAsk();
   }
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
      announcement and no sign the press did anything. Forget the last write so the answer is said again. */
@@ -44893,6 +45215,9 @@ async function paintPlus() {
      machine at state1 (no switch). state2's paid sign-in still has no signal and stays
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
   if (!r || r.enrolled !== true) {
+    /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
+       pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
+    if (r && typeof plusJoinReset === 'function') plusJoinReset();
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;
@@ -44951,10 +45276,41 @@ async function paintPlus() {
   if (!up && st.dataset && st.dataset.copyFail) delete st.dataset.copyFail;
   // A standing copy-failure note is left untouched (not rewritten), so a screen reader does not re-read it every poll.
   if (!(up && st.dataset && st.dataset.copyFail)) {
-    st.textContent = up
+    /* #4794: while the pairing block shows (held), its line is the one wait message: the sentence stays empty, so it does
+       not come back for the length of each pairing round and get read out again (review 1). */
+    const joinHeld = r.on === true && typeof plusJoinLive === 'function' && plusJoinLive(PLUS_JOIN);
+    st.textContent = (up || joinHeld)
       ? ''
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  }
+  /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
+     coordinator's sentence (paintPlusJoin). Anything else hides it. */
+  if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
+    /* Waiting to be allowed, or allowed with a code still up and unconfirmed. Otherwise the pairing is over: forget the
+       last answer, so a later wait (a Forget and a fresh sign-in) never shows this one's state (review 3). */
+    /* Off ends any pairing this page knew, and a later On reads afresh (review 7). An ending said after the Allow
+       (review 6) belongs to the pairing it ended: a new wait clears it too. */
+    if (r.on !== true) plusJoinReset();
+    else if (stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
+    PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
+    if (PLUS_JOIN_WAITING) plusJoinTick();
+    else {
+      if (PLUS_JOIN) { PLUS_JOIN = null; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0; }
+      paintPlusJoin();
+      /* Review 5: a page loaded after the other computer's Allow has no last answer, so the gate above never opens and a
+         code still up would never show. Read the pairing on load, and count it only once a real answer came back
+         (review 6: a busy or failed round must not spend it), at most three tries: a missing connector or a coordinator
+         outage fails every round, and each try is a spawn and a signed round. A live answer opens the block at once. */
+      if (!PLUS_JOIN_PROBED && PLUS_JOIN_PROBE_TRIES < 3 && r.on === true && r.enrolled === true) {
+        plusJoinTick().then((answered) => {
+          if (answered === 'paced') return;
+          if (!answered) { PLUS_JOIN_PROBE_TRIES += 1; return; }
+          PLUS_JOIN_PROBED = true;
+          if (!PLUS_JOIN_WAITING && plusJoinLive(PLUS_JOIN)) { PLUS_JOIN_WAITING = true; paintPlusJoin(); }
+        });
+      }
+    }
   }
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
@@ -44973,6 +45329,141 @@ async function paintPlus() {
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
+/* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
+   code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
+   still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */
+/* var, not let: paintPlus reads these, and a call before this line runs must not hit the temporal dead zone. */
+var PLUS_JOIN = null;          // the last /api/remote/join answer, or null
+var PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
+var PLUS_JOIN_BUSY = false;
+var PLUS_JOIN_AT = 0;
+var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
+var PLUS_JOIN_LAST_CODE = '';
+var PLUS_JOIN_GEN = 0;         // bumped by a confirm (and when waiting ends): a round that began before it is stale
+var PLUS_JOIN_CODE_AT = 0;     // when the current code first showed, by this page's clock
+var PLUS_JOIN_PROBED = false;  // the read on page load got a real answer (review 5)
+var PLUS_JOIN_PROBE_TRIES = 0; // failed reads on load; it stops after three
+var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pairing ended after the Allow, said once (review 6)
+/* The tunnel withdraws an unconfirmed code REVEAL_TIMEOUT_SECS (600 s) after it appeared, but only during a round that
+   succeeds; by the page's own clock a code that old is treated as run out, even if rounds keep failing (review 3). */
+var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
+/* Forget, Off, or never enrolled: nothing of an earlier pairing may show, and the read on load is owed again. A round in
+   flight is dropped (GEN). Only acts when something is set, so the 5-second repaint does not churn GEN. */
+function plusJoinReset() {
+  if (!PLUS_JOIN && !PLUS_JOIN_NOTE && !PLUS_JOIN_WAITING && !PLUS_JOIN_PROBED && !PLUS_JOIN_PROBE_TRIES) return;
+  PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_WAITING = false; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0;
+  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = '';
+  paintPlusJoin();
+}
+/* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
+   up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
+   the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
+   page's 10 minutes stays live until a round answers, so the tunnel's own "ran out" is read rather than missed (review 6). */
+function plusJoinLive(j) {
+  if (!j || j.supported !== true) return false;
+  return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
+}
+/* Allowed, but the code ran out before it was confirmed here. The tunnel says so only once it is no longer held: while
+   held, the round that withdraws a code also starts a new attempt and clears the flag (pairing.rs owe_commitment). It
+   stays until this computer pairs again, so it is NOT live: said once, as the ending of a pairing this page watched
+   (review 6), never polled for (each read is a signed round) and never claimed on a later load. */
+function plusJoinRanOut(j) {
+  return !!j && j.held !== true && j.confirm_expired === true && j.confirmed !== true && j.failed !== true;
+}
+/* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). Resolves true
+   when a real answer came back, false when the round failed, 'paced' when none ran. */
+async function plusJoinTick() {
+  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return 'paced'; }
+  PLUS_JOIN_BUSY = true;
+  const gen = PLUS_JOIN_GEN;
+  /* Only a real answer replaces the last one: a round that failed (the tunnel's round lock, a Forget in progress, a
+     restart) keeps what the person was looking at rather than hiding the code mid-check (review 2). A round that began
+     before a confirm is dropped, so it cannot undo "Matched". */
+  let got = null;
+  try { const res = await fetch('/api/remote/join'); got = res.ok ? await res.json() : null; } catch { got = null; }
+  if (got && gen === PLUS_JOIN_GEN) {
+    const was = PLUS_JOIN && PLUS_JOIN.join_code, now = got.join_code;
+    if (now && now !== was) PLUS_JOIN_CODE_AT = Date.now();   // a new code: its own clock starts
+    if (plusJoinRanOut(got) && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.on || PLUS_JOIN.on || '' };
+    PLUS_JOIN = got;
+  }
+  PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
+  paintPlusJoin();
+  return !!got;
+}
+/* Read out a character at a time, a pause between the two groups, as the Allow card reads its code: "4 8 2, 9 1 5". */
+function plusJoinSpoken(code) { return String(code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', '); }
+function plusJoinCode(code) {
+  return '<p class="askcodebig" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
+}
+function paintPlusJoin() {
+  const el = document.getElementById('plus-join');
+  if (!el) return;
+  const j = PLUS_JOIN;
+  const live = PLUS_JOIN_WAITING && plusJoinLive(j);
+  const note = PLUS_JOIN_NOTE;
+  el.hidden = !live && !note;
+  let html;
+  if (!live) {
+    if (!note) { if (el.innerHTML) el.innerHTML = ''; return; }
+    /* An ending, said once under the status: it does not take the coordinator's sentence (review 6: an outage after it
+       must still be said). */
+    const nn = askEsc(note.name || 'your other computer');
+    html = note.kind === 'matched' ? '<p class="plus-join-say">Matched with ' + nn + '.</p>'
+      : '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + nn + ' yet.</p>';
+    if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+    return;
+  }
+  /* One wait message, not two: the coordinator's sentence goes while this block shows. */
+  const st = document.getElementById('plus-status'); if (st && st.textContent) st.textContent = '';
+  const name = askEsc(j.on || (Array.isArray(j.asked_of) && j.asked_of[0]) || 'your other computer');
+  const stale = PLUS_JOIN_CODE_AT && Date.now() - PLUS_JOIN_CODE_AT >= PLUS_JOIN_CODE_MS && !j.confirmed;
+  const code = !stale && /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
+  if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
+  if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + ', press Not me on this request, then sign this computer in again.</p>';
+  else if (code && j.confirmed) html = '<p class="plus-join-say">Matched. Now press Allow on ' + name + '.</p>' + plusJoinCode(code);
+  /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
+  else if (code) html = '<p class="plus-join-say">' + (j.held === true ? 'Check that ' + name + ' shows this same code.'
+      : 'If ' + name + ' showed this same code when you allowed it, press The codes match.') + '</p>' + plusJoinCode(code) +
+    '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
+    (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
+  /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
+     round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
+  else if (j.held !== true && stale) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
+  else if (j.confirm_expired || stale) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  else html = '<p class="plus-join-say">Working out the code with ' + name + '...</p>';
+  /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
+  if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+}
+document.getElementById('plus-join').addEventListener('click', async (e) => {
+  const b = e.target.closest('#plus-join-match');
+  if (!b || b.disabled) return;
+  b.disabled = true;
+  const before = PLUS_JOIN;   // review 7: a paint during the request may clear PLUS_JOIN; the note still needs the name
+  let res = null;
+  try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
+  PLUS_JOIN_GEN += 1;
+  if (res && res.ok) {
+    PLUS_JOIN_MSG = '';
+    const j = PLUS_JOIN || before;
+    if (j) {
+      j.confirmed = true;
+      /* Already allowed: the pairing is complete, and the block (no longer live) says so once (review 6). */
+      if (j.held !== true) PLUS_JOIN_NOTE = { kind: 'matched', name: j.on || '' };
+    }
+  }
+  else {
+    const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
+    /* The tunnel's confirm refusals, worded (engine joinConfirm tags them). */
+    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out. A new one is on its way.'
+      : why === 'code_changed' ? 'That is not the code on this screen any more. Check the new one, then press The codes match again.'
+        : plusWords(why || 'That did not go through. Try again.');
+  }
+  PLUS_JOIN_AT = 0;   // read the pairing again now, not in a few seconds
+  /* Always repaint: an identical refusal would otherwise be skipped and leave this disabled button in place (review 2). */
+  { const el = document.getElementById('plus-join'); if (el) el.__lastJoin = null; }
+  paintPlusJoin(); plusJoinTick();
+});
 /* The engine's honest-but-technical sentence for a missing binary, said
    the way this page speaks. Everything else relays verbatim. */
 function plusWords(text) {
@@ -50922,6 +51413,7 @@ let ORGCHART_UNDO_BUSY = false;
    the names toggle re-derives from the file), a picture waiting for Read it, and the read in flight. */
 let ORGCHART_FILE_PEOPLE = null;
 let ORGCHART_FILE_PENDING = null;
+let ORGCHART_FILE_READER = null;   // #4560: who the consent box named; the send goes only to that reader
 let ORGCHART_READ_CTL = null;
 let ORGCHART_MANY_OK = false;   // the person said yes to starting more than ORGCHART_TEAM_DEFAULT at once
 
@@ -50940,6 +51432,7 @@ function orgchartEndFileFlow() {
   const consent = document.getElementById('orgchart-consent');
   if (consent) consent.hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   ORGCHART_FILE_PEOPLE = null;
   const note = document.getElementById('orgchart-file-note');
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
@@ -51226,13 +51719,15 @@ let ORGCHART_FILE_SEQ = 0;
 /* The kinds the board sends to the model (engine/orgchartfile.js MODEL_TYPES; web.orgchart-parse-1280.test.js pins
    the two to the same list). Only decides whether the FIRST ask carries the bytes. */
 const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
-async function orgchartSendFile(file, consent, seq) {
+async function orgchartSendFile(file, consent, seq, reader) {   // reader: the id the consent box named (#4560)
   const msg = document.getElementById('orgchart-msg');
   const note = document.getElementById('orgchart-file-note');
   const gen = ORGCHART_GEN;
   const current = () => gen === ORGCHART_GEN && seq === ORGCHART_FILE_SEQ;
   msg.hidden = false;
-  msg.textContent = consent ? 'Reading your chart. A picture or PDF takes about ten seconds.' : 'Reading ' + file.name + '…';
+  // Claude reads a chart in about ten seconds (#4559, measured); a reasoning model through a key can take longer, and is stopped at under two minutes (orgchartkeys TIMEOUT_MS).
+  const byKey = consent && reader && !/^claude/.test(reader);
+  msg.textContent = consent ? (byKey ? 'Reading your chart. This can take up to two minutes.' : 'Reading your chart. A picture or PDF takes about ten seconds.') : 'Reading ' + file.name + '…';
   let out = null;
   /* While a picture or PDF is being read, Stop reading ends it: the page drops the request, and the board stops
      the model call when the request closes (Liu Kang's condition 1: cancel holds after sending too). */
@@ -51240,7 +51735,7 @@ async function orgchartSendFile(file, consent, seq) {
   const ctl = consent ? new AbortController() : null;
   if (ctl) { ORGCHART_READ_CTL = ctl; stopBtn.hidden = false; }
   try {
-    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1' : ''), {
+    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1&reader=' + encodeURIComponent(reader || '') : ''), {
       signal: ctl ? ctl.signal : undefined,
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
@@ -51259,8 +51754,12 @@ async function orgchartSendFile(file, consent, seq) {
   if (!current() || !out) return;
   if (out.needsConsent) {
     ORGCHART_FILE_PENDING = file;
+    ORGCHART_FILE_READER = out.reader || null;
+    /* #4560: how it is paid for (a plan, or per request to a key) and what that provider keeps even though Kosmos
+       asks it not to store the file (Liu Kang m3686), both from the board. */
     document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
-      + ', using your plan. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.';
+      + ', ' + (out.uses || 'using your plan') + '. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.'
+      + (out.keeps ? ' ' + out.keeps : '');
     document.getElementById('orgchart-consent').hidden = false;
     msg.textContent = ''; msg.hidden = true;
     document.getElementById('orgchart-consent-go').focus();
@@ -51297,7 +51796,7 @@ function orgchartTakeFile(file) {
   if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) && file.size > ORGCHART_MAX_IMAGE_BYTES) {
     const msg = document.getElementById('orgchart-msg');   // before the consent box: a yes could only end in this refusal
     msg.hidden = false;
-    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.';
+    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or use a CSV or Excel export.';
     return;
   }
   if (file.size > ORGCHART_MAX_BYTES) {
@@ -51308,6 +51807,7 @@ function orgchartTakeFile(file) {
   }
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   orgchartSendFile(file, false, ++ORGCHART_FILE_SEQ);
 }
 document.getElementById('orgchart-file-btn').addEventListener('click', () => document.getElementById('orgchart-file').click());
@@ -51320,9 +51820,11 @@ document.getElementById('orgchart-file').addEventListener('change', (e) => {
 document.getElementById('orgchart-consent-go').addEventListener('click', () => {
   if (ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;   // as orgchartTakeFile: a read must not paint over a create or an Undo
   const f = ORGCHART_FILE_PENDING;
+  const who = ORGCHART_FILE_READER;   // taken before it is cleared: the send carries the reader the box named
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
-  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ);
+  ORGCHART_FILE_READER = null;
+  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ, who);
 });
 document.getElementById('orgchart-many-go').addEventListener('click', () => {
   document.getElementById('orgchart-many').hidden = true;
@@ -51345,6 +51847,7 @@ document.getElementById('orgchart-many-no').addEventListener('click', () => {
 document.getElementById('orgchart-consent-no').addEventListener('click', () => {
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   const msg = document.getElementById('orgchart-msg');
   msg.textContent = 'Nothing was sent. You can upload a CSV or Excel export instead, or type the list.';
   msg.hidden = false;
@@ -51380,6 +51883,7 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
   ORGCHART_FILE_PEOPLE = null;   // a preview from the box is the box's, not the last file's
   document.getElementById('orgchart-consent').hidden = true;   // and a picture still asking to be read is moved past
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,
@@ -54923,6 +55427,11 @@ function memberDotClass(row) {
  * never as something healthy, and never as nothing at all.
  */
 function pjMember(m, suppressTold, withMinus, hideState) {
+  /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
+     borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
+  if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
+    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+  }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the
      row reads that FIRST and the pill and the row agree by construction; the latest /api/status
@@ -56287,6 +56796,10 @@ let PJ_DOC_NAMES = null;
 let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
 let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
 const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
+/* #5165: over Kosmos+ the folder cannot open on this device, so the cut-short sentence does not point at it there. */
+function pjDocsPartialHere() {
+  return kplusRemote() ? 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here.' : PJ_DOCS_PARTIAL;
+}
 let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
@@ -58983,6 +59496,7 @@ document.getElementById('pjs-chats-reveal').addEventListener('click', async () =
   const btn = document.getElementById('pjs-chats-reveal');
   const msg = document.getElementById('pjs-chats-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   btn.disabled = true;
   try {
     const res = await fetch('/api/chats/reveal', { method: 'POST' });
@@ -59004,6 +59518,7 @@ document.getElementById('tk-chats-reveal').addEventListener('click', async () =>
   const btn = document.getElementById('tk-chats-reveal');
   const msg = document.getElementById('tk-chats-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   btn.disabled = true;
   try {
     const res = await fetch('/api/task-chats/reveal', { method: 'POST' });
@@ -59021,6 +59536,7 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   if (!p) return;
   const msg = document.getElementById('pjs-reveal-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   const btn = document.getElementById('pjs-reveal');
   btn.disabled = true;
   try {
@@ -59356,7 +59872,7 @@ async function openDocsView() {
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
     PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
-    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
+    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
     msg.textContent = '';
     /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
        page: enough to scan, never a wall. The floor sentence survives at the
@@ -59366,7 +59882,7 @@ async function openDocsView() {
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-    if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
+    if (body.truncated === true) msg.textContent = pjDocsPartialHere();
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs' && docsOpen === DOCS_OPEN_GEN) msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -59375,6 +59891,7 @@ document.getElementById('docs-back').addEventListener('click', () => { pjView('o
 document.getElementById('docs-chev').addEventListener('click', () => { pjView('one'); }); // #4586: the same way back
 document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
+  if (kplusFolderElsewhere(msg)) { docsSegShow('folder'); return; }   // #5165
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/reveal-folder', { method: 'POST' });
     if (!r.ok) { docsSegShow('folder'); const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }   // #4937: the sentence lives on the folder's segment
@@ -59386,6 +59903,12 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('docs-msg');
+  if (kplusRemote()) {   // #5165: download it to this device
+    const forProject = PJ_CURRENT;
+    kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject && PJ_VIEW === 'docs'),
+      PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : '');
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }) });
@@ -59508,12 +60031,12 @@ async function pjLoadDocs(id) {
   const files = Array.isArray(body.files) ? body.files : [];
   PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
-    msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
+    msg.textContent = body.truncated === true ? pjDocsPartialHere() : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
     all.hidden = true;
     return;
   }
   /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-  msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : '';
+  msg.textContent = body.truncated === true ? pjDocsPartialHere() : '';
   for (const f of files) {
     /* A BUTTON, not a div with a handler: this opens a file, and an action
        that cannot be reached from the keyboard is not an action for everyone. */
@@ -60459,6 +60982,11 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject),
+      PJ_DOCS_RAIL_PARTIAL ? pjDocsPartialHere() : '');
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -60491,6 +61019,10 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   if (!go || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-room-msg');
   const forProject = PJ_CURRENT;
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('project', forProject, go.dataset.ref, kplusSayer(msg, () => PJ_CURRENT === forProject));
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -63281,6 +63813,9 @@ async function loadRoom() {
   paintRoom(body);
 }
 
+/* #4653: the ambiguous-mention note last shown under the composer, so the next edit can take away that note
+   and only that one (the input listener below). */
+let PJ_AMBIG_NOTE = '';
 async function pjPostSend(attachment) {
   const pendingIds = attachment ? [attachment] : attachList(ATTACH_ROOM).map((r) => r.id);
   if (PJ_POSTING) return;
@@ -63349,11 +63884,14 @@ async function pjPostSend(attachment) {
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
     if (replying && PJ_REPLY[sentProject] && PJ_REPLY[sentProject].id === replying.id) { delete PJ_REPLY[sentProject]; if (PJ_CURRENT === sentProject) pjReplyPaint(sentProject); }
-    if (PJ_CURRENT === sentProject) msg.textContent = '';
+    /* #4653: an @-word that named two agents reached neither as a request; the engine's sentence
+       stays under the composer (and is announced), so the person can re-send with the exact name. */
+    const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote : '';
+    if (PJ_CURRENT === sentProject) { msg.textContent = ambig; PJ_AMBIG_NOTE = ambig; }
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
-    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p));
+    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p) + (ambig ? ' ' + ambig : ''));
     if (PJ_CURRENT === sentProject) await loadRoom();
   } catch {
     verdict('We could not reach Kosmos to post that.');
@@ -63476,6 +64014,14 @@ function mentionPick(i) {
 }
 
 document.getElementById('pj-post').addEventListener('input', mentionRefresh);
+/* #4653: the ambiguous-mention note is about the post just sent; once the person types the next one it is
+   stale, so the first edit takes it away. Only that note: any other line under the box keeps its own rules.
+   PJ_AMBIG_NOTE is declared above pjPostSend, which sets it. */
+document.getElementById('pj-post').addEventListener('input', () => {
+  const msg = document.getElementById('pj-room-msg');
+  if (PJ_AMBIG_NOTE && msg && msg.textContent === PJ_AMBIG_NOTE) msg.textContent = '';
+  PJ_AMBIG_NOTE = '';
+});
 document.getElementById('pj-post').addEventListener('click', mentionRefresh);
 document.getElementById('pj-post').addEventListener('blur', () => { setTimeout(mentionClose, 150); });
 document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
@@ -64716,16 +65262,21 @@ function paintThread(body) {
       + 'It is not a transcript, and it is not what the agent said to you.';
   } else {
     // The non-claiming static heading: naming the agent here would still
-    // promise a screen the next line says we could not read.
-    document.getElementById('pj-screen-label').textContent = 'Its screen';
+    // promise a screen the next line says we could not read. #5223: a
+    // Windows agent has none, so its heading says so rather than promise one.
+    document.getElementById('pj-screen-label').textContent = (body.viewport && body.viewport.noWindow === true)
+      ? 'No screen to show' : 'Its screen';
     screen.hidden = true;
     // ⚠️ The reason, in place of the screen. An empty box would read as an
     // agent sitting at a blank terminal, which is a claim about its screen we
     // did not make.
     // The clause becomes its own pjSentence rather than a raw splice
     // (round 25): a stderr line ending in a stop would double it.
-    hint.textContent = 'We cannot see its screen right now.'
-      + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
+    // #5223: a Windows agent has no screen at all, so "right now" would call a lasting fact a passing failure.
+    hint.textContent = (body.viewport && body.viewport.noWindow === true)
+      ? pjSentence(body.viewport.because)
+      : 'We cannot see its screen right now.'
+        + ((body.viewport && body.viewport.because) ? ' ' + pjSentence(body.viewport.because) : '');
   }
 }
 

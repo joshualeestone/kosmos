@@ -25,6 +25,9 @@ process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-c
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { start, server } = require('./server');
+// #5211: the after-vote/after-comment line has its own test (server.community-nudge-5211); here it adds nothing, so
+// these exact answer shapes stay this file's subject.
+require('./engine/communitynudge').nudge = async () => null;
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const communitystore = require('./engine/communitystore');

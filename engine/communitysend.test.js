@@ -431,6 +431,22 @@ test('#5062: a Kosmos bug report is sent to engineering/kosmos-bugs; a site with
   be.st.mode.noBugs = false;
 });
 
+test('#5171 review 1: a post in a sub-channel of general the site does not know falls back to plain general, not refused', async () => {
+  /* The fake site knows only kosmos-bugs as a sub-channel, so it plays a site that has dropped (or never had) introductions.
+     That post goes out as general/introductions; "not already general" alone would have taken the refusal as final. */
+  await on();
+  be.st.agents.set('i', { id: 'i', name: 'Ivo', key: 'k', token: 't', active: true });
+  store.writeProfile('ivo', { displayName: 'Ivo' });
+  communitystore.grantTrust('ivo');
+  const before = posts().length;
+  const r = feedpublish.publishPost({ kind: 'community_post', agent: 'ivo', at: new Date().toISOString(), topic: 'Hello from Ivo', body: 'A research agent, new here.' }, { agentId: 'ivo', board: 'introductions' });
+  assert.deepEqual([cs.payload(communitystore.publicFeed().find((p) => p.id === r.id)).channel, cs.payload(communitystore.publicFeed().find((p) => p.id === r.id)).sub_channel], ['general', 'introductions']);
+  await cs.sweep();
+  const tries = posts().slice(before).map((p) => [p.body.channel, p.body.sub_channel]);
+  assert.deepEqual(tries, [['general', 'introductions'], ['general', null]], 'the unknown sub-channel of general was not resent to plain general: ' + JSON.stringify(tries));
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
 test('a post with no topic takes its title from the first line of its body, cut at 120 UTF-16 units', () => {
   assert.equal(cs.titleFor({ body: '\n## First line here\nsecond' }), 'First line here');
   const long = '😀'.repeat(70);          // 140 units: the cut must not split a pair
@@ -885,6 +901,46 @@ function assertFullSize(seen) {
   assert.ok(seen.bytes > cs.RESPONSE_CAP, 'control: the answer was not bigger than the agent-facing cap (' + seen.bytes + ')');
   assert.ok(seen.bytes <= cs.SWEEP_RESPONSE_CAP, 'the worst-case answer does not fit the sweep cap (' + seen.bytes + ')');
 }
+
+test('#5174: a lost send to a sub-channel is not mistaken for a same-title post in its parent channel', async () => {
+  await on();
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy'), { recursive: true });
+  communitystore.grantTrust('cy');
+  const r = feedpublish.publishPost({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), topic: 'Ring stuck at 0', body: 'Same words in both places.' }, { agentId: 'cy', board: cs.KOSMOS_BUGS_SLUG });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  // The send never reaches the site: the board marked it attempted and must look for it before sending again.
+  let lost = null;
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts') && !lost) { lost = JSON.parse(init.body); throw new Error('network down'); }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.deepEqual([lost.channel, lost.sub_channel], ['engineering', cs.KOSMOS_BUGS_SLUG], 'control: the send was aimed at the sub-channel');
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  // The same agent's post with the same title and body, in the PARENT channel only.
+  const agent = [...be.st.agents.values()].at(-1).id;
+  be.st.posts.set('lookalike', { id: 'lookalike', agent, channel: 'engineering', sub_channel: null, title: lost.title, body: lost.body,
+    deleted: false, taken_down: false, take_down_reason: null });
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  const st = cs.statuses()[r.id];
+  assert.equal(st.state, 'sent');
+  const real = [...be.st.posts.values()].filter((p) => p.sub_channel === cs.KOSMOS_BUGS_SLUG && p.title === lost.title);
+  assert.equal(real.length, 1, 'the parent-channel lookalike was taken as the lost post, so the real one never went');
+  // And the right match still settles: a lost send whose copy IS on the site in its sub-channel is not sent twice.
+  const r2 = feedpublish.publishPost({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), topic: 'Second', body: 'Arrived, answer lost.' }, { agentId: 'cy', board: cs.KOSMOS_BUGS_SLUG });
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (init.method === 'POST' && url.endsWith('/posts')) throw new Error('answer lost');
+    return res;
+  });
+  await cs.sweep();
+  const n = posts().length;
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(cs.statuses()[r2.id].state, 'sent');
+  assert.equal(posts().length, n, 'a post already on the site in its sub-channel was sent a second time');
+});
 
 test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still settles an attempted post', async () => {
   await on();

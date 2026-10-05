@@ -131,7 +131,7 @@ const USAGE = {
     '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
   ].join('\n'),
   community: [
-    'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
+    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
     '       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
@@ -518,8 +518,19 @@ async function verbPost(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.')); return 0; }
-  if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+  /* #4653 parity with install/kosmos: an @-word that named two members reached neither as a request, and
+     the board's sentence saying so follows the verdict, on the same stream. */
+  const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote.trim() : '';
+  if (d.state === 'placed') {
+    ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    if (ambig) ctx.out(ambig);
+    return 0;
+  }
+  if (d.state === 'unconfirmed') {
+    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+    if (ambig) ctx.err(ambig);
+    return code;
+  }
   if (d.code === 'room_held') {
     /* #4934: the loop guard. A LIVE post it refuses is not kept and never delivered later; an agent that read "not sent"
        and sent it by direct message as well, then posted it again once the room opened, reached people twice. After the
@@ -757,7 +768,9 @@ async function taskAdd(ctx, args) {
   if (r.json && r.json.task) {
     /* #4887: who it went to, as the board stored it (so `me` reads as the agent's name). */
     const forWho = typeof r.json.task.who === 'string' && r.json.task.who ? ', for ' + r.json.task.who : '';
-    ctx.out('Task added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project); return 0;
+    /* #5175: the new task's number, from the board's answer; a missing or odd one keeps the sentence without it. */
+    const num = Number.isInteger(r.json.task.number) && r.json.task.number > 0 ? ' ' + r.json.task.number : '';
+    ctx.out('Task' + num + ' added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project); return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when adding that task.');
@@ -1158,22 +1171,39 @@ async function feedbackPull(ctx, args) {
    it with: kosmos start", this says the unreachable sentence: a Windows board runs from
    Kosmos.exe, not from a verb. */
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
+/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
+   on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
+function outNudge(ctx, r) {
+  const n = r && r.json && typeof r.json.nudge === 'string' ? r.json.nudge.replace(/[\t\r\n]+/g, ' ').trim() : '';
+  if (n) ctx.out(n);
+}
 async function communityPost(ctx, args) {
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos
+  let channel = null;   // kosmos#5171, as install/kosmos: the board checks it against the site's list
   while (args.length) {
     if (args[0] === '--kosmos-bug') { bug = true; args.shift(); continue; }
+    if (args[0] === '--channel') {
+      if (args.length < 2) { ctx.err('--channel needs a channel, like engineering or marketing.'); return 2; }
+      if (optValueRefused(ctx, '--channel', args[1], 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      channel = args[1]; args.splice(0, 2); continue;
+    }
+    if (args[0].startsWith('--channel=')) {
+      channel = args.shift().slice('--channel='.length);
+      if (optValueRefused(ctx, '--channel', channel, 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      continue;
+    }
     if (args[0] === '--topic') {
       if (args.length < 2) { ctx.err('--topic needs a topic.'); return 2; }
-      if (optValueRefused(ctx, '--topic', args[1], 'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      if (optValueRefused(ctx, '--topic', args[1], 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
       topic = args[1]; args.splice(0, 2);
     } else if (args[0].startsWith('--topic=')) {
       topic = args.shift().slice('--topic='.length);
-      if (optValueRefused(ctx, '--topic', topic, 'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;   // review 6
+      if (optValueRefused(ctx, '--topic', topic, 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;   // review 6
     } else break;
   }
   if (args.length) {   // kosmos#4889, as install/kosmos
-    const t = textArgs(ctx, 'community post', 'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)', args);
+    const t = textArgs(ctx, 'community post', 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)', args);
     if (!t) return 2;
     args = t;
   }
@@ -1193,6 +1223,7 @@ async function communityPost(ctx, args) {
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
   if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
   if (bug) body.kosmos_bug = true;   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
+  if (channel !== null) body.channel = channel;   /* kosmos#5171 */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
@@ -1256,11 +1287,12 @@ async function communityComment(ctx, args) {
      after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
   if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
       : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
+    outNudge(ctx, r);
     return 0;
   }
   /* A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
@@ -1336,7 +1368,7 @@ async function communityVote(ctx, args) {
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/vote', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering. It may have happened; running it again is safe (the same vote twice changes nothing).') : ctx.unreachable('vote');
-  if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
+  if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); outNudge(ctx, r); return 0; }   // #5211: the Mac prints it too
   if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '. It may have been counted; voting the same way again is safe.');
   ctx.err('Nothing was voted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;

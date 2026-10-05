@@ -23,6 +23,8 @@
  *   unread    a look that reached the host but could not read it (a bad Windows manifest):
  *             the could-not-read sentence, no link, never "Up to date."; then a press whose
  *             check cannot reach the host: the could-not-reach sentence
+ *             -- and a status poll answered after the press keeps it (#5183: the fixture's two stubs agree,
+ *             as a real board's one cache does)
  *   current   the CONTROL: nothing newer, the press says "Up to date on the release channel." (#2969) and no link shows --
  *             without it the states above could pass on a card that never says it
  *
@@ -35,6 +37,8 @@
  * `updateLook`, `updateManual`, `updateChannel` and `engine` (the engine-stale notice, pinned
  * off). Everything else is the real server's. `served` comes from the real /api/status, so the
  * stub cannot invent the running version.
+ * The two stubs are NOT independent (#5183): a press writes its look into the status answers, as a
+ * real board's checkNow writes the cache its lastLook reads, so a poll after the press agrees with it.
  *
  * Screenshots go to the directory you pass (argv[2]).
  *
@@ -151,9 +155,13 @@ async function readCard(pg) {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
-    await pg.route('**/api/update/check', (route) => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify(answers.check),
-    }));
+    await pg.route('**/api/update/check', (route) => {
+      /* #5183: on a real board a press and the status poll read ONE cache (engine/update.js checkNow and lastLook),
+         so after a press the poll reports the press's look. Mirror that here, or a poll landing after the press
+         repaints the card with the pre-press look (the could-not-read flake under load). */
+      answers.status.updateLook = { reached: answers.check.reached, readable: answers.check.readable, looked: true };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answers.check) });
+    });
     await pg.route('**/api/status', async (route) => {
       /* Guarded for the reason render-updates-stale.js records: a route callback that loses its
          page must not kill node after every assertion printed PASS. */
@@ -204,11 +212,49 @@ async function readCard(pg) {
       const card = await readCard(pg);
       chk(card.line === "Could not read the update server's answer.", 'unread: a bad manifest is named as could-not-read', JSON.stringify(card.line));
       chk(!card.downloadShown, 'unread: no Download link', JSON.stringify(card));
+      /* #5183: every paint of the card is recorded as it happens, with the look it was given and the line it left, so
+         each assertion reads the paint it means, not whatever the card shows when a later read lands (a status poll
+         answered before the press and handled after its paint repaints the old look, as it can on a real board). */
+      await pg.evaluate(() => {
+        const orig = window.paintUpdateCard;
+        window.__updPaints = [];
+        window.paintUpdateCard = function (...a) {
+          const r = orig.apply(this, a);
+          /* Only a call that painted: while a press is in flight paintUpdateCard returns early and the line still reads
+             "Checking.", and a poll answered then already carries the press's look. */
+          const line = document.getElementById('upd-line').textContent;
+          if (!/Checking\.$/.test(line)) {
+            window.__updPaints.push({
+              reached: !(a[2] && a[2].reached === false),
+              // Ties a paint to the press. Coupled to the handler's NAME in web/index.html: a rename fails the press
+              // assertion by name ("no press paint seen"), never passes it.
+              fromPress: /updCheckNowClick/.test(new Error().stack || ''),
+              line,
+            });
+          }
+          return r;
+        };
+      });
       await pg.click('#upd-btn');
-      await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
-      const after = await readCard(pg);
-      chk(after.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', JSON.stringify(after.line));
-      chk(!/Up to date/.test(after.line), 'unread: never "Up to date."', JSON.stringify(after.line));
+      /* The press's paint is the first painted by updCheckNowClick itself (its stack names it), so a press that stopped
+         painting cannot be stood in for by the next poll, which the linked stub would also make say could-not-reach. */
+      const pressAt = await pg.waitForFunction(() => {
+        const i = window.__updPaints.findIndex((p) => p.fromPress);
+        return i >= 0 ? i + 1 : 0;
+      }, null, { timeout: 12000 }).then((h) => h.jsonValue()).then((n) => n - 1).catch(() => -1);
+      const press = pressAt >= 0 ? await pg.evaluate((i) => window.__updPaints[i], pressAt) : null;
+      chk(press && press.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', press ? JSON.stringify(press) : 'no press paint seen within 12 s');
+      chk(press && !/Up to date/.test(press.line), 'unread: never "Up to date."', JSON.stringify(press));
+      /* Then a status poll that carries the press's look (unreachable) must paint could-not-reach too. On a real board
+         every poll answered after the press carries it (one cache, engine/update.js checkNow and lastLook); with the
+         stubs unlinked none ever does, so this fails by name. A poll answered before the press may still repaint the
+         old look in between; it is not this paint. */
+      const poll = pressAt >= 0 ? await pg.waitForFunction((i) => {
+        const k = window.__updPaints.findIndex((p, n) => n > i && !p.fromPress && !p.reached);
+        return k >= 0 ? k + 1 : 0;
+      }, pressAt, { timeout: 20000 }).then((h) => h.jsonValue())
+        .then((n) => pg.evaluate((k) => window.__updPaints[k], n - 1)).catch(() => null) : null;
+      chk(poll && poll.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', poll ? JSON.stringify(poll) : 'no status poll with the press\'s look within 20 s');
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-unread.png') });
     } else if (state === 'rollback') {

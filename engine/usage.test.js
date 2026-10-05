@@ -20,6 +20,10 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'usage-test-'));
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = nodePath.join(SANDBOX, 'claude');
+/* #5158: usage now also reads Codex, Gemini CLI and Grok sessions. Their homes are sandboxed too (an empty home each),
+   so this file's exact totals never depend on whatever those CLIs left on the machine running it. */
+process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
+for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_GEMINI_HOME', 'GROK_HOME', 'AGENT_WORKFORCE_GROK_HOME', 'AGENT_WORKFORCE_AGY_HOME']) delete process.env[v];
 fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
 
 const usage = require('./usage');
@@ -479,4 +483,34 @@ test('#2617: byAgentAsync resolves folders without a synchronous realpath and sp
   assert.equal((out.agents[0] || {}).output_tokens, 13, 'the link and its target did not match');
   assert.equal(out.elsewhere.output_tokens, 7, 'a folder that is gone must still be counted, as elsewhere');
   assert.deepEqual(out, usage.byAgent(result, agents), 'the async split disagrees with the sync one');
+});
+
+test('#5158: a past day freezes Claude and the other providers into SEPARATE files; Claude\'s carry no provider rows', async () => {
+  resetSandbox();
+  const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const codexHome = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex');
+  fs.rmSync(codexHome, { recursive: true, force: true });
+  try {
+    const dir = projectDir('proj-mix');
+    fs.writeFileSync(nodePath.join(dir, 's.jsonl'), cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'c1', cwd: '/w/ann', output: 7 }) + '\n', 'utf8');
+    const rdir = nodePath.join(codexHome, 'sessions', ...day.split('-'));
+    fs.mkdirSync(rdir, { recursive: true });
+    fs.writeFileSync(nodePath.join(rdir, 'rollout-x.jsonl'), [
+      { timestamp: `${day}T11:00:00.000Z`, type: 'session_meta', payload: { cwd: '/w/roo' } },
+      { timestamp: `${day}T11:00:00.000Z`, type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+      { timestamp: `${day}T11:00:05.000Z`, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 9 } } } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+    const r = await usage.dailyUsageByModel(2);
+    assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 7, 'CONTROL: Claude counted');
+    assert.equal(r.byDay[day]['gpt-5.6-sol'].output_tokens, 9, 'CONTROL: Codex counted in the merged result');
+    const claudeDay = JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), 'utf8'));
+    const claudeFolders = JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), 'utf8'));
+    assert.deepEqual(Object.keys(claudeDay), ['claude-sonnet-5'], 'Claude\'s saved day holds a provider model');
+    assert.ok(!claudeFolders['/w/roo'], 'Claude\'s saved folder split holds a provider folder');
+    const prov = JSON.parse(fs.readFileSync(usage.frozenProvidersPath(day), 'utf8'));
+    assert.equal(prov.models['gpt-5.6-sol'].output_tokens, 9, 'the providers\' day was frozen in its own file');
+    assert.equal(prov.folders['/w/roo'].output_tokens, 9);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
 });

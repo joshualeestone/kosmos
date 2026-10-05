@@ -462,9 +462,105 @@ test('once per project per day; a COULD_NOT ask is retried after ASK_RETRY_MS, n
     assert.equal(retry.calls.asks.length, 1, 'the lost ask was never tried again');
     const again = goalTick(w, retry.out.next, retryAt + 60000);
     assert.equal(again.calls.asks.length, 0, 'the same project was asked about twice in a day');
+    /* #5161: a day later with NOTHING changed, it is not asked again (it was, before: the same question every day).
+       Control: once the brief's goal changes, it is. */
     const nextDay = goalTick(w, again.out.next, retryAt + 60000 + a.GOAL_ASK_MS);
-    assert.equal(nextDay.calls.asks.length, 1, 'the project was never asked about again');
+    assert.equal(nextDay.calls.asks.length, 0, 'an unchanged project was asked the same question again the next day');
+    writeBrief(w.pid, '## Goal\n\nA new goal.\n');
+    const changed = goalTick(w, nextDay.out.next, retryAt + 120000 + a.GOAL_ASK_MS);
+    assert.equal(changed.calls.asks.length, 1, 'control: a project whose goal changed was never asked again');
   } finally { w.restore(); }
+});
+
+/* ---- #5161: ask once per state of the project, and remember it across a restart ---- */
+
+test('#5161: a newly added agent lets an unchanged project be asked again (it was never asked); nothing else changed, it is not', () => {
+  const w = world([{ name: 'gmember' }, { name: 'gnewcomer', member: false }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    const later = T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000;
+    const same = goalTick(w, asked.out.next, later);
+    assert.equal(same.calls.asks.length, 0, 'asked again with nothing changed');
+    projects.addAgent(w.pid, w.key.gnewcomer, w.cards);
+    const joined = goalTick(w, same.out.next, later + 60000);
+    assert.equal(joined.calls.asks.length, 1, 'a project with a new member was never asked again');
+  } finally { w.restore(); }
+});
+
+test('#5161: projectSig: member order does not matter; a removed member or a new goal changes it', () => {
+  const p1 = { tasks: [], agents: ['b', 'a'] };
+  const p2 = { tasks: [], agents: ['a', 'b'] };
+  assert.equal(a.projectSig(p1, 'g'), a.projectSig(p2, 'g'), 'the same members in another order changed the signature');
+  assert.notEqual(a.projectSig(p1, 'g'), a.projectSig({ tasks: [], agents: ['a'] }, 'g'), 'control: a removed member did not change it');
+  assert.notEqual(a.projectSig(p1, 'g'), a.projectSig(p1, 'h'), 'control: a new goal did not change it');
+});
+
+test('#5161: a task added and closed since the last ask lets the project be asked again; still within the day, it does not', () => {
+  const w = world([{ name: 'gtask' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    const t = tasks.create(w.pid, { sentence: 'a step', made: { via: 'screen' } });
+    tasks.close(w.pid, t.number || 1);
+    const sameDay = goalTick(w, asked.out.next, T0 + a.IDLE_MS + 2 * 60 * 60 * 1000);
+    assert.equal(sameDay.calls.asks.length, 0, 'the once-a-day floor no longer holds for a changed project');
+    const nextDay = goalTick(w, sameDay.out.next, T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000);
+    assert.equal(nextDay.calls.asks.length, 1, 'a project whose tasks changed was never asked again');
+  } finally { w.restore(); }
+});
+
+test('#5161: the person closing a webhook task that was waiting for them lets the project be asked again', () => {
+  const w = world([{ name: 'ghookclose' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const hook = tasks.create(w.pid, { sentence: 'from a webhook', made: { via: 'webhook', by: 'Webhook 1' } });
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1, 'a waiting webhook task blocked the first ask');
+    const later = T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000;
+    const same = goalTick(w, asked.out.next, later);
+    assert.equal(same.calls.asks.length, 0, 'asked again with the webhook task still waiting and nothing changed');
+    tasks.close(w.pid, hook.number);
+    const closed = goalTick(w, same.out.next, later + 60000);
+    assert.equal(closed.calls.asks.length, 1, 'closing the waiting webhook task did not let the project be asked again');
+  } finally { w.restore(); }
+});
+
+test('#5161: the ask memory survives a restart (saveMemory then loadMemory); control: an empty memory asks again', () => {
+  const w = world([{ name: 'grestart' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    fs.rmSync(a.MEMORY_FILE(), { force: true });
+    const saved = a.saveMemory(asked.out.next, null);
+    assert.ok(saved && fs.existsSync(a.MEMORY_FILE()), 'nothing was written');
+    assert.ok(a.MEMORY_FILE().startsWith(SANDBOX), 'the memory file is outside the sandbox: ' + a.MEMORY_FILE());
+    assert.equal(a.saveMemory(asked.out.next, saved), saved, 'an unchanged memory was written again');
+    const restartAt = T0 + a.IDLE_MS + 6 * 60 * 60 * 1000;   // the 14:44 -> 21:20 gap, with a restart between
+    const reloaded = a.loadMemory(restartAt);
+    const r1 = goalTick(w, reloaded, restartAt);
+    const r2 = goalTick(w, r1.out.next, restartAt + a.IDLE_MS);
+    assert.equal(r2.calls.asks.length, 0, 'after a restart the same project was asked again with nothing changed');
+    const f1 = goalTick(w, a.restoredMemory(null, restartAt), restartAt);
+    const f2 = goalTick(w, f1.out.next, restartAt + a.IDLE_MS);
+    assert.equal(f2.calls.asks.length, 1, 'control: with the memory forgotten (the old behaviour) it was not asked');
+  } finally { w.restore(); fs.rmSync(a.MEMORY_FILE(), { force: true }); }
+});
+
+test('#5161: restoredMemory drops what it cannot trust', () => {
+  const now = T0;
+  const m = a.restoredMemory({ v: 1, asked: [['ok', now - 1], ['future', now + 1000], [7, now], ['nan', 'x']],
+    askedSig: [['ok', '0123456789abcdef'], ['bad', 'not-a-sig'], ['short', 'abc']] }, now);
+  assert.deepEqual([...m.asked], [['ok', now - 1]]);
+  assert.deepEqual([...m.askedSig], [['ok', '0123456789abcdef']]);
+  assert.equal(a.restoredMemory({ v: 2, asked: [['ok', now - 1]] }, now).asked.size, 0, 'an unknown version was trusted');
+  assert.equal(a.restoredMemory('junk', now).asked.size, 0);
+  // Round trip.
+  const back = a.restoredMemory(JSON.parse(JSON.stringify(a.savedForm(m))), now);
+  assert.deepEqual([...back.askedSig], [...m.askedSig]);
 });
 
 test('two idle agents in one project: only one is asked', () => {
