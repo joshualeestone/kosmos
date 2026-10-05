@@ -98,7 +98,8 @@ function onlyOtherBlocks(tail) {
   let rest = tail;
   for (const [s, e] of [[projects.REPORTS_START, projects.REPORTS_END],
     [projects.CONNECTIONS_START, projects.CONNECTIONS_END], [projects.DMFILES_START, projects.DMFILES_END],
-    [projects.DMFILES_TOP_START, projects.DMFILES_TOP_END]]) {   // #4420's Files pointer, another managed block
+    [projects.DMFILES_TOP_START, projects.DMFILES_TOP_END],   // #4420's Files pointer, another managed block
+    [projects.COMMUNITY_START, projects.COMMUNITY_END]]) {   // kosmos#5297: the community block, added at boot to made agents
     const a = rest.indexOf(s); const b = rest.indexOf(e);
     if (a >= 0 && b > a) rest = rest.slice(0, a) + rest.slice(b + e.length);
   }
