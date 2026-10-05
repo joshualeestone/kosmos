@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: restorewhy-4976
-diff_hash: 706e487e9fea54a49f3ea99371b006634737368458a07177a2712420bdaefa3f
-validation: passed (full tools/run-tests.sh on Agent1s at 129010662, 2026-10-02 20:12 CDT under queued-heavy: 14318 tests, 14096 pass, 0 fail; both browser-check gates rc 0). Rebased onto main 9fbaf1507 at 20:1x: one conflict, the shared reason-grep counter (main 233 + this branch's 2 sites = 235, the test file passes at 235). The PR's CI runs every suite on the rebased tree before the watcher merges.
+diff_hash: 7e5442e8d64e5b2560a1555261057d95cc74a804269c429c7e2a2de31677638c
+validation: REBASED 2026-10-04 19:15 CDT onto main after #5106 merged (this branch had been stacked on an older #5106 head; git dropped those commits as applied, this branch's own commits replayed clean); browser-checks-reason-grep + tools.browser-checks-wired 18/18 on the rebased tree. A fresh Mortals run on this head is queued. Earlier: passed (full tools/run-tests.sh on Agent1s at 129010662, 2026-10-02 20:12 CDT under queued-heavy: 14318 tests, 14096 pass, 0 fail; both browser-check gates rc 0). Rebased onto main 9fbaf1507 at 20:1x: one conflict, the shared reason-grep counter (main 233 + this branch's 2 sites = 235, the test file passes at 235). The PR's CI runs every suite on the rebased tree before the watcher merges.
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-10-03T01:13:03Z
 iterations: 4
