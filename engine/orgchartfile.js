@@ -443,9 +443,12 @@ const MODEL_TYPES = {
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
-const NO_MODEL = 'Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.';
+const NO_MODEL = 'Reading a picture or PDF needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture), connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
-const MODEL_TIMEOUT_MS = 120000;
+/* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
+   which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
+   #4559 measured a 7-person PDF at 12 s and a PNG at 9 s; a large many-page PDF is not measured. */
+const MODEL_TIMEOUT_MS = 110000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /* What the model must answer. Enforced by the CLI (--json-schema) AND re-checked below, because a
@@ -573,7 +576,9 @@ function readAccount() {
   return list.find((a) => a.isDefault) || null;
 }
 /* Who the consent names: the provider, and the account when its address is known. */
-function providerLabel() {
+function providerLabel(reader) {
+  const r = reader === undefined ? currentReader() : reader;
+  if (r && r.kind === 'key') return require('./orgchartkeys').label(r) || PROVIDER;
   let acct = null;
   try { acct = readAccount(); } catch { acct = null; }
   return acct && acct.email ? 'Anthropic (Claude, ' + acct.email + ')' : PROVIDER;
@@ -585,11 +590,75 @@ function providerLabel() {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
-let availability = claudeHere;
-function modelAvailable() { return availability(); }
-function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : claudeHere; }
-let modelRunner = defaultModelRunner;
-function setModelRunner(fn) { modelRunner = typeof fn === 'function' ? fn : defaultModelRunner; }
+/* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); otherwise the first
+   KEY-connected OpenAI, Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+let lastWhy = null;   // set by currentReader (see whyNoReader)
+let readerOverride = null;
+/** Tests only: the reader to use ({kind:'claude'} or {kind:'key', provider, dir, account}); null restores the real one. */
+function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
+function currentReader() {
+  lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from
+  if (readerOverride) return readerOverride();
+  if (claudeHere()) {
+    // The account too, so the consent's reader id pins the Claude account the box names, not just "Claude".
+    let acct = null;
+    try { acct = readAccount(); } catch { acct = null; }
+    return { kind: 'claude', dir: acct ? acct.dir : null };
+  }
+  let got = { reader: null, offWhy: null };
+  try { got = require('./orgchartkeys').pick(); } catch { got = { reader: null, offWhy: null }; }
+  // No reader: the reason (a switched-off provider) travels on a null-shaped answer the caller can read, from the
+  // same look at the accounts (see whyNoReader).
+  lastWhy = got.offWhy;
+  return got.reader ? { kind: 'key', ...got.reader } : null;
+}
+/* Why the reader just worked out is null, from that same derivation (no second look), or null. */
+function whyNoReader() { return lastWhy; }
+/* The reader and, when there is none, why, as ONE value from one look (what the route uses, so no state is shared
+   between two calls). */
+function readerAndWhy() {
+  const reader = currentReader();
+  return { reader, why: reader ? null : lastWhy };
+}
+const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);
+/* The reader as an opaque id the page hands back with its consent (Claude, or a provider and a hash of the account
+   folder, so no path reaches the page). A send whose reader no longer matches is refused: the person agreed to one
+   provider, and the file must not go to another because an account changed while the consent box was open. */
+function readerId(r) {
+  if (!r) return null;
+  const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
+  // Claude with its account folder hashed, like a key account's: another default account is another reader.
+  if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
+  // The key's last four characters too (already on the account row), so a key replaced in the same account folder
+  // while the consent box is open is another reader, not the one the person agreed to. The id IDENTIFIES the reader;
+  // it is not a secret (its inputs are guessable and the key's last four are shown on the account row anyway).
+  return r.provider + ':' + hash(String(r.dir || '') + '\u0000' + String(r.keyTail || ''));
+}
+/* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
+function consentFor(r) {
+  const keys = require('./orgchartkeys');
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
+}
+let availability = readerHere;
+/* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
+function modelAvailable(reader) { return availability(reader); }
+function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : readerHere; }
+/* What the reader here cannot read (Grok and a PDF, say), as what to do instead, or null. Asked before the consent,
+   so the person is not asked to send a file that could only be refused. */
+function readerProblem(name, reader) {
+  const r = reader === undefined ? currentReader() : reader;
+  if (!r || r.kind !== 'key' || !forModel(name)) return null;
+  return require('./orgchartkeys').cannotRead(r.provider, MODEL_TYPES[extOf(name)].media);
+}
+/* The runner: a key reader calls its provider's API directly; otherwise the Claude read (#4559). A test runner
+   set with setModelRunner gets (line, signal, file) and replaces both. */
+function dispatchRunner(line, signal, file) {
+  const r = file.reader || currentReader();   // the reader the person agreed to, when the route passes it
+  if (r && r.kind === 'key') return require('./orgchartkeys').read(r, PROMPT, file.name, file.media, file.buf, signal);
+  return defaultModelRunner(line || requestLine(file.name, file.buf), signal);
+}
+let modelRunner = dispatchRunner;
+function setModelRunner(fn) { modelRunner = typeof fn === 'function' ? fn : dispatchRunner; }
 
 /**
  * The model's answer into the preview shape, trusting nothing: plain one-line text with capped
@@ -634,16 +703,19 @@ async function readWithModel(name, bytes, opts = {}) {
   /* The provider takes a picture of up to 5 MB; refuse a larger one here, in words, rather than send it and get
      back a failure that says less. */
   if (MODEL_TYPES[extOf(name)].block === 'image' && buf.length > MAX_IMAGE_BYTES) {
-    return { rows: [], problems: ['That picture is larger than 5 MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.'] };
+    return { rows: [], problems: ['That picture is larger than 5 MB. Save it smaller (a screenshot is usually well under), or use a CSV or Excel export.'] };
   }
   if (reading) return { rows: [], problems: ['A chart is already being read. Wait for it to finish, then try again.'] };
   reading = true;
   let got;
-  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal); } catch { got = { ok: false, because: 'the read failed' }; }
+  // Claude's stream-json line (the whole file as base64) is built only for a runner that reads it: the key path
+  // encodes the file its own way, so the dispatcher builds the line itself, and only on the Claude branch.
+  const line = modelRunner === dispatchRunner ? null : requestLine(name, buf);
+  try { got = await modelRunner(line, opts && opts.signal, { name, media: MODEL_TYPES[extOf(name)].media, buf, reader: opts && opts.reader }); } catch { got = { ok: false, because: 'the read failed' }; }
   finally { reading = false; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
 }
 
-module.exports = {
-  NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+module.exports = { MODEL_TIMEOUT_MS,
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

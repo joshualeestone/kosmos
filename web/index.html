@@ -515,9 +515,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { background: rgba(126,160,240,.14); }
   .askreq .askdev svg { stroke: #dfe6f5; }
   /* The ids keep a Settings text rule (an id-level p style) from shrinking the code, in either place it renders. */
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { margin: 6px 0 2px;
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-join .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
+  /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
+     sits on the page, so it takes the page's ink). */
+  #plus-join .askcodebig { color: var(--k-ink); }
+  #plus-join .plus-join-say { margin: 8px 0 0; }
+  #plus-join .acts { margin-top: 6px; }
+  /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
+  .askreq .askwait { grid-area: code; color: #9fb0d4; font-size: .85rem; margin: 6px 0 2px; }
   .askreq .btn.quiet, .askreq .btn.quiet:hover { background: none; border: 0; color: #b8c4de; text-decoration: underline; text-underline-offset: 3px; }
   .askrow.done .askok { font: 600 1rem var(--font-ui); color: #fff; }
   /* An answered line after a sheet keeps the gap sheets keep between each other (review NIT). */
@@ -4373,6 +4380,11 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 3; grid-row: 1; margin-top: 0; min-width: 0; overflow: hidden; }
 .pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; }
 .pj-list:not(.asgrid) .pj-row .pj-who, .pj-list:not(.asgrid) .pj-row .pj-warn { grid-column: 1 / -1; }
+/* #5070: "Done not set" (#4583) at its own size in the plain list rows (the Roadmap places it on the row's line, below).
+   Unplaced, it took whatever cell was free: the status column when the row had no status pill, or a new row's first
+   track when it did, where a grid item stretches along the row (justify-self defaults to stretch; its align-self only
+   acts on the other axis). */
+.pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; justify-self: start; }
 @media (max-width: 52rem) {
   .pj-list:not(.asgrid) .pj-row { grid-template-columns: minmax(0, 1fr) auto; }
   .pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 1; grid-row: 2; }
@@ -4506,7 +4518,10 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) {
    left gutter for the absolutely-placed caret; the depth indent rides margin-left. */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
   position: relative;
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; align-items: center;
+  /* #5070: a fourth track, before the count, holds "Done not set" on the row's one line. No column-gap: an empty
+     track would still cost a gap, so most rows (no tag, and every phone row, where the tag moves under the name) would
+     lose name room. The 12px rides margin-left on each item after the name instead, so only a present item costs it. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; column-gap: 0; align-items: center;
   background: none; border: 0; border-radius: 6px; box-shadow: none;
   /* Depth indent rides PADDING-left, not margin: a margin on a stretched flex item
      overflows the column (its right edge is pushed past the container, clipping the
@@ -4534,9 +4549,23 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn {
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pc-t { display: none; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces > [aria-hidden] { display: none; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces {
-  grid-column: 2; grid-row: 1; justify-self: end; align-self: center; margin: 0; min-width: 0; overflow: visible; }
+  grid-column: 3; grid-row: 1; justify-self: end; align-self: center; margin: 0 0 0 12px; min-width: 0; overflow: visible; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
-body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 3; grid-row: 1; justify-self: end; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; margin-left: 12px; }
+/* #5070: "Done not set" on the Roadmap row's one line, in its own track at the start of the right-hand cluster (just
+   left of the count when there is one), at its own size; the row stays one line on a desktop (the outline stays dense,
+   the fold caret stays centred on the name). */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; margin-top: 0; margin-left: 12px; }
+/* #5070 round 2: on a phone the tag, the count and the status would leave the name almost no room (the auto tracks take
+   theirs first), so there the tag goes under the name, at its own size; the name is what a person reads first. */
+@media (max-width: 40rem) {
+  body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; grid-row: 2; justify-self: start; margin-left: 0; }
+}
+/* #5070 round 3: the ancestry chip on a top-level (orphan) row had no Roadmap placement, so the new empty track 2
+   pulled it onto the name's line, where an auto track takes its full nowrap width first and squeezes the name.
+   It stays in the name's column, on the next line (also where a row with no count and no status used to put it on the
+   name's line). */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-parent { grid-column: 1; }
 
 /* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
    display:none is out-specified here). Absolute in the reserved gutter so leaves and
@@ -4867,7 +4896,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          header is now a real bar with its own border-bottom, and (until #5018 floated them
          over the page) the notices rode inside it as they do in the tab view -- so a
          consolidated-only bottom margin made a shown notice the tallest item in the
-         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
+         header's row (then a flex row), growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -4895,16 +4924,15 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      bar now carries real content (the K mark, the Kosmos switcher on the left, the
      appearance + view-toggle controls on the right) flush to the top with no empty
      margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
-     ask) puts there. The center TABS stay hidden in this view (consolidated is one
-     screen, not separate tab screens) -- matching the mock's 2-column consolidated
-     header (left cluster + right cluster).
-     #4345 (Josh, 2026-09-28 09:21): the tabs come back. Agents, Projects and Tasks stay in
+     ask) puts there.
+     #4345 (Josh, 2026-09-28 09:21): the center tabs, hidden in this view until then, come back. Agents, Projects and Tasks stay in
      the top nav here and load into the display column (openConsolidatedAgents /
      openConsolidatedTasks; Projects returns the column to the board), so there is always
      a visible way back. Only the h1 stays hidden. */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
-    /* flex-start, not center: kosmos#2624, see the .apphead block near the top. */
-    display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5);
+    /* kosmos#2624: no display, columns or gap here. The header keeps the tab view's own (.apphead header, near the
+       top), so the center tabs sit on the same pixels in both views whatever the Kosmos name's width
+       (render-tophead-stable-2624, its long-name arm). This rule used flex space-between and moved them. */
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated > .apphead h1 { display: none; }
@@ -6244,6 +6272,30 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* The name as a control. It must read as the NAME at rest -- the row is a
    fact first and a menu second -- so it inherits everything and only picks up
    an affordance when somebody reaches for it. */
+/* kosmos#5218, #5219, #5220, #5221 (Monday's phone sweep): on a touch screen these reach 44px, and the AI settings terminal box
+   is 16px text, because iPhone Safari zooms the whole page on tapping a field under 16px. Boxed controls grow; the
+   Tasks back chevron keeps its 32px circle and takes a 44px hit area past it, so the Tasks head does not move.
+   Touch screens and any coarse pointer: desktop is unchanged. */
+@media (hover: none), (pointer: coarse) {
+  #d-term-say { font-size: 16px; min-height: 44px; }
+  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort) { min-height: 44px; }
+  #plus-site-link { display: inline-flex; align-items: center; }
+  #tsk-back { position: relative; }
+  #tsk-back::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+  /* #5218, the agents board: the agent's name (its way in), the menu's tabs, the sort menu and a notice's close. */
+  .namego, .utoast .ux { position: relative; }
+  :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  :is(.apphead .tab, #agent-sort) { min-height: 44px; }
+  /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
+     its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
+     10px to the left for a short name's area; nothing drawn moves. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lname b { padding: 14px 0 14px 10px; margin: -14px 0 -14px -10px; }
+  /* #5219, a project's room: a document row and Try again grow to 44. The header's small controls keep their 36px
+     areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
+     answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
+  :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
+  #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
+}
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
               border-bottom: 1px dashed transparent; }
@@ -8486,7 +8538,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 /* #4583: "Done not set" on a project's row: a small outlined tag in the row's secondary ink, readable, not an alarm. */
-.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px;
+.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px; white-space: nowrap;
   border: 1px solid var(--border-strong); color: var(--label-2); font: var(--text-footnote, 600 .75rem/1.4 var(--font-ui)); }
 /* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
    says why and waits for "Looks right" before Create is allowed. */
@@ -8585,6 +8637,13 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 .fr-importrow .fr-importsaid:empty { display: none; }
 .fr-importrow.done { border-color: var(--label-3); }
+/* kosmos#4962: a nameless file's row asks for a name in place (the first-run adopt rows' wording and
+   rule), so it can be added here instead of sending the person to the create form. The helper line is
+   what says the empty box is theirs to fill, not something that failed to load. */
+.fr-importlab { display: block; margin-top: var(--space-4); font: var(--text-subhead) var(--font-ui);
+  font-weight: 600; color: var(--label); }
+.fr-importrow .fr-importinput { max-width: 22rem; margin-top: var(--space-2); }   /* the page's own .tk-inp field */
+.fr-importhelp { display: block; margin-top: var(--space-2); font: var(--text-subhead) var(--font-ui); color: var(--label-2); }
 /* The gold primary, per surface (a bare `.btn.uprime` loses to #firstrun's white-btn
    ID rule), and the Added state that turns the fill off again -- green with a CHECK
    so the colour never carries the state alone (kosmos#1346, same `--ok` as the found
@@ -18344,6 +18403,9 @@ window.kosmosMeasureScrollbarWidth();
       <div class="setrow">
         <div>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
+               in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
+          <div class="plus-join" id="plus-join" aria-live="polite" hidden></div>
           <!-- #1014. Setup used to end by handing you a URL and stopping, and
                a URL with no instruction is a thing a person stares at. Josh,
                with a working install in front of him, asked when he was
@@ -23043,6 +23105,8 @@ async function tick() {
          by the next writer and reappear from nowhere. */
       RESTORE_BLOCKED_SAID = null;
       RESTORE_BLOCKED_SAID_FOR = null;
+      RESTORE_REFUSED_SAID = null;   // #4976: the third held sentence goes with the region
+      RESTORE_REFUSED_SAID_FOR = null;
       const done = document.getElementById('removed-msg');
       if (done) done.textContent = '';
     }
@@ -23849,6 +23913,15 @@ function showTab(tab) {
     // Projects, describing a list those screens do not show.
     const msg = document.getElementById('removed-msg');
     if (msg) msg.textContent = '';
+    /* #4976 review 2: the held explanation and refusal go with the region they were blanked from, or the next writer
+       reprints them from nowhere after the person comes back. The in-flight RESTORE_WAITING_SENTENCE is kept: its
+       restore is still running, so it is still true, and only its arrival retires it. */
+    /* No guard needed (review 3, measured): the only showTab during load is showTab(BOOT_TAB), after these lets are
+       declared, and SURVIVAL_HELD below is assigned the same way. */
+    RESTORE_BLOCKED_SAID = null;
+    RESTORE_BLOCKED_SAID_FOR = null;
+    RESTORE_REFUSED_SAID = null;
+    RESTORE_REFUSED_SAID_FOR = null;
     /* Same reason: it describes the agents screen and must not stand under
        Projects or Settings. */
     const rw = document.getElementById('restart-wrap');
@@ -42362,7 +42435,8 @@ let RESTORE_WAITING_SENTENCE = null;
    ⭐ A shared region needs every writer to know about every other writer, which
    is N-squared and is why the region keeps producing this bug. Both writers on
    THIS card now re-assert rather than clobber; the other pre-existing writers
-   are a named follow-up and are not this card. */
+   are a named follow-up and are not this card. #4976 added a third (a refused Restore's reason), and all
+   three re-assert one another. */
 let RESTORE_BLOCKED_SAID = null;
 /* 🛑 WHICH ROW THE HELD EXPLANATION IS ABOUT, so it can be checked for still
    being TRUE before it is re-asserted. Without this the sentence outlives its
@@ -42381,6 +42455,41 @@ let RESTORE_BLOCKED_SAID = null;
    undocumented behaviour on this card has twice turned out to be a defect
    nobody had decided on. */
 let RESTORE_BLOCKED_SAID_FOR = null;
+/* #4976: the THIRD writer to #removed-msg, a refused Restore's reason, held exactly like the blocked explanation
+   above and for the same reason: every writer re-asserts the others rather than clobbering them. Held only while
+   the row it names is still on the list with its Restore control (a later successful restore of that row retires
+   it; the arrival clears the region and all three). */
+let RESTORE_REFUSED_SAID = null;
+let RESTORE_REFUSED_SAID_FOR = null;
+/* The held refusal, if it is still TRUE now (its row is still listed), else retired and null. */
+function restoreRefusedStill() {
+  if (!RESTORE_REFUSED_SAID || !RESTORE_REFUSED_SAID_FOR) return null;
+  const still = [...document.querySelectorAll('#removed-list [data-restore]')]
+    .some((el) => el.dataset.restore === RESTORE_REFUSED_SAID_FOR);
+  if (!still) { RESTORE_REFUSED_SAID = null; RESTORE_REFUSED_SAID_FOR = null; }
+  return still ? RESTORE_REFUSED_SAID : null;
+}
+/* The held blocked explanation, if its row is still rendered blocked (the success branch's own scan). */
+function restoreBlockedStill() {
+  const still = RESTORE_BLOCKED_SAID && RESTORE_BLOCKED_SAID_FOR
+    && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
+         .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
+  if (!still) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
+  return still ? RESTORE_BLOCKED_SAID : null;
+}
+/* Review 3: a later press of the refused row that fails for ANOTHER reason (no answer) makes its held refusal untrue
+   of the row, which now reads "Restore failed. Try again." with its refusal name and title removed. Retired, and
+   the region rewritten without it when it was on screen, so the row and the region never disagree. */
+function restoreRetireRefusalOf(name) {
+  if (RESTORE_REFUSED_SAID_FOR !== name) return;
+  const was = RESTORE_REFUSED_SAID;
+  RESTORE_REFUSED_SAID = null;
+  RESTORE_REFUSED_SAID_FOR = null;
+  const say = document.getElementById('removed-msg');
+  if (say && was && (say.textContent || '').indexOf(was) !== -1 && onAgentsTab()) {
+    say.textContent = [restoreBlockedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
+  }
+}
 
 /**
  * ⚠️ Answers "we do not know" rather than inventing a date.
@@ -42466,9 +42575,8 @@ document.getElementById('removed-list').addEventListener('click', (e) => {
   const explain = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
   RESTORE_BLOCKED_SAID = explain;
   RESTORE_BLOCKED_SAID_FOR = blocked.dataset.restoreBlocked || null;
-  msg.textContent = RESTORE_WAITING_SENTENCE
-    ? explain + ' ' + RESTORE_WAITING_SENTENCE
-    : explain;
+  /* #4976: a held refusal for another row is still true, so it is still said. */
+  msg.textContent = [explain, restoreRefusedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
 });
 
 document.getElementById('removed-list').addEventListener('click', async (e) => {
@@ -42477,6 +42585,9 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
   const name = btn.dataset.restore;
   btn.disabled = true;
   btn.textContent = 'Restoring…';
+  /* #4976 review 2: a previous refusal's name and tooltip describe that press, not this one. */
+  btn.removeAttribute('aria-label');
+  btn.removeAttribute('title');
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restore', { method: 'POST' });
     const back = await res.json().catch(() => null);
@@ -42484,7 +42595,43 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
       // ⚠️ Says so ON THE ROW rather than silently re-rendering. A restore that
       // failed and a restore that worked must not look the same.
       btn.disabled = false;
-      btn.textContent = 'Restore failed. Try again.';
+      /* #4976: a REFUSED restore carries the engine's reason, and most refusals are
+         not cleared by a retry (another agent now holds the folder once #4896
+         lands, its account folder is gone), so "Try again" would send the person round forever. The
+         row says it was not restored and the reason goes to #removed-msg, the
+         region the blocked-row explanation already uses; an in-flight "Starting X
+         again" stays beside it, as that handler keeps it. A failure with no reason
+         (a dropped answer) keeps "Try again", which is true for it. */
+      const why = back && back.outcome === 'refused' && typeof back.because === 'string' && back.because.trim()
+        ? back.because.trim() : null;
+      if (why) {
+        btn.textContent = 'Not restored';
+        // The visible word is a status; the name says what pressing it does.
+        btn.setAttribute('aria-label', 'Not restored. Restore ' + (btn.dataset.shownAs || name) + ' again');
+        /* Review 2: the region holds ONE refusal (the most recent, as the blocked explanation holds one), so the
+           refused row also carries its own reason, on hover and as its accessible description. Review 3, stated:
+           only until the list's markup next changes (another agent removed, restored or blocked), when
+           paintRemoved rewrites every row back to a plain Restore. The row then claims nothing, so nothing false
+           is shown; an older row's reason is simply gone until it is pressed again. */
+        btn.setAttribute('title', 'Not restored: ' + why);
+        /* Prefixed, not capitalised: raising the first letter would turn a session name ("carl9 is not on the
+           removed list") into a name that does not exist. Held and re-asserted like the other two (see
+           RESTORE_REFUSED_SAID); what was just pressed leads. */
+        const line = 'Not restored: ' + why;
+        /* Review 2: not written under another screen (the person may have left the Agents tab while the request
+           was in flight; see the removedUnreadable note). Review 3: and then NOT HELD either: nothing writes the
+           region on the way back, so a held sentence would surface on some later, unrelated press. The row's own
+           title still carries the reason. */
+        const say = document.getElementById('removed-msg');
+        if (say && onAgentsTab()) {
+          RESTORE_REFUSED_SAID = line;
+          RESTORE_REFUSED_SAID_FOR = name;
+          say.textContent = [line, restoreBlockedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
+        }
+      } else {
+        btn.textContent = 'Restore failed. Try again.';
+        restoreRetireRefusalOf(name);
+      }
       return;
     }
     /**
@@ -42512,6 +42659,8 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
     if (back.outcome === 'partial') {
       btn.disabled = false;
       btn.textContent = 'Restore';
+      // #4976: this row's earlier refusal is not true of this press (one retire path; its own message follows).
+      restoreRetireRefusalOf(name);
       /**
        * ⚠️ THE MESSAGE GOES OUTSIDE THE LIST, because which of the two partials
        * happened decides whether the row survives, and it must not decide
@@ -42600,15 +42749,17 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
         && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
              .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
       if (!stillBlocked) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
-      say.textContent = stillBlocked
-        ? RESTORE_WAITING_SENTENCE + ' ' + RESTORE_BLOCKED_SAID
-        : RESTORE_WAITING_SENTENCE;
+      /* #4976: this row restoring retires its own held refusal; another row's is still true and still said. */
+      if (RESTORE_REFUSED_SAID_FOR === name) { RESTORE_REFUSED_SAID = null; RESTORE_REFUSED_SAID_FOR = null; }
+      say.textContent = [RESTORE_WAITING_SENTENCE, stillBlocked ? RESTORE_BLOCKED_SAID : null, restoreRefusedStill()]
+        .filter(Boolean).join(' ');
     }
     await tick();
     await paintRemoved();
   } catch {
     btn.disabled = false;
     btn.textContent = 'Restore failed. Try again.';
+    restoreRetireRefusalOf(name);
   }
 });
 
@@ -44722,6 +44873,16 @@ async function pollAsk() {
   }
   paintAsk();
 }
+/* #4794 (Mona Lisa, 2026-10-03): what a joining computer's empty code means on the computer already in, one line per
+   reason the tunnel gives (code_wait). <name> is the joining computer. Anything else keeps the default line. */
+const JOIN_WAIT_WORDS = {
+  attempts_used: '<name> used up its tries. Press Not me, then sign <name> in again.',
+  asked_another_computer: '<name> is pairing with another of your computers. Allow it there, or press Not me if it is not yours.',
+  another_computer: 'This computer is adding another computer right now. <name> waits until that one is done.',
+  daily_limit: 'This computer has added as many computers as it can today. Try again tomorrow.',
+  wait_a_few_minutes: 'This computer just added one. The code for <name> shows here in a few minutes.',
+  was_a_computer: 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.',
+};
 function paintAsk() {
   const card = document.getElementById('askcard');
   if (!card) return;
@@ -44788,19 +44949,39 @@ function paintAsk() {
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    /* #4637/#4773: a computer joining shows this same code on its own screen, and the person just signed it in. */
-    const say = d.joining_computer ? 'Allow it if you just signed it in, and it shows this code.'
+    /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
+       worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
+    const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
+    /* Keyed on code_wait too: was_a_computer comes on a row with no joining_computer (the tunnel's devices.rs). */
+    /* was_a_computer waits whatever its code: the tunnel still treats the row as a computer (review 3). */
+    const waitLine = ((d.joining_computer || d.code_wait) && !d.code) || d.code_wait === 'was_a_computer'
+      ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
+    /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
+       a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many');
+    const staleTag = tagged && e.code !== d.code;
+    /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
+    const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
+    const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
       : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
+    /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
+       happening, so an earlier refusal is not repeated beside it (review 1). */
+    const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
+      : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+        : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
+          : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
+            : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
+      '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
-      (d.code ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split('-').filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '">Allow</button>' +
+      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -44820,13 +45001,19 @@ async function askAct(act, id) {
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ device_id: id, name: d.name || undefined }) });
+      /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
   } catch { res = null; }
   if (res && res.ok) {
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
   } else {
     const said = res ? await res.json().catch(() => null) : null;
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
+    const why = said && said.error;
+    /* #4794: code_changed / code_pending are the tunnel's pairing refusals, worded on the card; the list is read again so a
+       new code repaints. */
+    const tag = why === 'code_changed' || why === 'code_pending' || why === 'code_many';
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code || '', because: tag ? why : plusWords(why || 'We could not save that. Try again.') };
+    if (tag && typeof pollAsk === 'function') pollAsk();
   }
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
      announcement and no sign the press did anything. Forget the last write so the answer is said again. */
@@ -45245,6 +45432,9 @@ async function paintPlus() {
      machine at state1 (no switch). state2's paid sign-in still has no signal and stays
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
   if (!r || r.enrolled !== true) {
+    /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
+       pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
+    if (r && typeof plusJoinReset === 'function') plusJoinReset();
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;
@@ -45303,10 +45493,41 @@ async function paintPlus() {
   if (!up && st.dataset && st.dataset.copyFail) delete st.dataset.copyFail;
   // A standing copy-failure note is left untouched (not rewritten), so a screen reader does not re-read it every poll.
   if (!(up && st.dataset && st.dataset.copyFail)) {
-    st.textContent = up
+    /* #4794: while the pairing block shows (held), its line is the one wait message: the sentence stays empty, so it does
+       not come back for the length of each pairing round and get read out again (review 1). */
+    const joinHeld = r.on === true && typeof plusJoinLive === 'function' && plusJoinLive(PLUS_JOIN);
+    st.textContent = (up || joinHeld)
       ? ''
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  }
+  /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
+     coordinator's sentence (paintPlusJoin). Anything else hides it. */
+  if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
+    /* Waiting to be allowed, or allowed with a code still up and unconfirmed. Otherwise the pairing is over: forget the
+       last answer, so a later wait (a Forget and a fresh sign-in) never shows this one's state (review 3). */
+    /* Off ends any pairing this page knew, and a later On reads afresh (review 7). An ending said after the Allow
+       (review 6) belongs to the pairing it ended: a new wait clears it too. */
+    if (r.on !== true) plusJoinReset();
+    else if (stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
+    PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
+    if (PLUS_JOIN_WAITING) plusJoinTick();
+    else {
+      if (PLUS_JOIN) { PLUS_JOIN = null; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0; }
+      paintPlusJoin();
+      /* Review 5: a page loaded after the other computer's Allow has no last answer, so the gate above never opens and a
+         code still up would never show. Read the pairing on load, and count it only once a real answer came back
+         (review 6: a busy or failed round must not spend it), at most three tries: a missing connector or a coordinator
+         outage fails every round, and each try is a spawn and a signed round. A live answer opens the block at once. */
+      if (!PLUS_JOIN_PROBED && PLUS_JOIN_PROBE_TRIES < 3 && r.on === true && r.enrolled === true) {
+        plusJoinTick().then((answered) => {
+          if (answered === 'paced') return;
+          if (!answered) { PLUS_JOIN_PROBE_TRIES += 1; return; }
+          PLUS_JOIN_PROBED = true;
+          if (!PLUS_JOIN_WAITING && plusJoinLive(PLUS_JOIN)) { PLUS_JOIN_WAITING = true; paintPlusJoin(); }
+        });
+      }
+    }
   }
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
@@ -45325,6 +45546,141 @@ async function paintPlus() {
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
+/* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
+   code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
+   still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */
+/* var, not let: paintPlus reads these, and a call before this line runs must not hit the temporal dead zone. */
+var PLUS_JOIN = null;          // the last /api/remote/join answer, or null
+var PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
+var PLUS_JOIN_BUSY = false;
+var PLUS_JOIN_AT = 0;
+var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
+var PLUS_JOIN_LAST_CODE = '';
+var PLUS_JOIN_GEN = 0;         // bumped by a confirm (and when waiting ends): a round that began before it is stale
+var PLUS_JOIN_CODE_AT = 0;     // when the current code first showed, by this page's clock
+var PLUS_JOIN_PROBED = false;  // the read on page load got a real answer (review 5)
+var PLUS_JOIN_PROBE_TRIES = 0; // failed reads on load; it stops after three
+var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pairing ended after the Allow, said once (review 6)
+/* The tunnel withdraws an unconfirmed code REVEAL_TIMEOUT_SECS (600 s) after it appeared, but only during a round that
+   succeeds; by the page's own clock a code that old is treated as run out, even if rounds keep failing (review 3). */
+var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
+/* Forget, Off, or never enrolled: nothing of an earlier pairing may show, and the read on load is owed again. A round in
+   flight is dropped (GEN). Only acts when something is set, so the 5-second repaint does not churn GEN. */
+function plusJoinReset() {
+  if (!PLUS_JOIN && !PLUS_JOIN_NOTE && !PLUS_JOIN_WAITING && !PLUS_JOIN_PROBED && !PLUS_JOIN_PROBE_TRIES) return;
+  PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_WAITING = false; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0;
+  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = '';
+  paintPlusJoin();
+}
+/* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
+   up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
+   the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
+   page's 10 minutes stays live until a round answers, so the tunnel's own "ran out" is read rather than missed (review 6). */
+function plusJoinLive(j) {
+  if (!j || j.supported !== true) return false;
+  return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
+}
+/* Allowed, but the code ran out before it was confirmed here. The tunnel says so only once it is no longer held: while
+   held, the round that withdraws a code also starts a new attempt and clears the flag (pairing.rs owe_commitment). It
+   stays until this computer pairs again, so it is NOT live: said once, as the ending of a pairing this page watched
+   (review 6), never polled for (each read is a signed round) and never claimed on a later load. */
+function plusJoinRanOut(j) {
+  return !!j && j.held !== true && j.confirm_expired === true && j.confirmed !== true && j.failed !== true;
+}
+/* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). Resolves true
+   when a real answer came back, false when the round failed, 'paced' when none ran. */
+async function plusJoinTick() {
+  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return 'paced'; }
+  PLUS_JOIN_BUSY = true;
+  const gen = PLUS_JOIN_GEN;
+  /* Only a real answer replaces the last one: a round that failed (the tunnel's round lock, a Forget in progress, a
+     restart) keeps what the person was looking at rather than hiding the code mid-check (review 2). A round that began
+     before a confirm is dropped, so it cannot undo "Matched". */
+  let got = null;
+  try { const res = await fetch('/api/remote/join'); got = res.ok ? await res.json() : null; } catch { got = null; }
+  if (got && gen === PLUS_JOIN_GEN) {
+    const was = PLUS_JOIN && PLUS_JOIN.join_code, now = got.join_code;
+    if (now && now !== was) PLUS_JOIN_CODE_AT = Date.now();   // a new code: its own clock starts
+    if (plusJoinRanOut(got) && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.on || PLUS_JOIN.on || '' };
+    PLUS_JOIN = got;
+  }
+  PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
+  paintPlusJoin();
+  return !!got;
+}
+/* Read out a character at a time, a pause between the two groups, as the Allow card reads its code: "4 8 2, 9 1 5". */
+function plusJoinSpoken(code) { return String(code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', '); }
+function plusJoinCode(code) {
+  return '<p class="askcodebig" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
+}
+function paintPlusJoin() {
+  const el = document.getElementById('plus-join');
+  if (!el) return;
+  const j = PLUS_JOIN;
+  const live = PLUS_JOIN_WAITING && plusJoinLive(j);
+  const note = PLUS_JOIN_NOTE;
+  el.hidden = !live && !note;
+  let html;
+  if (!live) {
+    if (!note) { if (el.innerHTML) el.innerHTML = ''; return; }
+    /* An ending, said once under the status: it does not take the coordinator's sentence (review 6: an outage after it
+       must still be said). */
+    const nn = askEsc(note.name || 'your other computer');
+    html = note.kind === 'matched' ? '<p class="plus-join-say">Matched with ' + nn + '.</p>'
+      : '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + nn + ' yet.</p>';
+    if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+    return;
+  }
+  /* One wait message, not two: the coordinator's sentence goes while this block shows. */
+  const st = document.getElementById('plus-status'); if (st && st.textContent) st.textContent = '';
+  const name = askEsc(j.on || (Array.isArray(j.asked_of) && j.asked_of[0]) || 'your other computer');
+  const stale = PLUS_JOIN_CODE_AT && Date.now() - PLUS_JOIN_CODE_AT >= PLUS_JOIN_CODE_MS && !j.confirmed;
+  const code = !stale && /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
+  if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
+  if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + ', press Not me on this request, then sign this computer in again.</p>';
+  else if (code && j.confirmed) html = '<p class="plus-join-say">Matched. Now press Allow on ' + name + '.</p>' + plusJoinCode(code);
+  /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
+  else if (code) html = '<p class="plus-join-say">' + (j.held === true ? 'Check that ' + name + ' shows this same code.'
+      : 'If ' + name + ' showed this same code when you allowed it, press The codes match.') + '</p>' + plusJoinCode(code) +
+    '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
+    (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
+  /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
+     round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
+  else if (j.held !== true && stale) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
+  else if (j.confirm_expired || stale) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  else html = '<p class="plus-join-say">Working out the code with ' + name + '...</p>';
+  /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
+  if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+}
+document.getElementById('plus-join').addEventListener('click', async (e) => {
+  const b = e.target.closest('#plus-join-match');
+  if (!b || b.disabled) return;
+  b.disabled = true;
+  const before = PLUS_JOIN;   // review 7: a paint during the request may clear PLUS_JOIN; the note still needs the name
+  let res = null;
+  try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
+  PLUS_JOIN_GEN += 1;
+  if (res && res.ok) {
+    PLUS_JOIN_MSG = '';
+    const j = PLUS_JOIN || before;
+    if (j) {
+      j.confirmed = true;
+      /* Already allowed: the pairing is complete, and the block (no longer live) says so once (review 6). */
+      if (j.held !== true) PLUS_JOIN_NOTE = { kind: 'matched', name: j.on || '' };
+    }
+  }
+  else {
+    const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
+    /* The tunnel's confirm refusals, worded (engine joinConfirm tags them). */
+    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out. A new one is on its way.'
+      : why === 'code_changed' ? 'That is not the code on this screen any more. Check the new one, then press The codes match again.'
+        : plusWords(why || 'That did not go through. Try again.');
+  }
+  PLUS_JOIN_AT = 0;   // read the pairing again now, not in a few seconds
+  /* Always repaint: an identical refusal would otherwise be skipped and leave this disabled button in place (review 2). */
+  { const el = document.getElementById('plus-join'); if (el) el.__lastJoin = null; }
+  paintPlusJoin(); plusJoinTick();
+});
 /* The engine's honest-but-technical sentence for a missing binary, said
    the way this page speaks. Everything else relays verbatim. */
 function plusWords(text) {
@@ -51274,6 +51630,7 @@ let ORGCHART_UNDO_BUSY = false;
    the names toggle re-derives from the file), a picture waiting for Read it, and the read in flight. */
 let ORGCHART_FILE_PEOPLE = null;
 let ORGCHART_FILE_PENDING = null;
+let ORGCHART_FILE_READER = null;   // #4560: who the consent box named; the send goes only to that reader
 let ORGCHART_READ_CTL = null;
 let ORGCHART_MANY_OK = false;   // the person said yes to starting more than ORGCHART_TEAM_DEFAULT at once
 
@@ -51292,6 +51649,7 @@ function orgchartEndFileFlow() {
   const consent = document.getElementById('orgchart-consent');
   if (consent) consent.hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   ORGCHART_FILE_PEOPLE = null;
   const note = document.getElementById('orgchart-file-note');
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
@@ -51578,13 +51936,15 @@ let ORGCHART_FILE_SEQ = 0;
 /* The kinds the board sends to the model (engine/orgchartfile.js MODEL_TYPES; web.orgchart-parse-1280.test.js pins
    the two to the same list). Only decides whether the FIRST ask carries the bytes. */
 const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
-async function orgchartSendFile(file, consent, seq) {
+async function orgchartSendFile(file, consent, seq, reader) {   // reader: the id the consent box named (#4560)
   const msg = document.getElementById('orgchart-msg');
   const note = document.getElementById('orgchart-file-note');
   const gen = ORGCHART_GEN;
   const current = () => gen === ORGCHART_GEN && seq === ORGCHART_FILE_SEQ;
   msg.hidden = false;
-  msg.textContent = consent ? 'Reading your chart. A picture or PDF takes about ten seconds.' : 'Reading ' + file.name + '…';
+  // Claude reads a chart in about ten seconds (#4559, measured); a reasoning model through a key can take longer, and is stopped at under two minutes (orgchartkeys TIMEOUT_MS).
+  const byKey = consent && reader && !/^claude/.test(reader);
+  msg.textContent = consent ? (byKey ? 'Reading your chart. This can take up to two minutes.' : 'Reading your chart. A picture or PDF takes about ten seconds.') : 'Reading ' + file.name + '…';
   let out = null;
   /* While a picture or PDF is being read, Stop reading ends it: the page drops the request, and the board stops
      the model call when the request closes (Liu Kang's condition 1: cancel holds after sending too). */
@@ -51592,7 +51952,7 @@ async function orgchartSendFile(file, consent, seq) {
   const ctl = consent ? new AbortController() : null;
   if (ctl) { ORGCHART_READ_CTL = ctl; stopBtn.hidden = false; }
   try {
-    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1' : ''), {
+    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1&reader=' + encodeURIComponent(reader || '') : ''), {
       signal: ctl ? ctl.signal : undefined,
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
@@ -51611,8 +51971,12 @@ async function orgchartSendFile(file, consent, seq) {
   if (!current() || !out) return;
   if (out.needsConsent) {
     ORGCHART_FILE_PENDING = file;
+    ORGCHART_FILE_READER = out.reader || null;
+    /* #4560: how it is paid for (a plan, or per request to a key) and what that provider keeps even though Kosmos
+       asks it not to store the file (Liu Kang m3686), both from the board. */
     document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
-      + ', using your plan. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.';
+      + ', ' + (out.uses || 'using your plan') + '. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.'
+      + (out.keeps ? ' ' + out.keeps : '');
     document.getElementById('orgchart-consent').hidden = false;
     msg.textContent = ''; msg.hidden = true;
     document.getElementById('orgchart-consent-go').focus();
@@ -51649,7 +52013,7 @@ function orgchartTakeFile(file) {
   if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) && file.size > ORGCHART_MAX_IMAGE_BYTES) {
     const msg = document.getElementById('orgchart-msg');   // before the consent box: a yes could only end in this refusal
     msg.hidden = false;
-    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.';
+    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or use a CSV or Excel export.';
     return;
   }
   if (file.size > ORGCHART_MAX_BYTES) {
@@ -51660,6 +52024,7 @@ function orgchartTakeFile(file) {
   }
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   orgchartSendFile(file, false, ++ORGCHART_FILE_SEQ);
 }
 document.getElementById('orgchart-file-btn').addEventListener('click', () => document.getElementById('orgchart-file').click());
@@ -51672,9 +52037,11 @@ document.getElementById('orgchart-file').addEventListener('change', (e) => {
 document.getElementById('orgchart-consent-go').addEventListener('click', () => {
   if (ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;   // as orgchartTakeFile: a read must not paint over a create or an Undo
   const f = ORGCHART_FILE_PENDING;
+  const who = ORGCHART_FILE_READER;   // taken before it is cleared: the send carries the reader the box named
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
-  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ);
+  ORGCHART_FILE_READER = null;
+  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ, who);
 });
 document.getElementById('orgchart-many-go').addEventListener('click', () => {
   document.getElementById('orgchart-many').hidden = true;
@@ -51697,6 +52064,7 @@ document.getElementById('orgchart-many-no').addEventListener('click', () => {
 document.getElementById('orgchart-consent-no').addEventListener('click', () => {
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   const msg = document.getElementById('orgchart-msg');
   msg.textContent = 'Nothing was sent. You can upload a CSV or Excel export instead, or type the list.';
   msg.hidden = false;
@@ -51732,6 +52100,7 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
   ORGCHART_FILE_PEOPLE = null;   // a preview from the box is the box's, not the last file's
   document.getElementById('orgchart-consent').hidden = true;   // and a picture still asking to be read is moved past
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,
@@ -53159,8 +53528,8 @@ async function finishImport(data, gen, btn) {
    The row keeps `data-import-file` (the click handler reads it to add the file by path) but
    shows none of it. The Add is one click, in place -- addImportedInPlace, not a jump to the
    create form -- and the `.fr-importsaid` line is empty until something goes wrong. */
-function foundImportRowsHtml(items) {
-  return (items || []).map((c) => {
+function foundImportRowsHtml(items, scope) {
+  return (items || []).map((c, i) => {
     const file = String(c && c.file ? c.file : '');
     const name = String(c && c.name ? c.name : '');
     /* The visible words come FIRST so a voice control reaching "add to kosmos" finds it,
@@ -53168,17 +53537,140 @@ function foundImportRowsHtml(items) {
        found/scan rows keep. A nameless file falls back to its path in the accessible
        name only, so two of them are still tellable apart to assistive tech. */
     const label = name || file;
+    /* kosmos#4962: a file that does not say what to call the agent asks for a name right here. The id
+       carries the surface (both the create form and first run draw these rows, from the same scan, and
+       both can be in the page at once) and the row's index as well as the path, because cssId keeps only
+       the last 60 characters and two files can share a tail. maxlength is the engine's own 32 (create.js
+       nameProblem), so the field cannot take a name the engine will refuse for length. */
+    const fid = 'importname-' + String(scope || 'x') + '-' + i + '-' + cssId(file);
+    const ask = name ? '' : '<label class="fr-importlab" for="' + esc(fid) + '">Name</label>'
+      + '<input class="tk-inp fr-importinput" id="' + esc(fid) + '" type="text" autocomplete="off" maxlength="32"'
+      + ' placeholder="e.g. Site monitor" aria-label="Name, ' + esc(file) + '"'
+      + ' aria-describedby="' + esc(fid) + '-help ' + esc(fid) + '-said">'
+      + '<span class="fr-importhelp" id="' + esc(fid) + '-help">What should we call it? You can rename it anytime.</span>';
     return '<div class="fr-importrow" data-import-file="' + esc(file) + '">'
       + '<span class="fr-importtext">'
       + '<span class="fr-importname">' + (name ? esc(name) : 'An agent file with no name in it') + '</span>'
+      + ask
       + '</span>'
       + '<span class="fr-importact">'
       + '<button class="btn uprime fr-importgo" type="button"'
       + ' aria-label="Add to Kosmos, ' + esc(label) + '">Add to Kosmos</button>'
       + '</span>'
-      + '<p class="fr-importsaid" role="status" aria-live="polite"></p>'
+      + '<p class="fr-importsaid" role="status" aria-live="polite"' + (name ? '' : ' id="' + esc(fid) + '-said"') + '></p>'
       + '</div>';
   }).join('');
+}
+
+/* kosmos#4962: a nameless row's Name field is the one form control in these lists, and both lists are
+   redrawn whole (the import scan's two phases, first run's re-scans). Keep what was typed, and the cursor,
+   across a redraw, keyed by the row's file. */
+function importNamesKept(box) {
+  const kept = new Map();
+  if (!box || !box.querySelectorAll) return kept;
+  for (const f of Array.from(box.querySelectorAll('.fr-importinput'))) {
+    const row = f.closest && f.closest('.fr-importrow');
+    const file = row && row.getAttribute('data-import-file');
+    if (!file || f.disabled) continue;   // no row to key it by; or an added or adding row, whose name comes back through importRowApply
+    const said = row.querySelector('.fr-importsaid');
+    const why = said ? said.textContent : '';
+    const bad = f.getAttribute('aria-invalid') === 'true';
+    if (f.value || why || bad || document.activeElement === f) kept.set(file, { value: f.value, focused: document.activeElement === f, why, bad });
+  }
+  return kept;
+}
+function importNamesRestore(box, kept) {
+  if (!box || !box.querySelectorAll) return;
+  for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
+    const k = kept && kept.get(row.getAttribute('data-import-file'));
+    const f = k && row.querySelector('.fr-importinput');
+    if (f) {
+      f.value = k.value;
+      if (k.bad) { f.setAttribute('aria-invalid', 'true'); if (f.classList) f.classList.add('bad'); }   // a refusal shown just before the redraw stays shown (border too)
+      const said = row.querySelector('.fr-importsaid');
+      if (said && k.why) said.textContent = k.why;
+      if (k.focused && typeof f.focus === 'function') f.focus();
+    }
+    importRowApply(row);   // an add in flight or done shows as such on the new row
+  }
+}
+
+/* kosmos#4962: an add's state lives HERE, keyed by file, not only on the row that was pressed,
+   because both lists are redrawn whole. A redraw re-applies it (importNamesRestore), and an add that
+   finishes applies it to whichever copy of the row is on screen now, so a receipt is never lost and a row
+   is never offered again one keypress from a duplicate. */
+const IMPORT_ADDS = new Map();   // file -> { state: 'adding' | 'added', name }
+let IMPORT_ATTEMPT_LAST = 0;     // the last attempt's token: its start time, strictly increasing
+function importRowApply(row) {
+  if (!row || !row.querySelector) return;
+  const st = IMPORT_ADDS.get(row.getAttribute('data-import-file'));
+  if (!st) return;
+  const go = row.querySelector('.fr-importgo');
+  const field = row.querySelector('.fr-importinput');
+  if (field) {
+    field.disabled = true; if (st.name && !field.value) field.value = st.name;
+    // A copy that is adding or added is not flagged, whatever a refusal before it left.
+    field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad');
+  }
+  if (!go) return;
+  go.disabled = true;
+  if (st.state === 'added') {
+    go.textContent = 'Added to Kosmos';
+    go.setAttribute('aria-label', 'Added to Kosmos, ' + st.name);
+    if (go.classList) go.classList.add('added');
+    if (row.classList) row.classList.add('done');
+    const shown = field && row.querySelector('.fr-importname');
+    if (shown) shown.textContent = st.name;
+  } else {
+    go.textContent = 'Adding\u2026';
+  }
+}
+/* An add in flight over a minute is dropped, so a request that never settles does not leave its row "Adding..."
+   until the page is reloaded. Receipts ('added') are kept. */
+function importAddsDropStuck() {
+  for (const [f, st] of [...IMPORT_ADDS]) {
+    if (st.state !== 'added' && typeof st.at === 'number' && Date.now() - st.at > 60000) IMPORT_ADDS.delete(f);
+  }
+}
+/* A fresh visit to the create screen's list also forgets the receipts; an add still in flight is kept. */
+function importAddsNewVisit() {
+  importAddsDropStuck();
+  for (const [f, st] of [...IMPORT_ADDS]) if (st.state === 'added') IMPORT_ADDS.delete(f);
+}
+function importRowsSync(file, msg, aboutName, pressed) {
+  /* Focus moves only when the PRESSED row was redrawn away (fail() has already focused it when it is
+     still on screen), and then to at most one copy, never one inside a hidden list. */
+  const rows = [];
+  for (const id of ['import-found', 'fr-fleet']) {
+    const box = document.getElementById(id);
+    if (!box || !box.querySelectorAll) continue;
+    for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
+      if (row.getAttribute('data-import-file') === file) rows.push(row);
+    }
+  }
+  let focusedOne = !!pressed && rows.includes(pressed);
+  for (const row of rows) {
+    if (row === pressed) continue;
+    if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
+    /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason, since
+       the pressed row may no longer be on screen to show it. */
+    const go = row.querySelector('.fr-importgo');
+    const field = row.querySelector('.fr-importinput');
+    const said = row.querySelector('.fr-importsaid');
+    if (go && go.textContent !== 'Add to Kosmos') { go.disabled = false; go.textContent = 'Add to Kosmos'; }
+    if (said && msg) said.textContent = msg;
+    if (field) {
+      field.disabled = false;
+      if (aboutName) {
+        field.setAttribute('aria-invalid', 'true');
+        if (field.classList) field.classList.add('bad');   // the flagged border goes with the attribute (#2606)
+        if (!focusedOne && !(row.closest && row.closest('[hidden]'))) { field.focus(); focusedOne = true; }
+      } else {
+        field.removeAttribute('aria-invalid');
+        if (field.classList) field.classList.remove('bad');
+      }
+    }
+  }
 }
 
 /* Fetches the disk scan and paints the importable files into the import panel. Called
@@ -53192,6 +53684,10 @@ async function populateFoundImports() {
   // #3/#4 half (b): a fresh generation per call, so a mode re-pick during the ~2s two-phase
   // retry cannot let a stale partial paint over the newer state.
   const gen = ++FR_IMPORT_POP_GEN;
+  /* kosmos#4962: a receipt belongs to one visit to this list. A fresh visit forgets 'added' (the
+     agent may since have been removed, or the same template is wanted under another name; the engine refuses
+     a true duplicate by name, and that refusal lands on the row's field). An add still in flight is kept. */
+  importAddsNewVisit();
   /* Render whatever the scan has so far: the non-TCC rows immediately, then the complete set once
      the app-identity hatch answers. A tccUnavailable result (protected folders unreadable) shows a
      hint instead of a blank/spinner. */
@@ -53207,8 +53703,10 @@ async function populateFoundImports() {
     const tccHint = tccOut
       ? '<p class="fr-scanhint">Could not scan Documents, Downloads, or Desktop this time.</p>' : '';
     if (!items.length) { wrap.innerHTML = tccHint; wrap.hidden = false; return; }
+    const kept = importNamesKept(wrap);   // kosmos#4962: a typed name survives the second phase's repaint
     wrap.innerHTML = '<p class="flabel">Agent files found on this computer</p>'
-      + foundImportRowsHtml(items) + more + tccHint;
+      + foundImportRowsHtml(items, 'cf') + more + tccHint;
+    importNamesRestore(wrap, kept);
     wrap.hidden = false;
   };
   let body = null;
@@ -53243,11 +53741,52 @@ async function populateFoundImports() {
    The paste/choose path (importLoad -> finishImport) is untouched: someone who wants
    to review a file before creating still opens the form that way. This one-click path
    is only for the discovered-file rows. */
-async function addImportedInPlace(file, btn, row) {
+async function addImportedInPlace(file, btn, row, viaKey) {
   if (!file || !btn || btn.disabled) return;
   const said = row && row.querySelector('.fr-importsaid');
+  /* kosmos#4962: a file the scan could not name gets a Name field. Filled, what was typed names the agent. Left
+     empty, the file is still read: its own name (the parse can find one the scan cannot, such as a Kosmos export
+     header) is used, and only a file that names nothing is asked for one, nothing created. */
+  const field = row && row.querySelector('.fr-importinput');
+  const typed = field ? field.value.trim() : '';
   const was = btn.textContent;
-  const fail = (msg) => { btn.disabled = false; btn.textContent = was; if (said) said.textContent = msg; };
+  /* Where the keyboard was when the add began (the field, after Enter, or the button). Disabling it drops
+     focus to the page, so it is given back on a refusal, and, for an add made FROM THE KEYBOARD (viaKey:
+     the click's detail was 0, which also covers voice control and screen-reader activation; those act as keys
+     here, deliberately), moved on to the next row on success: this list is pressed down,
+     add after add. A pointer add leaves focus alone: Chrome focuses a clicked button, and moving
+     focus into the next field after a tap would open a phone's keyboard over the list. */
+  const had = document.activeElement;
+  const hadInRow = !!(had && had.closest && had.closest('.fr-importrow') === row);
+  /* A refusal re-enables the Name field. Only a refusal ABOUT THE NAME (the engine says field:'name')
+     marks it invalid and puts the cursor back in it, the reason read with it through aria-describedby;
+     a missing account, a file that is not an agent, or a network failure is not the name's fault. */
+  /* Each attempt has a token (its start time). A stale attempt (dropped after a minute so the row could be
+     pressed again) that settles late must not touch a newer attempt's state or offer the row a second time. */
+  let attemptAt = 0;
+  const current = () => (IMPORT_ADDS.get(file) || {}).at === attemptAt;
+  const fail = (msg, aboutName) => {
+    /* A newer attempt owns the row: this one settles nothing. An attempt that was only DROPPED (stuck over a minute,
+       nothing newer) still frees its row, or it stays "Adding..." for good; arriving that late, it moves no focus. */
+    const late = !IMPORT_ADDS.has(file);
+    if (!late && !current()) return;
+    IMPORT_ADDS.delete(file);
+    btn.disabled = false; btn.textContent = was;
+    if (said) said.textContent = msg;
+    if (field) {
+      field.disabled = false;
+      if (aboutName) { field.setAttribute('aria-invalid', 'true'); if (field.classList) field.classList.add('bad'); if (!late) field.focus(); }
+      else { field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
+    }
+    // Give focus back unless the Name field just took it (a named row has no field to take it).
+    if (!late && !(aboutName && field) && hadInRow && typeof had.focus === 'function') had.focus();
+    importRowsSync(file, msg, late ? false : aboutName, row);
+  };
+  attemptAt = Math.max(Date.now(), IMPORT_ATTEMPT_LAST + 1);   // two attempts in one millisecond still differ
+  IMPORT_ATTEMPT_LAST = attemptAt;
+  IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: attemptAt });
+  // A new attempt starts unflagged (a retry after a refusal must not stay red while it is adding).
+  if (field) { field.disabled = true; field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
   btn.disabled = true;
   btn.textContent = 'Adding…';
   if (said) said.textContent = '';
@@ -53271,10 +53810,12 @@ async function addImportedInPlace(file, btn, row) {
      is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
      not mislabelled "that is not an agent file". */
   if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
-  /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). The form
-     path prompts for one; a one-click add cannot, so it says so and stops rather than
-     making a nameless agent. */
-  const name = String(data.name || '').trim();
+  /* What the person typed wins when the row asked for it; the engine folds it into a machine name
+     ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. A raw CLAUDE.md may
+     carry no derivable name (recognizedFromContent): a row with a Name field asks for one there; a row without one
+     says so and stops rather than making a nameless agent. */
+  const name = typed || String(data.name || '').trim();
+  if (!name && field) { fail('Give this agent a name first.', true); return; }
   if (!name) { fail('This file does not say what to call the agent, so it cannot be added in one click. Open it from Create an agent to name it.'); return; }
 
   // 2. Create from the parsed fields. Import maps to the `own` role, the same mapping
@@ -53285,8 +53826,10 @@ async function addImportedInPlace(file, btn, row) {
      non-empty (agentfile.importAgent), and name is guaranteed non-empty by the guard
      above, so `label || name` cannot be empty. The fallback pins that cross-module
      invariant here rather than relying on the parser never changing. */
-  const label = String(data.displayName || '').trim();
+  const label = typed || String(data.displayName || '').trim();
   bodyObj.label = label || name;
+  /* The name the row shows once added, the same on every copy: what was typed, else the file's own display name. */
+  const shownAs = typed || label || name;
   const instr = String(data.instructions || '');
   if (instr.trim()) bodyObj.instructions = instr;
   /* The parsed provider travels only when it is NOT the anthropic default -- the same
@@ -53328,12 +53871,19 @@ async function addImportedInPlace(file, btn, row) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.', out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
      more. Full-opacity settled green with a check, not the half-visible disabled
      state, and the row is marked done. No sentence on success: the button says it. */
+  if (!current()) {
+    /* A newer attempt owns the row now, and a late success paints nothing over it. But when the
+       attempt was only DROPPED (stuck over a minute) and nothing replaced it, the agent was made all the same:
+       record it, so the row is not offered as "Add to Kosmos" for an agent that exists. */
+    if (!IMPORT_ADDS.has(file)) { IMPORT_ADDS.set(file, { state: 'added', name: shownAs }); importRowsSync(file); }
+    return;
+  }
   btn.textContent = 'Added to Kosmos';
   /* 🔑 THE ACCESSIBLE NAME TRACKS THE VISIBLE ONE. Without this the button keeps its
      "Add to Kosmos, <name>" label, so the visible "Added to Kosmos" would no longer be
@@ -53346,6 +53896,24 @@ async function addImportedInPlace(file, btn, row) {
   btn.classList.add('added');
   if (row) row.classList.add('done');
   if (said) said.textContent = '';
+  /* kosmos#4962: the row now names what was made, rather than still saying it has no name; and any copy
+     of the row a redraw put on screen meanwhile shows the receipt too. */
+  if (field && row) {
+    const shown = row.querySelector('.fr-importname');
+    if (shown) shown.textContent = shownAs;
+    field.removeAttribute('aria-invalid');
+    if (field.classList) field.classList.remove('bad');
+  }
+  IMPORT_ADDS.set(file, { state: 'added', name: shownAs });
+  importRowsSync(file);
+  if (viaKey && hadInRow && row && row.parentElement) {
+    const rows = Array.from(row.parentElement.children).filter((r) => r && r.className && String(r.className).split(/\s+/).includes('fr-importrow'));
+    /* The next row that can still be added (one already added is passed over). */
+    for (const next of rows.slice(rows.indexOf(row) + 1)) {
+      const to = next.querySelector('.fr-importinput') || next.querySelector('.fr-importgo');
+      if (to && !to.disabled && typeof to.focus === 'function') { to.focus(); break; }
+    }
+  }
   /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
      a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
      Add is a CONNECT (discover.disconnect puts the folder back); an imported agent is a
@@ -53359,14 +53927,43 @@ async function addImportedInPlace(file, btn, row) {
    the create form's import panel (#import-found) AND the find-agents screen
    (#fr-fleet, via frPaintScan). One handler, one behaviour on both: add the file in
    place (addImportedInPlace), never jump to the create form. */
-document.addEventListener('click', (e) => {
+function importGoClick(e) {
   const btn = e.target.closest('.fr-importgo');
   if (!btn || btn.disabled) return;
   const row = btn.closest('.fr-importrow');
   const file = row && row.getAttribute('data-import-file');
   if (!file) return;
-  addImportedInPlace(file, btn, row);
-});
+  addImportedInPlace(file, btn, row, e.detail === 0);   // detail 0: Enter/Space or importNameEnter, not a pointer
+}
+document.addEventListener('click', importGoClick);
+/* kosmos#4962: Enter in a nameless row's Name field presses that row's Add; typing again clears the
+   invalid mark a refusal set. defaultPrevented is checked so a screen that already acted on this Enter
+   (first run's Enter-means-Continue, which now exempts this field) never gets a second action. */
+function importNameEnter(e) {
+  if (e.key !== 'Enter' || e.repeat || e.isComposing || e.keyCode === 229 || e.defaultPrevented || !e.target || !e.target.closest) return;
+  if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;   // a plain Enter only, as PLUS_ENTER_GO
+  /* Also an adopt row's name field (first run's, and the board's disk-scan and found panels, which draw
+     the same .fr-adoptinput): frEnterSubmit exempts it for the same reason, and Enter adds that row
+     rather than doing nothing. keyCode 229 is an input method's Enter committing a word, which
+     WebKit can send with isComposing false. */
+  const field = e.target.closest('.fr-importinput') || e.target.closest('.fr-adoptinput');
+  if (!field) return;
+  const row = field.closest('.fr-importrow') || field.closest('.fr-foundrow');
+  const go = row && (row.querySelector('.fr-importgo') || row.querySelector('.fr-foundgo'));
+  if (!go || go.disabled) return;
+  e.preventDefault();
+  go.click();
+}
+document.addEventListener('keydown', importNameEnter);
+document.addEventListener('input', importNameInput);
+function importNameInput(e) {
+  const f = e.target && e.target.closest && e.target.closest('.fr-importinput');
+  if (!f) return;
+  f.removeAttribute('aria-invalid');
+  if (f.classList) f.classList.remove('bad');
+  const said = f.closest('.fr-importrow') && f.closest('.fr-importrow').querySelector('.fr-importsaid');
+  if (said) said.textContent = '';   // the old reason is not read with a field that is being fixed
+}
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
 function tickLine(state, text) {
@@ -68292,11 +68889,12 @@ function fedClearLoose() {
 // browser check can shorten it.
 let FED_ACT_LIMIT_MS = 60000;
 const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. Check the list to see whether it went through.';
-async function fedActPost(url, payload) {
+// `send(signal)` makes the request, so each caller's URL stays a literal the route check (#3957) can read.
+async function fedActPost(send) {
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), FED_ACT_LIMIT_MS) : 0;
   try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: ctl ? ctl.signal : undefined });
+    const res = await send(ctl ? ctl.signal : undefined);
     const body = await res.json().catch(() => null);
     if (ctl && ctl.signal.aborted) { const e = new Error('timed out'); e.name = 'AbortError'; throw e; }
     return { res, body };
@@ -68327,7 +68925,8 @@ async function fedRemoveGo() {
   let said = '';
   let timedOut = false;
   try {
-    ({ res, body } = await fedActPost('/api/federation/remove', { project: f.project, edge_id: f.edge_id }));
+    ({ res, body } = await fedActPost((signal) => fetch('/api/federation/remove', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: f.project, edge_id: f.edge_id }), signal })));
   } catch (err) {
     timedOut = !!(err && err.name === 'AbortError');
     said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
@@ -68411,7 +69010,8 @@ async function fedWithdraw(r) {
   let said = '';
   let timedOut = false;
   try {
-    ({ res, body } = await fedActPost('/api/federation/withdraw', { project, invite_id: r.invite_id }));
+    ({ res, body } = await fedActPost((signal) => fetch('/api/federation/withdraw', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project, invite_id: r.invite_id }), signal })));
   } catch (err) {
     timedOut = !!(err && err.name === 'AbortError');
     said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
@@ -71131,8 +71731,10 @@ document.getElementById('fr-openai-key').addEventListener('keydown', (e) => {
      test. It mirrors Continue's own enabled state exactly, so an invalid step
      (Continue greyed, e.g. About-you before its fields are filled, or a
      connect flow where Continue is hidden) does nothing -- the acceptance's
-     "does nothing harmful" arm. The openai-key field, which is the one place
-     inside the wizard with its own Enter gesture, stops propagation above. */
+     "does nothing harmful" arm. Two fields inside the wizard have their own Enter
+     gesture: the openai-key field stops propagation above, and a found file's Name
+     field (.fr-importinput / .fr-adoptinput, kosmos#4962) is kept apart by the early
+     return below. */
 function frEnterSubmit(e) {
   if (e.key !== 'Enter' || e.repeat) return;
   if (e.isComposing || e.keyCode === 229) return;
@@ -71149,17 +71751,23 @@ function frEnterSubmit(e) {
     // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
     // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
     if (tag === 'INPUT' && String(t.type).toLowerCase() === 'search') return;
+    /* kosmos#4962: a row's Name field has its own Enter (importNameEnter presses that row's Add), so Enter
+       there must not also press Continue and end setup in the middle of the add. The
+       first-run adopt field had the same problem and gets the same exemption. */
+    if (t.closest && (t.closest('.fr-importinput') || t.closest('.fr-adoptinput'))) return;
   }
   if (document.getElementById('firstrun').hidden) return;
   const next = document.getElementById('fr-next');
   if (!next || next.hidden || next.disabled || next.getAttribute('aria-disabled') === 'true') return;
   e.preventDefault();
   // ⚠️ preventDefault only, NOT stopPropagation -- deliberately. The Enter still
-  // bubbles to document; every document-level keydown handler in this file guards
-  // on Escape/Tab, so none double-acts on it today. This is the intentional
-  // asymmetry with fr-openai-key above, which DOES stopPropagation because it has
-  // a competing Enter gesture on the SAME field. If a document-level Enter handler
-  // is ever added, revisit this line before it double-triggers while the wizard is open.
+  // bubbles to document. A document-level Enter handler DOES exist: importNameEnter
+  // (kosmos#4962) presses a found file's row Add from its Name field. The two cannot
+  // both act on one Enter: this handler returns early for `.fr-importinput` (above),
+  // and importNameEnter ignores an Enter whose default is already prevented (this
+  // line). Any NEW document-level Enter handler must do the same. This is the
+  // intentional asymmetry with fr-openai-key above, which DOES stopPropagation
+  // because it has a competing Enter gesture on the SAME field.
   next.click();
 }
 document.getElementById('firstrun').addEventListener('keydown', frEnterSubmit);
@@ -71803,6 +72411,7 @@ function frImportOffer() {
  * every agent the scan finds appears on this one screen with a one-click action.
  */
 function frPaintScan() {
+  importAddsDropStuck();   // kosmos#4962: first run's list drops a stuck add too (its receipts stay for the visit)
   const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
   const cand = frScanOffer();
@@ -71815,11 +72424,13 @@ function frPaintScan() {
   // time (the app-identity hatch did not answer). Some agents were found elsewhere; say the rest
   // could not be reached rather than implying the found set is everything.
   const tccOut = !!(FR_SCAN && FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable);
+  const kept = importNamesKept(box);   // kosmos#4962: a typed name survives a re-scan's repaint
   box.innerHTML = '<p>These are on this computer but not yet in Kosmos. Add the ones '
     + 'that are yours.' + (more ? ' There may be more than shown here.' : '') + '</p>'
     + (cand.length ? '<div class="fr-found">' + scanRowsHtml(cand) + '</div>' : '')
-    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp) + '</div>' : '')
+    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp, 'fr') + '</div>' : '')
     + (tccOut ? '<p class="fr-scanhint">Could not scan Documents, Downloads, or Desktop this time.</p>' : '');
+  importNamesRestore(box, kept);
   /* 🛑 `Continue`, NOT "Take me to my agents" -- the same reason `frPaintFound` gives:
      nothing is added until a button is pressed, so the board still shows what tmux
      shows, and a person who added nothing must not be promised a fleet. */
@@ -72318,6 +72929,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
   go.disabled = false;
+  if (field) field.disabled = false;   // kosmos#4962: the reason below may be about the name, so it can be changed and tried again
   go.classList.remove('added');
   go.textContent = was;
   /* Nothing was added, so nothing is addressable. */

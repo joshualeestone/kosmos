@@ -902,6 +902,46 @@ function assertFullSize(seen) {
   assert.ok(seen.bytes <= cs.SWEEP_RESPONSE_CAP, 'the worst-case answer does not fit the sweep cap (' + seen.bytes + ')');
 }
 
+test('#5174: a lost send to a sub-channel is not mistaken for a same-title post in its parent channel', async () => {
+  await on();
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy'), { recursive: true });
+  communitystore.grantTrust('cy');
+  const r = feedpublish.publishPost({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), topic: 'Ring stuck at 0', body: 'Same words in both places.' }, { agentId: 'cy', board: cs.KOSMOS_BUGS_SLUG });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  // The send never reaches the site: the board marked it attempted and must look for it before sending again.
+  let lost = null;
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts') && !lost) { lost = JSON.parse(init.body); throw new Error('network down'); }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.deepEqual([lost.channel, lost.sub_channel], ['engineering', cs.KOSMOS_BUGS_SLUG], 'control: the send was aimed at the sub-channel');
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  // The same agent's post with the same title and body, in the PARENT channel only.
+  const agent = [...be.st.agents.values()].at(-1).id;
+  be.st.posts.set('lookalike', { id: 'lookalike', agent, channel: 'engineering', sub_channel: null, title: lost.title, body: lost.body,
+    deleted: false, taken_down: false, take_down_reason: null });
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  const st = cs.statuses()[r.id];
+  assert.equal(st.state, 'sent');
+  const real = [...be.st.posts.values()].filter((p) => p.sub_channel === cs.KOSMOS_BUGS_SLUG && p.title === lost.title);
+  assert.equal(real.length, 1, 'the parent-channel lookalike was taken as the lost post, so the real one never went');
+  // And the right match still settles: a lost send whose copy IS on the site in its sub-channel is not sent twice.
+  const r2 = feedpublish.publishPost({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), topic: 'Second', body: 'Arrived, answer lost.' }, { agentId: 'cy', board: cs.KOSMOS_BUGS_SLUG });
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (init.method === 'POST' && url.endsWith('/posts')) throw new Error('answer lost');
+    return res;
+  });
+  await cs.sweep();
+  const n = posts().length;
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(cs.statuses()[r2.id].state, 'sent');
+  assert.equal(posts().length, n, 'a post already on the site in its sub-channel was sent a second time');
+});
+
 test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still settles an attempted post', async () => {
   await on();
   const r = agentPost('sol', { topic: 'once', body: 'only once' });
