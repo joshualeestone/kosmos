@@ -117,6 +117,7 @@ render-help-tips-3574
 render-home-discovery-removed-3048
 render-home-phone-718
 render-import-add-inplace-2419
+render-import-name-4962
 render-inline-field-errors-2606
 render-keyed-install-3713
 render-layer-gutter-4494
@@ -152,6 +153,7 @@ render-orgchart-phone-718
 render-owncode-4649
 render-personal-instr-4446
 render-phone-offline-718
+render-phone-taps-5218
 render-picker-provider-2097
 render-pj-clear-2575
 render-pjadd-back-2850
@@ -194,6 +196,7 @@ render-restart-kloader-2831
 render-restart-screen-4343
 render-restarting-2019
 render-restore-dircheck-2615
+render-restore-refused-4976
 render-richtext-2067
 render-richtext-room-2239
 render-room-busy-scope-2882

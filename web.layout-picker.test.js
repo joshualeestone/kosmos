@@ -186,7 +186,13 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
      column, so nothing may hide them here. The top-right .headright controls are
      NOT hidden -- they are what USED to drift into the side rail. The RENDERED result
      is verified by render-tophead-consolidated-2282.js; here we pin the CSS rule. */
-  assert.match(block, /> \.apphead header \{[^}]*display: flex/, 'the consolidated header is not laid out as a top bar (#2282)');
+  /* #2624: the consolidated header rule states no display of its own, so it keeps the tab view's grid
+     (.apphead header, 1fr auto 1fr) and the center tabs sit on the same pixels in both views. It used flex
+     space-between, which moved them. A display here (flex, or none) is the regression either way. */
+  const hdr = decls.match(/> \.apphead header \{([^}]*)\}/);
+  assert.ok(hdr, 'the consolidated header rule is gone (#2282 keeps the header as a top bar)');
+  assert.doesNotMatch(hdr[1], /\bdisplay\s*:/, 'the consolidated header sets its own display again (#2624: it keeps the tab view\'s grid)');
+  assert.match(PAGE, /\.apphead header \{ display: grid; grid-template-columns: 1fr auto 1fr;/, 'the tab view\'s header grid, which the consolidated header keeps, is gone');
   assert.match(block, /> \.apphead h1 \{ display: none; \}/, 'the consolidated view no longer hides the h1 (#2282)');
   assert.doesNotMatch(decls, /> \.apphead[^{]*\.tabs\b[^{]*\{[^}]*display:\s*none/, 'the consolidated view hides the center tabs again (#4345: they stay and load into the display column)');
   assert.doesNotMatch(decls, /> \.apphead \.headright[ ,][^{]*\{[^}]*display: none/, 'the consolidated view still hides the top-right controls -- #2282 keeps them in the header instead of folding them to the rail');

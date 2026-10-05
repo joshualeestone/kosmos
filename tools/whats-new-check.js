@@ -3,10 +3,12 @@
 /**
  * #3955: release.sh step 1b-ii. Is web/whats-new.json the highlights for the version being cut?
  *
- *   node tools/whats-new-check.js <version> [file]
+ *   node tools/whats-new-check.js <version> [file] [--platform=mac|windows]
  *
  * Exit 0 when it is. Exit 3 (round 13: not 1, which node itself gives any crash), with the reasons,
- * when it is missing, for another version, or not a file the window can show: the cut stops before anything is built or bumped, so the operator
+ * when it is missing, for another version, or not a file the window can show, or (#5224, with --platform, which
+ * release.sh and the Windows build pass) it has no highlight for that platform: the cut stops before anything is
+ * built or bumped, so the operator
  * writes the file (or, for a hotfix with nothing to announce, sets KOSMOS_CUT_NO_WHATS_NEW=1, which
  * release.sh handles before calling this). Exit 2 on a usage error.
  */
@@ -15,13 +17,25 @@ const path = require('node:path');
 
 const NOT_READY = 3;   // the file is not ready for this version (every other nonzero means the check could not run)
 
-function main(argv) {
+function main(argvIn) {
   const whatsnew = require('../engine/whatsnew');   // inside main, so a broken module is a thrown error below (exit 2)
+  // #5224: --platform=mac|windows names the platform being cut; that platform must show at least one highlight.
+  const flags = argvIn.filter((a) => a.startsWith('--platform='));
+  const argv = argvIn.filter((a) => !a.startsWith('--platform='));
+  if (argv.some((a) => a.startsWith('--'))) {   // e.g. "--platform windows" (no "="): never run with no platform by mistake
+    process.stderr.write('usage: node tools/whats-new-check.js <version like 0.6.98> [file] [--platform=mac|windows]\n');
+    return 2;
+  }
+  const platform = flags.length ? flags[flags.length - 1].slice('--platform='.length) : null;
+  if (platform !== null && !whatsnew.PLATFORMS.includes(platform)) {
+    process.stderr.write('usage: --platform must be one of ' + whatsnew.PLATFORMS.join(', ') + '\n');
+    return 2;
+  }
   const version = argv[0];
   const file = argv[1] || whatsnew.FILE;
   const name = path.relative(process.cwd(), file) || file;   // the file actually read, in the messages
   if (!version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-check.js <version like 0.6.98> [file]\n');
+    process.stderr.write('usage: node tools/whats-new-check.js <version like 0.6.98> [file] [--platform=mac|windows]\n');
     return 2;
   }
   let raw;
@@ -46,7 +60,18 @@ function main(argv) {
       + 'Fix it and commit it before cutting, or set KOSMOS_CUT_NO_WHATS_NEW=1 to cut with no "Kosmos has been updated" window.\n');
     return NOT_READY;
   }
-  process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + '\n');
+  const per = whatsnew.countsByPlatform(obj);   // #5224: a Mac-only highlight is not shown on Windows
+  process.stdout.write(name + ': ' + obj.highlights.length + ' highlight(s) for ' + version + ' ('
+    + Object.entries(per).map(([p, c]) => p + ' ' + c).join(', ') + ')\n');
+  if (platform !== null && !per[platform]) {
+    process.stderr.write(name + ' has no highlight for ' + platform + ': every one is tagged for another platform, so ' + platform
+      + ' would show no "Kosmos has been updated" window. Tag one for ' + platform + ', or set KOSMOS_CUT_NO_WHATS_NEW=1 to cut with none.\n');
+    return NOT_READY;
+  }
+  for (const [p, c] of Object.entries(per)) {
+    if (!c) process.stderr.write('note: every highlight is for another platform, so ' + p + ' shows no "Kosmos has been updated" window,'
+      + ' and a ' + p + ' cut of this file will stop unless a highlight is tagged for ' + p + ' or KOSMOS_CUT_NO_WHATS_NEW=1 is set.\n');
+  }
   return 0;
 }
 

@@ -18,12 +18,14 @@ function stubRemote(answer) {
   return { calls, macRequest: async (method, route, body) => { calls.push({ method, route, body }); return answer; } };
 }
 
-test('invite signs the Mac route with the page fields and returns only the code and expiry', async () => {
+test('invite signs the Mac route with the page fields and returns only the code, expiry and invite id', async () => {
   const remote = stubRemote({ ok: true, data: { code: 'CODE123', expires_at: 99, invite_id: 'inv-123', extra: 'x' } });
   const out = await federation.invite(remote, { project_ref: 'ref-1', project_name: 'Book Club', project_desc: 'monthly', invited_kind: 'agent' });
   // #3728: the coordinator's code plus this board's second half, which is kept here for the project.
   assert.strictEqual(out.status, 200);
-  assert.deepStrictEqual(Object.keys(out.body).sort(), ['code', 'expires_at']);
+  // #4649: and the invite id, which ties the owner's Members row to the connection redeemed from this code.
+  assert.deepStrictEqual(Object.keys(out.body).sort(), ['code', 'expires_at', 'invite_id']);
+  assert.strictEqual(out.body.invite_id, 'inv-123');
   assert.strictEqual(out.body.expires_at, 99);
   const m = /^CODE123\.([A-Za-z0-9_-]{43})$/.exec(out.body.code);
   assert.ok(m, 'the code has no second half: ' + out.body.code);

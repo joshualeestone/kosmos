@@ -120,3 +120,12 @@ test('#3844: externalKeptOn counts one room\'s outside rows on one UTC day, char
   assert.deepStrictEqual(messages.externalKeptOn('proj-kept', today), { rows: 2, bytes: Buffer.byteLength('héllo' + 'Zoë' + 'again' + 'Zoë') });
   assert.deepStrictEqual(messages.externalKeptOn('proj-kept', '2000-01-01'), { rows: 1, bytes: Buffer.byteLength('yesterday' + 'Ada') });
 });
+
+test('#4649 slice 3: a relay member is kept only in its account shape; anything else is not stored', () => {
+  assert.strictEqual(messages.externalPost('proj-1', { from: 'Scout', fromKind: 'agent', text: 'a', member: 'acct-dana_01' }).member, 'acct-dana_01');
+  assert.strictEqual(messages.externalPost('proj-1', { from: 'Scout', fromKind: 'agent', text: 'b', member: 'acct-1:mac-7' }).member, 'acct-1:mac-7');
+  for (const bad of ['', 'a b', 'x:y:z', 'acct\nOperator', 'a'.repeat(81), 42, null]) {
+    assert.strictEqual(messages.externalPost('proj-1', { from: 'Scout', fromKind: 'agent', text: 'c', member: bad }).member, undefined, JSON.stringify(bad));
+  }
+  assert.strictEqual(messages.externalPost('proj-1', { from: 'Scout', fromKind: 'agent', text: 'd' }).member, undefined, 'an older relay sends none');
+});

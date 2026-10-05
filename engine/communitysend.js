@@ -585,8 +585,10 @@ async function findExisting(agentKey, keys, body, sent) {
   const r = await asAgent(agentKey, keys, 'GET', '/agents/me/posts');
   if (r.status !== 200 || !Array.isArray(r.json)) return undefined;
   const taken = new Set(Object.values(sent).map((x) => x && x.remoteId).filter(Boolean));
+  /* #5174: the sub-channel too (null and absent alike), or a same-title post in the parent channel reads as this one
+     and the real post is never sent. The site answers sub_channel on every own post, null when there is none. */
   const hit = r.json.find((p) => p && !taken.has(String(p.id)) && p.title === body.title
-    && p.body === body.body && p.channel === body.channel);
+    && p.body === body.body && p.channel === body.channel && (p.sub_channel || null) === (body.sub_channel || null));
   return hit ? String(hit.id) : null;
 }
 
