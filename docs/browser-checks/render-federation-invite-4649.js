@@ -76,6 +76,8 @@
  *      Cancel did not stop says it went through (d); a Withdraw nobody answers is given up on (e); the rows at 390 (f);
  *      Remove pressed in the rail (g); a late answer never pulls focus out of another dialog (h); a Remove nobody
  *      answers is given up on (i); a rail "Make a new code" cancelled after a rebuild returns focus to its row (j).
+ *  B18 a first members load the network drops (a), Remove 403 (b), Remove not-owner (c), Withdraw unreachable (d),
+ *      an older members reply after a newer one (e), a Remove answered after leaving and reopening the project (f).
  *  B16 owner:false and self_shared draw no From outside section. Control: the same invites as owner draw rows.
  *  B11b the gate leaving "show" while an outside Remove is open closes the dialog. Control: the dialog is open
  *       just before.
@@ -174,6 +176,13 @@ function initStub(cfg) {
     }
     if (u.includes('/api/federation/members')) {
       window.__memberUrls.push(u);
+      // B18: 'throw' fails like a dropped connection; a queued { answer, delay } answers late (sequencing).
+      if (Array.isArray(window.__membersQueue) && window.__membersQueue.length) {
+        const q = window.__membersQueue.shift();
+        await new Promise((r) => setTimeout(r, q.delay || 0));
+        return enc(q.answer.status, q.answer.body);
+      }
+      if (window.__members === 'throw') throw new TypeError('Failed to fetch');
       return enc(window.__members.status, window.__members.body);
     }
     for (const [route, log, key] of [['/api/federation/remove', '__removes', '__remove'], ['/api/federation/withdraw', '__withdraws', '__withdraw']]) {
@@ -189,6 +198,7 @@ function initStub(cfg) {
           if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
         });
       }
+      if (window[key] === 'throw') throw new TypeError('Failed to fetch');   // B18: a dropped connection
       return enc(window[key].status, window[key].body);
     }
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
@@ -1264,6 +1274,62 @@ const closeAll = (page) => page.evaluate(() => {
     check('B15g rail: Remove asks the board for Dana\'s connection and her row goes (control: B11a\'s rail Withdraw)',
       sent.length === 1 && sent[0].body && sent[0].body.edge_id === 'edge-dana' && !rf.rows.some((r) => r.key === 'e:edge-dana') && rf.rows.length > 0,
       JSON.stringify({ sent, keys: rf.rows.map((r) => r.key) }));
+    await ctx.close();
+  }
+  {
+    // B18: outcomes with no other arm: a first members load the network drops (a), Remove 403 (b), Remove not-owner
+    // end to end (c), Withdraw unreachable (d), an older members reply landing after a newer one (e), and a Remove
+    // answered after the project was left and reopened (f).
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate(() => { window.__members = 'throw'; });
+    await openProjectIn(page, 'tabs');
+    let f = await readFed(page, '#pj-fed-outside');
+    check('B18a a first members load the network drops shows the could-not-check line and no rows', f.notes.includes(NOTE) && f.rows.length === 0, JSON.stringify(f.notes));
+    await setMembers(page, answer(ALL));
+    await page.evaluate(() => fedMembersLoad('k'));
+    await page.waitForTimeout(150);
+    await act(page, 'e:edge-dana');
+    await page.evaluate(() => { window.__remove = { status: 403, body: { error: 'forbidden' } }; });
+    await page.click('#mem-go');
+    await page.waitForTimeout(200);
+    const m403 = await modal(page);
+    check('B18b Remove 403: the dialog stays with the plain fallback, not the board text', m403.open && m403.msg === 'Kosmos could not remove them just now. Try again in a moment.', JSON.stringify(m403));
+    await page.evaluate(() => { window.__remove = { status: 409, body: { reason: 'not-owner', error: 'not the owner' } }; });
+    const c0 = await gets(page);
+    await page.click('#mem-go');
+    await page.waitForTimeout(250);
+    const mNo = await modal(page);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B18c Remove not-owner: the dialog closes, the owner-list sentence beside the list, the list asked again',
+      !mNo.open && f.msgs.includes('Only the owner of this project can change who is in it.') && (await gets(page)) > c0, JSON.stringify({ open: mNo.open, msgs: f.msgs }));
+    await page.evaluate(() => { window.__withdraw = 'throw'; });
+    await act(page, 'i:inv-lee');
+    await page.waitForTimeout(200);
+    f = await readFed(page, '#pj-fed-outside');
+    const leeD = f.rows.find((r) => r.key === 'i:inv-lee');
+    check('B18d Withdraw the network drops: the could-not-reach sentence, and the Withdraw is live again',
+      f.msgs.includes('Kosmos could not reach the connection service. Try again in a moment.') && leeD && leeD.actOn, JSON.stringify({ msgs: f.msgs, leeD }));
+    // B18e: an older ask answers AFTER a newer one: the newer answer stands.
+    await page.evaluate((args) => {
+      const [older, newer] = args;
+      window.__membersQueue = [{ answer: older, delay: 300 }, { answer: newer, delay: 0 }];
+      fedMembersLoad('k'); fedMembersLoad('k');
+    }, [answer([LEE]), answer(ALL)]);
+    await page.waitForTimeout(500);
+    f = await readFed(page, '#pj-fed-outside');
+    check('B18e an older members reply landing after a newer one is dropped (control: the newer list, more than one row)',
+      f.rows.length > 1 && f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify(f.rows.map((r) => r.key)));
+    // B18f: a Remove asked, the project left and reopened (A, B, A) before it answers: its late answer says nothing.
+    await page.evaluate(() => { window.__withdraw = { status: 200, body: { withdrawn: true } }; window.__remove = { status: 502, body: { error: 'refused' } }; window.__answerDelay = 300; });
+    await act(page, 'e:edge-dana');
+    await page.click('#mem-go');
+    await page.waitForTimeout(30);
+    await page.evaluate(async () => { PJ_CURRENT = 'elsewhere'; await fedMembersLoad('elsewhere'); PJ_CURRENT = 'k'; await fedMembersLoad('k'); });
+    await page.waitForTimeout(500);
+    const loose = await page.evaluate(() => Object.values(FED_MSGS));
+    await page.evaluate(() => { window.__answerDelay = 0; });
+    check('B18f a Remove answered after the project was left and reopened leaves no sentence (control: B3 says the 502 when it stays)',
+      loose.length === 0, JSON.stringify(loose));
     await ctx.close();
   }
   {

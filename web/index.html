@@ -22766,6 +22766,7 @@ let FED_MEMBERS = null;          // { project, ok, body }: the last members answ
 let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project) is dropped
 let FED_MEMBERS_ASKING = null;   // the project an ask is in flight for (fedGateMembers asks once)
 let FED_MSGS = {};               // row key -> the sentence a Withdraw or Remove left, kept across repaints
+let FED_GEN = 0;                 // bumped when the list starts over for a project (a switch, even away and back)
 const FED_BUSY = new Set();      // row keys with a Withdraw or Remove in flight
 const FED_NOT_CHECKED = 'Kosmos could not check who has joined just now. This list may be out of date.';
 const FED_UNREACHABLE = 'Kosmos could not reach the connection service. Try again in a moment.';
@@ -67958,7 +67959,7 @@ function fedOutsidePaint(tabOnly) {
 }
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;
-  if (!FED_MEMBERS || FED_MEMBERS.project !== project) { FED_MEMBERS = null; FED_MSGS = {}; }
+  if (!FED_MEMBERS || FED_MEMBERS.project !== project) { FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++; }
   const seq = ++FED_MEMBERS_SEQ;
   FED_MEMBERS_ASKING = project;
   let entry;
@@ -68063,7 +68064,7 @@ function fedClearLoose() {
 // disabled until the page reloads); the list is then asked again, so it shows what the board did. A let, so the
 // browser check can shorten it.
 let FED_ACT_LIMIT_MS = 60000;
-const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. The list is asked again, so it shows whether it went through.';
+const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. Check the list to see whether it went through.';
 async function fedActPost(url, payload) {
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), FED_ACT_LIMIT_MS) : 0;
@@ -68078,6 +68079,7 @@ async function fedRemoveGo() {
   const p = MEM_PENDING;
   if (!p || !p.fed) return;
   const f = p.fed;
+  const gen = FED_GEN;   // a project switch meanwhile, even away and back, bumps it
   fedClearLoose();
   const go = document.getElementById('mem-go');
   const msg = document.getElementById('mem-msg');
@@ -68101,7 +68103,7 @@ async function fedRemoveGo() {
   }
   FED_BUSY.delete(f.key);
   // Another project was opened while it was asked: its view is not this answer's to change (fedWithdraw too).
-  if (PJ_CURRENT !== f.project) { if (MEM_PENDING === p) memConfirmClose(); return; }
+  if (PJ_CURRENT !== f.project || gen !== FED_GEN) { if (MEM_PENDING === p) memConfirmClose(); return; }
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   // Given up on: the list is being asked again (above), so the dialog closes and the sentence is said beside the
@@ -68161,6 +68163,7 @@ async function fedRemoveGo() {
 async function fedWithdraw(r) {
   const key = fedRowKey(r);
   const project = PJ_CURRENT;
+  const gen = FED_GEN;
   if (!project || FED_BUSY.has(key)) return;
   const fallback = 'Kosmos could not withdraw this code just now. Try again in a moment.';
   FED_BUSY.add(key);
@@ -68178,7 +68181,7 @@ async function fedWithdraw(r) {
     said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
   }
   FED_BUSY.delete(key);
-  if (PJ_CURRENT !== project) return;
+  if (PJ_CURRENT !== project || gen !== FED_GEN) return;
   if (!said && res.ok) {
     // As Remove: the kept answer must not show the code again if the refetch fails, and the row goes now.
     const fm = FED_MEMBERS;
@@ -68202,7 +68205,7 @@ async function fedWithdraw(r) {
   if (timedOut || (res && res.status === 409 && body && body.reason === 'joined') || (res && res.status === 404)
     || (body && ['not-owner', 'self-shared'].includes(body.reason))) {
     await fedMembersLoad(project);
-    if (PJ_CURRENT !== project) return;
+    if (PJ_CURRENT !== project || gen !== FED_GEN) return;
     // Joined meanwhile: the row is now keyed by its connection, so the sentence moves under it (it points to that
     // row's Remove) and focus follows.
     const fm = FED_MEMBERS;
@@ -68242,6 +68245,8 @@ function fedRefocus(key) {
   // An open dialog (another Remove, a local minus) owns focus: a late answer never pulls it out from behind it.
   const dlg = document.getElementById('mem-modal');
   if (dlg && !dlg.hidden) return;
+  const sheet = document.getElementById('fedinv-modal');   // the invite sheet is a dialog too
+  if (sheet && !sheet.hidden) return;
   // Focus on ANOTHER row's action (the person moved on while this was asked) stays where it is.
   if (at && at.isConnected && at.dataset && at.dataset.fedKey && at.dataset.fedKey !== key && at.closest && at.closest('.fedout')) return;
   if (to && (!at || at === document.body || (at.closest && at.closest('.fedout, #mem-modal')))) to.focus();
