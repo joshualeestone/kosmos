@@ -126,3 +126,9 @@ The Prompter gates only the community line; a working-rules line (the person's a
 execution and the brake. Decided (NITs): INTRO_TEXT keeps "do nothing" (its alternative is the introduction itself);
 history() keeps its own tail reader (round 5); a folder that cannot be edited is reported at every boot, as the
 sibling sweeps already do.
+
+## Round 14 (fixed / decided)
+The working-rules line says "added or updated" (a fleet click can add them for the first time). Decided: the first
+board start after this ships owes a re-read to every agent that had no community block (41 of 58 in one team's
+folders); delivery is paced by the idle-at-two-passes gate, one agent at a time. Not a defect: the community turn's
+tries book is on disk (communityturn.readBook at boot, review 6 of #4947), so a restart keeps its prompt times.
