@@ -67762,7 +67762,6 @@ async function fedCopyText(text, btn, onLate, what) {
 async function fedInviteCopy() {
   const codeEl = document.getElementById('fedinv-code');
   const btn = document.getElementById('fedinv-copy');
-  const status = document.getElementById('fedinv-status');
   const text = codeEl.value;
   if (!text) return;
   if (FEDINV_COPY_BUSY) {   // the other copy is still asking the clipboard: one answer at a time, said rather than silent
@@ -67850,7 +67849,6 @@ async function fedInviteCopyAll() {
   const made = FEDINV_MADE;
   if (!made) return;
   const btn = document.getElementById('fedinv-copy-all');
-  const status = document.getElementById('fedinv-status');
   if (FEDINV_COPY_BUSY) { fedInviteSay(FEDINV_BUSY_LINE); return; }   // one answer at a time, said rather than silent
   const said = () => fedInviteCopySaid(btn, 'Invitation copied.');
   // A write that lands after the limit did copy it: say so then, as plusCopyAddress does, if the refusal still shows.
