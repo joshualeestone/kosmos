@@ -499,7 +499,7 @@ test('#5297 refreshEveryone: an old block is rewritten to today\'s; an agent wit
   assert.ok(fs.readFileSync(fr, 'utf8').includes('At most one post a day.'), 'the switch-off arm changed a file');
 
   const told = cb.refreshEveryone(roster, true);
-  assert.deepEqual(told.map((t) => [t.agent, t.state, t.changed]).sort(), [['rae', projects.TOLD.TOLD, true], ['sol', projects.TOLD.TOLD, true]]);
+  assert.deepEqual(told.map((t) => [t.agent, t.state, t.changed, t.rulesChanged]).sort(), [['rae', projects.TOLD.TOLD, true, true], ['sol', projects.TOLD.TOLD, true, true]]);
   for (const f of [fr, fs2]) {
     const after = fs.readFileSync(f, 'utf8');
     assert.ok(!after.includes('At most one post a day.'), 'the old rule survived the refresh');
@@ -525,6 +525,39 @@ test('#5297 refreshEveryone: an unreadable roster says so', () => {
   assert.equal(r[0].state, projects.TOLD.COULD_NOT);
 });
 
-test('#5297 the re-read line names the section by its own heading', () => {
-  assert.ok(cb.REREAD_TEXT.includes('"' + cb.blockBody().split('\n')[0].replace(/^## /, '') + '"'));
+test('#5297 review 1: the introduction line coming or going is never a change of rules, and an unknown post store keeps it', () => {
+  const fleet = require('../test-support/fleet');
+  const status = require('./status');
+  const board = fleet.install([fleet.agent('uma', { state: 'idle' })]);
+  let roster;
+  try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const cs = require('./communitystore');
+  const real = cs.postedBy;
+  const withIntro = cb.blockBody({ introduce: true });
+  assert.ok(withIntro.includes(cb.INTRO_LINES[0]), 'fixture: the introduction line is not in the block');
+  const f = agentFile('uma', '# Uma\n\n' + cb.START + '\n' + withIntro + '\n' + cb.END + '\n');
+  try {
+    // The store cannot say (null): the line stays, nothing is written, nobody is told.
+    cs.postedBy = () => null;
+    let r = cb.refreshEveryone(roster, true);
+    assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['uma', false, false]]);
+    assert.ok(fs.readFileSync(f, 'utf8').includes(cb.INTRO_LINES[0]), 'an unreadable store took the introduction away');
+    // She has posted: the line goes, the file changes, but the rules did not, so she is not told.
+    cs.postedBy = () => true;
+    r = cb.refreshEveryone(roster, true);
+    assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['uma', true, false]]);
+    assert.ok(!fs.readFileSync(f, 'utf8').includes(cb.INTRO_LINES[0]));
+    // CONTROL: a real change of rules under the same conditions IS told.
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('no more than ' + cb.POSTS_PER_DAY_MAX + ' times a day', 'no more than 1 times a day'));
+    r = cb.refreshEveryone(roster, true);
+    assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['uma', true, true]]);
+  } finally { cs.postedBy = real; }
+});
+
+test('#5297 review 1: tellAgent with onlyIfPresent never adds a block a file does not carry; CONTROL: without it, it adds', () => {
+  const f = agentFile('vic', '# Vic\n\nNo block.\n');
+  assert.deepEqual(cb.tellAgent('vic', true, { onlyIfPresent: true }), { state: projects.TOLD.TOLD, because: null, changed: false });
+  assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 0);
+  assert.equal(cb.tellAgent('vic', true).changed, true);
+  assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 1);
 });

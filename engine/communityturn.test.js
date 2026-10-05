@@ -187,7 +187,7 @@ test('tickOnce: no projects read (cannot tell a stood-down agent) prompts nobody
 
 test('the line asks for a real post, names the daily maximum, and says to do nothing rather than invent', () => {
   assert.match(ct.TURN_TEXT, /kosmos community post/);
-  assert.match(ct.TURN_TEXT, new RegExp('no more than ' + POSTS_PER_DAY_MAX + ' a day'));
+  assert.match(ct.TURN_TEXT, new RegExp('no more than ' + POSTS_PER_DAY_MAX + ' times a day'));   // #5297: the block's own words
   assert.match(ct.TURN_TEXT, /at least 300 words/);
   assert.match(ct.TURN_TEXT, /do nothing/);
   assert.match(ct.TURN_TEXT, /Never invent/);
@@ -356,10 +356,20 @@ test('#5297 item 3: the prompt and the block state the same numbers, from one pl
   const body = cb.blockBody();
   for (const text of [ct.TURN_TEXT, body]) {
     assert.match(text, new RegExp('at least ' + cb.MIN_WORDS + ' words'));
-    assert.match(text, new RegExp('no more than ' + cb.POSTS_PER_DAY_MAX + ' (times )?a day'));
-    assert.match(text, /at least once a day|Post at least once a day/);
+    assert.match(text, new RegExp('no more than ' + cb.POSTS_PER_DAY_MAX + ' times a day'));
+    assert.match(text, /at least once a day/);
     assert.match(text, /an honest post about what you are working on, stuck on or learned today counts/);
   }
   assert.equal(cb.FLOORS.postsPerDayMax, cb.POSTS_PER_DAY_MAX);
   assert.match(ct.INTRO_TEXT, new RegExp('at least ' + cb.MIN_WORDS + ' words'));
+});
+
+test('#5296 review 1: a LONG turn the prompt woke (replies, votes, comments past the grace) is still not work; CONTROL: a later turn is', () => {
+  const post = NOW - 8 * H;
+  const tried = NOW - 4 * H;
+  const rows = [{ state: 'working', at: tried + MIN }, { state: 'working', at: tried + 50 * MIN }, { state: 'idle', at: tried + 55 * MIN }];
+  assert.equal(ct.workedSince(rows, post, [tried]), false);
+  assert.equal(ct.workedSince([...rows, { state: 'working', at: tried + 2 * H }], post, [tried]), true);
+  // Still working since the prompt (no idle after it): all of it is the woken turn.
+  assert.equal(ct.workedSince([{ state: 'working', at: tried + 90 * MIN }], post, [tried]), false);
 });

@@ -1049,6 +1049,43 @@ const connections = require('./engine/connections');
 const personlanguage = require('./engine/personlanguage'); // #5050: the person's language block
 const dmfiles = require('./engine/dmfiles');          // #3614: where an agent saves the files it makes in a DM
 const doctrine = require('./engine/doctrine');
+/* kosmos#5297: deliver the owed "read this section again" lines (engine/instructionreread.js). One pass at a time;
+   never throws. Wired at boot (a timer) and after a working-rules refresh (instructionRereadSoon). */
+let instructionRereadRunning = false;
+async function instructionRereadPass() {
+  if (instructionRereadRunning) return;
+  const ir = require('./engine/instructionreread');
+  if (!Object.keys(ir.readOwed()).length) return;
+  instructionRereadRunning = true;
+  try {
+    let owed = ir.readOwed();
+    const cleared = {};   // session -> the sections whose debt this pass ended
+    const ours = new Set((safeRoster() || []).filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
+    for (const session of Object.keys(owed)) {
+      const sections = owed[session].sections;
+      if (!ours.has(session)) { cleared[session] = sections; continue; }
+      if (!liveExecution.liveExecutionAllowed()) break;
+      const line = ir.lineFor(sections);
+      if (!line) { cleared[session] = sections; continue; }
+      let v = null;
+      try { v = await chat.deliverAutomaticAsync(session, line, safeRoster(), undefined, undefined); } catch { v = null; }
+      owed = ir.settle(owed, session, v, chat.DELIVERY);
+      if (!owed[session]) cleared[session] = sections;
+      process.stdout.write(`instruction-reread: ${session} (${owed[session] ? 'still owed' : 'done'}) - ${(v && v.state) || 'not reached'}${v && v.held ? ', refused on the quota hold' : ''}${v && v.busy ? ', pane busy' : ''}\n`);
+    }
+    /* Merge onto the file as it is NOW: a refresh route may have owed a section during the awaits above, and that debt
+       must survive. A debt is removed only when every section it names was in what this pass ended. */
+    const latest = ir.readOwed();
+    for (const [session, sections] of Object.entries(cleared)) {
+      if (latest[session] && latest[session].sections.every((x) => sections.includes(x))) delete latest[session];
+    }
+    ir.writeOwed(latest);
+  } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
+}
+function instructionRereadSoon(session) {
+  try { require('./engine/instructionreread').oweNow(session, 'rules'); } catch { return; }
+  setImmediate(() => { instructionRereadPass(); });
+}
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const accountComputers = require('./engine/account-computers'); // kosmos#4648
@@ -6752,6 +6789,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const got = doctrine.refresh(name, safeRoster(), { expectHash: body.hash });
+        if (got && got.state === 'added') instructionRereadSoon(name);   // kosmos#5297: the running agent read the old rules
         sendJson(res, 200, got);
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
@@ -6797,7 +6835,9 @@ const server = http.createServer(async (req, res) => {
           if (profile.doctrineDeclined === require('./engine/defaults').DOCTRINE_VERSION) {
             return { name, state: 'declined' };
           }
-          return { name, ...doctrine.refresh(name, roster) };
+          const got = doctrine.refresh(name, roster);
+          if (got && got.state === 'added') instructionRereadSoon(name);   // kosmos#5297, as the per-agent route
+          return { name, ...got };
         });
         sendJson(res, 200, { verdicts });
       })
@@ -21003,9 +21043,9 @@ if (require.main === module) {
      above give: the board restarting is the update. A user's 0.7.22 report found five running agents still told "at
      most one post a day" three days after Josh's 2026-10-02 rules, because the block was written only at birth and at
      restart. Unlike the sweeps above, the file is not enough on its own here: the rules are what an agent does all day,
-     so each agent whose block changed is also told, once, to read it again (communityblock.REREAD_TEXT), through
-     deliverAutomatic (held on the shared-quota pause) and only with live execution on. Never adds or removes the block,
-     and never fatal. */
+     so each agent whose rules changed (refreshEveryone's rulesChanged) is owed a line telling it to read the section
+     again (engine/instructionreread.js, which the working-rules refresh routes use too). Never adds or removes the
+     block, and never fatal. */
   try {
     const told = require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
@@ -21013,21 +21053,22 @@ if (require.main === module) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
       process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
     }
-    const changed = told.filter((t) => t && t.changed === true && t.agent).map((t) => t.agent);
-    if (changed.length && liveExecution.liveExecutionAllowed()) {
-      const reread = require('./engine/communityblock').REREAD_TEXT;
-      /* After the board is serving, one agent at a time: each delivery waits on that pane's own queue. */
-      const t = setTimeout(async () => {
-        for (const session of changed) {
-          let v = null;
-          try { v = await chat.deliverAutomaticAsync(session, reread, safeRoster(), undefined, undefined); } catch { v = null; }
-          process.stdout.write(`community-refresh: ${session} told to re-read its community section - ${(v && v.state) || 'not reached'}${v && v.held ? ' (held)' : ''}\n`);
-        }
-      }, 30 * 1000);
-      if (t && typeof t.unref === 'function') t.unref();
-    }
+    const ir = require('./engine/instructionreread');
+    let owed = ir.readOwed();
+    for (const t of told) if (t && t.rulesChanged === true && t.agent) owed = ir.owe(owed, t.agent, 'community');
+    ir.writeOwed(owed);
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
+  }
+  /* kosmos#5297: the re-read lines owed (engine/instructionreread.js): 30 s after boot, every 15 minutes while any is
+     owed, and at once after a working-rules refresh (instructionRereadSoon). chat drops a line it cannot place, so a
+     debt stays on disk until a line lands. Each send is checked against live execution at the moment it goes, and an
+     agent no longer ours is dropped from the debt. */
+  {
+    const first = setTimeout(() => { instructionRereadPass(); }, 30 * 1000);
+    if (first && typeof first.unref === 'function') first.unref();
+    const again = setInterval(() => { instructionRereadPass(); }, 15 * 60 * 1000);
+    if (again && typeof again.unref === 'function') again.unref();
   }
   /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
      setting changed): written when the Mac's setting is not English, removed when it is; off a Mac, or when the read

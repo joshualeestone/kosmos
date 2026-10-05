@@ -1,4 +1,4 @@
-# community-refresh-5297: community rules reach running agents (#5297, folds in #5296)
+# community-refresh-5297: changed instructions reach running agents (#5297, folds in #5296 and #4890's running-agent half)
 
 Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarded 09:56). Owner: Angel.
 
@@ -45,3 +45,22 @@ Card: kosmos#5297 (Splinter 10:02, from a user's 0.7.22 diagnostic Josh forwarde
 Focused: communityturn, communityblock, selfreport, server.communityturn-4947, plus remove/create/communitynudge/
 communityreply/personlanguage/verbs-parity and the file-scanning guards (fixture-discipline, 4796, reachable, brand,
 name, windows guards). Perturbations: removing the own-prompt exclusion and removing the skip both go red.
+
+## Scope widened 10:12 (Splinter): #4890 has the same root
+#4890's stale CLI text ("reply has no --stdin") lives in the WORKING RULES (doctrine, engine/defaults.js), which #539 rules
+are person-owned: Kosmos rewrites them only on the person's click (engine/doctrine.js header: a write without the click
+"should be reverted on sight"). So the working rules are NOT silently refreshed here. What both sections lacked is the
+running-agent half: an agent reads its file once, so even a consented refresh left it on the old text until restart.
+- engine/instructionreread.js (new): the "read this section again" debt, on disk until a line lands, for two sections:
+  community (board-start refresh) and rules (a consented doctrine refresh, per agent and fleet).
+- server.js: instructionRereadPass (30 s after boot, every 15 min while owed, at once after a doctrine refresh); live
+  execution checked per send; agents no longer ours dropped; merge onto the file so a debt owed mid-pass survives.
+- Not covered, decided: the five other boot-refreshed blocks (you, reports, connections, dmfiles, language) still
+  refresh the file only. Their tellAgent returns no changed flag, and they carry names/paths rather than daily behaviour.
+  Follow-up if wanted. Why the user's agents never took the #5013 offer is not knowable from the report (#4890 comment).
+
+## Round 1 review (fixed)
+Re-read line retried until it lands (was sent once, lost on a refusal); "held" comment corrected; the introduction line
+coming or going is not a change of rules, and an unreadable post store keeps it; a whole prompt-woken turn is not work
+(not only 15 min); live execution per send; onlyIfPresent closes the add race; countWord/FLOORS in the prompt; "in the
+last day"; stale comments in remove.js and projects.js. communityswitch.js:8 left: still true (refresh writes only when on).

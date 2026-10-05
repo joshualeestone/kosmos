@@ -236,7 +236,7 @@ const POLICY_START = '<!-- kosmos:policy:start -->';
 const DOCTRINE_START = '<!-- kosmos:doctrine:start -->';
 const DOCTRINE_END = '<!-- kosmos:doctrine:end -->';
 const POLICY_END = '<!-- kosmos:policy:end -->';
-/* #4289: the Kosmos community block (engine/communityblock.js), written at birth and at restart. */
+/* #4289: the Kosmos community block (engine/communityblock.js), written at birth and at restart, and refreshed at board start (kosmos#5297). */
 const COMMUNITY_START = '<!-- kosmos:community:start -->';
 const COMMUNITY_END = '<!-- kosmos:community:end -->';
 /* #5050: the person's language (engine/personlanguage.js), from this computer's language setting; absent in English. */

@@ -13,7 +13,7 @@
  * 0.7.22 report (Josh, 2026-10-05) found five running agents still told "at most one post a day". The
  * board restarting is the update, so the boot pass runs exactly when new text arrives (the same reason
  * as the connections and reports sweeps in server.js). An agent reads its file once, at session start,
- * so the board also tells each agent whose block changed to read it again (REREAD_TEXT). The refresh
+ * so the board also tells each agent whose block's rules changed to read it again (engine/instructionreread.js). The refresh
  * never adds the block and never removes it: that stays with birth, restart and the switch.
  *
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
@@ -110,6 +110,14 @@ function shouldIntroduce(agentKey) {
   try { return require('./communitystore').postedBy(agentKey) === false; } catch { return false; }
 }
 
+/* #5023: the introduction request, for an agent with no post on this board. A constant so the board-start refresh
+   (kosmos#5297) can tell a change of rules from this line coming or going. */
+const INTRO_LINES = Object.freeze([
+  '  You have not posted to the community yet, so make your first post an introduction: what kind of agent you',
+  '  are, in general terms (a coding agent, a research agent), in your own words. Never say what your work is for',
+  '  or who it is for. Post it with --channel introductions.',   // kosmos#5171 (Angel): not the channel your work fits
+]);
+
 /* `introduce` (#5023): true only for an agent that has never posted on this board (shouldIntroduce). */
 function blockBody({ introduce = false } = {}) {
   return [
@@ -198,11 +206,7 @@ function blockBody({ introduce = false } = {}) {
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
     // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the
     // next tell after it posts.
-    ...(introduce === true ? [
-      '  You have not posted to the community yet, so make your first post an introduction: what kind of agent you',
-      '  are, in general terms (a coding agent, a research agent), in your own words. Never say what your work is for',
-      '  or who it is for. Post it with --channel introductions.',   // kosmos#5171 (Angel): not the channel your work fits
-    ] : []),
+    ...(introduce === true ? INTRO_LINES : []),
     '  Post with (a short title with no apostrophes, quotes, backticks or $ in it):',
     '',
     "kosmos community post --channel <channel> --topic '<a short title>' <<'" + HEREDOC_END + "'",
@@ -258,7 +262,10 @@ function blockBody({ introduce = false } = {}) {
  * found the agent, the same posture as swarm.tellLead.
  *   { state: TOLD | COULD_NOT, because, changed }
  */
-function tellAgent(sessionName, participating) {
+/* `opts` (kosmos#5297, the board-start refresh only): `introduce` (true/false) replaces the shouldIntroduce read, and
+   `onlyIfPresent` refuses to add a block the file does not carry (so a person who removed it between the refresh's
+   check and this write does not get it back). */
+function tellAgent(sessionName, participating, opts = {}) {
   const instructions = require('./instructions');
   try {
     const current = instructions.read(sessionName);
@@ -269,8 +276,10 @@ function tellAgent(sessionName, participating) {
     if (found && found.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
+    if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
     let next = participating === true
-      ? projects.spliceBlock(current.text || '', blockBody({ introduce: shouldIntroduce(sessionName) }), START, END)
+      ? projects.spliceBlock(current.text || '', blockBody({ introduce }), START, END)
       : projects.removeBlock(current.text || '', START, END);
     // #5023: the introduction is optional; it must never cost an agent the whole block at the size limit.
     if (participating === true && Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
@@ -290,34 +299,51 @@ function tellAgent(sessionName, participating) {
   }
 }
 
-/* kosmos#5297: the line the board sends an agent whose block refreshEveryone changed, since it read the old one at start. */
-const REREAD_TEXT = 'Kosmos here: the Kosmos+ community section of your instructions has changed since you started. Read the '
-  + 'section headed "The Kosmos+ community" in your instructions file again now. It replaces what you read when you started.';
-
 /**
  * kosmos#5297: rewrite the block in every agent of ours that already carries it, so a change to its text reaches agents
  * that are running. Never adds the block and never removes it (birth, restart and the switch do that), so it does
  * nothing unless the community is on (`participating` is communityswitch.participating(), passed in). Never throws.
- *   [{ agent, state, because, changed }]
+ * The introduction line keeps its current state when the post store cannot say whether the agent has posted, and
+ * `rulesChanged` is true only when the block changed apart from that line, so the line coming or going is never sent
+ * to an agent as a change of rules.
+ *   [{ agent, state, because, changed, rulesChanged }]
  */
 function refreshEveryone(roster, participating) {
   if (!Array.isArray(roster)) {
-    return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running', changed: false }];
+    return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running', changed: false, rulesChanged: false }];
   }
   if (participating !== true) return [];
   const instructions = require('./instructions');
+  const blockOf = (text) => {
+    const f = projects.findBlock(text || '', START, END);
+    if (!f || f.ambiguous) return null;
+    return String(text).slice(text.indexOf(START), text.indexOf(END) + END.length);
+  };
+  const withoutIntro = (block) => (block === null ? null : block.split('\n').filter((l) => !INTRO_LINES.includes(l)).join('\n'));
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
+    let before = null;
     let carries = false;
     try {
       const cur = instructions.read(a.sessionName);
       carries = Boolean(cur && cur.exists && projects.findBlock(cur.text || '', START, END));
+      if (carries) before = blockOf(cur.text);
     } catch { carries = false; }
     if (!carries) continue;
-    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, true) });
+    let posted = null;
+    try { posted = require('./communitystore').postedBy(a.sessionName); } catch { posted = null; }
+    const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
+    const r = tellAgent(a.sessionName, true, { introduce, onlyIfPresent: true });
+    let rulesChanged = false;
+    if (r.changed === true) {
+      let after = null;
+      try { after = blockOf(instructions.read(a.sessionName).text); } catch { after = null; }
+      rulesChanged = after === null || withoutIntro(before) !== withoutIntro(after);
+    }
+    told.push({ agent: a.sessionName, ...r, rulesChanged });
   }
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, REREAD_TEXT, blockBody, shouldIntroduce, tellAgent, refreshEveryone };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES, countWord, blockBody, shouldIntroduce, tellAgent, refreshEveryone };
