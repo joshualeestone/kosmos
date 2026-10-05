@@ -448,8 +448,10 @@ const closeAll = (page) => page.evaluate(() => {
     check('A5 the title names the label', done.title === 'Invite code for Dana Ruiz', done.title);
     check('A5 Josh\'s sentence, verbatim, the same words as the create form\'s', done.josh === JOSH && done.joshMain === JOSH, JSON.stringify({ josh: done.josh }));
     check('A5 the code is shown', done.code === CODE && done.askHidden, JSON.stringify(done));
-    check('A5 "It works once, until Sunday, October 11." from expires_at (slice C adds the withdraw sentence after it)',
-      done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until Dana joins.', done.until);
+    // This Make chose "Their agent" (A4 above), and only a PERSON is named by first name (slice B's rule, shared through
+    // fedFirstName): an agent invite reads "until they join". C1 covers the person case ("the three steps Dana needs").
+    check('A5 "It works once, until Sunday, October 11." from expires_at, then the withdraw sentence (an agent invite: "they")',
+      done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.', done.until);
     await page.click('#fedinv-copy');
     await page.waitForTimeout(100);
     const copied = await page.evaluate(() => ({ copied: window.__copied.slice(), btn: document.getElementById('fedinv-copy').textContent }));
