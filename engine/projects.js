@@ -2869,11 +2869,9 @@ function addAgent(id, sessionName, roster, made) {
   });
 }
 
-/* #5300: every member showed its agent's one role, so five agents made as Project Managers read as five Project Managers on
-   every project. A member can say what it does on THIS project; describe carries it as `roleHere`, beside `role`.
-   Kept per project in `rolesHere` (session name -> words), removed with the membership. One line of plain words, at
-   most ROLE_HERE_MAX characters; an empty one clears it. Throws on a non-member or words that are not text. */
+/* #5300: the longest role here, in characters. */
 const ROLE_HERE_MAX = 60;
+/* #5300: a role here as one line of plain words; throws on words that are not text or too long. */
 function cleanRoleHere(role) {
   if (typeof role !== 'string') throw new Error('say the role in words');
   // The filter project show prints it through, so the two cannot differ.
@@ -2881,6 +2879,10 @@ function cleanRoleHere(role) {
   if ([...one].length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
   return one;
 }
+/* #5300: every member showed its agent's one role, so five agents made as Project Managers read as five Project Managers on
+   every project. A member can say what it does on THIS project; describe carries it as `roleHere`, beside `role`.
+   Kept per project in `rolesHere` (session name -> words), removed with the membership. One line of plain words, at
+   most ROLE_HERE_MAX characters; an empty one clears it. Throws on a non-member or words that are not text. */
 function setRoleHere(id, sessionName, role) {
   const key = String(sessionName || '').trim();
   const words = cleanRoleHere(role);
