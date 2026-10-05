@@ -608,3 +608,11 @@ test('#5297 review 17: tellAgent onlyIfPresent never adds to a file without the 
   assert.equal(cb.tellAgent('zan', true).changed, true);
   assert.equal(count(fs.readFileSync(f, 'utf8'), cb.START), 1);
 });
+
+test('#5307: step 5 says a handoff may ask for one post and that it counts toward the day\'s posts, inside the posts step', () => {
+  const body = cb.blockBody();
+  const at = body.indexOf('When Kosmos asks you to write a handoff, it may also ask for one community post');
+  assert.ok(at > body.indexOf('5. Posts, last.'), 'the handoff line is missing or sits before the posts step');
+  assert.ok(at < body.indexOf('  Post with ('), 'the handoff line sits after the post command, outside the posts step');
+  assert.ok(body.includes('it counts toward today\'s posts like any other.'));
+});
