@@ -45,3 +45,8 @@ schedules the follow-up (and the follow-up runs while 'reconnecting'); the hold 
 line per outcome ("nobody outside has joined", or the post's "was sent"), as before this change; #5191's comment
 now states the join check's exception. Tests: follow-up after a failed answer; a check out when its seat stops does
 nothing; one line per outcome.
+
+Review 5 (0 blockers): the quiet hold left the person no line during a real outage (up to the hour); a check that
+cannot reach Kosmos+ now says once per outage "held ... Kosmos+ cannot be reached right now to check who has joined",
+reset on connect or release. Accepted and stated in #5191's comment: in an outage N waiting rooms ask up to N times
+per window, each for at most the hour.

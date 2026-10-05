@@ -3569,11 +3569,20 @@ test('#5285: when Kosmos+ cannot answer the check, a follow-up asks again at the
   h.edges = null;   // Kosmos+ answers with a failure
   fedseats.post('proj-fail', { from: 'Josh', kind: 'person', text: 'after a failure' });
   await settle();
+  const heldLines = () => h.notes.filter((n) => n.projectId === 'proj-fail' && /Kosmos\+ cannot be reached right now/.test(n.text)).length;
+  assert.strictEqual(heldLines(), 1, 'an outage left the person no line: ' + JSON.stringify(h.notes.map((n) => n.text)));
+  // A second failed answer: asked again, but the line is not repeated.
+  const asked0 = h.asked;
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.ok(h.asked > asked0, 'no follow-up after the first failed answer');
+  assert.strictEqual(heldLines(), 1, 'the outage line was repeated on the second failure');
   const asked = h.asked;
   h.edges = [{ id: 'edge-fail', project_ref: 'ref-fail', status: 'active' }];
   t.mock.timers.tick(10000);
   await settle();
   assert.ok(h.asked > asked, 'no follow-up after a failed answer');
+  assert.strictEqual(heldLines(), 1, 'the outage line was said more than once');
   const seat = h.spawned.find((c) => c.edge === 'edge-fail');
   assert.ok(seat, 'the follow-up did not bring the seat up');
   say(seat, { event: 'connected', room: 'r', expires_at: 9 });

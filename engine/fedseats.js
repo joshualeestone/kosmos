@@ -160,6 +160,7 @@ function handleEvent(projectId, line, heldAt) {
     sendRotates(projectId, s);
     // #5285: someone did join; a post held for that check now waits as any held post does (for the key, the hour).
     for (const h of s.outbox || []) if (h.msg && h.msg.joinWait) h.msg = Object.assign({}, h.msg, { joinWait: false });
+    s.joinHoldNoted = false;
     flushHeld(projectId, s);   // a post held for the room id, or for a key that arrived meanwhile
     return;
   }
@@ -724,7 +725,8 @@ function revokeCheck(projectId, link, edges) {
     answer is shared too, for the same 15 s: an outage must not turn every busy room into
     its own request. Exception (kosmos#5285): an owner room's join check passes notBeforeMono, so it
     never reuses an answer asked before it started; it is bounded per room instead (one per
-    JOIN_CHECK_MS, and only when someone posts). */
+    JOIN_CHECK_MS, and only while someone's post waits), so in an outage N waiting rooms ask up to
+    N times per JOIN_CHECK_MS, each for at most the hour a post is held. */
 let macEdges = null;
 /** Whether something done at `at` is less than EDGE_FRESH_MS old. A time ahead of the
     clock (the clock stepped back) is not fresh, so the hold cannot be switched off by it. */
@@ -1311,6 +1313,7 @@ function dropJoinWait(projectId, s, askedMono, why) {
   const keep = s.outbox.filter((h) => !(h.msg && h.msg.joinWait && (askedMono === Infinity || (h.mono !== undefined && h.mono < askedMono))));
   const n = s.outbox.length - keep.length;
   s.outbox = keep;
+  if (!hasJoinWait(s)) s.joinHoldNoted = false;
   if (!n) return;
   if (why) say(projectId, (n === 1 ? 'That message stayed' : n + ' messages stayed') + ' on this computer: ' + why + '.');
   else say(projectId, n === 1 ? NOBODY_JOINED : n + ' messages stayed on this computer: nobody outside has joined this shared project yet.');
@@ -1332,8 +1335,16 @@ function kickJoinCheck(projectId, s) {
       // An ensure that returned without asking (a start or a pass already under way) answers nothing: ask again
       // when the window ends, like a post held while a check was out.
       if (!ask) { s.joinCheckAgain = true; return; }
-      // Kosmos+ could not answer (ensure turns that into 'reconnecting'): ask again at the window's end.
-      if (status === 'reconnecting') { s.joinCheckAgain = true; return; }
+      // Kosmos+ could not answer (ensure turns that into 'reconnecting'): ask again at the window's end, and say
+      // once (per outage) that the post is held, since the quiet hold would otherwise leave the person nothing.
+      if (status === 'reconnecting') {
+        s.joinCheckAgain = true;
+        if (!s.joinHoldNoted && hasJoinWait(s)) {
+          s.joinHoldNoted = true;
+          say(projectId, 'That message is held on this computer: Kosmos+ cannot be reached right now to check who has joined. It is sent once they are connected, while Kosmos keeps running.');
+        }
+        return;
+      }
       if (status === 'waiting') dropJoinWait(projectId, s, ask.mono);
       // Anything else: the seat is starting or connected, and its connect flushes what is held.
       else if (s.status === 'connected') flushHeld(projectId, s);
