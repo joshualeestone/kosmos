@@ -46,3 +46,11 @@ marker) and boots no board, so the 27 hand-started checks above are unchanged. t
 That standalone checks and the fed proof are most of the ~250 a day. Not measured per source; the telemetry carries
 no source. Measure again two days after this merges: if the silent count does not fall, the rest is elsewhere
 (walk harnesses installing the real app, which are real installs by design, are the next suspect).
+
+## Reconciled with #5350 (10-05 18:5x, Renet)
+On launch day I rebuilt this branch's lib change as kosmos PR #5350 (merged 7fe98b733) without checking for this
+unmerged branch first: a duplicate of my own work. #5350's version stands (it also REPLACES a non-loopback address a
+caller set; this branch kept any caller-set address). After the rebase this branch drops its own lib block and keeps
+what #5350 lacks: tools/fed-own-e2e.js's three boards (an env built from nothing, which the lib never reaches) and its
+five tests (a control that the exposure is real, the runners and the lib naming the same addresses, the federation
+proof's boards). All five pass on main's lib, with #5350's guard, home-3675 and no-phone-home-4253.
