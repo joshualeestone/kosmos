@@ -141,10 +141,13 @@ test('#4926 R2: staleHeld marks a post the member answered, or one over a day ol
   s = messages.staleHeld('p1', ['m1', 'm2'], [post('m1', dayMin + 5), post('m2', dayMin - 5)], NOW, 'kim');
   assert.ok(s.evenIfAsked.has('m1'), 'a post over a day old was kept for an ask');
   assert.ok(s.has('m2') && !s.evenIfAsked.has('m2'), 'a post under a day old was dropped even when asked');
-  // A quota pause moves the clock for the day rule too.
+  // Review 4: the day rule counts from the POST even after a quota pause, so a pause of days does not deliver old
+  // asks; the 2-hour rule still counts from the pause's end (CONTROL: a post 3 h old, paused until 1 h ago, is not stale).
   const paused = { ...post('m3', dayMin + 60), heldUntil: { kim: ago(60) } };
   s = messages.staleHeld('p1', ['m3'], [paused], NOW, 'kim');
-  assert.equal(s.evenIfAsked.has('m3'), false, 'the day rule did not count from the pause\'s end');
+  assert.equal(s.evenIfAsked.has('m3'), true, 'a day-old ask was kept because a quota pause ended recently');
+  const recent = { ...post('m4', 180), heldUntil: { kim: ago(60) } };
+  assert.equal(messages.staleHeld('p1', ['m4'], [recent], NOW, 'kim').size, 0, 'the 2-hour rule stopped counting from the pause\'s end');
 });
 
 test('#4926 R2: withoutStale drops an addressed id the judge marks evenIfAsked, and keeps the other addressed ones', () => {
@@ -171,4 +174,11 @@ test('#4926 R2 review 1: through the real idle flush, a fresh held post survives
   assert.match(typed[0], /\bm5\b/, 'a fresh held post was dropped because the member posted after it');
   assert.doesNotMatch(typed[0], /\bm6\b/, 'a day-old ask was told');
   assert.doesNotMatch(typed[0], /\bm7\b/, 'an ask the member already answered was told');
+});
+
+test('#4926 R2 review 4: every staleHeld call in server.js passes the member (without it the answered rule is off)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const calls = src.match(/messages\.staleHeld\(([^)]*)\)/g) || [];
+  assert.ok(calls.length >= 2, 'fixture: fewer than the two server flush call sites found: ' + calls.length);
+  for (const c of calls) assert.equal(c.split(',').length, 5, 'a server call passes no member: ' + c);
 });

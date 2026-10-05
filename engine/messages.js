@@ -1016,8 +1016,9 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      stopped !== false in that project, later than the post); dropped only when the post does not name the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
-     replyTo = that id), or one older than HELD_ASKED_MAX_MS.
-   Ages count from the post, or from the member's quota pause's end when there was one. An id not in the record yet (a
+     replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
+   The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
+   counts from the post even then, so a pause of days does not deliver days-old asks. An id not in the record yet (a
    post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
@@ -1045,7 +1046,7 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
-      if (answered.has(r.id) || t - from > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
+      if (answered.has(r.id) || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
   return out;
