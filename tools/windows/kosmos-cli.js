@@ -414,9 +414,10 @@ async function verbReply(ctx, args) {
     if (kept !== 0) keepPiped();
     return kept;
   }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
   if (r.json && r.json.kept === true) { ctx.out('Answered. It is in their conversation with you.'); return 0; }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
+  tokenRefusedHint(ctx, r);   // #5333: a refused reply is {kept:false, because}, not an error
   keepPiped();
   return 1;
 }
@@ -619,12 +620,28 @@ async function verbReport(ctx, args, opts) {
   return 1;
 }
 
+/* #5333, as install/kosmos token_refused_hint: when this session sent its agent token and the board answered with its
+   one no-match sentence (kept exact, so a probe cannot tell whether a token was ever real), say the way back. Only
+   when a token went out: the caller knows that much already. Printed after the board's words, never instead. */
+const TOKEN_REFUSED = 'we could not match that to one of your agents';
+function tokenRefusedHint(ctx, r) {
+  if (!ctx.agentToken()) return;
+  const said = (r && r.json && typeof r.json.because === 'string' ? r.json.because : '') + ' ' + String((r && r.text) || '');
+  if (!said.includes(TOKEN_REFUSED)) return;
+  ctx.err('');
+  ctx.err('Kosmos did not recognise the agent token this session started with, so it cannot tell which agent you are.');
+  ctx.err('A running session cannot pick up a new token by itself. Ask your person to restart you from Kosmos');
+  ctx.err('(your page, Restart): the new session starts with a fresh token and this works again.');
+  ctx.err('`kosmos adopt` does not help here: the token it makes never reaches a session that is already running.');
+}
+
 async function verbWhoami(ctx) {
   const r = await ctx.call('POST', '/api/whoami', { from_pane: '' });
   if (!r.reached) { ctx.err('Kosmos did not answer, so we cannot tell you which account you are on.'); return 1; }
   /* The board's sentence, verbatim: a locally-invented answer is what this verb
      exists to stop (install/kosmos cmd_whoami). */
   ctx.out((r.json && typeof r.json.because === 'string') ? r.json.because : String(r.text || ''));
+  tokenRefusedHint(ctx, r);   // #5333: the board refuses whoami with a 200 ({ ok: false, because }), so not on status
   return r.status >= 400 ? 1 : 0;
 }
 
@@ -645,7 +662,8 @@ async function verbInbox(ctx, args) {
   const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=');
   if (!r.reached) return ctx.unreachable('read your messages');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
-  return r.status >= 400 ? 1 : 0;
+  if (r.status >= 400) { tokenRefusedHint(ctx, r); return 1; }   // #5333
+  return 0;
 }
 
 async function verbRoom(ctx, args) {
