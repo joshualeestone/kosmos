@@ -198,3 +198,7 @@ web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED agai
   typed name, two agents exist (the engine refuses only a duplicate NAME). Accepted: holding the row for good is the
   frozen-row failure the drop exists to end, and a create that takes over a minute is itself a fault. Adopt-row Enter:
   unchanged (decided; the adopt-field Enter test covers it).
+- Iteration 11 (opus): NITs only. CONVERGED. Left for the PR body: a new visit can bring back the previous visit's
+  typed text and refusal (the list is not cleared between visits); the pressed button's aria-label uses the slug while
+  copies use the shown name; a contrived late-fail after a newer success and a revisit repaints the old reason; test
+  titles still carry review numbers.
