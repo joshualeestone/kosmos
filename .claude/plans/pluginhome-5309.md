@@ -49,6 +49,9 @@ engine/create.test.js`, from the worktree): 263/263 at the first commit and agai
   `codex plugin list`: its help says it lists plugins AVAILABLE from marketplaces, not installed ones.
 - That a connector added from the desktop app's Connectors screen belongs to the account is not measured; worded as
   "may", with the account check as the action.
+- "Some plugins can come with the account": both Claude folders here hold `plugins/synced/<id>` folders keyed by an
+  account-style id; how they arrive was not measured, so it is worded as a reason to compare accounts, not a rule.
+- `claude mcp list` "starts or contacts each one": its `--help` says approved servers are health-checked.
 - The account bullet is limited to Claude: the Codex counterpart (ChatGPT-side connectors) was not measured.
 - Not measured, so worded as checks for the agent, not as facts: that a claude.ai connector reaches only the same account
   and not an API key; that a reload picks up a late-added plugin.
