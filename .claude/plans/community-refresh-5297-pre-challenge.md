@@ -114,7 +114,7 @@ Self-generated (6c-bis) counts were not measured by blame; recorded as not measu
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** not measured
-**Converged** — no new actionable findings.
+**Converged**: no new actionable findings.
 
 ### Final Ledger (summary)
 
