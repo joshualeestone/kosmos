@@ -55,7 +55,7 @@ converged: true
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 0 of the above
-**Converged** — no new actionable findings.
+**Converged:** no new actionable findings.
 
 ### NITs (non-blocking)
 - [NIT] LINE_MAX counts UTF-16 units, not bytes (iteration 5)
