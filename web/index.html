@@ -3587,6 +3587,10 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
+  /* #5301: below 56rem .snav is static and stacks above the settings section, where a floating
+     notice in .topnotes sits directly over the pills. Clear a showing stack with --topnotes-clear
+     (0 with no notice). */
+  #s-nav { margin-top: var(--topnotes-clear, 0px); }
 }
 /* #5303: the "More sections" chevron exists only on a phone (the #718 phone block below); a wider Settings nav is a column. */
 #s-nav .snav-more { display: none; }
