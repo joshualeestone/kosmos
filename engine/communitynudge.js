@@ -185,6 +185,13 @@ function localCounts(agentKey, now) {
   return { comments, posts, follows };
 }
 
+/** #5307: whether the service has switched this agent's account off (the board's keys mark it refused), so it cannot
+ *  post. Only a readable record that says so is true: no record, or one that cannot be read, is false. */
+function accountRefused(agentKey) {
+  const keys = readObj(communitysend._paths.keysFile());
+  return !!(keys && keys[agentKey] && keys[agentKey].refused);
+}
+
 /* A name as the line shows it: scrubbed as `community read` scrubs one, one line, at most NAME_SHOWN_MAX characters
    (whole characters, never half of one), with any double quote turned single so the quotes around it stay the edge. */
 function shownName(v) {
@@ -275,4 +282,4 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
   }
 }
 
-module.exports = { nudge, countsPhrase, noteFollowed, noteUnfollowed, localCounts, followsFile, shownName, DAY_MS };
+module.exports = { nudge, countsPhrase, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };

@@ -50,9 +50,11 @@ const path = require('path');
  * @param {(session:string)=>string} o.pathFor  the handoff path for an agent
  * @param {object} o.autohandoff  Mona's engine/autohandoff (shouldPrompt, handoffPrompt, fillBand)
  * @param {object} o.DELIVERY  chat.DELIVERY ({PLACED, UNCONFIRMED, COULD_NOT})
+ * @param {(session:string)=>?{participating:boolean,posts:?number,max:number}} [o.community]  #5307: whether this agent
+ *   is asked for one community post with its handoff (autohandoff.communityAsk); absent, or a throw, asks for none
  * @returns {{prompted: Array<{session:string,fill:number,verdict:?string,advanced:boolean}>, lastBand: Map}}
  */
-function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, DELIVERY }) {
+function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, DELIVERY, community }) {
   const bands = lastBand instanceof Map ? lastBand : new Map();
   const prompted = [];
   if (!setting || setting.enabled !== true) return { prompted, lastBand: bands };
@@ -69,7 +71,10 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
     }
     const was = bands.has(key) ? bands.get(key) : null;
     if (!autohandoff.shouldPrompt(setting.enabled, setting.threshold, fill, was)) continue;
-    const verdict = deliver(key, autohandoff.handoffPrompt(fill, pathFor(key)));
+    // #5307: the community post is optional: a lookup that throws asks for none, and never costs the handoff.
+    let c = null;
+    if (typeof community === 'function') { try { c = community(key); } catch { c = null; } }
+    const verdict = deliver(key, autohandoff.handoffPrompt(fill, pathFor(key), c));
     const state = verdict && verdict.state;
     // Advance the band ONLY on confirmed delivery. See the docblock.
     const advanced = state === DELIVERY.PLACED;
