@@ -16551,6 +16551,20 @@ const server = http.createServer(async (req, res) => {
    * display-name defect was fixed — the sentence outlived the code it was
    * written about, which is this file's own recurring failure.)
    */
+  /* kosmos#5287: a project JOINED from another account carries what its owner shared: their handle (often none yet,
+     #5286) and their description, as stored in the federation link at join. The owner's description is deliberately
+     never copied into the project's own description (the brief this computer's agents are given, see the join route),
+     so without this it was shown on the join screen and then nowhere. Members only: a `self` link is this account's
+     own project. A link that cannot be read adds nothing. */
+  const withShared = (list) => (list || []).map((p) => {
+    let link = null;
+    try { link = p && p.id ? federation.linkFor(p.id) : null; } catch { link = null; }
+    if (!link || link.role !== 'member') return p;
+    return { ...p, shared: {
+      owner: typeof link.owner_handle === 'string' && link.owner_handle ? link.owner_handle : null,
+      description: typeof link.project_desc === 'string' && link.project_desc.trim() ? link.project_desc : null,
+    } };
+  });
   if (pathname === '/api/projects' && (req.method === 'GET' || req.method === 'HEAD')) {
     // ⚠️ An unreadable projects FILE is answered as an error, never as an empty
     // list. Serving `{projects: []}` there put "No projects yet. Point Kosmos at
@@ -16568,7 +16582,7 @@ const server = http.createServer(async (req, res) => {
     }
     const roster = safeRoster();
     try {
-      sendJson(res, 200, { projects: withUnread(projects.list(roster)), agentsUnreadable: roster === null });
+      sendJson(res, 200, { projects: withShared(withUnread(projects.list(roster))), agentsUnreadable: roster === null });
     } catch {
       // The record is still readable when the roster is not, so the projects
       // themselves are served with every member marked unseen rather than the
@@ -16588,7 +16602,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 200, {
-        projects: withUnread(listed),
+        projects: withShared(withUnread(listed)),
         agentsUnreadable: true,
         because: 'we cannot read the agents on this computer right now, so we are not saying anything about how they are doing',
       });
