@@ -350,14 +350,18 @@ function chk(ok, label, extra) {
       /* #5303: at the end of the row the chevron goes and the fade moves to the left edge (nothing more to the right). */
       const atEnd = await page.evaluate(() => { const n = document.getElementById('s-nav'); return { display: getComputedStyle(document.getElementById('s-nav-more')).display, edge: n.dataset.edge, mask: getComputedStyle(n).maskImage || getComputedStyle(n).webkitMaskImage }; });
       chk(atEnd.display === 'none' && atEnd.edge === 'l', `[${theme}] at 375px at the end of the row the chevron is gone and only the left edge fades (#5303)`, JSON.stringify(atEnd));
-      /* A class change that widens a pill without the row scrolling (the new look's chosen pill turns bold) re-marks the row. */
+      /* A class change that widens a pill without the row scrolling (the new look's chosen pill turns bold) re-marks the row.
+         Snapping off for this arm: a re-snap would scroll, and the scroll would re-mark the row whether or not a class
+         change is watched (measured: without it this arm passed with 'class' taken out of the observer). */
       const widened = await page.evaluate(() => new Promise((res) => {
+        const nv = document.getElementById('s-nav'); nv.style.scrollSnapType = 'none'; let scrolled = false;
+        nv.addEventListener('scroll', () => { scrolled = true; }, { once: true });
         const st = document.createElement('style'); st.textContent = '#s-nav button.wide5303 { padding-right: 240px !important; }'; document.head.appendChild(st);
         const pill = document.querySelector('#s-nav button[data-go="you"]'); pill.classList.add('wide5303');
-        setTimeout(() => { const n = document.getElementById('s-nav'); const out = { edge: n.dataset.edge, hidden: document.getElementById('s-nav-more').hidden };
-          pill.classList.remove('wide5303'); st.remove(); res(out); }, 100);
+        setTimeout(() => { const n = document.getElementById('s-nav'); const out = { edge: n.dataset.edge, hidden: document.getElementById('s-nav-more').hidden, scrolled };
+          pill.classList.remove('wide5303'); st.remove(); nv.style.scrollSnapType = ''; res(out); }, 100);
       }));
-      chk(widened.edge === 'lr' && widened.hidden === false, `[${theme}] at 375px a pill widened by a class change re-marks the row: more on the right again (#5303)`, JSON.stringify(widened));
+      chk(widened.edge === 'lr' && widened.hidden === false && !widened.scrolled, `[${theme}] at 375px a pill widened by a class change re-marks the row: more on the right again (#5303)`, JSON.stringify(widened));
       await page.waitForTimeout(100);
       /* The fades themselves, not only the state names: each state draws its own gradient (none is "none"). */
       const masks = [chev.mask, moved.mask, atEnd.mask];
