@@ -14,8 +14,9 @@
  * board restarting is the update, so the boot pass runs exactly when new text arrives (the same reason
  * as the connections and reports sweeps in server.js). An agent reads its file once, at session start,
  * so the board also tells each agent whose block's rules changed to read it again (engine/instructionreread.js).
- * The refresh also adds the block to an agent of ours that has none (most agents made before the block existed:
- * Splinter 11:16, 41 of 58 in one team's folders). It never removes it: that stays with restart and the switch.
+ * The refresh also adds the block to an agent Kosmos made that has none (most agents made before the block existed:
+ * Splinter 11:16, 41 of 58 in one team's folders), never to a connected agent's own file (Splinter 11:37). It never
+ * removes it: that stays with restart and the switch.
  *
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
@@ -264,6 +265,7 @@ function blockBody({ introduce = false } = {}) {
  *   { state: TOLD | COULD_NOT, because, changed }
  */
 /* `opts` (kosmos#5297, the board-start refresh only): `introduce` (true/false) replaces the shouldIntroduce read, and
+   `onlyIfPresent` refuses to add a block the file does not carry (a connected agent: refreshed, never added to), and
    `withBody` returns the body it composed as `body`. */
 function tellAgent(sessionName, participating, opts = {}) {
   const instructions = require('./instructions');
@@ -276,6 +278,7 @@ function tellAgent(sessionName, participating, opts = {}) {
     if (found && found.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
+    if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
     let body = participating === true ? blockBody({ introduce }) : null;
     let next = participating === true
@@ -348,10 +351,11 @@ function refreshEveryone(roster, participating) {
     if (cur && !cur.exists && cur.editable === true) continue;   // no file yet: tellAgent never creates one
     if (cur && cur.exists) before = innerOf(cur.text);   // otherwise tellAgent reports why it cannot write
     // Splinter 11:37: a connected agent's file is the person's own (often a repo file); refresh it, never add to it.
-    if (before === null && connected(a.sessionName)) continue;
+    const isConnected = connected(a.sessionName);
+    if (before === null && isConnected) continue;
     const posted = posts === null ? null : posts.has(String(a.sessionName).trim().toLowerCase());
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && before.includes(INTRO_LINES[0])));
-    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true });
+    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true, onlyIfPresent: isConnected });
     const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(typeof body === 'string' ? body : null);
     told.push({ agent: a.sessionName, ...r, rulesChanged });
   }

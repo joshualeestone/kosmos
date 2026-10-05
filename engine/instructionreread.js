@@ -210,7 +210,7 @@ async function passOnce(o) {
       let rows = null;
       try { rows = o.history(session); } catch { rows = null; }
       // A start after the LATEST owe read every section owed; one between owes read only the older ones.
-      if (startedSince(rows, Number.isFinite(debt.last) ? debt.last : debt.at) === true) { end(session, 'restarted'); continue; }
+      if (startedSince(rows, lastOf(debt)) === true) { end(session, 'restarted'); continue; }
       let down = false;
       if (typeof o.stoodDown === 'function') { try { down = o.stoodDown(session) === true; } catch { down = false; } }
       if (down) { out.push({ session, act: 'stood-down' }); continue; }
@@ -245,7 +245,9 @@ async function passOnce(o) {
       for (const k of Object.keys(owed)) if (!ours.has(k)) o.seenMissing.add(k);
     }
     if (Object.keys(cleared).length) {
-      const next = mergeCleared(read(), cleared);
+      const cur = typeof o.read === 'function' ? read() : readOwedStrict();
+      if (cur === null) return out;   // unreadable now: never replaced
+      const next = mergeCleared(cur, cleared);
       // A debt owed again during the send already names every section, so a held one is kept only when there is none.
       for (const [session, debt] of Object.entries(keep)) if (!next[session]) next[session] = debt;
       write(next);
