@@ -21,6 +21,9 @@ const nudge = require('./communitynudge');
 const cs = require('./communitysend');
 
 const ON = { participating: true, posts: 2, max: 6 };
+/* Roster rows as autohandoff-sweep.test.js writes them: the fill is the variable under test, and the board emits
+   exactly `context.percent` (status.js readContext), so the rows are shorthand, not hand-built cards. */
+const agentAt = (sessionName, percent) => ({ sessionName, context: { percent } });
 
 test('#5307: no community, or the community off, leaves the prompt exactly as before', () => {
   const plain = ah.handoffPrompt(88, '/h/a.md');
@@ -60,7 +63,7 @@ test('#5307: at the ceiling of 6 the post is skipped, and the prompt says so; an
 test('#5307: the sweep asks the community per agent; a lookup that throws still delivers the handoff, without the post', () => {
   const sent = [];
   const deliver = (session, text) => { sent.push({ session, text }); return { state: DELIVERY.PLACED }; };
-  const roster = [{ sessionName: 'a', context: { percent: 90 } }, { sessionName: 'b', context: { percent: 90 } }, { sessionName: 'c', context: { percent: 90 } }];
+  const roster = [agentAt('a', 90), agentAt('b', 90), agentAt('c', 90)];
   const asked = [];
   const community = (k) => { asked.push(k); if (k === 'b') throw new Error('unreadable'); return k === 'a' ? ON : { participating: true, posts: 6, max: 6 }; };
   const { prompted } = sweepOnce({ setting: { enabled: true, threshold: 85 }, roster, lastBand: new Map(), deliver,
@@ -95,7 +98,7 @@ test('#5307: one post is asked per climb: not again on the next band or a retry,
   const texts = []; let state = DELIVERY.PLACED;
   const deliver = (session, text) => { texts.push(text); return { state }; };
   const bands = new Map(); const postAsked = new Map();
-  const run = (pct) => sweepOnce({ setting: { enabled: true, threshold: 85 }, roster: [{ sessionName: 'a', context: { percent: pct } }], lastBand: bands,
+  const run = (pct) => sweepOnce({ setting: { enabled: true, threshold: 85 }, roster: [agentAt('a', pct)], lastBand: bands,
     deliver, pathFor: (k) => '/h/' + k + '.md', autohandoff: ah, DELIVERY, community: () => ON, postAsked });
   const asks = () => texts.filter((t) => /post ONE thing/.test(t)).length;
   run(86); assert.equal(asks(), 1, 'the first band asks');
