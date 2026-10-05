@@ -3591,8 +3591,10 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   #s-nav[data-edge="lr"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px));
                            mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 84px), transparent calc(100% - 46px), #000 calc(100% - 44px)); }
   #s-nav[data-edge=""] { -webkit-mask-image: none; mask-image: none; }
-  /* A focused or snapped pill clears the left fade and the chevron with its fade (44px + 40px), so it is never under them. */
-  #s-nav[data-edge="r"], #s-nav[data-edge="lr"] { scroll-padding-inline: 32px 88px; }
+  /* A focused or snapped pill clears the left fade and the chevron with its fade (44px + 40px), so it is never under them.
+     ALWAYS on, never per data-edge: padding that changed with the edge re-snapped the row, the scroll re-marked the edge, and
+     the row oscillated (a click waiting for a stable pill timed out). */
+  #s-nav { scroll-padding-inline: 32px 88px; }
   /* right: -32px cancels the row's 32px end padding: a sticky box is held inside the padding, which left it 32px short
      of the edge with pills showing on both sides of it. */
   /* Two ids: the new look's `#s-nav button { background: none }` (:root[data-look="new"] ...) outranks one id and a
