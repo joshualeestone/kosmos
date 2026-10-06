@@ -173,8 +173,10 @@ _qh_take() {
     kosmos_light_side_take "$WHAT" "$((SIDE_MIN + 2))" && rc=0
   # #5332: the main lane's wait kept this run's queue place (KOSMOS_WAIT_KEEP_MARK), so the ORDER is asked here, under
   # the lock, with every earlier waiter still marked: a later joiner can no longer pass while this run is between its
-  # wait and its claim.
-  elif kosmos_refuse_if_earlier_suite_waiter "$WHAT" 2>/dev/null && _qh_clear >/dev/null 2>&1; then
+  # wait and its claim. Asked only while this run HOLDS a marker: one with none (cleared on its first pass, or a lib
+  # older than #5332 that unmarked anyway) would read every live waiter as ahead and lose every take (review 1).
+  elif { [ ! -e "$(_kosmos_suite_waiter_file "$$")" ] || kosmos_refuse_if_earlier_suite_waiter "$WHAT" 2>/dev/null; } \
+       && _qh_clear >/dev/null 2>&1; then
     kosmos_claim_machine "$CLAIM_MIN" && rc=0
   fi
   rm -rf "$lock"
@@ -188,11 +190,13 @@ _qh_take() {
   return "$rc"
 }
 # #5064: this run's place in the queue is its join time (taken here, within a few seconds of the library's own).
-# A MAIN-lane wait that finds the box clear drops the run's marker before the take; if the take then loses, the next wait used to write a NEW marker stamped now, sending the oldest waiter
-# to the back (Kitty's ick 5031 full, 15:28:59 2026-10-02: first in line, then 21 ahead, its clock restarted). A lost
-# take now writes the marker back with the original join time, and the library's resume path keeps that place.
+# A MAIN-lane wait that found the box clear used to drop the run's marker before the take; if the take then lost, the
+# next wait wrote a NEW marker stamped now, sending the oldest waiter to the back (Kitty's ick 5031 full, 15:28:59
+# 2026-10-02: first in line, then 21 ahead, its clock restarted). Since #5332 the wait keeps the marker through the take
+# (KOSMOS_WAIT_KEEP_MARK), so a lost take still holds it; the re-mark below stays as the fallback for a run that had no
+# marker yet (it cleared on its first pass) or a lib older than #5332.
 QH_JOINED="$(date +%s)"
-[ "${KOSMOS_WAIT_LANE:-main}" != side ] && export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take
+export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait: a side wait returns before it.
 until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; }; _qh_take; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') another run took the turn first; waiting again: $WHAT"
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
@@ -204,7 +208,8 @@ until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARG
   # polls land while the loser holds only the place it kept (none, in the test's copy that removes both ways).
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ "${QH_TEST_LOST_PAUSE_S:-0}" -gt 0 ] 2>/dev/null; then sleep "$QH_TEST_LOST_PAUSE_S"; fi
   # A side wait returns before any sleep, so a take that keeps losing (say, a marker dir it cannot write) would spin.
-  # Side lane only: a main-lane wait sleeps between its own polls, so the main lane needs no backoff here.
+  # Side lane only: a main-lane loser keeps its place (its marker, or the re-mark above), and a pause there only lets
+  # a later joiner past it.
   [ "${KOSMOS_WAIT_LANE:-main}" = side ] && sleep "${KOSMOS_WAIT_EVERY_S:-30}"
 done
 RENEWER=""
