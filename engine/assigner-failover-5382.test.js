@@ -542,14 +542,18 @@ test('review 9: the sweep counts only lines that may have landed toward its cap,
   const D = require('./chat').DELIVERY;
   const owe = (who) => ({ id: 'p-' + who, name: who, agents: [who, 'zed'],
     tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'zed', owedTell: [who] }] }] });
-  const names = ['h1', 'h2', 'h3', 'ok1'];
+  // Real cards from the fleet fixture (fixture-discipline), idle; three whose lines the cap holds and one it does not.
+  const board = fleet.install(['h1', 'h2', 'h3', 'ok1'].map((n) => fleet.agent(n, { state: 'idle' })));
+  const roster = board.agents;
+  const names = roster.map((c) => c.sessionName);
+  const okName = names.find((n) => n.startsWith('ok1'));
+  assert.ok(okName && names.filter((n) => n.startsWith('h')).length === 3, 'fixture: ' + JSON.stringify(names));
   const records = names.map(owe);
-  const roster = names.map((n) => ({ sessionName: n, isNamedOurs: true, state: 'idle' }));
   const sent = [];
   const deliver = (s) => { sent.push(s); return s.startsWith('h') ? { state: D.COULD_NOT, held: true } : { state: D.PLACED }; };
   const base = { roster, records, DELIVERY: D, isIdle: () => true, markTold: () => ({ ok: true }), deliver };
   ft.sweepOnce({ ...base, max: 3 });
-  assert.ok(sent.includes('ok1'), 'three unreachable agents took every slot and ok1 was never told');
+  assert.ok(sent.includes(okName), 'three unreachable agents took every slot and ok1 was never told');
   // seenIdle: a card not idle at the previous pass is not typed into this pass; it is at the next.
   const seen = new Set();
   sent.length = 0;
@@ -558,8 +562,8 @@ test('review 9: the sweep counts only lines that may have landed toward its cap,
   ft.sweepOnce({ ...base, seenIdle: seen });
   assert.equal(sent.length, 4, 'control: idle at both passes, it is told');
   sent.length = 0;
-  ft.sweepOnce({ ...base, skip: (c) => c.sessionName === 'ok1' });
-  assert.equal(sent.includes('ok1'), false, 'a skipped card was typed into');
+  ft.sweepOnce({ ...base, skip: (c) => c.sessionName === okName });
+  assert.equal(sent.includes(okName), false, 'a skipped card was typed into');
 });
 
 test('review 9: markMoveTold changes owedTell only, never the holder, the move record, the finish or the built mark', () => {
