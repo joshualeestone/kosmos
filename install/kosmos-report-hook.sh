@@ -260,7 +260,11 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   local SIG="(-s${SP}[A-Za-z1-9][A-Za-z0-9]*|-n${SP}[1-9][0-9]*|--|-([A-Za-mo-rt-z1-9][A-Za-z0-9]*|[sn][A-Za-z0-9]+))"
   local shkill="${B}kill${SP}(${SIG}${SP})+([^-[:space:];&|][^[:space:];&|]*${SP})*${NEG1}${T}"
   local xkill="${B}(echo|printf)${SP}(--${SP})?${NEG1}${T}[^;&\\]*xargs[^;&\\]*${B}kill|xargs[^|;]*${B}kill[^|;]*<<<(${SP})?${NEG1}"
-  local code="((${B}|(globalThis|global|window|self)\\.)([Pp]rocess|os|syscall|unix|libc|posix)|require\\([^)]*\\))(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}|${B}Process\\.kill[[:space:]]*\\([^,()]+,[[:space:]]*-1[[:space:]]*\\)|${B}kill(${SP}|[[:space:]]*\\()[-A-Za-z0-9\"'\\\\]+[[:space:]]*(,|=>)[[:space:]]*-1([^0-9]|\$)"
+  # JW: whitespace as JavaScript reads it, for the code arm below. The greps run in C (see the if below), so
+  # [[:space:]] is ASCII only; these are the UTF-8 bytes of the rest (U+00A0, U+1680, U+2000-200A, U+2028,
+  # U+2029, U+202F, U+205F, U+3000, U+FEFF), or process.kill(<U+2003>-1, 9) would pass.
+  local JW="([[:space:]]|"$'\xc2\xa0|\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80|\xef\xbb\xbf'")"
+  local code="((${B}|(globalThis|global|window|self)\\.)([Pp]rocess|os|syscall|unix|libc|posix)|require\\([^)]*\\))(\\.|::)[Kk]ill(pg)?${JW}*\\(${JW}*-${JW}*1${JW}*(\\)|,${JW}*${NZ})|${B}kill${JW}*\\(${JW}*-1${JW}*,${JW}*${NZ}|${B}Process\\.kill${JW}*\\([^,()]+,${JW}*-1${JW}*\\)|${B}kill(${SP}|${JW}*\\()[-A-Za-z0-9\"'\\\\]+${JW}*(,|=>)${JW}*-1([^0-9]|\$)"
   local KW="\\\\?[\"']([^\"',]*/)?kill\\\\?[\"']" M1="\\\\?[\"']-1\\\\?[\"']"
   local argv="\\[[[:space:]]*${KW}[[:space:]]*,[^]]*${M1}|${KW}[[:space:]]*,[[:space:]]*\\[[^]]*${M1}"   # an argv, not any object
   local user="${B}(pkill|killall)${SP}${FL}-[a-z]*[uU](${SP})?${OP}${EF}"
@@ -276,7 +280,7 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   local _t="$1"
   # LC_ALL=C on every grep (#5420): under a UTF-8 locale GNU grep took over 60 s on the first pattern for one
   # 1.5 MB line (each of its four parts alone: under 0.1 s), past the hook's 15 s timeout; in C it took 0.07 s.
-  # The patterns are ASCII, and bash splits words on ASCII whitespace only, so bytes are the right unit here.
+  # The patterns are ASCII. Bash splits words on ASCII whitespace only; JavaScript's wider whitespace is JW above.
   if printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
   elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$user|$every"; then echo "a kill that matches every process you own"
   elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$pgall" && printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$kword"; then echo "a kill fed by a pgrep that matches every process you own"

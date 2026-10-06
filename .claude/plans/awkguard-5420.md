@@ -19,19 +19,27 @@ So the cause is GNU grep's multibyte path on one big alternation over one long l
 ## The fix
 
 `LC_ALL=C` on all six greps in `_kill_all_reason`. The hook's two other greps on the raw input already
-did this. The patterns are ASCII; bash splits words on ASCII whitespace only, so a byte is the right
-unit. The one behaviour change: a Unicode space between `kill` and `-1` no longer matches `[[:space:]]`,
-and bash would not run that text as `kill -1` either.
+did this. The patterns are ASCII. What C changes, in both directions (the first found by blind review 1):
+
+- **Narrower, and fixed here:** in C, `[[:space:]]` is ASCII only, but JavaScript reads U+00A0, U+1680,
+  U+2000-200A, U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF as whitespace, so `process.kill(<U+2003>-1, 9)`
+  would have passed. The `code` arm now uses `JW`, `[[:space:]]` plus the UTF-8 bytes of those characters.
+  Tested with and without jq, each one, with a non-whitespace letter as the control.
+- **Narrower, accepted:** a Unicode space between a shell `kill` and `-1` no longer matches the shell arms.
+  Bash splits words on ASCII whitespace only, so it would not run that text as `kill -1` either.
+- **Wider, an improvement:** an invalid UTF-8 byte just before `kill -9 -1` used to defeat the boundary
+  class `[^A-Za-z0-9_.-]` (a UTF-8 grep does not match invalid bytes against it); in C it matches, so that
+  text is now blocked. Not pinned by a test (it needs a non-UTF-8 payload); recorded here.
 
 ## Decided, not missed
 
 - The 12 s bound in the timing test is not widened (#4919's decision; production times out at 15 s).
 - A source pin, not a second timing test: main's CI is Mac-only and BSD grep is fast in either locale,
-  so no timing test on main can see a dropped `LC_ALL=C`. The pin counts the greps (six) and requires
-  the prefix on each; mutations (one dropped, all dropped) both turn it red.
+  so no timing test on main can see a dropped `LC_ALL=C`. The pin counts every `grep` token (six) and
+  requires the prefix on each; mutations (one dropped, all dropped, a seventh bare grep) all turn it red.
 - Not changed: the awk decode, the 256 KB line, the sed drop. All measured under 0.15 s on Linux.
 
 ## Verification
 
-- Mac: report-hook-killguard-4671.test.js 268/268.
+- Mac: report-hook-killguard-4671.test.js, every test green (the count is in the proof).
 - Linux: run 37530775125 on `linux-ci-5420-fix` (the #4919 lane plus only this commit).

@@ -263,7 +263,21 @@ test('#5420 every grep in the kill guard runs in the C locale, so GNU grep stays
   const src = fs.readFileSync(HOOK, 'utf8');
   const start = src.indexOf('_kill_all_reason() {');
   const body = src.slice(start, src.indexOf('\n}\n', start));
-  const greps = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').match(/(\S+=\S+ )?grep -E/g) || [];
+  // Any spelling of grep (-qE, -F, bare), not only grep -E; pgrep has no word boundary before its g.
+  const greps = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').match(/(\S+=\S+ )?\bgrep\b/g) || [];
   assert.equal(greps.length, 6, 'the guard has six greps; a change in that number needs this test read again');
-  for (const g of greps) assert.equal(g, 'LC_ALL=C grep -E', 'every grep in _kill_all_reason sets LC_ALL=C');
+  for (const g of greps) assert.equal(g, 'LC_ALL=C grep', 'every grep in _kill_all_reason sets LC_ALL=C');
+});
+
+test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that the greps run in C', () => {
+  // In C, [[:space:]] is ASCII only. JavaScript treats these as whitespace, so the minus one below is still a
+  // minus one to node; under the UTF-8 locale the old greps caught some of them, and all must still block.
+  for (const ws of [' ', ' ', ' ', ' ', ' ', ' ', ' ', '　', '﻿']) {
+    const content = `process.KILL(${ws}N1, 9);\n`;
+    const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `${name} with jq`);
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `${name} without jq`);
+  }
+  // Control: a letter that is not whitespace makes an identifier, not a minus one, and stays allowed.
+  assert.equal(run('Write', { file_path: '/tmp/x.js', content: 'process.KILL(éN1, 9);\n' }).code, 0);
 });
