@@ -310,6 +310,7 @@ function turnEnv(runner, base, configDir, deps) {
   const d = deps || {};
   const env = Object.assign({}, base || {});
   // #5358: names this function reads back by their usual spelling, moved to it from any inherited spelling first.
+  // A name read back below by a fixed spelling belongs in this list.
   for (const n of ['GEMINI_API_KEY', 'GEMINI_CLI_HOME', 'XAI_API_KEY', 'GROK_HOME']) envCanon(env, n);
   /* childEnv writes CLAUDE_CONFIG_DIR for any named account, a Claude variable a Gemini or
      Grok agent has no use for (and Grok's claude-compat layer reads), in any spelling (#5358). */

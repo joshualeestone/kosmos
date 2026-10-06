@@ -24,7 +24,6 @@ function envSet(env, name, value) {
 /** Move an inherited `name`, in whatever spelling, to the spelling given, so code that reads it back by that spelling
     sees it (win32keyed reads env.GEMINI_API_KEY and env.GEMINI_CLI_HOME). Nothing inherited: nothing is set. */
 function envCanon(env, name) {
-  // The value Node on Windows would hand the child: the sorted-first spelling.
   const k = Object.keys(env).sort().find((x) => x.toUpperCase() === String(name).toUpperCase());
   if (k !== undefined) envSet(env, name, env[k]);
   return env;
