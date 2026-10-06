@@ -49202,6 +49202,7 @@ async function fillSwitchModel() {
   if (!want || !CURRENT || want === providerOf(CURRENT)) { hide(); return; }
   if (want === 'anthropic') {
     if (!CREATE_MODELS.length) {
+      hide();   // review 3: never another provider's choices on screen while Claude's list loads
       try { const res = await fetch('/api/roles', { cache: 'no-store' }); if (res.ok) CREATE_MODELS = ((await res.json()) || {}).models || []; } catch { /* no list: hidden, as before */ }
       if (gen !== SWITCH_MODEL_GEN) return;
     }
