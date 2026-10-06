@@ -447,9 +447,10 @@ function tellEveryoneOn(t, roster) {
      pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
    - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
      valve nor the paging allowance is charged (the Assigner has its own hourly caps);
-     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     the part must still be free at the moment of the write (onlyIfFree), or, for a #5382
+     failover move (`from`), still on that agent (onlyIfWho); the pane line is
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
-     taken back, so nobody is left on a task they were never told about.
+     taken back (to `from` for a failover move), so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
 function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {

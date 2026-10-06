@@ -8,7 +8,8 @@
  * open part of any task assigned to it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
- * a project, never touches a task somebody is already on, and never assigns in an archived
+ * a project, never touches a task somebody is already on (one exception, #5382's failover, off by
+ * default: an agent rate-limited for FAILOVER_MS), and never assigns in an archived
  * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
  * read or is dated in the future, is left alone.
  *
