@@ -1782,6 +1782,8 @@ const closeAll = (page) => page.evaluate(() => {
       const read = () => ps.page.evaluate((s) => ({
         line: document.getElementById(s.line).textContent, btn: document.getElementById(s.btn).textContent.trim(),
         execs: window.__execTexts.slice(), copied: window.__copied.slice(), unhandled: window.__unhandled.slice(),
+        // review 1 (F2): the fallback the refusal names is the code SELECTED in its own field, so the keys copy it.
+        sel: (() => { const f = document.getElementById(s.field); return [f.selectionStart, f.selectionEnd, f.value.length]; })(),
       }), scr);
       const press = () => ps.page.evaluate((s) => { document.getElementById(s.btn).click(); }, scr);
       const setUp = (o) => ps.page.evaluate(({ s, o }) => {
@@ -1807,15 +1809,17 @@ const closeAll = (page) => page.evaluate(() => {
       let r = await read();
       check(`#5275 S1 ${scr.name}: select-and-copy goes first and copies the exact code; the clipboard API is not asked`,
         r.execs.length === 1 && r.execs[0] === 'CODE-5275-A' && r.copied.length === 0 && r.line === 'Code copied.'
-        && (!scr.copiedBtn || r.btn === scr.copiedBtn) && r.unhandled.length === 0, JSON.stringify(r));
+        && (!scr.copiedBtn || r.btn === scr.copiedBtn) && r.unhandled.length === 0
+        && r.sel[1] - r.sel[0] !== r.sel[2], JSON.stringify(r));   // control for S2: a copy that worked leaves the field unselected
 
       await ps.page.waitForTimeout(2200);   // past the create screen's 2 s revert, so S2 starts from a quiet button
       await setUp({ code: 'CODE-5275-A', exec: false, clip: 'refuse' });
       await press();
       await untilLine('not', 'BEFORE');
       r = await read();
-      check(`#5275 S2 ${scr.name}: both ways refused: the line names this computer's keys (control: S1 said Code copied.)`,
-        r.line === refusal && r.execs.length === 1 && r.copied.length === 0 && r.unhandled.length === 0, JSON.stringify({ r, refusal }));
+      check(`#5275 S2 ${scr.name}: both ways refused: the line names this computer's keys and the whole code is selected (control: S1 said Code copied. and selected nothing)`,
+        r.line === refusal && r.execs.length === 1 && r.copied.length === 0 && r.unhandled.length === 0
+        && r.sel[0] === 0 && r.sel[1] === r.sel[2], JSON.stringify({ r, refusal }));   // F2: the whole code is selected
 
       await ps.page.waitForTimeout(2200);
       await setUp({ code: 'CODE-5275-A', exec: false, clip: 'held' });
@@ -1846,7 +1850,8 @@ const closeAll = (page) => page.evaluate(() => {
       await ps.page.waitForTimeout(300);
       const stale = await read();
       check(`#5275 S4 ${scr.name}: a late write for a code the screen no longer shows says nothing (control: S3, same code, says Code copied.)`,
-        afterLimit.line === 'BEFORE' && stale.line === 'BEFORE' && stale.copied.length === 1 && stale.copied[0] === 'CODE-5275-A',
+        afterLimit.line === 'BEFORE' && afterLimit.copied.length === 0   // F6: the write was still held at the limit
+        && stale.line === 'BEFORE' && stale.copied.length === 1 && stale.copied[0] === 'CODE-5275-A',
         JSON.stringify({ afterLimit: afterLimit.line, stale: [stale.line, stale.copied] }));
       await ps.ctx.close();
     }
