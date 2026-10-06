@@ -18441,6 +18441,16 @@ const server = http.createServer(async (req, res) => {
       const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone);
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
     }
+    /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
+       set (as it cannot change the rule itself); it records each run with ran instead. */
+    if (taskAct[3] === 'close' && !isViaScreen(req, {})) {
+      let held = null;
+      try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
+      if (held && held.repeat && held.repeatByPerson === true) {
+        sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+        return;
+      }
+    }
     try {
       const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2]) : tasks.reopen(id, taskAct[2]);
       // Close and reopen change what the assignee's block should list, so
@@ -19207,6 +19217,14 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         // Close and reopen are not valved: they change a state, not who is commanded.
+        if (verb === 'close' && !screen) {   // kosmos#4787 review 3: as the task close route
+          let held = null;
+          try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
+          if (held && held.repeat && held.repeatByPerson === true) {
+            sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+            return;
+          }
+        }
         const out = tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         const roster = safeRoster();

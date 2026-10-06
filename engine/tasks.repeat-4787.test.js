@@ -3,7 +3,7 @@
 /**
  * kosmos#4787: a repeating task (tasks.setRepeat) and its runs (tasks.recordRun). The rule is checked whole and stored
  * normalised; a run is kept as lastRunAt / lastRunBy / lastRunNote and recorded in the task's conversation; a one-off or
- * closed task refuses a run; the board's state for a repeating task is its owner's, never "Unassigned".
+ * closed task refuses a run; closing ends the rule; the person's rule is theirs; a repeating task is never built.
  *
  * ⚠️ SANDBOX BOTH ROOTS BEFORE REQUIRING anything that reads them.
  *
@@ -152,4 +152,26 @@ test('#4787 review 2: the duplicate guard is per runner: another agent\'s run in
   const other = tasks.recordRun(id, n, 'bo', 'b', at + 20000);
   assert.notEqual(other.duplicate, true);
   assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'run').length, 2);
+});
+
+test('#4787 review 3: a repeating task is never built: the mark is refused, and setting a rule takes an existing mark off', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'hour' });
+  const out = tasks.setBuilt(id, n, { by: 'ada', note: 'done' });
+  assert.equal(out.ok, false);
+  assert.match(out.because, /repeats/);
+  const two = freshTask();
+  assert.equal(tasks.setBuilt(two.id, two.n, { by: 'ada' }).ok, true, 'CONTROL: a one-off can be marked built');
+  tasks.setRepeat(two.id, two.n, { every: 'day', at: '08:00' });
+  assert.equal('builtAt' in stored(two.id, two.n), false, 'the rule took the mark off');
+  assert.ok(taskchat.read(two.id, two.n).some((e) => e.kind === 'unbuilt' && e.reason === 'it repeats'));
+});
+
+test('#4787 review 3: clearing a rule clears its runs, so a rule set again later has no stale last run', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'hour' });
+  tasks.recordRun(id, n, 'ada', 'x');
+  tasks.setRepeat(id, n, null);
+  const t = stored(id, n);
+  assert.equal('lastRunAt' in t || 'lastRunBy' in t || 'lastRunNote' in t, false);
 });

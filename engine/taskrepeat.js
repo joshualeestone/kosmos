@@ -133,6 +133,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
    the next scheduled time. Due again (so open work, nudged and counted) once a scheduled time after its last run (or,
    with no run yet, after it was made) has passed. A task that does not repeat is never waiting. */
 const RUN_GRACE_MS = 10 * 60 * 1000;
+function graceFor(rule) {
+  const r = normalise(rule);
+  const period = !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
+  return Math.min(RUN_GRACE_MS, Math.floor(period / 30));
+}
 function waitingForNextRun(t, now = Date.now()) {
   if (!t || !t.repeat) return false;
   const raw = Date.parse(t.lastRunAt || t.createdAt || '');
@@ -142,7 +147,10 @@ function waitingForNextRun(t, now = Date.now()) {
      each check.) A run reported a little early (08:59:50 for 09:00) is that slot's run, so the next is measured past a
      short grace. */
   if (raw > now + 60 * 1000) return false;
-  const since = raw + RUN_GRACE_MS;
+  /* review 3: the grace is for a RUN reported early, never for the moment the task was made (a task made at 08:55 for
+     09:00 must be due at 09:00), and it is a small share of the period: at most 10 minutes, 2 for an hourly job, so a
+     late run at 09:55 for the 09:00 slot still leaves 10:00 due. */
+  const since = t.lastRunAt ? raw + graceFor(t.repeat) : raw;
   const due = nextAfter(t.repeat, since);
   return due !== null && due > now;
 }
