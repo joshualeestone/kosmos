@@ -60,6 +60,10 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - Deferred: "ChatGPT, connected the same way, also reads" does not list ChatGPT's refusal cases (catalog, version,
   AGENTS.md, managed settings); each is told, with what to do, the moment it applies.
 
+- Deferred (round 10): after a Claude read could not run (Claude's program gone), the answer is the usual sentence,
+  which leads with Claude. That is what this route answered before this branch too; a Claude-specific "could not
+  start" wording is a separate change.
+
 ## Tests
 - server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
 - engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes

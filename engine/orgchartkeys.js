@@ -181,7 +181,7 @@ function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map }
 function googleOffWhyFor(platform) {
   return 'Claude can read a picture or PDF, connected in Settings, AI Models'
     + (platform === 'win32' ? ', and so can OpenAI or Grok connected with a key (Grok a PNG or JPG picture only)'
-      : ', and ChatGPT, connected the same way, a PNG or JPG picture (so can OpenAI or Grok connected with a key, and an OpenAI key also reads a PDF)')
+      : '. ChatGPT, connected the same way, also reads a PNG or JPG picture, and so can OpenAI or Grok connected with a key (an OpenAI key also reads a PDF)')
     + '. Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
     + ' A CSV or Excel export works with any provider, and so does typing the list.';
 }

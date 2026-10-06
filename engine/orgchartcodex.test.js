@@ -504,7 +504,7 @@ test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex v
   try {
     assert.equal(o.currentReader(), null);
     if (process.platform !== 'win32') {
-      assert.equal(o.whyNoReader(), 'Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can read a PNG or JPG picture too (an OpenAI key also reads a PDF).'
+      assert.equal(o.whyNoReader(), 'Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can also read a PNG or JPG picture (an OpenAI key also reads a PDF).'
         + ' ChatGPT does not read org charts with the Codex on this computer (version 9.9.9): Kosmos has checked only version ' + PINNED + '.'
         + ' Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
         + ' A CSV or Excel export works with any provider, and so does typing the list.');
@@ -516,7 +516,7 @@ test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex v
   try {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), 'Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can read a PNG or JPG picture too (an OpenAI key also reads a PDF).'
+    assert.equal(o.whyNoReader(), 'Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can also read a PNG or JPG picture (an OpenAI key also reads a PDF).'
       + ' ChatGPT does not read org charts on Windows yet.'
       + ' Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
       + ' A CSV or Excel export works with any provider, and so does typing the list.');

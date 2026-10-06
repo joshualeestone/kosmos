@@ -449,7 +449,7 @@ const ANY_PROVIDER = require('./orgchartcodex').ANY_PROVIDER;
 function whatReads(platform, opts) {
   const chatgpt = opts && opts.chatgpt !== undefined ? opts.chatgpt === true : platform !== 'win32';
   return 'Claude reads a picture or PDF, connected in Settings, AI Models. '
-    + (!chatgpt ? 'OpenAI or Grok connected with a key can read a PNG or JPG picture too'
+    + (!chatgpt ? 'OpenAI or Grok connected with a key can also read a PNG or JPG picture'
       : 'ChatGPT, connected the same way, also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too')
     + ' (an OpenAI key also reads a PDF).';
 }
