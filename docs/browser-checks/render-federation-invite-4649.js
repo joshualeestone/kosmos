@@ -1764,8 +1764,9 @@ const closeAll = (page) => page.evaluate(() => {
     if (words) {
       await page.evaluate(() => { showTab('projects'); pjView('list'); });   // the Projects list, where step 2 starts
       await page.waitForTimeout(200);
-      // #5373: the next screen may draw after the click's handler returns, so each word is looked for until it shows
-      // (4 s at most), not once after a fixed 200 ms. A word that never shows still ends the walk with null.
+      // #5373: each word is looked for until it shows (4 s at most), not once after a fixed 200 ms. A word that never
+      // shows ends the walk with null. The walk does not prove the screen changed between words: the three labels
+      // differ, and the second (a radio label) stays on screen after it is pressed.
       const findSoon = async (w) => {
         const end = Date.now() + 4000;
         let h = await find(page, w);
