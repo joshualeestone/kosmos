@@ -260,7 +260,10 @@ function maybeMigrateLegacyStore() {
      variable, so nothing else in the process (agystatus, accounts, the workers root) changes, and
      a test that sets HOME later is honoured from then on. (worlds.applyWorldEnv, given a named
      world, does export that world's path under the throwaway, as it would under any root.) A child
-     process the test starts is a test process too and gets a throwaway of its own. Removed at
+     process the test starts is a test process too when it inherits a marker (NODE_TEST_CONTEXT, or
+     KOSMOS_TEST_RUN), and then gets a throwaway of its own; under a direct
+     `node --test --test-isolation=none` the parent is known only by its own execArgv, which a
+     child does not inherit, so that child is NOT covered. Removed at
      exit, best effort; a process that was killed leaves it, and the next test process to make a
      throwaway removes the ones whose process is gone (sweepDeadTestHomes, any platform). The
      legacy migration is skipped for it, since its own target would be the real store
@@ -285,7 +288,7 @@ function maybeMigrateLegacyStore() {
    rule). */
 function isTestProcess(env) {
   // live-execution requires nothing, so this lazy require cannot form a cycle with the store.
-  return !!env.NODE_TEST_CONTEXT || inThisTestRun(env) || require('./live-execution').inTestProcess();
+  return !!env.NODE_TEST_CONTEXT || require('./live-execution').inTestProcess() || inThisTestRun(env);   // cheapest first
 }
 /* tools/run-tests.sh sets KOSMOS_TEST_RUN to its own private temp folder. It counts only for a
    process whose temp folder is that one or inside it, so the variable alone, left in a shell
@@ -310,7 +313,8 @@ function realDefaultRoot(platform, app) {
    directory (a symlinked /var, a home reached through a link) compare equal even before the
    root exists; lower-cased where the default volume ignores case (macOS, Windows). Cached per
    spelling, since store.ROOT is read often (a symlink made later under a cached spelling is not
-   seen). Only test processes reach it. */
+   seen). Reached in a test process, by inThisTestRun when KOSMOS_TEST_RUN is set, and by
+   test-support/data-root-sandbox.js. */
 const realishSeen = new Map();
 function realish(p, platform, { fresh = false } = {}) {
   const key = platform + '\0' + p;
@@ -394,8 +398,9 @@ function throwawayRootForThisProcess(platform, app) {
 }
 /**
  * #5418: the data root with the test-process rule applied and NO migration. Every caller that
- * derives the store's root (root() below, create.supportDir, worlds.baseRoot, the silence
- * monitor) goes through this, so one process always agrees on one root, throwaway or real.
+ * derives the store's root to read or write it (root() below, create.supportDir, worlds.baseRoot,
+ * boardauth's legacy token, the silence monitor, win32anchor off Windows) goes through this, so
+ * one process always agrees on one root, throwaway or real.
  * `env` supplies the sandbox variables (worlds passes the launch's original env); whether this
  * is a test process is always read from process.env.
  */
@@ -413,7 +418,7 @@ function root() {
   // neither is the REAL root when a test process allowed it only to read it (KOSMOS_ALLOW_REAL_ROOT);
   // a sandbox in that same process still migrates as usual.
   if (testRoots.has(resolved)) return resolved;
-  if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1' && isRealRoot(resolved, process.platform)) return resolved;
+  if (env.KOSMOS_ALLOW_REAL_ROOT === '1' && isTestProcess(env) && isRealRoot(resolved, process.platform)) return resolved;
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
@@ -815,6 +820,12 @@ function writeSettings(patch) {
  * agent is restored. Nothing outside this file needs the path, so nothing gets
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
+ *
+ * #5418's exports are a deliberate exception to that rule, stated so it is a choice: TEST_HOME_PREFIX,
+ * TEST_HOME_MARK, realDefaultRoot and realish are read-only, and sweepDeadTestHomes deletes only
+ * what its own guards allow (a real folder this user owns, named with the prefix, carrying a mark
+ * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
+ * callers; nothing in the product calls it but the store itself.
  */
 module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 

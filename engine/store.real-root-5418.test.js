@@ -199,7 +199,7 @@ test('#5418: a test process that allows the real root to READ it never runs the 
   const src = fs.readFileSync(STORE, 'utf8');
   const at = src.indexOf('function root() {');
   const body = src.slice(at, src.indexOf('\n}', at) + 2);
-  const skip = body.search(/env\.KOSMOS_ALLOW_REAL_ROOT\s*===\s*'1'\s*&&\s*isRealRoot\(resolved[^)]*\)\)\s*return/);
+  const skip = body.search(/env\.KOSMOS_ALLOW_REAL_ROOT\s*===\s*'1'[^;\n]*isRealRoot\(resolved[^;\n]*return resolved/);
   const migrate = body.search(/maybeMigrateLegacyStore\(\)/);
   assert.ok(skip > -1 && migrate > -1 && skip < migrate, 'root() can migrate the real store for a test that only allowed reading it');
 });

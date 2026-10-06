@@ -62,7 +62,8 @@ KOSMOS_TEST_RUN, with no variable leaking; one per process, one exit listener, r
 after the first read honoured; every caller agrees (store.ROOT, create.supportDir, worlds.baseRoot, the
 silence monitor); a named world's inherited DATA, a DATA at the real root's parent and the real home
 through a symlink all get the throwaway; the legacy leaf is a legacy-shaped throwaway, with boardauth's
-read pinned to it; a sandbox by DATA, HOME var or HOME kept; the dead-pid sweep's four arms; the
+read pinned to it; a sandbox by DATA, HOME var or HOME kept; the dead-pid sweep's arms (dead removed; live, malformed name, other folder, unmarked and
+another host's kept) plus a separate arm for a link (neither removed nor followed); the
 test-support helper and the store agree on "real". Controls: no test marker returns the real root as
 before, KOSMOS_ALLOW_REAL_ROOT returns it on purpose. Each arm added in a review round was run against the
 previous commit and failed there.
@@ -133,6 +134,8 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   in a test process the deny rules name a throwaway current root beside the real legacy one (named only).
 - The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
 - A plain `node file.test.js` (no `--test`, no run-tests.sh) sets no marker and is not guarded.
+- Under a direct `node --test --test-isolation=none`, the test process is known by its own execArgv only,
+  which its children do not inherit: a board or CLI it starts without a sandbox is not guarded.
 
 ## Full-suite measurement of THIS design
 The 122-failure run was the first (throwing) design. The current design's own full suite: PENDING (queued
