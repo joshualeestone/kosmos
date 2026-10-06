@@ -5,7 +5,7 @@ Stacked on slice 2 (missedrun-4787, PR #5416): it reads slice 2's missedRuns. Re
 Built:
 - tasks.setReviewer: a repeating task names ONE reviewer of its results: the person ('me', set only from the screen), an agent on the project (checked inside the same write), or nobody. A reviewer the person chose is theirs: a process cannot change it. Each change is in the task's history. Stopping the repeat takes the reviewer and the told mark with it.
 - engine/missedtell.js: owed() lists each open, repeating, reviewed task whose latest missed slot (slice 2) is newer than the slot last told (missToldAt) and not before the reviewer was named; nothing in a paused project or on a held task (#4771). sweep():
-  - an AGENT reviewer gets one line through the board's typing path (chat.deliverAutomatic): the task, the run missed, who runs it. Only into a pane that is ours and not a switched-off swarm, only with live execution allowed and the brake off (the nudge's gate), counted in the board-wide hour shared with the nudge (Agent Communication's limit). A line that reaches nothing is tried up to 3 times, then recorded as not reached.
+  - an AGENT reviewer gets one line through the board's typing path (chat.deliverAutomatic): the task, the run missed, who runs it. Only into an IDLE pane that is ours and not a switched-off swarm (the nudge's whole card rule, agentnudge.nudgeableCard), only with live execution allowed and the brake off (the nudge's gate), counted in the board-wide hour shared with the nudge (Agent Communication's limit). A line that reaches nothing is tried up to 3 times, then recorded as not reached.
   - the PERSON as reviewer is told by the task: while a run is missed the Tasks route marks it waitingOnPerson, so it is in Needs Your Decision (that group's why says so), and the history records the miss.
   - either way the task's history gets one "missed" entry per slot, with who was told.
 - server.js runs the sweep on its own minute timer (not the Prompter tick, which types only through prompterTick, pinned by engine/agentnudge.test.js).
@@ -26,6 +26,8 @@ Review 6 (fixed): a finished task hides the reviewer row (tkPaintRepeat's early 
 Review 7 (fixed, nits only): the reviewer row's "Saved." line clears when the row hides; the roster is not read for a reviewer taken off the project.
 
 Review 8 (fixed): a reviewer whose swarm is switched off in this project is held, as the nudge and the reply nudge do (and its roster is not read); a miss from before the person chose "Me" is not put on them (personReviewMissed reads repeatReviewerSetAt, as owed() does).
+
+Review 9 (fixed): a BLOCKER. The line was typed into a reviewer whatever its state, so into a pane stopped on a permission prompt, where "...and Enter" can approve a tool call nobody saw (also rate-limited and signed-out sessions). It now takes the nudge's whole card rule (idle, ours, not switched off), held with no try spent until the reviewer is idle. The line's words are cleaned as the nudge's (plainWords), so a sentence with a control character is never refused by the typing path.
 
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
