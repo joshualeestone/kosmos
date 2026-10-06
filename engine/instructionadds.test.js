@@ -487,3 +487,13 @@ test('review 9: lines the person typed directly under the addition are theirs: U
   assert.equal(adds.undo('sally').ok, true);
   assert.equal(fileText('sally'), BASE.trimEnd() + '\n\nMy own line, typed right under it.\n');
 });
+test('review 9: instructions that cannot be read leave Undo not offered as "unknown", never "undone"', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  fs.rmSync(path.join(ROOT, 'sally', 'CLAUDE.md'));
+  const last = adds.state('sally').last;
+  assert.equal(last.blocked, 'unknown', JSON.stringify(last));
+  assert.equal(last.undone, false);
+  assert.equal(adds.undo('sally').ok, false);
+});
