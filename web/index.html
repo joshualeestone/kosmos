@@ -11627,7 +11627,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* 0.7.25 fix-forward (render-dm-sideways-3969): #5333's follow-up line is always in the page, and an empty .fmsg still
    took 12px, which a sideways phone DM cannot spare (38px of conversation shown, 50 needed). Empty, it takes nothing;
    the moment the Restart's follow-up writes into it, it shows. */
-#d-linklost-msg:empty { display: none; }
+/* Renet's accepted NIT (the follow-up line is an aria-live status): display:none takes it out of the accessibility
+   tree, so a screen reader may miss the first follow-up written into it. Empty, it is kept in the tree at no height
+   (nothing to see, no space taken); written into, it is an ordinary line again. */
+#d-linklost-msg:empty { display: block; height: 0; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
