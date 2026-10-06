@@ -2187,7 +2187,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 module.exports = {
   switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
-  sendAddress: endpoint,   // #5415: read by communitystatus to decide whether a sent item has a public page to link
+  sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
