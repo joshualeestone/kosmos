@@ -46103,8 +46103,10 @@ function copyTextViaExec(text, back) {
 /* kosmos#5275: the invite sheet's copy ORDER (fedCopyText, #4649 slice C) for a screen with one Copy button and none
    of the sheet's state: select-and-copy first, synchronously inside the press (a web view that needs the press's own
    activation still copies), then the clipboard API with a 3 s limit (a permission prompt nobody answers cannot leave
-   the button silent). Resolves true or false. A write that lands after the limit calls onLate(), so the screen can
-   take its refusal back. Call it before any await in the press handler. */
+   the button silent). Resolves 'exec' (select-and-copy did it, inside the press), 'clip' (the clipboard API did, in
+   time) or false. 'clip' matters to a screen whose code changed during the wait: that write has just replaced whatever
+   was copied since (#5275 review 3). A write that lands after the limit calls onLate(), so the screen can take its
+   refusal back. Call it before any await in the press handler. */
 /* #5275 review 1: whether focus is still where the press left it (the button, or nowhere), so a refusal that comes 3 s
    later does not pull the caret out of a field the person has moved on to. */
 /* #5275 review 2: an earlier press's held write landed after the screen moved on to a newer code. */
@@ -46114,12 +46116,12 @@ function copyFocusStillOn(btn) {
   return !a || a === btn || a === document.body;
 }
 async function copyTextOrdered(text, btn, onLate) {
-  if (copyTextViaExec(text, btn)) return true;
+  if (copyTextViaExec(text, btn)) return 'exec';
   if (!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function')) return false;
   let limit = null;
   const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
   const write = (async () => navigator.clipboard.writeText(text))();   // a web view that THROWS still lands in catch
-  try { await Promise.race([write, late]); return true; }
+  try { await Promise.race([write, late]); return 'clip'; }
   catch { write.then(() => { if (onLate) onLate(); }, () => {}); return false; }
   finally { if (limit) clearTimeout(limit); }
 }
@@ -60578,7 +60580,7 @@ async function pjsOwnCopy() {
   // kosmos#5275: the invite sheet's order (copyTextOrdered); a late write takes the refusal back while the same code shows.
   try { ok = await copyTextOrdered(text, btn, () => { if (code.value === text) msg.textContent = 'Code copied.'; else if (code.value) msg.textContent = COPY_LATE_OLDER; }); }   // see pjCopyInvite
   finally { if (PJS_OWN_COPY_BUSY === text) PJS_OWN_COPY_BUSY = ''; }
-  if (code.value !== text) return;   // a new code arrived meanwhile
+  if (code.value !== text) { if (ok === 'clip' && code.value) msg.textContent = COPY_LATE_OLDER; return; }   // see pjCopyInvite
   if (!ok) { try { if (copyFocusStillOn(btn)) code.focus(); code.select(); } catch { /* the field is the fallback */ } }   // #5275 review 1: see pjCopyInvite
   msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
 }
@@ -68434,7 +68436,16 @@ async function pjCopyInvite() {
     });
   }
   finally { if (PJ_COPY_BUSY === text) PJ_COPY_BUSY = ''; }
-  if (codeEl.value !== text) return;   // a new code arrived meanwhile: this press's answer is about the old one
+  if (codeEl.value !== text) {
+    // A new code arrived meanwhile. A clipboard write for the old one, landing now, has just replaced whatever was copied
+    // since (a select-and-copy ran inside the old press, before the new code existed, so it replaced nothing): say so.
+    if (ok === 'clip' && codeEl.value) {
+      if (PJ_COPY_TIMER) { clearTimeout(PJ_COPY_TIMER); PJ_COPY_TIMER = null; }
+      btn.textContent = 'Copy';
+      if (status) status.textContent = COPY_LATE_OLDER;
+    }
+    return;
+  }
   // The fallback: the code selected, so the copy keys the line names copy it. Focus moves to it only if it is still on
   // the button (or nowhere): after a 3 s wait the person may be typing elsewhere (#5275 review 1).
   if (!ok) { try { if (copyFocusStillOn(btn)) codeEl.focus(); codeEl.select(); } catch { /* the field is the fallback; nothing else to do */ } }
