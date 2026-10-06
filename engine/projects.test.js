@@ -1741,7 +1741,7 @@ test('an over-long name on the default path meets the SAME sentence the preview 
     /longer than a project name should be/);
 });
 
-test('the previewed path IS the path the act produces, case correction included', { skip: !caseInsensitiveFS() && 'case correction requires case-insensitive filesystem' }, () => {
+test('the previewed path IS the path the act produces, case correction included', () => {
   // ⚠️ Volume-portable on purpose, the same lesson create.test.js records: on
   // a case-insensitive disk `lease` beside an existing `Lease` ADOPTS that
   // folder, on a case-sensitive one they are two entries -- so the assertion
