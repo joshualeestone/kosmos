@@ -948,3 +948,96 @@ test('#5294 review 3: a REAL data root (not a temp folder, no test runner) is NO
     nodePath.join(__dirname, 'feedbacksend.js')], { env, encoding: 'utf8' });
   assert.equal(out, 'false', 'a real data root (with TMPDIR=/, the review-3 case) was treated as a test run');
 });
+
+/* kosmos#5317 review 1: the wiring where it ships. */
+test('#5317 the PAYLOAD of a two-agent day carries both reports and no agent name', () => {
+  feedback.write('the first report', { date: '2026-10-05', from: 'leo' });
+  feedback.write('the second report', { date: '2026-10-05', from: 'mara' });
+  const body = feedbacksend.payload('2026-10-05').body;
+  assert.match(body, /## Report 1\n\nthe first report/);
+  assert.match(body, /## Report 2\n\nthe second report/);
+  assert.doesNotMatch(body, /leo|mara|kosmos-feedback-from/i);
+});
+
+test('#5317 the PAYLOAD of a one-writer day is exactly the report, as before', () => {
+  feedback.write('  just one\nreport', { date: '2026-10-06', from: 'leo' });
+  assert.equal(feedbacksend.payload('2026-10-06').body, '  just one\nreport\n');
+});
+
+test('#5317 the sweep sends a changed YESTERDAY once (a second agent wrote late), then never again', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  const settle = () => new Promise((r) => setImmediate(r));   // the delivered hash is recorded when the send resolves
+  feedback.write('the first report', { date: '2026-10-07', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-10-07T22:00:00')); await settle();
+  feedback.write('the second report', { date: '2026-10-07', from: 'mara' });
+  feedbacksend.sweepTick(at('2026-10-07T23:00:00')); await settle();      // inside the 3 h floor: nothing
+  assert.deepEqual(sent, ['2026-10-07']);
+  feedbacksend.sweepTick(at('2026-10-08T01:30:00')); await settle();      // the next day, past the floor: yesterday goes
+  assert.deepEqual(sent, ['2026-10-07', '2026-10-07'], 'the late second report never reached the team');
+  feedbacksend.sweepTick(at('2026-10-08T02:30:00')); await settle();
+  feedbacksend.sweepTick(at('2026-10-08T05:30:00')); await settle();
+  assert.deepEqual(sent, ['2026-10-07', '2026-10-07'], 'yesterday was sent again although nothing changed');
+});
+
+test('#5317 CONTROL: an UNCHANGED yesterday is not sent again by the sweep', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  const settle = () => new Promise((r) => setImmediate(r));   // the delivered hash is recorded when the send resolves
+  feedback.write('one report', { date: '2026-10-09', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-10-09T22:00:00')); await settle();
+  feedbacksend.sweepTick(at('2026-10-10T03:00:00')); await settle();
+  assert.deepEqual(sent, ['2026-10-09']);
+});
+
+test('#5317 review 2: a changed yesterday is sent before TODAY\'s send moves the record on (the floor had held it)', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { const p = JSON.parse(init.body); sent.push(p.date + ':' + (/Report 2/.test(p.body) ? 2 : 1)); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  const settle = () => new Promise((r) => setImmediate(r));
+  feedback.write('the first report', { date: '2026-10-11', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-10-11T22:00:00')); await settle();
+  feedback.write('the second report', { date: '2026-10-11', from: 'mara' });
+  feedback.write('a report for the new day', { date: '2026-10-12', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-10-12T00:30:00')); await settle();   // 2.5 h: under the floor for 10-11
+  assert.deepEqual(sent, ['2026-10-11:1', '2026-10-11:2', '2026-10-12:1'], 'the late second report was lost when the new day was sent');
+  feedbacksend.sweepTick(at('2026-10-12T04:30:00')); await settle();
+  assert.equal(sent.length, 3, 'something was sent again with nothing changed');
+});
+
+test('#5317 review 3: a re-send still in flight is not sent again by the next day\'s send in the same tick', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  const settle = () => new Promise((r) => setImmediate(r));
+  feedback.write('the first report', { date: '2026-11-01', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-11-01T22:00:00')); await settle();
+  feedback.write('the second report', { date: '2026-11-01', from: 'mara' });
+  feedback.write('the new day', { date: '2026-11-02', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-11-02T01:30:00')); await settle();
+  assert.deepEqual(sent, ['2026-11-01', '2026-11-01', '2026-11-02'], 'the changed day went out twice in one tick');
+});
+
+test('#5317 review 3: when the new day\'s mark cannot be saved, the day before is NOT posted (no flood)', async () => {
+  feedbacksend.setOn(true);
+  const sent = [];
+  feedbacksend.setSender((url, init) => { sent.push(JSON.parse(init.body).date); return Promise.resolve(); });
+  const at = (s) => new Date(s).getTime();
+  feedback.write('the first report', { date: '2026-11-05', from: 'leo' });
+  feedbacksend.sweepTick(at('2026-11-05T20:00:00'));
+  await new Promise((r) => setImmediate(r));
+  feedback.write('the second report', { date: '2026-11-05', from: 'mara' });
+  feedback.write('the new day', { date: '2026-11-06', from: 'leo' });
+  const file = feedbacksend.FILE;
+  fs.chmodSync(nodePath.dirname(file), 0o500);
+  try {
+    for (const h of ['00:10', '00:20', '00:30']) await feedbacksend.sendNow('2026-11-06', at('2026-11-06T' + h + ':00'));
+  } finally { fs.chmodSync(nodePath.dirname(file), 0o700); }
+  assert.deepEqual(sent, ['2026-11-05'], 'an unsaved mark still posted the day before');
+});

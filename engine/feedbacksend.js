@@ -380,7 +380,7 @@ function payload(date) {
     install: install || 'unknown',
     date: d,
     generated_at: generatedAt(raw) || new Date().toISOString(),
-    body: scrub(feedback.readBody(d)),
+    body: scrub(feedback.sendBody(d)),   // kosmos#5317: no writer names in the headings, built from the stored sections
     consent: { given: true, version: CONSENT_VERSION },
   };
 }
@@ -418,6 +418,8 @@ function maybeSend(date, onOk) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(data),
       signal: ctl.signal,
+      // #5317 review 3: as sendNow, a loopback stub under test may not redirect this to a real host.
+      ...(sandboxed() ? { redirect: 'error' } : {}),
     })).then((res) => {
       // kosmos#4766: `onOk` runs only when the collector accepted the report. A
       // fetch Response with ok:false (a 4xx/5xx) is a failure; an injected test
@@ -504,6 +506,7 @@ function sendDailyOnce(date, now) {
     // and dropped on a new day (it described another day's report).
     const keep = st.sent === d ? st.sentHash : null;
     if (!markSent(d, keep, t).ok) return;
+    flushChangedDay(st, d, t);   // #5317: the day the record named before this mark (review 3: only once the mark held)
     maybeSend(d, () => {
       // After the collector accepted it: record what was delivered, but only if
       // no later attempt has marked since (that attempt records its own).
@@ -511,6 +514,45 @@ function sendDailyOnce(date, now) {
       if (cur.ok && cur.sent === d && cur.sentAt === t) write({ sentHash: h });
     });
   } catch { /* nothing here may reach the caller */ }
+}
+
+/**
+ * kosmos#5317 review 1: the board's hourly sweep. Today's report, as before, and FIRST the day before when it was the
+ * last day sent and its report changed since (a second agent wrote at 22:30 after the first one's report went at
+ * 22:00: the resend is due at 01:30, when "today" is already the next day). Only while the send record still names
+ * that day, so it cannot repeat: once today's report is sent, the record names today and the day before is done.
+ */
+function sweepTick(now) {
+  try {
+    const t = Number.isFinite(now) ? now : Date.now();
+    const n = new Date(t);
+    const prev = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
+    const st = read();
+    if (st.ok && st.sent === prev) {
+      const body = feedback.readBody(prev);
+      if (body != null && bodyHash(body) !== st.sentHash) sendDailyOnce(prev, t);
+    }
+    sendDailyOnce(feedback.dateKey(n), t);
+  } catch { /* nothing here may reach the caller */ }
+}
+
+/**
+ * kosmos#5317 review 2: the send record names ONE day. As it moves to a new day, the day it named is sent once more
+ * if that report changed since its last delivery (a second agent wrote after the first agent's report went, or the
+ * last send failed). Without this, the record moving on was the only thing that remembered the change, and it was
+ * lost. At most once per change of day, so it cannot flood the collector; a failure here is not retried.
+ */
+function flushChangedDay(st, d, t) {
+  try {
+    // Only a day BEFORE the one being sent (review 4: a write that straddled midnight sends an older day, and the newer
+    // day it rewinds from is left to the sweep, which sends it once).
+    if (!st || !st.ok || !st.sent || !(st.sent < d)) return;
+    // The last attempt may still be in flight (a send times out after 5 s), and its delivered hash is recorded only
+    // when it answers: within a minute of it, whatever the record's hash says, nothing is sent again (review 3).
+    if (st.sentAt != null && t - st.sentAt >= 0 && t - st.sentAt < RETRY_MIN_MS) return;
+    const body = feedback.readBody(st.sent);
+    if (body != null && bodyHash(body) !== st.sentHash) maybeSend(st.sent);
+  } catch { /* best effort */ }
 }
 
 function markSent(date, hash, at) {
@@ -586,6 +628,7 @@ function sendNow(date, now) {
       if (!data) return done('none');
       const keep = st.sent === d ? st.sentHash : null;
       if (!markSent(d, keep, t).ok) return done('unsent');
+      flushChangedDay(st, d, t);   // #5317: the day the record named before this mark (review 3: only once the mark held)
       const post = sender || ((url, init) => fetch(url, init));
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 5000);
@@ -615,7 +658,7 @@ function sendNow(date, now) {
 const WRITE_MESSAGES = Object.freeze({
   sent: 'Saved today\'s product-feedback report and sent it to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
   already: 'Saved today\'s product-feedback report. It is the same as the one already sent to the Kosmos team today, so nothing new was sent.',
-  later: 'Saved today\'s product-feedback report. An earlier version from today already reached the Kosmos team, and Kosmos sends an updated one at most every three hours, so this version has not been sent yet.',
+  later: 'Saved today\'s product-feedback report. A report from today (this one or another agent\'s) already reached the Kosmos team, and Kosmos sends the updated day at most every three hours, so this one goes with the next send.',
   off: 'Saved today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
   unreadable: 'Saved today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
   none: 'Saved today\'s product-feedback report on this computer.',
@@ -630,6 +673,7 @@ function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.no
 function setSender(f) { sender = f; }
 
 module.exports = {
+  sweepTick,
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
   sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294

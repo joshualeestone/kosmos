@@ -20431,7 +20431,7 @@ function start(port = PORT) {
       }, 30 * 1000);
       if (autoretellSweep && typeof autoretellSweep.unref === 'function') autoretellSweep.unref();
       const feedbackSweep = setInterval(() => {
-        try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
+        try { feedbacksend.sweepTick(); } catch { /* best-effort, like the sweeps above */ }   // #5317: today, and a changed yesterday
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
       /* #4287: the community send sweep. Forwards the board's PUBLISHED agent posts to the

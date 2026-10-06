@@ -1139,7 +1139,8 @@ async function feedbackWrite(ctx, args) {
     return 2;
   }
   let date;
-  try { date = ctx.engine('feedback').write(body).date; } catch (e) {
+  // kosmos#5317, as install/kosmos: this agent's own section of the day, so a second agent does not replace the first.
+  try { const fb = ctx.engine('feedback'); date = fb.write(body, { from: typeof fb.writer === 'function' ? fb.writer(ctx.env) : null }).date; } catch (e) {
     ctx.err('We could not save that report (' + String((e && e.message) || e) + ').');
     return 1;
   }
