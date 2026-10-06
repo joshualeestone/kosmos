@@ -3219,21 +3219,33 @@ function blockBody(projects, sessionName) {
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
+  const rules = blockRules(sessionName, cliShown);
   return [
     '## Your projects',
     '',
-    'Kosmos records which projects you are on, and the folder it has recorded for each, on this computer.',
-    /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
-       cannot see those, so it says how to find the folder there. Review 1: the heading names the RECORDED folder, so it
-       does not certify a path that may have moved since (the section is not re-checked against the disk on purpose:
-       a drive coming and going would rewrite every agent's file). */
-    'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
-    'sessions), find a project\'s folder there by the folder\'s own name, the last part of its path (it can differ',
-    'from the project\'s name).',
+    ...rules.intro,
     '',
     ...lines,
-    ...(any ? [
-      '',
+    ...(any ? ['', ...rules.tasks] : []),
+    ...(sessionName ? ['', ...rules.member] : []),
+  ].join('\n');
+}
+
+/* The block's standing rules: every line of it that is not a project or a task line. kosmos#5320 owes a running agent
+   a re-read when these change, and only then (rulesChangedIn). */
+function blockRules(sessionName, cliShown) {
+  return {
+    intro: [
+      'Kosmos records which projects you are on, and the folder it has recorded for each, on this computer.',
+      /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
+         cannot see those, so it says how to find the folder there. Review 1: the heading names the RECORDED folder, so it
+         does not certify a path that may have moved since (the section is not re-checked against the disk on purpose:
+         a drive coming and going would rewrite every agent's file). */
+      'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
+      'sessions), find a project\'s folder there by the folder\'s own name, the last part of its path (it can differ',
+      'from the project\'s name).',
+    ],
+    tasks: [
       'The indented lines are tasks written down for you. When you take one up,',
       'report it as "task <number> of <project>": the number alone is ambiguous',
       'when you are on two projects.',
@@ -3241,12 +3253,11 @@ function blockBody(projects, sessionName) {
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
-    ] : []),
+    ],
     /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an agent
        held every task by hand. Taught to every member, not only those holding tasks (review 1: a coordinator with no
        tasks is the likeliest to be asked). Resuming is the person's, on the screen, so no verb for it exists. */
-    ...(sessionName ? [
-      '',
+    member: [
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
       'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
       'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
@@ -3254,8 +3265,23 @@ function blockBody(projects, sessionName) {
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
-    ] : []),
-  ].join('\n');
+    ],
+  };
+}
+
+/* kosmos#5320: did this write change a standing rule in a block the agent already had? `oldText` is the file before the
+   write. False when there was no block (joining is announced by its own line, membershipLine) or the block is going
+   (nothing left to read), and false for project and task lines (the agent's own task close changes those). The tasks
+   rules are compared only when the old block had them: a first task arriving is announced where it is assigned. */
+function rulesChangedIn(oldText, projects, sessionName) {
+  if (!Array.isArray(projects) || !projects.length || !sessionName) return false;
+  const found = findBlock(oldText || '');
+  if (!found || found.ambiguous) return false;
+  const old = String(oldText).slice(found.start, found.end);
+  const rules = blockRules(sessionName, kosmosCliShown());
+  const pieces = [rules.intro, rules.member];
+  if (old.includes(rules.tasks[0])) pieces.push(rules.tasks);
+  return pieces.some((p) => !old.includes(p.join('\n')));
 }
 
 /* Exact to permit (#3932 shares it with tellAgent): our card for this exact name, or null. A roster
@@ -3389,7 +3415,8 @@ function tellAgent(sessionName, projects, roster) {
     // An older-format block whose projects cannot be read: nothing is claimed as new (announcing a
     // project the agent has been on for weeks is worse than saying nothing).
     const added = blockUnreadable(current.text, ids) ? [] : projectsInBlock(next, ids).filter((id) => !had.includes(id));
-    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added };
+    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added,
+      rulesChanged: rulesChangedIn(current.text, projects, sessionName) };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block
     // back out can push a file under the editor's minimum, and forwarding that
@@ -3531,17 +3558,18 @@ function syncAgent(sessionName, roster) {
   const key = String(sessionName || '');
   const mine = readAll().filter((p) => (p.agents || []).includes(key));
   const verdict = tellAgent(key, mine, roster);
-  /* kosmos#5320: an agent reads this file only when its session starts, so a running agent kept the projects block it
-     started with (a 0.7.22 report: no `project pause`, so a pause said in the room never reached the board). A write
-     that CHANGED the block owes it a re-read line; an unchanged one owes nothing. Never fails the write. */
-  if (verdict && verdict.changed === true && verdict.state === TOLD.TOLD) {
-    try { require('./instructionreread').oweNow(key, 'projects'); } catch { /* it reads the block at its next start */ }
+  /* kosmos#5320: an agent reads this file only when its session starts. A write that changed the block's standing rules
+     (rulesChanged) owes it a re-read line; a task or membership change owes none. Never fails the write. */
+  if (verdict && verdict.rulesChanged === true && verdict.state === TOLD.TOLD) {
+    let ok = false;
+    try { ok = require('./instructionreread').oweNow(key, 'projects'); } catch { ok = false; }
+    if (!ok) process.stderr.write(`Kosmos updated ${key}'s projects section but could not record that it should be told; it reads it at its next start\n`);
   }
   const all = readAll();
   for (const p of all) {
     if (!(p.agents || []).includes(key)) continue;
     // `changed` and `added` describe this one write (#3923), not a standing fact: not stored.
-    const { changed: _c, added: _a, ...stored } = verdict;
+    const { changed: _c, added: _a, rulesChanged: _r, ...stored } = verdict;
     p.told = { ...(p.told || {}), [key]: { ...stored, at: new Date().toISOString() } };
   }
   writeAll(all);
