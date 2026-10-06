@@ -46100,6 +46100,21 @@ function copyTextViaExec(text, back) {
   finally { t.remove(); if (back && back.isConnected) back.focus(); }
   return ok;
 }
+/* kosmos#5275: the invite sheet's copy ORDER (fedCopyText, #4649 slice C) for a screen with one Copy button and none
+   of the sheet's state: select-and-copy first, synchronously inside the press (a web view that needs the press's own
+   activation still copies), then the clipboard API with a 3 s limit (a permission prompt nobody answers cannot leave
+   the button silent). Resolves true or false. A write that lands after the limit calls onLate(), so the screen can
+   take its refusal back. Call it before any await in the press handler. */
+async function copyTextOrdered(text, btn, onLate) {
+  if (copyTextViaExec(text, btn)) return true;
+  if (!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function')) return false;
+  let limit = null;
+  const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
+  const write = (async () => navigator.clipboard.writeText(text))();   // a web view that THROWS still lands in catch
+  try { await Promise.race([write, late]); return true; }
+  catch { write.then(() => { if (onLate) onLate(); }, () => {}); return false; }
+  finally { if (limit) clearTimeout(limit); }
+}
 function plusCopyViaExec() {
   // execCommand first because it runs synchronously inside the press (no await before it); the clipboard API is the
   // second try. Both copy the same full URL.
@@ -60508,6 +60523,7 @@ document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 /* kosmos#4649: the "add your other computer" code for the project open in settings. On the other
    computer it goes into Join a project, which shows it as shared by "your other computer". */
 const PJS_OWN = { projectId: null };
+let PJS_OWN_COPY_BUSY = false;   // kosmos#5275: a Copy press is still asking the clipboard
 function pjsOwnReset(projectId) {
   PJS_OWN.projectId = projectId || null;
   document.getElementById('pjs-own-row').hidden = true;
@@ -60545,9 +60561,16 @@ async function pjsOwnAdd() {
 async function pjsOwnCopy() {
   const code = document.getElementById('pjs-own-code');
   const msg = document.getElementById('pjs-own-msg');
+  const btn = document.getElementById('pjs-own-copy');
+  const text = code.value;
+  if (!text || PJS_OWN_COPY_BUSY) return;   // one press at a time (#5275)
+  PJS_OWN_COPY_BUSY = true;
   let ok = false;
-  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(code.value); ok = true; } } catch { ok = false; }
-  if (!ok) { try { code.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  // kosmos#5275: the invite sheet's order (copyTextOrdered); a late write takes the refusal back while the same code shows.
+  try { ok = await copyTextOrdered(text, btn, () => { if (code.value === text) msg.textContent = 'Code copied.'; }); }
+  finally { PJS_OWN_COPY_BUSY = false; }
+  if (code.value !== text) return;   // a new code arrived meanwhile
+  if (!ok) { try { code.focus(); code.select(); } catch { /* the field is the fallback */ } }
   msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
 }
 document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
@@ -68205,6 +68228,7 @@ document.getElementById('pj-add-pick').addEventListener('change', () => {
    drive your computer -- no copy here may imply otherwise. */
 let PJ_JOIN_VERIFIED = null;   // the verify() snapshot {edge_id, project_name, project_desc, owner_handle}
 let PJ_JOIN_ADD_AGENTS = [];   // the receiver's OWN agents to bring onto the joined project
+let PJ_COPY_BUSY = false;      // kosmos#5275: a copy press is still asking the clipboard
 let PJ_COPY_TIMER = null;      // the "Copied" -> "Copy" revert timer, cleared on reset so a reopen mid-window cannot clobber new state
 // A stable local project ref for a create-with-invite, minted once per Add-Project open and reused
 // by every invite on this form so several invites on one not-yet-created project agree on one ref.
@@ -68367,21 +68391,30 @@ async function pjCopyInvite() {
   const btn = document.getElementById('pj-invite-copy');
   const status = document.getElementById('pj-invite-status');
   const text = codeEl ? codeEl.value : '';
-  if (!text) return;
+  if (!text || PJ_COPY_BUSY) return;   // one press at a time (#5275), as the Plus address copy does
+  // The answer, on the button and in the aria-live status (a button text swap is not announced to a screen reader
+  // unless it is focused there). ONE cancellable timer reverts both, cleared on reset so a reopen within the 2s
+  // window cannot fire onto a different project's fresh state. A late write comes back through here too, so its
+  // "Copied" is reverted like any other.
+  const say = (ok) => {
+    btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
+    if (status) status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
+    if (PJ_COPY_TIMER) clearTimeout(PJ_COPY_TIMER);
+    PJ_COPY_TIMER = setTimeout(() => {
+      PJ_COPY_TIMER = null;
+      btn.textContent = 'Copy';
+      if (status) status.textContent = 'Share this code with the person or agent you are inviting.';
+    }, 2000);
+  };
+  PJ_COPY_BUSY = true;
   let ok = false;
-  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
-  if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
-  // A button text swap is not announced to a screen reader unless it is focused there, so also say
-  // it in the aria-live status region. ONE cancellable timer reverts both, cleared on reset so a
-  // reopen within the 2s window cannot fire onto a different project's fresh state.
-  if (status) status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
-  if (PJ_COPY_TIMER) clearTimeout(PJ_COPY_TIMER);
-  PJ_COPY_TIMER = setTimeout(() => {
-    PJ_COPY_TIMER = null;
-    btn.textContent = 'Copy';
-    if (status) status.textContent = 'Share this code with the person or agent you are inviting.';
-  }, 2000);
+  // kosmos#5275: the invite sheet's order (copyTextOrdered). A write that lands after the 3 s limit takes the refusal
+  // back, but only while this screen still shows the code it copied.
+  try { ok = await copyTextOrdered(text, btn, () => { if (codeEl.value === text) say(true); }); }
+  finally { PJ_COPY_BUSY = false; }
+  if (codeEl.value !== text) return;   // a new code arrived meanwhile: this press's answer is about the old one
+  if (!ok) { try { codeEl.focus(); codeEl.select(); } catch { /* the field is the fallback; nothing else to do */ } }
+  say(ok);
 }
 
 // Verify a pasted code: on success show the owner's read-only project name + description.
