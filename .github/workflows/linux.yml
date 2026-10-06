@@ -1,13 +1,16 @@
 # #4919: the Linux test suite, run on ubuntu-latest.
 #
-# Runs on demand (workflow_dispatch) and on PRs.
-# Part of the Linux port (#4916, umbrella #4903).
+# Runs on demand (workflow_dispatch), and on pushes to a linux-ci-* branch so the lane can be run before
+# it is on main. Not on every pull request: until the rest of the port lands (#4916 pieces B and D) the
+# Linux suite is expected to fail, and a required-looking red on every PR would cost every PR a slot on
+# the shared runners. Part of the Linux port (#4916, umbrella #4903).
 
 name: linux
 
 on:
   workflow_dispatch:
-  pull_request:
+  push:
+    branches: ['linux-ci-*']
 
 permissions:
   contents: read
