@@ -840,6 +840,14 @@ test('telling an agent writes the block into its real instruction file', () => {
   assert.equal(projects.get(p.id, []).agents[0].told.state, projects.TOLD.TOLD, 'and the verdict is recorded');
 });
 
+test('#5320 part 2: the block points a person at the Pause and Resume buttons beside the project name', () => {
+  const body = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: ['mara'], tasks: [] }], 'mara');
+  const flat = body.replace(/\n/g, ' ');
+  assert.match(flat, /If you cannot tell whether they mean the whole project, ask them in the room; they can also press Pause beside the project's name themselves\./);
+  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\./);
+  assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
+});
+
 test('#5320: only a change to the block\'s standing rules owes the running agent a re-read', () => {
   reset();
   const ir = require('./instructionreread');

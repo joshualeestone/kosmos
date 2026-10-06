@@ -3306,7 +3306,12 @@ function blockRules(sessionName, cliShown) {
     member: [
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
       'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
-      'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
+      'screen, by your person: do not resume it yourself; if they ask you to, tell them to press Resume beside the',
+      'project\'s name, at the top of its page.',
+      /* kosmos#5320 part 2: an agent unsure whether its person means the whole project asks, and points at the one-click
+         control (#5391) instead of guessing. */
+      'If you cannot tell whether they mean the whole project, ask them in the room; they can also press Pause beside',
+      'the project\'s name themselves.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
