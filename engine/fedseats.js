@@ -68,14 +68,13 @@ const SENT_LOG_MAX = 64;
 const SENT_LOG_MS = 10 * 60 * 1000;
 const REVOKE_SENT_SKEW_MS = 5 * 1000;
 function noteSentAfterRevoke(projectId, s, revokedAtSec) {
-  if (!Number.isFinite(revokedAtSec) || revokedAtSec <= 0) return;   // nothing says when, so no claim (the log stays)
+  if (!Number.isFinite(revokedAtSec) || revokedAtSec <= 0) return;   // nothing says when, so no claim
   const log = s.sentLog || [];
   s.sentLog = [];
   const since = revokedAtSec * 1000 - REVOKE_SENT_SKEW_MS;
   const n = log.filter((t) => t >= since).length;
   if (!n) return;
-  // The log holds at most SENT_LOG_MAX, so a full one is a floor, not a count.
-  say(projectId, (n === 1 ? 'A message this computer sent' : (n >= SENT_LOG_MAX ? 'At least ' : '') + n + ' messages this computer sent')
+  say(projectId, (n === 1 ? 'A message this computer sent' : n > SENT_LOG_MAX ? 'More than ' + SENT_LOG_MAX + ' messages this computer sent' : n + ' messages this computer sent')
     + ' around the time it was removed may not have been shown to the others in the shared project.');
 }
 /** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
@@ -1510,7 +1509,7 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
   if (sentLink && sentLink.role === 'member') {
     // #5404: when this post went, for noteSentAfterRevoke.
     const now = Date.now();
-    s.sentLog = (s.sentLog || []).filter((t) => now - t < SENT_LOG_MS).slice(-(SENT_LOG_MAX - 1));
+    s.sentLog = (s.sentLog || []).filter((t) => now - t < SENT_LOG_MS).slice(-SENT_LOG_MAX);   // one past the cap, so "more than" is known
     s.sentLog.push(now);
   }
   // A held post a member sent while still behind went under the key it has (#5197): counted

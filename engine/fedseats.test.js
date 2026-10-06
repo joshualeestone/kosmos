@@ -498,13 +498,16 @@ test('#5404: several posts in the gap are counted in one sentence', async () => 
   assert.deepStrictEqual(gapNotes5404(h, id), ['2 messages this computer sent around the time it was removed may not have been shown to the others in the shared project.'], JSON.stringify(h.notes));
 });
 
-test('#5404: past the log\'s cap the count is said as a floor', async () => {
-  const id = 'proj-5404-cap';
-  const h = await memberRoom(id);
-  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 60 }];
-  for (let i = 0; i <= fedseats.SENT_LOG_MAX; i++) assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'p' + i }), true);
-  await settle();
-  assert.deepStrictEqual(gapNotes5404(h, id), ['At least ' + fedseats.SENT_LOG_MAX + ' messages this computer sent around the time it was removed may not have been shown to the others in the shared project.'], JSON.stringify(h.notes));
+test('#5404: at the log\'s cap the count is exact, and past it is said as more than the cap', async () => {
+  const gapOf = (n) => n + ' messages this computer sent around the time it was removed may not have been shown to the others in the shared project.';
+  for (const [tag, sent, want] of [['at', fedseats.SENT_LOG_MAX, gapOf(fedseats.SENT_LOG_MAX)], ['past', fedseats.SENT_LOG_MAX + 2, gapOf('More than ' + fedseats.SENT_LOG_MAX).replace(/^\d+ /, '')]]) {
+    const id = 'proj-5404-cap-' + tag;
+    const h = await memberRoom(id);
+    h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 60 }];
+    for (let i = 0; i < sent; i++) assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'p' + i }), true);
+    await settle();
+    assert.deepStrictEqual(gapNotes5404(h, id), [want], tag + ': ' + JSON.stringify(gapNotes5404(h, id)));
+  }
 });
 
 test('#5404 control: posts sent before the revoke (beyond the clock margin) are not named', async () => {
