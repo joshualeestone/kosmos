@@ -1711,8 +1711,12 @@ let MOVED_TELL = null;
 function setMovedTell(h) {
   MOVED_TELL = h && typeof h.owed === 'function' && typeof h.note === 'function' && typeof h.told === 'function' ? h : null;
 }
-function movedNoteFor(sessionName, raw) {
+function movedNoteFor(sessionName, raw, opts) {
   if (!MOVED_TELL || typeof raw !== 'string' || !raw.trim()) return null;
+  /* Review 3: a caller whose line is the agent's LAST in this session (the restart-for-handoff request: write the
+     handoff, stop, the session is restarted) passes { movedNote: false }; the note then rides the fresh session's
+     pickup line, where the agent that acts next reads it. */
+  if (opts && opts.movedNote === false) return null;
   /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
      allowed commands match ^/), and a /clear would erase the note anyway. */
   if (raw.trim().startsWith('/')) return null;
@@ -1745,7 +1749,7 @@ function movedToldAfter(sessionName, m, v) {
   return v && typeof v.then === 'function' ? v.then(mark) : mark(v);
 }
 
-function deliver(sessionName, raw, roster, envelope, trailer) {
+function deliver(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
   if (target && deliveryQueues.has(target)) {
@@ -1756,7 +1760,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
-  const m = card && card.isNamedOurs === true ? movedNoteFor(sessionName, raw) : null;   // #5400
+  const m = card && card.isNamedOurs === true ? movedNoteFor(sessionName, raw, opts) : null;   // #5400
   return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
 }
 
@@ -1816,7 +1820,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   return v;
 }
 
-async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
+async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   if (!card || card.isNamedOurs !== true) {
     return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
@@ -1825,7 +1829,7 @@ async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
   const before = deliveryQueues.get(target) || Promise.resolve();
   // #5400: the note is worked out when this line's turn to be typed comes, so two queued lines cannot both carry it.
   const delivery = before.catch(() => {}).then(() => {
-    const m = movedNoteFor(sessionName, raw);
+    const m = movedNoteFor(sessionName, raw, opts);
     return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, true));
   });
   deliveryQueues.set(target, delivery);

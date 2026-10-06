@@ -203,3 +203,34 @@ test('review 2 NIT: a line naming one owed part carries the note for the other o
     assert.deepEqual(told, [['casey', [OTHER.phrase]]]);
   });
 });
+
+/* Review 3 (opus, blind). */
+test('review 3: a multi-word slash command is typed exactly (the slash rule, not the short-token one)', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', '/compact keep the task list', board.agents);
+    assert.equal(tmux.pastedText(), '/compact keep the task list');
+    assert.equal(told.length, 0);
+  });
+});
+test('review 3: a caller passing { movedNote: false } (the restart-for-handoff request) gets no note; it rides the next line', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try {
+    const told = hook([ITEM]);
+    let tmux = arm([]);
+    await chat.deliverAsync('casey', 'Write your handoff now and stop.', board.agents, undefined, undefined, { movedNote: false });
+    assert.ok(!tmux.pastedText().includes(ITEM.phrase));
+    assert.equal(told.length, 0);
+    tmux = arm([]);
+    await chat.deliverAsync('casey', 'Pick up from your handoff.', board.agents);
+    assert.ok(tmux.pastedText().includes(ITEM.phrase), 'the note did not ride the pickup line');
+    assert.equal(told.length, 1);
+  } finally { board.restore(); }
+});
+test('review 3: the restart-for-handoff route passes { movedNote: false } (server.js, source pin)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const line = src.split('\n').find((l) => l.includes('handoffForRestartPrompt(') && l.includes('chat.deliverAsync('));
+  assert.ok(line, 'the restart-for-handoff delivery moved; restate this pin');
+  assert.match(line, /\{ movedNote: false \}/, 'the restart-for-handoff request would carry the note into a session that is about to end');
+});
