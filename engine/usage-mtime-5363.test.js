@@ -47,7 +47,7 @@ test('#5363: a transcript last written before the window (less the margin) is no
   write('p/old.jsonl', [cwdLine('/w/old'), row('old-1', 7)], DAY_START - 2 * H);
   write('p/margin.jsonl', [cwdLine('/w/margin'), row('margin-1', 5)], DAY_START - H / 2);
   write('p/today.jsonl', [cwdLine('/w/today'), row('today-1', 3)]);
-  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: true });
   assert.equal(days[DAY].m.output_tokens, 8, 'today (3) and the file inside the one-hour margin (5); the older file (7) is not read');
   assert.equal(folders[DAY]['/w/old'], undefined, 'nothing is keyed to the unread file');
   // CONTROL: with no window start (an unbounded scan), every file is read, the old one too.
@@ -61,7 +61,7 @@ test('#5363 (the trap): a subagent written today takes the launch folder of a pa
   write('p/sess.jsonl', [cwdLine('/w/agent'), JSON.stringify({ timestamp: '2026-10-03T09:00:00.000Z', message: { id: 'p-1', model: 'm', usage: { output_tokens: 1 } } })], DAY_START - 48 * H);
   // Its subagent, written today, standing in a worktree.
   write('p/sess/subagents/agent-x.jsonl', [cwdLine('/w/agent-worktree'), row('s-1', 11, '/w/agent-worktree')]);
-  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: true });
   assert.equal(days[DAY].m.output_tokens, 11, 'the subagent\'s row is counted');
   assert.deepEqual(Object.keys(folders[DAY]), ['/w/agent'], 'its tokens go to the parent\'s launch folder (a head read of the skipped parent), not the subagent\'s own first cwd');
 });
@@ -72,7 +72,7 @@ test('#5363: two subagents and a nested one under one skipped parent all take it
   write('p/s2/subagents/agent-a.jsonl', [cwdLine('/w/wt-a'), row('a-1', 1, '/w/wt-a')]);
   write('p/s2/subagents/agent-b.jsonl', [cwdLine('/w/wt-b'), row('b-1', 2, '/w/wt-b')]);
   write('p/s2/subagents/agent-a/subagents/deep.jsonl', [cwdLine('/w/wt-deep'), row('d-1', 4, '/w/wt-deep')]);
-  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: true });
   assert.equal(days[DAY].m.output_tokens, 7);
   assert.deepEqual(Object.keys(folders[DAY]), ['/w/two'], 'every subagent, at any depth, is keyed to the skipped parent');
   assert.equal(folders[DAY]['/w/two'].output_tokens, 7);
@@ -82,7 +82,7 @@ test('#5363: a skipped parent with no cwd leaves the subagent its own, as a full
   reset();
   write('p/bare.jsonl', [JSON.stringify({ type: 'summary' })], DAY_START - 48 * H);
   write('p/bare/subagents/agent-y.jsonl', [cwdLine('/w/own'), row('y-1', 2, '/w/own')]);
-  const { folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  const { folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: true });
   assert.deepEqual(Object.keys(folders[DAY]), ['/w/own']);
 });
 
@@ -90,6 +90,42 @@ test('#5363: dedup still holds across a read file and its resumed copy', async (
   reset();
   write('p/a.jsonl', [cwdLine('/w/a'), row('same', 4)]);
   write('p/b.jsonl', [cwdLine('/w/b'), row('same', 4)]);
-  const { days } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  const { days } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: true });
   assert.equal(days[DAY].m.output_tokens, 4, 'one message, counted once');
+});
+
+test('#5363 review 2: the cut is opt-in, and refuses a date that is not real', async () => {
+  reset();
+  write('p/old.jsonl', [cwdLine('/w/old'), row('old-2', 7)], DAY_START - 2 * H);
+  const plain = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  assert.equal(plain.days[DAY].m.output_tokens, 7, 'without mtimeCut every file is read, as before');
+  const rolled = await usage.scanUsage({ sinceDay: '2026-02-31', untilDay: DAY, mtimeCut: true });
+  assert.equal(rolled.days[DAY].m.output_tokens, 7, 'an impossible date (it would roll over) gives no cut, a full read');
+});
+
+test('#5363 review 2: a subagent file last written before the window is skipped even when its parent is read', async () => {
+  reset();
+  write('p/fresh.jsonl', [cwdLine('/w/fresh'), row('f-1', 1)]);
+  write('p/fresh/subagents/stale.jsonl', [cwdLine('/w/stale'), row('st-1', 9)], DAY_START - 2 * H);
+  const { days } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: true });
+  assert.equal(days[DAY].m.output_tokens, 1, 'the stale subagent file is not read');
+});
+
+test('#5363: on a cold cache dailyUsageByModel cuts at the first missing day, and still counts (and freezes) the past rows', async () => {
+  reset();
+  const DAYMS = 24 * H;
+  const today = new Date().toISOString().slice(0, 10);
+  const dayOf = (n) => new Date(Date.parse(today + 'T00:00:00Z') - n * DAYMS).toISOString().slice(0, 10);
+  const at = (n) => Date.parse(dayOf(n) + 'T12:00:00Z');
+  // Real-shaped: each file's mtime is its last write, after its rows (the premise).
+  write('p/three-days.jsonl', [JSON.stringify({ type: 'user', cwd: '/w/three', timestamp: dayOf(3) + 'T11:00:00.000Z' }),
+    JSON.stringify({ timestamp: dayOf(3) + 'T11:30:00.000Z', message: { id: 't-1', model: 'm', usage: { output_tokens: 5 } } })], at(2));
+  write('p/ten-days.jsonl', [JSON.stringify({ type: 'user', cwd: '/w/ten', timestamp: dayOf(10) + 'T11:00:00.000Z' }),
+    JSON.stringify({ timestamp: dayOf(10) + 'T11:30:00.000Z', message: { id: 'x-1', model: 'm', usage: { output_tokens: 99 } } })], at(10));
+  const r = await usage.dailyUsageByModel(7);   // nothing frozen: seven missing days, cut at the earliest less an hour
+  const out = (d) => Object.values(r.byDay[d] || {}).reduce((a, b) => a + (b.output_tokens || 0), 0);
+  assert.equal(out(dayOf(3)), 5, 'a file written inside the window is read, and its past row counted');
+  assert.equal(Object.keys(r.byFolder[dayOf(3)] || {}).join(), '/w/three');
+  const again = await usage.dailyUsageByModel(7);   // the past days are frozen now
+  assert.equal(Object.values(again.byDay[dayOf(3)] || {}).reduce((a, b) => a + (b.output_tokens || 0), 0), 5, 'and frozen as counted');
 });
