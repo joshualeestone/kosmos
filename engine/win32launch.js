@@ -111,6 +111,12 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
   if (cliDir) {
     const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
     env[pathKey] = env[pathKey] ? String(cliDir) + path.win32.delimiter + env[pathKey] : String(cliDir);
+    /* #5358: in PowerShell a bare `kosmos` is kosmos.ps1, and a Restricted script policy (the Windows client
+       default, and what a reset left on the reporting box) refuses it, so the agent read "kosmos" as missing. The
+       PROCESS scope comes from this variable and outranks CurrentUser and LocalMachine (not a Group Policy), so
+       the agent's own PowerShell runs it. Only where the agent was given the CLI, and never over a value the
+       environment already sets. engine/win32-kosmos-shell-5358.test.js measures both arms on Windows. */
+    if (!Object.keys(env).some((k) => k.toUpperCase() === 'PSEXECUTIONPOLICYPREFERENCE')) env.PSExecutionPolicyPreference = 'Bypass';
   }
   if (token) env.KOSMOS_AGENT_TOKEN = token;
   else delete env.KOSMOS_AGENT_TOKEN;   // never inherit somebody else's credential
