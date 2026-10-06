@@ -20598,6 +20598,7 @@ function start(port = PORT) {
       /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
+      const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
@@ -20618,9 +20619,14 @@ function start(port = PORT) {
           /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
              engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
           try {
-            const roster = safeRoster();
-            const told = require('./engine/failovertell').sweepOnce({ roster, records: projects.readAll(), DELIVERY: chat.DELIVERY,
-              isIdle: (c) => c.state === 'idle', markTold: tasks.markMoveTold,
+            const ft = require('./engine/failovertell');
+            const records = projects.readAll();
+            // Review 9: on almost every board nothing is owed, and then no roster is read at all.
+            const told = !ft.anyOwed(records) ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
+              isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
+              /* An Antigravity agent is told by agyquota's carry-on line at its reset, which names the same list; typed into
+                 first, it would answer this line and never get "carry on" (review 9). Only while that resume is on. */
+              skip: (c) => c.runner === 'antigravity' && require('./engine/agyquota').resumeEnabled(true, process.env),
               deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
             for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
           } catch { /* best-effort, like the tick */ }

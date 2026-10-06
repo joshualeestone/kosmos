@@ -439,7 +439,7 @@ test('review 8: a failover move owes its source a line; a chain owes every sourc
   } finally { w.restore(); }
 });
 
-test('review 8: owedFor lists only open parts the agent is owed and does not hold; markMoveTold ends it and survives other writes', () => {
+test('review 8: owedFor lists only open parts the agent is owed and does not hold; the record survives other writes; markMoveTold ends it', () => {
   const w = world([{ name: 'ofa' }, { name: 'ofb' }]);
   try {
     const h = heldTask(w.pid, w.key.ofa, 'write the deploy notes');
@@ -504,7 +504,63 @@ test('review 8: the defensive arms, on hand-built input: a held verdict never co
   assert.equal(ft.reached({ state: D.UNCONFIRMED, held: true }, D), false, 'a held verdict counted as reached');
   assert.equal(ft.reached({ state: D.UNCONFIRMED }, D), true, 'control: an unconfirmed one may have reached the pane');
   assert.equal(ft.reached({ state: D.COULD_NOT }, D), false);
-  const rec = [{ id: 'p1', name: 'P', tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'ann', owedTell: ['ann', 'bob'] }] }] }];
+  const rec = [{ id: 'p1', name: 'P', agents: ['ann', 'bob'], tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'ann', owedTell: ['ann', 'bob'] }] }] }];
   assert.deepEqual(ft.owedFor('ann', rec), [], 'the agent holding the part is told it was given away');
   assert.equal(ft.owedFor('bob', rec).length, 1, 'control: the other source is owed');
+});
+
+/* ---- review 9 ---- */
+const rec9 = (over = {}, part = {}) => [{ id: 'p1', name: 'P', agents: ['ann', 'bob'], ...over,
+  tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'bob', owedTell: ['ann'], ...part }] }] }];
+
+test('review 9: owedFor says "given to another agent" only when somebody holds it, in a live project the agent is still on and not switched off in', () => {
+  assert.equal(ft.owedFor('ann', rec9()).length, 1, 'control: owed');
+  assert.deepEqual(ft.owedFor('ann', rec9({}, { who: null })), [], 'told a part nobody holds was given to another agent');
+  assert.deepEqual(ft.owedFor('ann', rec9({ archived: true })), [], 'told about an archived project');
+  assert.deepEqual(ft.owedFor('ann', rec9({ agents: ['bob'] })), [], 'told about a project it has left');
+  assert.equal(require('./projects').isSwarmOff(rec9({ swarmOff: ['ann'] })[0], 'ann'), true, 'fixture: swarmOff is not how a switched-off swarm is stored');
+  assert.deepEqual(ft.owedFor('ann', rec9({ swarmOff: ['ann'] })), [], 'told about a project its swarm is switched off in');
+  assert.equal(ft.anyOwed(rec9()), true);
+  assert.equal(ft.anyOwed(rec9({}, { owedTell: [] })), false);
+  assert.equal(ft.anyOwed(rec9({}, { closedAt: '2026-10-06T00:00:00Z' })), false, 'a finished part counts as owed');
+});
+
+test('review 9: the sweep counts only lines that may have landed toward its cap, waits one pass of idle, and honours skip', () => {
+  const D = require('./chat').DELIVERY;
+  const owe = (who) => ({ id: 'p-' + who, name: who, agents: [who, 'zed'],
+    tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'zed', owedTell: [who] }] }] });
+  const names = ['h1', 'h2', 'h3', 'ok1'];
+  const records = names.map(owe);
+  const roster = names.map((n) => ({ sessionName: n, isNamedOurs: true, state: 'idle' }));
+  const sent = [];
+  const deliver = (s) => { sent.push(s); return s.startsWith('h') ? { state: D.COULD_NOT, held: true } : { state: D.PLACED }; };
+  const base = { roster, records, DELIVERY: D, isIdle: () => true, markTold: () => ({ ok: true }), deliver };
+  ft.sweepOnce({ ...base, max: 3 });
+  assert.ok(sent.includes('ok1'), 'three unreachable agents took every slot and ok1 was never told');
+  // seenIdle: a card not idle at the previous pass is not typed into this pass; it is at the next.
+  const seen = new Set();
+  sent.length = 0;
+  ft.sweepOnce({ ...base, seenIdle: seen });
+  assert.deepEqual(sent, [], 'typed into a card the moment it went idle');
+  ft.sweepOnce({ ...base, seenIdle: seen });
+  assert.equal(sent.length, 4, 'control: idle at both passes, it is told');
+  sent.length = 0;
+  ft.sweepOnce({ ...base, skip: (c) => c.sessionName === 'ok1' });
+  assert.equal(sent.includes('ok1'), false, 'a skipped card was typed into');
+});
+
+test('review 9: markMoveTold changes owedTell only, never the holder, the move record, the finish or the built mark', () => {
+  const w = world([{ name: 'mka' }, { name: 'mkb' }]);
+  try {
+    const h = heldTask(w.pid, w.key.mka, 'write the deploy notes');
+    assert.ok(move(w, h, w.key.mka, w.key.mkb).ok);
+    const before = partNow(w, h);
+    const taskBefore = projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === h.n);
+    assert.ok(tasks.markMoveTold(w.pid, h.n, h.partId, w.key.mka).ok);
+    const after = partNow(w, h);
+    const taskAfter = projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === h.n);
+    for (const k of ['who', 'movedFrom', 'movedVia', 'movedAt', 'closedAt', 'sentence']) assert.deepEqual(after[k], before[k], k + ' changed');
+    assert.equal(after.owedTell, undefined);
+    for (const k of ['builtAt', 'closedAt', 'onHold']) assert.deepEqual(taskAfter[k], taskBefore[k], 'task ' + k + ' changed');
+  } finally { w.restore(); }
 });
