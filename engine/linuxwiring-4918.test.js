@@ -180,12 +180,25 @@ test('#4918 review 4: disable\'s own "Unit file X.service does not exist" counts
   } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
 });
 
-test('#4918 review 5: a world switch on Linux asks systemd whether each agent is switched on', () => {
+test('#4918 review 5/10: a world switch on Linux asks systemd, through create\'s run seam, whether each agent is on', (t) => {
   const ws = require('./worldstarts');
-  for (const [out, want] of [['enabled\n', 'on'], ['disabled\n', 'off'], ['', 'unknown']]) {
-    answer = (cmd, args) => (args[1] === 'is-enabled' ? { ok: out === 'enabled\n', stdout: out } : { ok: true, stdout: '' });
-    try { assert.equal(ws.jobSwitchState('kenshi', 'linux', null), want, JSON.stringify(out)); } finally { answer = () => ({ ok: true, stdout: '' }); }
+  const create = require('./create');
+  let reachedOwn = 0;
+  linuxjob.setRunnerForTests(() => { reachedOwn += 1; return { ok: true, stdout: 'enabled\n' }; });
+  t.after(() => {
+    create.setRunner(null);
+    linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
+  });
+  for (const [out, code, want] of [['enabled\n', 0, 'on'], ['disabled\n', 1, 'off'], ['', 1, 'unknown']]) {
+    // Shaped like execFileSync: exit 0 returns stdout, anything else throws carrying it (is-enabled exits 1 for disabled).
+    create.setRunner((file, args) => {
+      if (args[1] !== 'is-enabled') return { ok: true, stdout: '' };
+      if (code === 0) return { ok: true, stdout: out };
+      const e = new Error('Command failed'); e.status = code; e.stdout = out; e.stderr = ''; throw e;
+    });
+    assert.equal(ws.jobSwitchState('kenshi', 'linux', null), want, JSON.stringify(out));
   }
+  assert.equal(reachedOwn, 0, 'the switch went around create\'s seam to linuxjob\'s own runner');
 });
 
 test('#4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH) keeps its units in the sandbox', () => {

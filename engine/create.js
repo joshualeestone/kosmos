@@ -6007,6 +6007,7 @@ function nameHeld(name) {
 }
 
 module.exports = {
+  linuxRun,   // #4918 review 10: worldstarts' Linux arm runs through create's seam too
   nameHeld,
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
