@@ -263,11 +263,17 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-paused', { state: 'visible', timeout: 8000 });
+  }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
   } },
   { name: 'projects-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
     await openTab(page, 'projects');
     await page.waitForSelector(`#pj-list .pj-row[data-project="${data.projectId}"] .pjpill.paused`, { timeout: 8000 });
+  }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
   } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.

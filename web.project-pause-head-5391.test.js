@@ -24,7 +24,7 @@ function headRig() {
     classList: { toggle(c, on) { if (on) els[id]._cls.add(c); else els[id]._cls.delete(c); } },
     setAttribute(k, v) { this._attr[k] = String(v); },
     querySelector() { return el(id + ':t'); } });
-  const paint = new Function('document', page.liftAll(SCRIPT, ['paintHeadPause']) + '\nreturn paintHeadPause;')({ getElementById: el });
+  const paint = new Function('document', 'PJ_READ_FAILED', page.liftAll(SCRIPT, ['paintHeadPause']) + '\nreturn paintHeadPause;')({ getElementById: el }, false);
   return { paint, el };
 }
 
@@ -39,8 +39,11 @@ test('#5391: the header button says Pause or Resume, and the Paused line shows o
   assert.equal(el('pj-one-paused').hidden, false);
   assert.match(el('pj-one-paused').textContent, /^Paused: Kosmos is not nudging anyone/);
   paint({ id: 'p1', name: 'Launch', paused: true });
-  assert.match(el('pj-one-paused').textContent, /^An agent paused it\. Paused:/, 'an agent\'s pause says so, as Settings does');
+  assert.match(el('pj-one-paused').textContent, /^An agent paused it: Kosmos is not nudging/, 'an agent\'s pause says so, as Settings does');
   paint({ id: 'p1', name: 'Launch', paused: true, archived: true });
   assert.equal(el('pj-head-pause').hidden, true, 'CONTROL: an archived project has no Pause button');
+  assert.equal(el('pj-one-paused').hidden, true);
+  paint({ id: 'p2', name: 'Next', paused: false });   // review 1: a live project after an archived one gets its button back
+  assert.equal(el('pj-head-pause').hidden, false);
   assert.equal(el('pj-one-paused').hidden, true);
 });

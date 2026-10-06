@@ -2575,6 +2575,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .pj-head-pause.on .pause { display: none; }
 .pj-head-pause.on::before { content: ""; width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
 .pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
+#pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
 @media (hover: none) { .linkish.pj-head-pause { min-height: 36px; } }   /* a touch target, as the cog beside it */
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
 .stop { width: 9px; height: 9px; border-radius: 2px; background: var(--k-ink-2); flex: 0 0 9px; }
@@ -10598,6 +10599,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-paused,   /* kosmos#5391 review 1 */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-head-pause-msg,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
@@ -57769,7 +57772,7 @@ function pjPillOf(p, unreadable) {
      display a badge here. Let's only display a badge if something is actually running." So
      "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
      before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
-     Restarting stay, each a running agent. With the whole roster unreadable no card shows a badge
+     Restarting stay, each a running agent (kosmos#5391 adds Paused, above Working: a state the person set, not a running one). With the whole roster unreadable no card shows a badge
      either, and the Projects views say nothing about it (his rule, applied literally): the Agents
      page reports a failed read, and the project's own page still says who is unseen. */
   return { cls: '', glyph: '', label: '' };
@@ -69617,15 +69620,24 @@ function paintHeadPause(p) {
   const paused = !!(p && p.paused === true);
   const live = !!(p && !p.archived);
   btn.hidden = !live;
-  btn.querySelector('.pj-head-pause-t').textContent = paused ? 'Resume' : 'Pause';
+  // review 1: never act on a state the board could not just read (a press could undo an agent's pause it cannot see).
+  btn.disabled = PJ_READ_FAILED === true;
+  const word = paused ? 'Resume' : 'Pause';
+  const t = btn.querySelector('.pj-head-pause-t');
+  if (t.textContent !== word) {
+    t.textContent = word;
+    if (msg && msg.dataset.project === (p && p.id)) msg.textContent = '';   // review 1: the state moved; an old failure no longer applies
+  }
   btn.classList.toggle('on', paused);
-  btn.setAttribute('aria-label', (paused ? 'Resume ' : 'Pause ') + (p && p.name ? p.name : 'this project'));
+  btn.setAttribute('aria-label', word + ' ' + (p && p.name ? p.name : 'this project'));
   btn.title = paused ? 'Resume: Kosmos nudges agents about its tasks and hands them out again'
     : 'Pause: Kosmos stops nudging agents about its tasks and stops handing them out';
-  line.hidden = !(paused && live);
-  line.textContent = paused && live
-    ? (p.pausedByPerson === true ? '' : 'An agent paused it. ') + 'Paused: Kosmos is not nudging anyone about its tasks or handing them out.'
+  // review 1: written only when it changes, so a status region is not re-announced on every poll.
+  const said = paused && live
+    ? (p.pausedByPerson === true ? 'Paused: ' : 'An agent paused it: ') + 'Kosmos is not nudging anyone about its tasks or handing them out.'
     : '';
+  if (line.textContent !== said) line.textContent = said;
+  if (line.hidden !== !said) line.hidden = !said;
   if (msg && msg.dataset.project !== (p && p.id)) msg.textContent = '';
 }
 /* #4771 / kosmos#5391: pause or resume the open project, from its state as last read. One function for the header
@@ -69633,6 +69645,8 @@ function paintHeadPause(p) {
 async function pjTogglePause(btn, msg) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
+  // review 1: one press, one answer: both lines start clear, so neither keeps a failure the other press has moved past.
+  for (const id of ['pj-one-pause-msg', 'pj-head-pause-msg']) { const m = document.getElementById(id); if (m) m.textContent = ''; }
   msg.textContent = '';
   msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
   btn.disabled = true;

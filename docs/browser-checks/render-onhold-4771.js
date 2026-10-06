@@ -142,8 +142,13 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => /Resume/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/Resume/.test(await text(page, '#pj-head-pause') || '') && await page.isVisible('#pj-one-paused')
         && /^Paused: Kosmos is not nudging anyone/.test(await text(page, '#pj-one-paused') || '')
-        && await page.evaluate(() => document.getElementById('pj-one-pause').textContent) === 'Resume it',
-        `${tag} #5391 pressing it pauses the project: it reads Resume, the Paused line shows, and Settings agrees`, await text(page, '#pj-one-paused'));
+
+        `${tag} #5391 pressing it pauses the project: it reads Resume and the Paused line shows`, await text(page, '#pj-one-paused'));
+      // Review 1: Settings repaints only while it is open, so it is opened to read its agreement, then left.
+      await openSettings(page, winter.id);
+      chk(await text(page, '#pj-one-pause') === 'Resume it', `${tag} #5391 Settings agrees: Resume it`, await text(page, '#pj-one-pause'));
+      await page.evaluate((pid) => tskGoToProject(pid), winter.id);
+      await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 5000 });
       await page.click('#pj-head-pause');
       await page.waitForFunction(() => /Pause/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/^\s*Pause\s*$/.test(await text(page, '#pj-head-pause') || '') && await page.isHidden('#pj-one-paused'),
