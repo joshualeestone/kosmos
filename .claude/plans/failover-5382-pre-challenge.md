@@ -2,94 +2,87 @@
 pre_challenge: true
 method: challenge-loop
 branch: failover-5382
-diff_hash: 38c5b7e9763a9dfeff5b0494e37c6521b1439c5fe3fb4a915db28609f4435af7
-validation: pending (full suite and browser checks not yet run; queued by the author after this proof)
+diff_hash: 5b2bbcdc848b8150628bedebc8a2d2d3072764be529941dad1522c5d2f0d55bc
+validation: pending (full suite and FULL browser checks queued at this head)
 subdir_audit: passed
-timestamp: 2026-10-06T13:36:57Z
-iterations: 5
+timestamp: 2026-10-06T14:45:15Z
+iterations: 16
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5
-**Converged:** Yes
-**Total findings:** 11 (1 BLOCKER, 7 WARNINGs, 3 CONVENTIONs, 4 NITs)
-**Fixed:** 11 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Iterations:** 16 (1 to 5 a non-blind self-review by a forked copy of the author, disclosed; 6 to 16 blind, opus, fresh agents)
+**Converged:** Yes, at iteration 16 (no BLOCKER or WARNING)
+**Total findings:** 3 BLOCKERs, 22 WARNINGs, 30+ NITs
+**Fixed:** every BLOCKER and WARNING | **Deferred:** NITs below, each recorded | **Asked (awaiting user):** 0
 
-DISCLOSED, two departures from the skill, both by instruction:
-- The reviews were run by a forked worker that may not spawn subagents, so no pass was blind or by a second model. Each
-  pass re-read the whole diff from origin/main, and every guard a finding added was proven with a mutation that reds.
-  Treat this as a single-reviewer convergence; a blind second-model pass (or a cross-agent review) is still owed.
-- 6.0, 6g and 6j's validation helper (the full suite) was not run: the author queues the full suite and full browser
-  checks after this proof. `validation: pending` says so. Focused: every test file that touches the assigner or its
-  setting, run directly, 15 files, green at d0e63a1f4.
+Focused validation at this head: every test file touching parts, the Assigner, agyquota or failovertell (864 tests, 0 fail).
+Every guard added in iterations 6 to 15 was mutation-checked: removing it reds its own test (listed in the plan's Evidence).
 
 ### Per-Iteration Breakdown
 
-#### Iteration 1
-**Reviewer model:** opus (forked worker, not blind)
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 2 CONVENTIONs, 3 NITs
-**Self-generated:** 0 of the above
-- [WARNING] server.js givePart: a failover move whose pane line reached nobody handed back to `from` untested, and if `from` had left the project the takeback threw (membership), leaving the part on a receiver never told --> FIXED (3e5b8fe5e): takeback wrapped, falls back to nobody; server.assigner-failover-5382.test.js (4 tests); red with the hand-back to nobody and with no fallback
-- [WARNING] server.js /api/assigner-setting: the failover field was untested on GET and PUT --> FIXED (3e5b8fe5e): 3 route tests (default off, set alone and independent of on, 400 and 403 change nothing); red with either field removed
-- [CONVENTION] engine/assigner.js: stalledParts and failoverPick sat between step's JSDoc and step, orphaning it --> FIXED (3e5b8fe5e): moved above the JSDoc
-- [CONVENTION] engine/tasks.js assignPart: the comment said a failover refusal matched a fresh give's, which does not check a finished part --> FIXED (3e5b8fe5e): the comparison deleted
-- [NIT] PUT with both `on` and `failover` applies only `on` (the Recommender's one-field rule)
-- [NIT] an older build's write drops the failover flag, which then reads off (the safe direction)
-- [NIT] the limited agent is not told its part moved and may redo it after its reset (in the plan)
+#### Iteration 1 to 5
+**Reviewer model:** opus, forked from the author (NOT blind; disclosed, which is why 6 onward exist)
+- [WARNING] server.agyhold-4588.test.js pinned the old give line, red on the branch --> FIXED d58c86641
+- [WARNING] a hand-back to a source that left the project threw --> FIXED 3e5b8fe5e (falls back to nobody)
+- [NIT] untested arms (hold, paused, built, poolUntil, backlog order) --> FIXED 5ebf717f1, fedb6a71f
 
-#### Iteration 2
-**Reviewer model:** opus (forked worker, not blind)
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 0 NITs
-**Self-generated:** 0 of the above
-- [WARNING] engine/assigner-failover-5382.test.js: the test named "never moves a part on hold" had no on-hold arm and no paused-project arm, so removing either pick-time check stayed green --> FIXED (5ebf717f1): both arms; red with each check removed
-- [WARNING] engine/assigner-failover-5382.test.js: assignPart's write-time refusal was tested only for a finished part; built, on hold and paused were unguarded --> FIXED (5ebf717f1): each set and cleared through the real APIs; red with each removed
+#### Iteration 6
+**Reviewer model:** opus (blind)
+- [WARNING] two agents could work one part (source not told, receiver not told it was started) --> FIXED 9b369d6dc
+- [WARNING] a scraped limit line can outlive the limit on an idle screen --> FIXED 9b369d6dc (dated limits only)
+- [WARNING] card.runner is a default, not a fact --> FIXED 9b369d6dc (readRunner)
+- [NIT] whole-task close, setFailover on a corrupt file, a two-field PUT, runOnce `from` --> FIXED 9b369d6dc, e2d28e6da
 
-#### Iteration 3
-**Reviewer model:** opus (forked worker, not blind)
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 0 NITs
-**Self-generated:** 0 of the above
-- [WARNING] engine/assigner.js limitedCard: the poolUntil reset and the ours check were untested --> FIXED (fedb6a71f): a pool reset within RESET_SOON_MS and a card not ours, with a control; red with each removed
-- [WARNING] engine/assigner.js step: stalled-before-backlog priority and one-receiver-per-part were untested --> FIXED (fedb6a71f): an older backlog task and two idle receivers; red with the priority inverted and with the dedupe removed
+#### Iteration 7
+**Reviewer model:** opus (blind)
+- [WARNING] undated Codex/Gemini limits were acted on --> FIXED 32d9b236a
+- [WARNING] only Antigravity agents were told --> FIXED 32d9b236a
+- [WARNING] readRunner wiring ran in no test --> FIXED 32d9b236a
 
-#### Iteration 4
-**Reviewer model:** opus (forked worker, not blind)
-**New findings:** 1 BLOCKER, 1 WARNING, 1 CONVENTION, 0 NITs
-**Self-generated:** 0 of the above
-- [BLOCKER] server.agyhold-4588.test.js:195: pins the assigner's give closure by its source text; this branch changed that line, so the #4588 B pin test was red --> FIXED (d58c86641): anchor updated to the closure with `from`; found only by running every test that touches the assigner, not the focused six
-- [WARNING] engine/assigner.js:11: the module header said the Assigner never touches a task somebody is already on, false with failover on --> FIXED (a6361918a): names the exception
-- [CONVENTION] server.js givePart doc: said the Assigner's part must still be free and is taken back to nobody, false for a failover move --> FIXED (a6361918a)
+#### Iteration 8
+**Reviewer model:** opus (blind)
+- [BLOCKER] an Antigravity pause over six hours was never told; the tell rode on memory a restart lost --> FIXED b58e4ce99 (owedTell on the part)
+- [WARNING] the tell's content had only source pins --> FIXED b58e4ce99
 
-#### Iteration 5
-**Reviewer model:** opus (forked worker, not blind)
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
-**Self-generated:** 0 of the above
-- [NIT] engine/assigner.js failoverPick: provider is compared by runner, so an Antigravity holder's part can go to a Gemini CLI receiver; if both use the same Google account they may share the quota that stopped the holder (a design note for the card)
-**Converged** - no new actionable findings.
+#### Iteration 9
+**Reviewer model:** opus (blind)
+- [WARNING] the sweep could cut off Antigravity's own resume --> FIXED 841eb7f4a
+- [WARNING] "given to another agent" said of a part nobody held --> FIXED 841eb7f4a
+- [WARNING] unreachable agents took every slot --> FIXED 841eb7f4a
+- [WARNING] a full roster read every minute --> FIXED 841eb7f4a (anyOwed first)
 
-### Final Ledger
+#### Iteration 10
+**Reviewer model:** opus (blind)
+- [WARNING] an Antigravity agent could stay untold for good behind the skip --> FIXED a7e2bcb8b
+- [WARNING] a part the receiver finished was left out of "carry on" --> FIXED a7e2bcb8b
 
-| # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
-|---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | WARNING | server.js givePart | BRANCH | unreached failover move hand-back untested and could throw | FIXED | 3e5b8fe5e |
-| 2 | 1 | WARNING | server.js /api/assigner-setting | BRANCH | failover field untested | FIXED | 3e5b8fe5e |
-| 3 | 1 | CONVENTION | engine/assigner.js step | BRANCH | step's JSDoc orphaned | FIXED | 3e5b8fe5e |
-| 4 | 1 | CONVENTION | engine/tasks.js assignPart | BRANCH | comment compared to a fresh give wrongly | FIXED | 3e5b8fe5e |
-| 5 | 2 | WARNING | engine/assigner-failover-5382.test.js | BRANCH | on-hold and paused arms missing at pick | FIXED | 5ebf717f1 |
-| 6 | 2 | WARNING | engine/assigner-failover-5382.test.js | BRANCH | built, on-hold, paused arms missing at write | FIXED | 5ebf717f1 |
-| 7 | 3 | WARNING | engine/assigner.js limitedCard | BRANCH | poolUntil and ours untested | FIXED | fedb6a71f |
-| 8 | 3 | WARNING | engine/assigner.js step | BRANCH | priority and dedupe untested | FIXED | fedb6a71f |
-| 9 | 4 | BLOCKER | server.agyhold-4588.test.js:195 | BRANCH | source pin red on the changed give closure | FIXED | d58c86641 |
-| 10 | 4 | WARNING | engine/assigner.js:11 | BRANCH | module header claim false with failover | FIXED | a6361918a |
-| 11 | 4 | CONVENTION | server.js givePart doc | BRANCH | doc claim false for a failover move | FIXED | a6361918a |
+#### Iteration 11
+**Reviewer model:** opus (blind)
+- [WARNING] "carry on" ignored the operator's resume brake and could resume twice --> FIXED 654cbd7da (resumePending)
 
-### NITs (non-blocking, across all iterations)
-- [NIT] server.js PUT /api/assigner-setting: both fields in one body applies only `on` (iteration 1)
-- [NIT] engine/assigner-setting.js: an older build's write drops failover, which reads off (iteration 1)
-- [NIT] the limited agent is not told and may redo the moved part after its reset (iteration 1)
-- [NIT] engine/assigner.js failoverPick: Antigravity and Gemini CLI can share one Google quota (iteration 5)
+#### Iteration 12
+**Reviewer model:** opus (blind)
+- [WARNING] any typed line starts a turn, so the tell itself resumed agents --> FIXED a92e50f40 (one-word reply; decided, weakest premise on the card)
 
-### Strengths (across all iterations)
-- Off by default, refused at write time on every state the pick checked, and a failed delivery returns the part to its holder.
-- The reset test caught a real NaN bug on its first run; every guard has a mutation that reds.
+#### Iteration 13
+**Reviewer model:** opus (blind)
+- [WARNING] a person resuming a Claude agent can beat the tell --> DEFERRED as a recorded limitation, card #5400
+- [NIT] a part a person gave during the limit moved --> FIXED a38d326c8
+
+#### Iteration 14
+**Reviewer model:** opus (blind)
+- [WARNING] only a page MOVE counted as a person's give, not a created task or added part --> FIXED c155b686d (personGiveAt)
+
+#### Iteration 15
+**Reviewer model:** opus (blind)
+- [WARNING] the limit clock lived in memory, so a restart let a person's queued work move --> FIXED 017546d03 (saved, debounced)
+- [NIT] the Antigravity skip used the card's runner; the receiver line used the session key --> FIXED 017546d03
+
+#### Iteration 16
+**Reviewer model:** opus (blind): CONVERGED, no BLOCKER or WARNING
+- [NIT] a limit re-reported further out after nearly resetting restarts the clock --> ACCEPTED (needs an extended limit; recorded)
+- [NIT] switching the Assigner off resets the limit clocks --> ACCEPTED (a person's own action; recorded)
+- [NIT] the tell names the new holder by session key --> ACCEPTED (the agent resolves it; recorded)
+- [NIT] a receiver's provider may itself be about to limit --> ACCEPTED (needs two limits at once; recorded)
