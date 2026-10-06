@@ -28,41 +28,45 @@ function rootIn(extra) {
 }
 const realRoot = () => require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA });
 
-/* A child that prints its root, then starts a grandchild (inheriting its env) that prints its own. */
-function rootAndGrandchild(extra) {
+function childEnv(extra) {
   const env = Object.assign({}, process.env);
   for (const k of SANDBOX_VARS) delete env[k];
-  env.HOME = os.userInfo().homedir;
-  env.KOSMOS_NO_LEGACY_MIGRATION = '1';
-  Object.assign(env, extra);
-  const inner = 'process.stdout.write(require(' + JSON.stringify(STORE) + ').ROOT)';
-  const outer = 'const s = require(' + JSON.stringify(STORE) + '); const a = s.ROOT;'
-    + ' const b = require("node:child_process").execFileSync(process.execPath, ["-e", ' + JSON.stringify(inner) + '], { encoding: "utf8" });'
-    + ' process.stdout.write(JSON.stringify({ a, b }))';
-  const r = spawnSync(process.execPath, ['-e', outer], { env, encoding: 'utf8' });
+  Object.assign(env, { HOME: os.userInfo().homedir, KOSMOS_NO_LEGACY_MIGRATION: '1' }, extra);
+  return env;
+}
+function runJs(src, extra) {
+  const r = spawnSync(process.execPath, ['-e', 'const s = require(' + JSON.stringify(STORE) + '); ' + src], { env: childEnv(extra), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /MaxListenersExceeded/, r.stderr);
   return JSON.parse(r.stdout);
 }
+const underTmp = (p) => p.startsWith(os.tmpdir()) || p.startsWith(fs.realpathSync(os.tmpdir()));
 
 for (const [label, marker] of [['node --test (NODE_TEST_CONTEXT)', { NODE_TEST_CONTEXT: 'child-v8' }], ['tools/run-tests.sh (KOSMOS_TEST_RUN=1)', { KOSMOS_TEST_RUN: '1' }]]) {
-  test('#5418: a ' + label + ' process with no sandbox gets its own throwaway home, never the real root, and its children share it', () => {
-    const { a, b } = rootAndGrandchild(marker);
-    const tmp = fs.realpathSync(os.tmpdir());
-    assert.notEqual(a, realRoot());
-    assert.ok(a.includes(require('./store').TEST_HOME_PREFIX), a);
-    assert.ok(a.startsWith(os.tmpdir()) || a.startsWith(tmp), a + ' is not under ' + os.tmpdir());
-    assert.equal(b, a, 'the child process resolved a different root');
+  test('#5418: a ' + label + ' process with no sandbox gets a throwaway store root, never the real one, and no variable is set', () => {
+    const { root, home } = runJs('process.stdout.write(JSON.stringify({ root: s.ROOT, home: process.env.AGENT_WORKFORCE_HOME ?? null }))', marker);
+    assert.notEqual(root, realRoot());
+    assert.ok(root.includes(require('./store').TEST_HOME_PREFIX) && underTmp(root), root);
+    assert.equal(home, null, 'the throwaway leaked into the environment, where other seams read it');
   });
 }
 
-test('#5418: the throwaway home is removed when the process that made it exits', () => {
-  const env = Object.assign({}, process.env);
-  for (const k of SANDBOX_VARS) delete env[k];
-  Object.assign(env, { HOME: os.userInfo().homedir, KOSMOS_NO_LEGACY_MIGRATION: '1', NODE_TEST_CONTEXT: 'child-v8' });
-  const r = spawnSync(process.execPath, ['-e', 'const s = require(' + JSON.stringify(STORE) + '); s.ROOT; process.stdout.write(process.env.AGENT_WORKFORCE_HOME)'], { env, encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.ok(r.stdout.includes(require('./store').TEST_HOME_PREFIX), r.stdout);
-  assert.equal(fs.existsSync(r.stdout), false, r.stdout + ' was left behind');
+test('#5418: one throwaway root per process, however many reads, with one exit listener; removed at exit', () => {
+  const { roots, listeners, root } = runJs('const seen = new Set(); for (let i = 0; i < 15; i++) seen.add(s.ROOT);'
+    + ' process.stdout.write(JSON.stringify({ roots: seen.size, listeners: process.listenerCount("exit"), root: [...seen][0] }))', { NODE_TEST_CONTEXT: 'child-v8' });
+  assert.deepEqual({ roots, listeners }, { roots: 1, listeners: 1 });
+  const home = path.dirname(path.dirname(path.dirname(root)));
+  assert.ok(path.basename(home).startsWith(require('./store').TEST_HOME_PREFIX), home);
+  assert.equal(fs.existsSync(home), false, home + ' was left behind');
+});
+
+test('#5418: a test that sets HOME AFTER its first store read is honoured from then on', { skip: process.platform === 'win32' && 'os.homedir() reads USERPROFILE on Windows, not HOME' }, () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-late-'));
+  try {
+    const { first, later } = runJs('const first = s.ROOT; process.env.HOME = ' + JSON.stringify(tmp) + '; process.stdout.write(JSON.stringify({ first, later: s.ROOT }))', { NODE_TEST_CONTEXT: 'child-v8' });
+    assert.ok(first.includes(require('./store').TEST_HOME_PREFIX), first);
+    assert.ok(later === path.join(tmp, 'Library', 'Application Support', require('./store').APP) || later === path.join(fs.realpathSync(tmp), 'Library', 'Application Support', require('./store').APP), later);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
 test('#5418: a sandbox variable that still points at the real store is refused by name', () => {
@@ -89,19 +93,6 @@ test('#5418: a test that sandboxes by pointing HOME elsewhere keeps ITS sandbox 
     const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', HOME: tmp });
     assert.ok(out === 'ROOT=' + want || out === 'ROOT=' + path.join(fs.realpathSync(tmp), 'Library', 'Application Support', require('./store').APP), out);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
-});
-
-test('#5418: one throwaway home per process, even when a test deletes and restores the variable', () => {
-  const env = Object.assign({}, process.env);
-  for (const k of SANDBOX_VARS) delete env[k];
-  Object.assign(env, { HOME: os.userInfo().homedir, KOSMOS_NO_LEGACY_MIGRATION: '1', NODE_TEST_CONTEXT: 'child-v8' });
-  const src = 'const s = require(' + JSON.stringify(STORE) + '); const seen = new Set();'
-    + ' for (let i = 0; i < 15; i++) { delete process.env.AGENT_WORKFORCE_HOME; seen.add(s.ROOT); }'
-    + ' process.stdout.write(JSON.stringify({ roots: seen.size, listeners: process.listenerCount("exit") }))';
-  const r = spawnSync(process.execPath, ['-e', src], { env, encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.doesNotMatch(r.stderr, /MaxListenersExceeded/, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { roots: 1, listeners: 1 });
 });
 
 test('#5418: the real home reached through a symlink is still the real root, and refused', { skip: process.platform === 'win32' && 'a directory symlink needs Developer Mode on Windows' }, () => {

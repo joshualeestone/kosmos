@@ -196,10 +196,13 @@ kosmos_test_locale_pin
 export KOSMOS_NO_LEGACY_MIGRATION=1
 # #5418: marks every process this run starts (node and shell tests alike) as a test, so
 # engine/store.js never hands any of them this machine's REAL data root: a test with no
-# sandbox gets a throwaway home instead, and one whose sandbox variable still points at the
-# real store is refused by name. (node --test marks its own files with NODE_TEST_CONTEXT;
+# sandbox gets a throwaway store root instead, and one whose sandbox variable still points at
+# the real store is refused by name. (node --test marks its own files with NODE_TEST_CONTEXT;
 # this covers the shell tests and anything they start.)
 export KOSMOS_TEST_RUN=1
+# A throwaway is removed when its process exits; one that was killed leaves it in tmp. Sweep
+# those older than two hours (a live run's own are younger), by their prefix only.
+find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'kosmos-test-home-*' -mmin +120 -exec rm -rf {} + 2>/dev/null || true
 
 # #4253: no board a test boots may phone home. A sandboxed board mints a fresh install id,
 # so each boot sent installkosmos.com a new install (count 0, darwin) and inflated the
