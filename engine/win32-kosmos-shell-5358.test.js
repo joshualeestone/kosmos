@@ -32,6 +32,9 @@ test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives i
     assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['psexecutionpolicypreference'], runner + ': two keys');
     assert.equal(env.psexecutionpolicypreference, 'Bypass', runner);
     assert.equal(launcher.childEnv({}, 't', null, 'C:\\K\\bin', runner).PSExecutionPolicyPreference, 'Bypass', runner + ' (no key before)');
+    const same = launcher.childEnv({ PSExecutionPolicyPreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
+    assert.deepEqual(keysOf(same, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': the usual spelling');
+    assert.equal(same.PSExecutionPolicyPreference, 'Bypass', runner);
   }
   assert.deepEqual(keysOf(launcher.childEnv({}, 't', null, 'C:\\K\\bin', 'claude'), 'PSExecutionPolicyPreference'), [],
     'control: a claude child is left as #3380 decided (its PowerShell tool passes its own policy flag)');
@@ -107,6 +110,7 @@ test('#5358 Windows: under a Restricted policy, Claude Code\'s PowerShell runs k
       for (const k of keysOf(bare, 'PSExecutionPolicyPreference')) delete bare[k];
       const refused = ps(bare, 'kosmos --version');
       assert.doesNotMatch(String(refused.stdout), STUB, 'control: a Restricted policy did not stop kosmos.ps1');
+      // PowerShell's English wording: the runner is en-US.
       assert.match(String(refused.stderr) + String(refused.stdout), /scripts is disabled|cannot be loaded/i, 'control: refused for another reason: ' + said(refused));
       const codex = agentEnv(z.bin, 'codex');
       assert.equal(codex.PSExecutionPolicyPreference, 'Bypass', 'the policy must come from childEnv (baseEnv carries none)');
