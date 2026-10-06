@@ -1719,7 +1719,9 @@ function movedNoteFor(sessionName, raw, opts, card) {
   if (opts && opts.movedNote === false) return null;
   /* Review 5: never while the card reads capped or needs-you. Claude Code's limit menu ("What do you want to do?")
      keeps the card capped (status.retireResetLimits), and a line typed there lands in the menu, reads PLACED, and
-     would mark a note told that nobody read. Owed agents are exactly the ones just at their limit. */
+     would mark a note told that nobody read. Owed agents are exactly the ones just at their limit. Expected gap: a
+     card reads capped for a minute past its reset (status RESET_GRACE_MS), so a line in that minute goes without the
+     note, and the next line or the idle sweep carries it (review 9). */
   if (card && (card.state === 'rate_limited' || card.state === 'needs_you')) return null;
   /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
      allowed commands match ^/), and a /clear would erase the note anyway. */

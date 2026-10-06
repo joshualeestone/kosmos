@@ -352,3 +352,22 @@ test('review 8: an incomplete hook is ignored (no note, nothing called)', () => 
     assert.equal(called, 0);
   });
 });
+
+/* Review 9 (opus, blind): the production async path, where the paste-to-Enter gap is a real wait and the verdict is a
+   promise. Without a pauser the tests' runner settles at once and only the synchronous arm ran. */
+test('review 9: on the async path (a real gap, the verdict a promise) the note is marked told, and a second queued line carries none', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try {
+    const told = hook([ITEM]);
+    const tmux = arm([]);
+    chat.setPauser(() => new Promise((r) => setTimeout(r, 5)));
+    const [a, b] = await Promise.all([
+      chat.deliverAsync('casey', 'First line here.', board.agents),
+      chat.deliverAsync('casey', 'Second line here.', board.agents),
+    ]);
+    assert.equal(a.state, chat.DELIVERY.PLACED); assert.equal(b.state, chat.DELIVERY.PLACED);
+    assert.equal(told.length, 1, 'the async verdict never marked the note told');
+    const typed = tmux.pastedText();
+    assert.equal(typed.split(ITEM.phrase).length - 1, 1, 'the note went out twice: ' + JSON.stringify(typed));
+  } finally { board.restore(); }
+});
