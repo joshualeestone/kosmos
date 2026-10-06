@@ -158,6 +158,9 @@ function dueSlot(t, now = Date.now()) {
      late run at 09:55 for the 09:00 slot still leaves 10:00 due. */
   /* review 5: never before the rule itself: a slot that passed before the rule was set or changed is not missed. */
   const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
+  /* slice 2 review 2: a run made before the rule was set or changed answers nothing under it (its early grace would
+     otherwise swallow the new rule's first slot: ran 08:50 hourly, changed to daily 9am at 08:55). */
+  if (t.lastRunAt && Number.isFinite(ruleFrom) && raw < ruleFrom) return nextAfter(t.repeat, ruleFrom);
   const fromRun = t.lastRunAt ? raw + graceFor(t.repeat) : raw;
   const since = Number.isFinite(ruleFrom) ? Math.max(fromRun, ruleFrom) : fromRun;
   return nextAfter(t.repeat, since);
@@ -193,14 +196,29 @@ function latestAtOrBefore(rule, from, ms) {
   while (s !== null && s <= ms) { last = s; s = nextAfter(rule, s); }
   return last;
 }
+/* slice 2: is a run at `at` off the schedule? More than the miss grace after the latest slot since the rule was set
+   (or the task made), and not within the grace before the next slot. Before the rule's first slot a run is never late. */
+function runIsLate(t, at) {
+  if (!t || !t.repeat) return false;
+  const from = Date.parse(t.repeatSetAt || t.createdAt || '');
+  if (!Number.isFinite(from)) return false;
+  const grace = missGraceFor(t.repeat);
+  const latest = latestAtOrBefore(t.repeat, nextAfter(t.repeat, from - 1), at);
+  if (latest === null || at < latest + grace) return false;
+  const next = nextAfter(t.repeat, at);
+  return !(next !== null && next - at <= grace);
+}
 function missedRuns(t, now = Date.now()) {
   if (!t || !t.repeat || t.isClosed === true || t.closedAt) return null;
   const grace = missGraceFor(t.repeat);
   let slot = dueSlot(t, now);
   /* review 1: a run reported up to the miss grace BEFORE its slot answers that slot (a job that started at 08:50 for
      09:00 ran; dueSlot's own early grace is smaller, for the nudge), so it is never called missed. */
+  /* review 2: only a run made under THIS rule (at or after it was set) answers its first slot early. */
   const lastRun = Date.parse(t.lastRunAt || '');
-  if (slot !== null && Number.isFinite(lastRun) && lastRun < slot && slot - lastRun <= grace) slot = nextAfter(t.repeat, slot);
+  const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
+  if (slot !== null && Number.isFinite(lastRun) && lastRun < slot && slot - lastRun <= grace
+    && !(Number.isFinite(ruleFrom) && lastRun < ruleFrom)) slot = nextAfter(t.repeat, slot);
   if (slot === null || slot + grace > now) return null;
   const first = slot;
   let count = 0;
@@ -221,4 +239,4 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, latestAtOrBefore, MISSED_CAP };
+module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, latestAtOrBefore, runIsLate, MISSED_CAP };

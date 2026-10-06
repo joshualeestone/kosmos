@@ -236,3 +236,15 @@ test('#4787 slice 2: a run reported past its slot\'s miss grace is marked late, 
   tasks.setRepeat(id, n, null);
   assert.equal(stored(id, n).lastRunLate, undefined, 'stopping the repeat clears it with the other run fields');
 });
+
+test('#4787 slice 2 review 2: a second runner reporting the same late run in the same minute is late too', () => {
+  const taskrepeat = require('../engine/taskrepeat');
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' });
+  const slot = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, Date.parse(stored(id, n).repeatSetAt));
+  tasks.recordRun(id, n, 'ada', 'late', slot + 3600000);
+  assert.equal(stored(id, n).lastRunLate, true);
+  tasks.recordRun(id, n, 'bob', 'also late', slot + 3600000 + 20000);
+  assert.equal(stored(id, n).lastRunBy, 'bob', 'precondition: the second runner\'s run was recorded');
+  assert.equal(stored(id, n).lastRunLate, true, 'the same moment off the schedule is late for both');
+});
