@@ -15,6 +15,8 @@ Review 1 (fixed): a quota-held or busy delivery spends no try (as the nudge and 
 
 Review 2 (fixed): a process cannot stop a task whose reviewer the person chose (stopping it cleared the person's choice, and the process could then name its own after setting the rule again); a rule and reviewer for a task that does not exist answers 404 as the rule alone does; --at and --on with no frequency are refused, never dropped. Left: an archived project's person-reviewed miss is not excluded from the Tasks route's waitingOnPerson (the Tasks view leaves archived projects out, except a project door's own).
 
+Review 3 (fixed): closing a repeating task drops its reviewer with its rule (dropReviewer, every place the rule is dropped), so a reopened task never brings back an old reviewer still marked as the person's; a reviewer who also runs the task is not typed into (slice 1's nudge already asks the owner), the miss is recorded with `owner`; the route refuses a time or day sent with no frequency, as both CLIs do.
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.

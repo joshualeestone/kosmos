@@ -19097,6 +19097,8 @@ const server = http.createServer(async (req, res) => {
             if (problem) throw new Error(problem);
           }
           if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          // Review 3: a time or day with no frequency would be dropped without a word (both CLIs refuse it too).
+          if (rule !== null && body.every === undefined && (body.at !== undefined || body.on !== undefined || body.minute !== undefined)) throw new Error('a time or a day goes with how often: hourly, daily or weekly');
           if (rule !== null && body.reviewer !== undefined) task = tasks.setReviewer(id, taskRepeat[2], body.reviewer, { person: viaScreen });
           if (!task) throw new Error('say how often it repeats, or who reviews it');
         }
