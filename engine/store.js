@@ -251,7 +251,16 @@ function maybeMigrateLegacyStore() {
    account's home in the user database (os.userInfo), NOT os.homedir(): that follows $HOME,
    which a test may point at a sandbox, and comparing against it would refuse exactly the
    tests that sandboxed correctly. KOSMOS_ALLOW_REAL_ROOT=1 is the explicit way out for a
-   process that must read the real store under a test runner. */
+   process that must read the real store under a test runner.
+
+   Two outcomes, measured on the full suite before choosing them (about 60 test files set no
+   sandbox at all and only load modules that freeze the root):
+   - NO sandbox variable set: the process gets a throwaway home of its own (exported as
+     AGENT_WORKFORCE_HOME, so the children it starts share it), which is what a CI runner's
+     empty real root already gives those tests. AGENT_WORKFORCE_HOME is not one of the board's
+     #634 half-sandbox variables, so an in-process board still boots.
+   - A sandbox variable IS set and still resolves to the real root (a symlink to the real home,
+     a DATA path inside it): that is a misconfiguration, and it throws. */
 function isTestProcess(env) {
   return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
 }
@@ -273,10 +282,24 @@ function realish(p) {
     rest.unshift(path.basename(head)); head = up;
   }
 }
-function refuseRealRootInTests(resolved, platform, env) {
-  if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return;
+function isRealRootInTests(resolved, platform, env) {
+  if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
   const real = realDefaultRoot(platform, env);
-  if (real && realish(resolved) === realish(real)) {
+  return !!real && realish(resolved) === realish(real);
+}
+const TEST_HOME_PREFIX = 'kosmos-test-home-';
+function giveTestProcessItsOwnHome(env) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX));
+  env.AGENT_WORKFORCE_HOME = home;
+  const owner = process.pid;
+  process.on('exit', () => {
+    if (process.pid !== owner) return;
+    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* the OS clears tmp */ }
+  });
+  return home;
+}
+function refuseRealRootInTests(resolved, platform, env) {
+  if (isRealRootInTests(resolved, platform, env)) {
     throw new Error('store: a test process resolved this machine\'s REAL data root (' + resolved + '). '
       + 'Set AGENT_WORKFORCE_DATA (or AGENT_WORKFORCE_HOME) to a sandbox BEFORE requiring any engine module '
       + '(many freeze store.ROOT when they load). #5418');
@@ -284,9 +307,13 @@ function refuseRealRootInTests(resolved, platform, env) {
 }
 
 function root() {
-  const resolved = dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
-  // #5418: refused before the migration below, which would otherwise rename the real store first.
-  refuseRealRootInTests(resolved, process.platform, process.env);
+  const env = process.env;
+  let resolved = dataRootFor(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
+  // #5418: settled before the migration below, which would otherwise rename the real store first.
+  if (isRealRootInTests(resolved, process.platform, env) && !env.AGENT_WORKFORCE_DATA && !env.AGENT_WORKFORCE_HOME) {
+    resolved = dataRootFor(process.platform, giveTestProcessItsOwnHome(env), env);
+  }
+  refuseRealRootInTests(resolved, process.platform, env);
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
@@ -689,7 +716,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, refuseRealRootInTests, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, refuseRealRootInTests, TEST_HOME_PREFIX, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

@@ -13,7 +13,11 @@ Refuse at the single derivation every module reads, `store.root()`:
 - A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
-- In a test process, a resolved root equal to the machine's REAL default root throws a named error.
+- In a test process, a resolved root equal to the machine's REAL default root is never used:
+  - with NO sandbox variable set, the process gets its own throwaway home (mkdtemp, prefix
+    `kosmos-test-home-`), exported as AGENT_WORKFORCE_HOME so its children share it, removed when the
+    process that made it exits;
+  - with a sandbox variable set that still resolves to the real root, it throws a named error.
 - "Real" is derived from `os.userInfo().homedir` (the account's home in the user database), NOT
   `os.homedir()`, which follows $HOME: a test that sandboxes by pointing HOME elsewhere must not be
   refused. Same derivation as test-support/data-root-sandbox.js (#4340), which this makes mandatory.
@@ -39,9 +43,19 @@ pointed elsewhere allowed; real home through a symlink refused; controls: no tes
 real root as before, KOSMOS_ALLOW_REAL_ROOT returns it on purpose. On origin/main's store.js the two
 refusal tests fail; on the first (string-compare) version the symlink test fails.
 
-## Blast radius: measured by the full suite
-Any existing test that reaches the real root without a sandbox now fails by design. Each such failure is
-either a real leak the guard caught (fix the test's sandbox order) or needs the explicit way out.
+## Blast radius: measured, and why the first version changed
+The first version threw in every case. Its full suite on Mortals (5bb6bbbbd): 15373 tests, 122 fail, 121 of
+them this refusal, in about 60 files that set no sandbox at all and throw while loading a module that
+freezes the root (e.g. selfreport.js:45). Those files were running against the operator's real store.
+Rather than edit 60 files (and every future one), an unsandboxed test process now gets an empty
+throwaway home, which is exactly what a CI runner's empty real root already gives them. AGENT_WORKFORCE_HOME
+is not one of the board's #634 half-sandbox variables, so in-process boards still boot. Checked locally:
+web.told-banner, server.socket-split, engine/store and engine/team (all failed under the throw) pass,
+43/43, with no throwaway home left behind.
+
+## Residual
+A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks
+that the real root be impossible to reach, and it is; it does not need every test rewritten.
 
 ## Weakest premise
 That NODE_TEST_CONTEXT stays set by node --test (bulletin runtime-self-detection-is-version-dependent).

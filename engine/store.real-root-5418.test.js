@@ -28,14 +28,48 @@ function rootIn(extra) {
 }
 const realRoot = () => require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA });
 
-test('#5418: a node --test process with no sandbox is refused the real root, by name', () => {
-  const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8' });
-  assert.match(out, /^THREW=store: a test process resolved this machine's REAL data root/, out);
-  assert.match(out, /#5418/);
+/* A child that prints its root, then starts a grandchild (inheriting its env) that prints its own. */
+function rootAndGrandchild(extra) {
+  const env = Object.assign({}, process.env);
+  for (const k of SANDBOX_VARS) delete env[k];
+  env.HOME = os.userInfo().homedir;
+  env.KOSMOS_NO_LEGACY_MIGRATION = '1';
+  Object.assign(env, extra);
+  const inner = 'process.stdout.write(require(' + JSON.stringify(STORE) + ').ROOT)';
+  const outer = 'const s = require(' + JSON.stringify(STORE) + '); const a = s.ROOT;'
+    + ' const b = require("node:child_process").execFileSync(process.execPath, ["-e", ' + JSON.stringify(inner) + '], { encoding: "utf8" });'
+    + ' process.stdout.write(JSON.stringify({ a, b }))';
+  const r = spawnSync(process.execPath, ['-e', outer], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+for (const [label, marker] of [['node --test (NODE_TEST_CONTEXT)', { NODE_TEST_CONTEXT: 'child-v8' }], ['tools/run-tests.sh (KOSMOS_TEST_RUN=1)', { KOSMOS_TEST_RUN: '1' }]]) {
+  test('#5418: a ' + label + ' process with no sandbox gets its own throwaway home, never the real root, and its children share it', () => {
+    const { a, b } = rootAndGrandchild(marker);
+    const tmp = fs.realpathSync(os.tmpdir());
+    assert.notEqual(a, realRoot());
+    assert.ok(a.includes(require('./store').TEST_HOME_PREFIX), a);
+    assert.ok(a.startsWith(os.tmpdir()) || a.startsWith(tmp), a + ' is not under ' + os.tmpdir());
+    assert.equal(b, a, 'the child process resolved a different root');
+  });
+}
+
+test('#5418: the throwaway home is removed when the process that made it exits', () => {
+  const env = Object.assign({}, process.env);
+  for (const k of SANDBOX_VARS) delete env[k];
+  Object.assign(env, { HOME: os.userInfo().homedir, KOSMOS_NO_LEGACY_MIGRATION: '1', NODE_TEST_CONTEXT: 'child-v8' });
+  const r = spawnSync(process.execPath, ['-e', 'const s = require(' + JSON.stringify(STORE) + '); s.ROOT; process.stdout.write(process.env.AGENT_WORKFORCE_HOME)'], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes(require('./store').TEST_HOME_PREFIX), r.stdout);
+  assert.equal(fs.existsSync(r.stdout), false, r.stdout + ' was left behind');
 });
 
-test('#5418: a tools/run-tests.sh process (KOSMOS_TEST_RUN=1) with no sandbox is refused too', () => {
-  assert.match(rootIn({ KOSMOS_TEST_RUN: '1' }), /^THREW=/);
+test('#5418: a sandbox variable that still points at the real store is refused by name', () => {
+  const realParent = path.dirname(realRoot());
+  const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_DATA: realParent });
+  assert.match(out, /^THREW=store: a test process resolved this machine's REAL data root/, out);
+  assert.match(out, /#5418/);
 });
 
 test('#5418: a sandboxed test process gets its sandbox (AGENT_WORKFORCE_DATA, or AGENT_WORKFORCE_HOME)', () => {
