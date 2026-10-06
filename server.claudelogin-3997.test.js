@@ -228,3 +228,16 @@ test('#5407: a rejected account inside the window says nothing more than its rej
     claudeloginlive.setReaderForTests((ccd) => { asked.push(ccd); return ccd === CLEO_DIR ? PAST : FUTURE; });
   }
 });
+
+test('#5407 review 4: an ended login whose agents still work on their access token is loginStopsAt, never also loginEnded', async () => {
+  const WORKS = Date.now() + 4 * 3600000;
+  claudeloginlive.setReaderForTests((ccd) => (ccd === CLEO_DIR ? { until: PAST, works: WORKS } : FUTURE));
+  try {
+    const m = await rows();
+    const c = m.get('cleo@example.com');
+    assert.equal(c.loginStopsAt, WORKS, 'fixture: the stop time did not reach the row: ' + JSON.stringify(c));
+    assert.equal(c.loginEnded, undefined, 'ended was sent beside a stop time');
+  } finally {
+    claudeloginlive.setReaderForTests((ccd) => { asked.push(ccd); return ccd === CLEO_DIR ? PAST : FUTURE; });
+  }
+});

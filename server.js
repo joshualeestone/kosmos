@@ -9911,7 +9911,9 @@ const server = http.createServer(async (req, res) => {
                 if (!Number.isFinite(until) || v.badge === 'rejected' || v.badge === 'signed_out') return {};
                 const d = require('./engine/loginexpiry').daysLeftInWindow(until, nowMs);
                 if (d === null) return {};
-                return until > nowMs ? { loginExpiresInDays: Math.max(0, d), loginExpiresAt: until } : { loginEnded: true };
+                if (until > nowMs) return { loginExpiresInDays: Math.max(0, d), loginExpiresAt: until };
+                // Review 4: never beside loginStopsAt (agents still working until then say that instead).
+                return claudeloginlive.worksUntil(a, nowMs) ? {} : { loginEnded: true };
               })()),
               ...(loginGreen ? { observedFrom: 'login' } : {}),
               /* #5168: the login has ended but its agents still work on the access token they hold, until this time.

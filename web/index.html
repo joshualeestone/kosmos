@@ -6369,8 +6369,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   .namego, .utoast .ux { position: relative; }
   :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
   :is(.apphead .tab, #agent-sort) { min-height: 44px; }
-  /* #5407: the login notice's Refresh login and a row's main Sign in again, at finger size. */
-  :is(.utoast .uacts button.login-adv-go, .acct-actions > button.acct-reauth-main) { min-height: 44px; }
+  /* #5407: the login notice's Refresh login, at finger size. */
+  .utoast .uacts button.login-adv-go { min-height: 44px; }   /* the row's main Sign in again already is (review 4) */
   /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
      its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
      10px to the left for a short name's area; nothing drawn moves. */

@@ -62,6 +62,8 @@ const ACCOUNTS = [
   row('gone@example.com', '/home/.claude-gone2', { badge: 'signed_in_unverified', observedFrom: null, loginEnded: true }),
   row('ended@example.com', '/home/.claude-ended', { badge: 'signed_in_unverified', observedFrom: null, loginStopsAt: Date.now() + 5 * 3600000 }),
   row('fine@example.com', '/home/.claude-fine', { loginValidUntil: Date.now() + 20 * DAY }),
+  // Review 4: both flags at once (agents still working on the access token): it is the amber "stops working" row.
+  row('both@example.com', '/home/.claude-both', { badge: 'signed_in_unverified', observedFrom: null, loginEnded: true, loginStopsAt: Date.now() + 4 * 3600000 }),
 ];
 const ADV_SOON = { agents: ['mona'], names: ['Mona'], daysLeft: 2, severity: 'warn', expired: false, service: 's-soon',
   provider: 'Claude', email: 'soon@example.com', dir: '/home/.claude-soon' };
@@ -193,6 +195,8 @@ function readRows(page) {
     const ended = rows['ended@example.com'] || {};
     chk(/^Its login has ended, and its agents stop working (tomorrow )?at about .+\. Sign in again to keep them running\.$/.test(ended.line || ''), theme + ' R2: the ended row says when its agents stop', JSON.stringify(ended.line));
     chk(ended.firstIsReauth && /acct-expiring/.test(ended.cls || ''), theme + ' R2: Sign in again is its main action', JSON.stringify(ended));
+    const both = rows['both@example.com'] || {};
+    chk(!/acct-ended/.test(both.cls || '') && /stops working/.test(both.badge || '') && /stop working/.test(both.line || ''), theme + ' R2 (review 4): ended AND still working reads as stops-working, not the red ended row', JSON.stringify(both));
 
     const fine = rows['fine@example.com'] || {};
     chk(!/acct-expiring|acct-land/.test(fine.cls || '') && !fine.line, theme + ' C1 CONTROL: a login good for 20 days has no warning and no line', JSON.stringify(fine));
@@ -215,7 +219,7 @@ function readRows(page) {
     const c2 = await p2.evaluate(() => ({
       open: !document.getElementById('s-sec-accounts').hidden,
       ringed: document.querySelectorAll('#set-accounts .acct-box.acct-land').length,
-      rows: document.querySelectorAll('#set-accounts .acct-box[data-acct-dir]').length,
+      rows: document.querySelectorAll('#set-accounts .acct-box[data-acct-dir]').length - 1,   // the review-4 row is extra
       focusInSection: document.getElementById('s-sec-accounts').contains(document.activeElement),
       noticeStays: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length,
     }));
@@ -273,6 +277,15 @@ function readRows(page) {
     // Review 3: the list's own follow-up repaint (a pending sign-in check) rebuilds the rows: the ring is drawn again.
     const across = await pt.evaluate(async () => { await paintAccounts({ followUp: 1 }); return document.querySelectorAll('#set-accounts .acct-box.acct-land').length; });
     chk(across === 1, 'T1: the ring survives the list\'s own follow-up repaint', String(across));
+    // Review 4: focus is moved once, on arrival: a follow-up repaint does not take it back from where the person went.
+    const kept = await pt.evaluate(async () => {
+      const other = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-fine"] .acct-reauth');
+      other.focus();
+      await paintAccounts({ followUp: 1 });
+      const f = document.activeElement;
+      return !!f && !f.closest('.acct-box[data-acct-dir="/home/.claude-soon"]');
+    });
+    chk(kept, 'T1: a follow-up repaint does not pull focus back to the landed row');
     await pt.clock.runFor(21000);
     const after = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
     chk(before === 1 && after === 0, 'T1: ringed on arrival, and the ring goes after its time with no repaint', before + ' -> ' + after);
@@ -283,6 +296,13 @@ function readRows(page) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const ph = await ctx.newPage();
   await setUp(ph, 'light');
+  // Review 4: a long list with the landed row last, so it starts below the fold and must be scrolled to.
+  await ph.evaluate((accounts) => {
+    const many = [];
+    for (let i = 0; i < 9; i++) many.push({ ...accounts[2], email: 'fine' + i + '@example.com', label: 'f' + i, dir: '/home/.claude-fine' + i });
+    const list = many.concat([accounts[0]]);
+    window.fetch = (u) => Promise.resolve({ ok: true, json: async () => ({ accounts: list }) });
+  }, ACCOUNTS);
   await ph.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
   const goH = await ph.evaluate(() => { const b = document.querySelector('#login-adv-slot button.login-adv-go'); return b ? b.getBoundingClientRect().height : 0; });
   chk(goH >= 44, 'P1: Refresh login is at least 44px on a phone', String(goH));
@@ -290,6 +310,8 @@ function readRows(page) {
   await ph.waitForSelector('#set-accounts .acct-reauth-main', { timeout: 5000 }).catch(() => {});
   const mainH = await ph.evaluate(() => { const b = document.querySelector('#set-accounts .acct-box.acct-land .acct-reauth-main'); return b ? b.getBoundingClientRect().height : 0; });
   chk(mainH >= 44, 'P1: the landed row\'s Sign in again is at least 44px on a phone', String(mainH));
+  const seen = await ph.evaluate(() => { const r = document.querySelector('#set-accounts .acct-box.acct-land'); if (!r) return 'no row'; const q = r.getBoundingClientRect(); return q.top >= 0 && q.bottom <= innerHeight ? 'in view' : 'top=' + Math.round(q.top) + ' h=' + innerHeight; });
+  chk(seen === 'in view', 'P1 (review 4): on a phone with a long list, the landed row is scrolled into view', seen);
   const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   chk(sideways <= 0, 'P1: no sideways scroll', String(sideways));
   if (OUT) await ph.screenshot({ path: nodePath.join(OUT, 'refreshlogin-5407-phone.png') });
