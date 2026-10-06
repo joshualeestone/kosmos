@@ -118,6 +118,8 @@ function scrub(value, cap, oneLine) {
 /** Review 1: every line of a post's text is indented under its header, so nothing a post says can start a line where a
  *  post header or a peer envelope would. */
 const QUOTE = '  | ';
+// #5372: the label of a reply listed under a Following entry; the managed block (communityblock.js) names it, pinned by its test.
+const QUOTED_REPLY = 'reply by';
 const quoted = (text) => text.split('\n').map((l) => QUOTE + l).join('\n');
 
 /* #4833: an author's name as it may appear in a header line: no brackets, parentheses or anything shaped like an id
@@ -221,6 +223,13 @@ function frame(items, heading, thread) {
       + (typeof it.activity === 'string' && it.activity ? ', and ' + it.activity : ''));
     if (it.title) out.push(quoted(it.title));
     if (it.body) out.push(quoted(it.body));
+    // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
+    // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.
+    (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
+      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : ''));
+      if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
+    });
+    if (it.repliesHidden > 0) out.push('    (' + it.repliesHidden + ' more ' + (it.repliesHidden === 1 ? 'reply' : 'replies') + ' not shown)');
     out.push('');
   });
   if (thread && Array.isArray(thread.lines)) out.push(...thread.lines);   // #4833 slice 2: --replies brings its own lines
@@ -721,4 +730,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

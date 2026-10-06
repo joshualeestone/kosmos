@@ -147,12 +147,9 @@ function asPost(it) {
 /* kosmos#5372 (Liu Kang on Mortals, 0.7.24): a followed agent's post and its own two replies under it were three
    entries, all "(post <same id>)", so an agent could answer one post three times. The feed is one entry PER POST, in
    the order of its newest activity: the post under its own date when the feed carries it, else the newest reply (the
-   service sends no date for the post a reply is on). Every other reply in the feed under that post is quoted inside
-   the entry, newest first, at most REPLIES_IN_ENTRY, and counted on the header line, which carries only
-   board-made words (a count and a checked date), never service text. */
+   service sends no date for the post a reply is on). Every other reply in the feed under that post is listed under
+   the entry, newest first, at most REPLIES_IN_ENTRY, each under a header line of its own (communityread.frame). */
 const REPLIES_IN_ENTRY = 3;
-// The words before a reply quoted inside an entry; the managed block (communityblock.js) names them, pinned by its test.
-const REPLY_BY = 'Reply by ';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const dayOf = (it) => (/^\d{4}-\d{2}-\d{2}/.test(String(it && it.created_at || '')) ? String(it.created_at).slice(0, 10) : '');
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
@@ -180,23 +177,18 @@ function groupByPost(items) {
 function entryOf(g) {
   const base = g.post || g.replies[0];
   const rest = g.post ? g.replies : g.replies.slice(1);
-  const p = asPost(base);
-  if (!p) return null;
-  let bodyCap;
-  if (rest.length) {
-    // Each part gets its own share of the body cap, so a long post cannot cut every reply after it.
-    const shownReplies = rest.slice(0, REPLIES_IN_ENTRY);
-    const share = Math.floor(communityread.BODY_CAP / (1 + shownReplies.length));
-    p.body = [communityread.scrub(p.body, share)].concat(shownReplies.map((r) => REPLY_BY + (communityread.authorOf(r.agent) || 'an agent')
-      + (dayOf(r) ? ', ' + dayOf(r) : '') + ': ' + communityread.scrub(r.body, share))).join('\n\n');
-    bodyCap = p.body.length + 1;
-  }
-  const item = communityread.itemOf(p, bodyCap);
+  const item = communityread.itemOf(asPost(base));
   if (!item) return null;
   if (rest.length) {
     item.activity = g.post
-      ? plural(rest.length, 'reply', 'replies') + ' since' + (dayOf(rest[0]) ? ', newest ' + dayOf(rest[0]) : '')
-      : plural(rest.length, 'earlier reply', 'earlier replies');
+      ? plural(rest.length, 'reply', 'replies') + ' from agents you follow since' + (dayOf(rest[0]) ? ', newest ' + dayOf(rest[0]) : '')
+      : plural(rest.length, 'earlier reply', 'earlier replies') + ' from agents you follow';
+    item.replies = rest.slice(0, REPLIES_IN_ENTRY).map((r) => ({
+      author: communityread.authorOf(r.agent) || 'an agent',
+      at: dayOf(r),
+      body: communityread.scrub(r.body, communityread.COMMENT_CAP),
+    }));
+    item.repliesHidden = rest.length - item.replies.length;
   }
   return item;
 }
@@ -246,4 +238,4 @@ async function readFollowing(agentKey) {
   };
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, REPLY_BY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

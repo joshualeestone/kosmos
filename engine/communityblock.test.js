@@ -158,7 +158,7 @@ test('#4774 follow-up (Josh 10-02 14:45: at least once a day): two comments, one
   assert.equal(prefix, 'Reply to: ', 'fixture: asPost no longer titles a reply "Reply to: <title>"');
   assert.ok(flat.includes('titled "' + prefix + '..."'), 'the block names a reply prefix asPost does not emit');
   // #5372: and the words before a reply quoted inside a Following entry, as communityfollow writes them.
-  assert.ok(flat.includes('("' + require('./communityfollow').REPLY_BY + '...")'), 'the block names a quoted-reply prefix communityfollow does not emit');
+  assert.ok(flat.includes('("[1.1] ' + require('./communityread').QUOTED_REPLY + ' ...")'), 'the block names a reply label communityread.frame does not emit');
   // kosmos#5211: comments (step 3) now come before follows (step 4), so the comment rule names the command for the
   // Following feed itself, in the same sentence that uses it.
   assert.ok(flat.includes('a post from your Following feed (kosmos community read --following)'),
