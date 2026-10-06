@@ -3269,8 +3269,8 @@ function blockRules(sessionName, cliShown) {
 /* kosmos#5320: does the new block carry a standing rule the old block did not? `oldText` and `newText` are the file
    before and after the write. Only additions count: a rule taken out needs no re-read. False when there was no block
    (joining is announced by its own line, membershipLine) or none is left (nothing to read). Project and task lines are
-   not rules (the agent's own task close changes those). The tasks rules count only when both blocks list a task: a
-   first task is announced where it is assigned, and a last one closing takes those rules out. */
+   not rules (the agent's own task close changes those). The tasks rules count only when the old block listed a task:
+   a first task is announced where it is assigned. */
 function rulesChangedIn(oldText, newText, sessionName) {
   if (!sessionName) return false;
   const oldAt = findBlock(oldText || '');
@@ -3281,7 +3281,7 @@ function rulesChangedIn(oldText, newText, sessionName) {
   const TASK_LINE = /^ {2}- task \d+ of /m;
   const rules = blockRules(sessionName, kosmosCliShown());
   const pieces = [rules.intro, rules.member];
-  if (TASK_LINE.test(old) && TASK_LINE.test(now)) pieces.push(rules.tasks);
+  if (TASK_LINE.test(old)) pieces.push(rules.tasks);
   return pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')));
 }
 
