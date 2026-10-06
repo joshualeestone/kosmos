@@ -798,7 +798,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    row's edge takes the warning ink, one line says when and what to do, and Sign in again is its main action (the
    gold primary, first in the row). Arriving from the notice's Refresh login rings the row for a short while. */
 .acct-box.acct-expiring { border-color: var(--warn-ink); }
-.acct-expiring-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
+.acct-box.acct-expiring.acct-ended { border-color: var(--danger); }   /* Mona Lisa: ended is the Issue red, expiring amber */
+#set-accounts .acct-expiring-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }   /* #set-accounts: outranks the panel's p margin (Mona Lisa's gap) */
 .acct-actions > button.acct-reauth-main { text-decoration: none; font-weight: 600; padding: .45em .95em; border-radius: 8px;
   border: 1px solid var(--gold-bright); min-height: 32px; }
 .acct-box.acct-land { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright) 75%, transparent); }
@@ -26210,9 +26211,10 @@ async function paintAccounts(opts) {
       const when = loginAdvWhen(stopsAt);
       connBadge = '<span class="acct-unverified acct-stopsat" title="' + esc('This account\'s sign-in has run out. Its agents keep working on the access they already hold until ' + when.replace(/^at /, '') + ', then stop. Sign in again before then to keep them running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · stops working ' + esc(when) + '</span>';
     } else if (loginEnded) {
-      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('This account\'s sign-in has run out. Sign in again to bring its agents back.') + '"><span class="dot" aria-hidden="true"></span>Login expired</span>';
+      // Mona Lisa (design review): an ended login is the app's Issue red, so it never reads like an expiring one.
+      connBadge = '<span class="acct-none acct-ended-badge" title="' + esc('This account\'s sign-in has run out. Sign in again to bring its agents back.') + '"><span class="dot" aria-hidden="true"></span>Login expired</span>';
     } else if (expiresIn !== null) {
-      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + (expiresDate || 'soon') + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · login ' + esc(expiresWords) + '</span>';
+      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + (expiresDate || 'soon') + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>' + esc(expiresDate ? 'Signed in until ' + expiresDate : 'Signed in · login ' + expiresWords) + '</span>';   // Mona Lisa: the line below says the days
     } else if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
@@ -26273,7 +26275,7 @@ async function paintAccounts(opts) {
     const signInFirst = claudeSignIn && (!!stopsAt || loginEnded || expiresIn !== null);
     const soonLine = !claudeSignIn ? ''
       : stopsAt ? 'Its login has ended, and its agents stop working ' + loginAdvWhen(stopsAt) + '. Sign in again to keep them running.'
-      : loginEnded ? 'Its login has ended. Sign in again to bring its agents back.'   // review 2: no claim the cache cannot prove
+      : loginEnded ? 'Sign in again to bring its agents back.'   // Mona Lisa: the badge already says "Login expired"; review 2: no claim the cache cannot prove
       : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + ': sign in again to keep its agents running.'
       : '';
     const soonId = soonLine ? 'acct-soon-' + (++ACCT_SOON_SEQ) : '';   // review 1: the line describes the main button
@@ -26281,7 +26283,7 @@ async function paintAccounts(opts) {
       + (main && soonId ? 'aria-describedby="' + soonId + '" ' : '')
       + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
       + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
-    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" data-acct-dir="' + esc(a.dir || '') + '">'
+    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" data-acct-dir="' + esc(a.dir || '') + '">'
       + '<div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'

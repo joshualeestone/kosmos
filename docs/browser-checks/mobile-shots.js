@@ -396,6 +396,15 @@ const SCREENS = [
       status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#set-accounts .acct-box.acct-expiring', { state: 'visible', timeout: 12000 });
+    if (page.__landOnSoon) {   // settings-accounts-landed: arrive the way Refresh login does, ringing that row
+      await page.evaluate(() => loginAdvGo('/home/.claude-soon'));
+      await page.waitForSelector('#set-accounts .acct-box.acct-land', { state: 'visible', timeout: 5000 });
+    }
+  } },
+  /* #5407 (Mona Lisa asked for one shot of it): the same list, arrived at from the notice's Refresh login. */
+  { name: 'settings-accounts-landed', owner: 'Renet Tilley', go: async (page, data) => {
+    page.__landOnSoon = true;
+    await SCREENS.find((s) => s.name === 'settings-accounts-expiring').go(page, data);
   } },
   /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
      that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).

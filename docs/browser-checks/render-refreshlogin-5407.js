@@ -164,7 +164,8 @@ function readRows(page) {
     const soon = rows['soon@example.com'] || {};
     chk(/acct-expiring/.test(soon.cls || ''), theme + ' R1: the expiring row has the warning edge', soon.cls);
     chk(soon.line === 'Expires in 2 days: sign in again to keep its agents running.', theme + ' R1: its line', JSON.stringify(soon.line));
-    chk(/login expires in 2 days/.test(soon.badge || ''), theme + ' R1: its badge', soon.badge);
+    chk(/^Signed in until [A-Z][a-z]{2} \d{1,2}$/.test(soon.badge || ''), theme + ' R1: its badge gives the date (the line gives the days)', soon.badge);
+    chk(!/acct-ended/.test(soon.cls || ''), theme + ' R1: an expiring row is not drawn as ended', soon.cls);
     chk(soon.firstIsReauth && soon.reauthCount === 1, theme + ' R1: Sign in again is first, and only once', JSON.stringify(soon));
     const gold = await page.evaluate(() => {
       const probe = document.createElement('button'); probe.className = 'uprime'; document.body.append(probe);
@@ -173,8 +174,17 @@ function readRows(page) {
     chk(soon.mainGold === gold, theme + ' R1: it is the gold primary', soon.mainGold + ' vs ' + gold);
     chk(soon.describedBy, theme + ' R1: the line describes the main Sign in again (screen readers)');
     const gone = rows['gone@example.com'] || {};
-    chk(gone.line === 'Its login has ended. Sign in again to bring its agents back.', theme + ' R3: the ended row says so', JSON.stringify(gone.line));
-    chk(/Login expired/.test(gone.badge || '') && gone.firstIsReauth && /acct-expiring/.test(gone.cls || ''), theme + ' R3: its badge, and Sign in again is its main action', JSON.stringify(gone));
+    chk(gone.line === 'Sign in again to bring its agents back.', theme + ' R3: the ended row\'s line', JSON.stringify(gone.line));
+    chk(/Login expired/.test(gone.badge || '') && gone.firstIsReauth && /acct-ended/.test(gone.cls || ''), theme + ' R3: its badge, and Sign in again is its main action', JSON.stringify(gone));
+    const tones = await page.evaluate(() => {
+      const edge = (sel) => { const r = document.querySelector(sel); return r ? getComputedStyle(r).borderTopColor : ''; };
+      const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.body.append(probe);
+      const danger = getComputedStyle(probe).color; probe.remove();
+      return { ended: edge('#set-accounts .acct-box[data-acct-dir="/home/.claude-gone2"]'), soon: edge('#set-accounts .acct-box[data-acct-dir="/home/.claude-soon"]'), danger };
+    });
+    chk(tones.ended === tones.danger && tones.soon !== tones.danger, theme + ' R3 (Mona Lisa): the ended row is the Issue red, the expiring one is not', JSON.stringify(tones));
+    const gap = await page.evaluate(() => { const l = document.querySelector('#set-accounts .acct-expiring-line'); return l ? getComputedStyle(l).marginBottom : ''; });
+    chk(gap === '0px', theme + ' R1 (Mona Lisa): no extra gap under the line', gap);
 
     const ended = rows['ended@example.com'] || {};
     chk(/^Its login has ended, and its agents stop working (tomorrow )?at about .+\. Sign in again to keep them running\.$/.test(ended.line || ''), theme + ' R2: the ended row says when its agents stop', JSON.stringify(ended.line));
