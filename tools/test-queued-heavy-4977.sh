@@ -208,7 +208,7 @@ run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two command
   # #5332: A pauses 5 s after its lost take (QH_TEST_LOST_PAUSE_S), so B's 1 s polls are sure to land while A holds
   # only the place it kept. Without the pause the CONTROL (old code, no kept place) was itself a race and could end
   # "A B" (Angel, 10-05 13:39 and 21:19).
-  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QH_TEST_LOSE_TAKES=1 QH_TEST_LOST_PAUSE_S=5 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "A-5064" sh -c "echo A >> $m.order; sleep 2" > "$m.a" 2>&1 ) & local pa=$!
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QH_TEST_LOSE_TAKES=1 QH_TEST_LOST_PAUSE_S=5 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "A-5064" sh -c "echo A >> $m.order; ls $m | grep -c '^suitewait\.[0-9]*\$' > $m.amarks; sleep 2" > "$m.a" 2>&1 ) & local pa=$!
   until_true 20 "[ -n \"\$(ls $m 2>/dev/null | grep '^suitewait\.[0-9]*$')\" ]" || echo "RUN5064-TIMEOUT: A never queued" >> "$m.order"; sleep 1
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "B-5064" sh -c "echo B >> $m.order" > "$m.b" 2>&1 ) & local pb=$!
   # Release the box only once BOTH waiters are queued (review 1: a fixed sleep let a slow B miss its place on a loaded
@@ -221,6 +221,9 @@ run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two command
 o=$(run5064 "$REAL_QH" $S/m5064)
 ok "#5064: the lost take was really lost (the test seam fired), so the order below means something" '[[ "$o" == *"took the turn first"* ]]'
 ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* && "$o" == *"re-marked its place in the queue"* ]]'
+# #5332: a won take gives the place up. While A's command runs only B is queued, so one waiting marker, not two (A's
+# own left behind would read as a waiter ahead of everyone who joins after).
+ok "#5332: once A's take is won its own queue marker is gone while its command runs (B's alone is left)" '[ "$(cat $S/m5064.amarks 2>/dev/null)" = 1 ]'
 # The same scenario on a copy of the wrapper with NEITHER way of keeping the place: no re-mark (#5064) and no kept
 # marker through the take (#5332). The later joiner goes first, so the arm above can fail. Since #5332 either one alone
 # keeps A's place, so removing only one would leave the order right and prove nothing.
@@ -255,7 +258,7 @@ side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-EXPECTED=86   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms, one #5332 arm
+EXPECTED=87   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms, two #5332 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
