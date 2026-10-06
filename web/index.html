@@ -9897,8 +9897,8 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedinv-code .tk-inp { flex: 1 1 auto; min-width: 0; margin-top: 0; font-family: ui-monospace, Menlo, monospace;
                        font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fedinv-code .btn { flex: none; }
-.fedinv-whole { display: block; width: 100%; box-sizing: border-box; margin: var(--space-6) 0 0; resize: vertical;   /* #5275 slice 2 */
-                font-size: .8125rem; line-height: 1.5; }
+.fedinv-whole { display: block; width: 100%; box-sizing: border-box; margin: var(--space-4) 0 0; resize: vertical;   /* #5275 slice 2 */
+                font-size: .8125rem; line-height: 1.5; max-height: 40vh; overflow-y: auto; }   /* the sheet cannot scroll: never taller than this */
 .fedinv-whole[hidden] { display: none; }
 @media (hover: none) { #fedinv-modal input:not([type=radio]), #fedinv-modal textarea { font-size: 16px; } }   /* #718: iOS zooms into a field under 16px */
 /* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
@@ -17130,11 +17130,11 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#4649 slice C (shot 03, Mona's design review item 1): the main way to send it is the whole
          invitation (shot 04's text, built by fedInviteText); the bare-code Copy above stays as the secondary. -->
     <div class="fedinv-can" id="fedinv-easier"></div>
-    <!-- kosmos#5275 slice 2 (Pete's design call): when Copy the invitation cannot copy either way, the whole
-         invitation shows here, selected, so the copy keys the line names copy all of it (the steps and the name line
-         included), not the code alone. Hidden again by the next copy, and when the sheet opens. -->
-    <textarea class="tk-inp fedinv-whole" id="fedinv-whole" readonly hidden rows="7" spellcheck="false" aria-label="The whole invitation, selected so you can copy it"></textarea>
     <p class="fmsg" id="fedinv-status" aria-live="polite"></p>
+    <!-- kosmos#5275 slice 2 (Pete's design call): when Copy the invitation cannot copy either way, the whole
+         invitation shows here, under the line that explains it, selected, so the copy keys the line names copy all of it (the steps and the name line
+         included), not the code alone. Hidden again by the next copy, and when the sheet opens. -->
+    <textarea class="tk-inp fedinv-whole" id="fedinv-whole" readonly hidden rows="5" spellcheck="false" aria-label="The whole invitation, selected so you can copy it"></textarea>
     <div class="rm-acts">
       <button class="btn" id="fedinv-ok" type="button">Done</button>
       <button class="btn uprime" id="fedinv-copy-all" type="button">Copy the invitation</button>
@@ -46118,6 +46118,14 @@ function copyTextViaExec(text, back) {
    later does not pull the caret out of a field the person has moved on to. */
 /* #5275 review 2: an earlier press's held write landed after the screen moved on to a newer code. */
 const COPY_LATE_OLDER = 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.';
+/* #5275 slice 2 review 1: the copy fallback's selection. select() always moves focus into the field (measured in Chromium,
+   WebKit and Firefox), so when the person has moved on (copyFocusStillOn false) the text is selected with
+   setSelectionRange, which leaves focus where they put it. Returns whether focus moved there. */
+function selectForCopy(el, btn) {
+  if (copyFocusStillOn(btn)) { el.focus(); el.select(); return true; }
+  el.setSelectionRange(0, el.value.length);
+  return false;
+}
 function copyFocusStillOn(btn) {
   const a = document.activeElement;
   return !a || a === btn || a === document.body;
@@ -60588,7 +60596,7 @@ async function pjsOwnCopy() {
   try { ok = await copyTextOrdered(text, btn, () => { if (code.value === text) msg.textContent = 'Code copied.'; else if (code.value) msg.textContent = COPY_LATE_OLDER; }); }   // see pjCopyInvite
   finally { if (PJS_OWN_COPY_BUSY === text) PJS_OWN_COPY_BUSY = ''; }
   if (code.value !== text) { if (ok === 'clip' && code.value) msg.textContent = COPY_LATE_OLDER; return; }   // see pjCopyInvite
-  if (!ok) { try { if (copyFocusStillOn(btn)) code.focus(); code.select(); } catch { /* the field is the fallback */ } }   // #5275 review 1: see pjCopyInvite
+  if (!ok) { try { selectForCopy(code, btn); } catch { /* the field is the fallback */ } }   // #5275 review 1: see pjCopyInvite
   msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
 }
 document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
@@ -64087,6 +64095,7 @@ const MSG_MENU_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
    One place says which keys this computer copies with, for every "copy it yourself" line. */
 function copyKeysWord() { return MSG_MENU_MAC ? 'Command C' : 'Ctrl C'; }
 function copyKeysGlyph() { return MSG_MENU_MAC ? '\u2318C' : 'Ctrl+C'; }
+function selectAllKeysWord() { return MSG_MENU_MAC ? 'Command A' : 'Ctrl A'; }   // #5275 slice 2
 document.addEventListener('contextmenu', (e) => {
   /* Not on a touchscreen: a long-press there is how text is selected, and the hover bar's button is how a thumb
      copies a reference. */
@@ -68455,7 +68464,7 @@ async function pjCopyInvite() {
   }
   // The fallback: the code selected, so the copy keys the line names copy it. Focus moves to it only if it is still on
   // the button (or nowhere): after a 3 s wait the person may be typing elsewhere (#5275 review 1).
-  if (!ok) { try { if (copyFocusStillOn(btn)) codeEl.focus(); codeEl.select(); } catch { /* the field is the fallback; nothing else to do */ } }
+  if (!ok) { try { selectForCopy(codeEl, btn); } catch { /* the field is the fallback; nothing else to do */ } }
   say(ok);
 }
 
@@ -69806,7 +69815,11 @@ function fedInviteSay(sentence) {
 function fedInviteCopyReset() {
   FEDINV_SAY++;
   const whole = document.getElementById('fedinv-whole');   // #5275 slice 2: shown only while its refusal is the line
-  if (whole) { whole.hidden = true; whole.value = ''; }
+  if (whole) {
+    const had = document.activeElement === whole;
+    whole.hidden = true; whole.value = '';
+    if (had) { const all = document.getElementById('fedinv-copy-all'); if (all) all.focus(); }   // review 1: never drop focus out of the sheet
+  }
   if (FEDINV_COPY_TIMER) clearTimeout(FEDINV_COPY_TIMER);
   FEDINV_COPY_TIMER = null;
   document.getElementById('fedinv-copy').textContent = 'Copy';
@@ -69868,8 +69881,12 @@ async function fedInviteCopyAll() {
   const whole = document.getElementById('fedinv-whole');
   whole.value = fedInviteText(made);
   whole.hidden = false;
-  try { if (copyFocusStillOn(btn)) whole.focus(); whole.select(); } catch { /* the line still says what to do */ }
-  fedInviteSay('Kosmos could not copy the invitation, so it is selected below. Press ' + copyKeysWord() + ', then paste it into your message.');
+  let focused = false;
+  try { focused = selectForCopy(whole, btn); } catch { /* the line still says what to do */ }
+  // Focus left where the person put it means their keys do not reach the field yet, so the line says how to get there.
+  fedInviteSay(focused
+    ? 'Kosmos could not copy the invitation, so it is selected below. Press ' + copyKeysWord() + ', then paste it into your message.'
+    : 'Kosmos could not copy the invitation, so it is below. Click in it, press ' + selectAllKeysWord() + ', then ' + copyKeysWord() + ', and paste it into your message.');
 }
 document.getElementById('fedinv-make').addEventListener('click', fedInviteMake);
 // Enter is a second Make button, so it obeys the same guard (a request in flight disables Make) and does not fire

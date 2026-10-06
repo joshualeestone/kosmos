@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy fedinv-whole copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy fedinv-whole selectForCopy selectAllKeysWord copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -123,7 +123,9 @@
  *      screen it opens, "Verify" on the join step that opens. A later rename of either side fails here. Control:
  *      the same finder, given a phrase the page does not have ("Join a shared project"), finds nothing.
  *  C4  writeText rejecting AND select-and-copy failing: the message line says "Kosmos could not copy the
- *      invitation. ...", the button keeps its words, the sheet stays open, and nothing throws. Control: C1 says Copied.
+ *      invitation, so it is selected below. ...", the whole invitation shows in #fedinv-whole, all selected, with focus
+ *      in it (#5275 slice 2), the button keeps its words, the sheet stays open, and nothing throws. Control: C1 says
+ *      Copied; C4b, a copy that worked, hides the field. C6 covers focus moved away during the wait.
  *  C5  a page loaded as Windows (navigator.platform Win32) names Ctrl C and Ctrl+C in the copy-yourself lines;
  *      control: the same page loaded as a Mac (MacIntel) names Command C and the Command glyph.
  *  C5b on a Windows page the bare Copy's real refusal renders "Press Ctrl+C to copy" and "... press Ctrl C.".
@@ -1531,7 +1533,7 @@ const closeAll = (page) => page.evaluate(() => {
     const step = (page) => page.evaluate(() => {
       const all = document.getElementById('fedinv-copy-all');
       const acts = all ? [...all.parentElement.querySelectorAll('button')].map((b) => b.id) : [];
-      return {
+      return { wholeHidden: (() => { const w = document.getElementById('fedinv-whole'); return !!(w && w.hidden); })(), 
         until: document.getElementById('fedinv-until').textContent,
         easier: (document.getElementById('fedinv-easier') || {}).textContent || null,
         allText: all ? all.textContent : null, allPrime: !!all && all.classList.contains('uprime'),
@@ -1665,9 +1667,11 @@ const closeAll = (page) => page.evaluate(() => {
     // three steps and the name line too), not the code alone. Control: C4b, a copy that worked, hides it.
     const whole = await page.evaluate(() => { const w = document.getElementById('fedinv-whole');
       return { shown: !!(w && !w.hidden && w.getClientRects().length), value: w ? w.value : null, sel: w ? [w.selectionStart, w.selectionEnd] : null }; });
-    check('C4 #5275 a refusal shows the whole invitation, all of it selected',
-      whole.shown && whole.value === invitation('Maya Chen (' + ADDR + ')') && whole.sel[0] === 0 && whole.sel[1] === whole.value.length,
-      JSON.stringify({ shown: whole.shown, sel: whole.sel, same: whole.value === invitation('Maya Chen (' + ADDR + ')') }));
+    const focusC4 = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check('C4 #5275 a refusal shows the whole invitation, all of it selected, with focus in it (the press left focus on the button)',
+      whole.shown && whole.value === invitation('Maya Chen (' + ADDR + ')') && whole.sel[0] === 0 && whole.sel[1] === whole.value.length
+      && focusC4 === 'fedinv-whole',
+      JSON.stringify({ shown: whole.shown, sel: whole.sel, focus: focusC4, same: whole.value === invitation('Maya Chen (' + ADDR + ')') }));
     // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
     await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
     await copyAll(page);
@@ -1762,10 +1766,25 @@ const closeAll = (page) => page.evaluate(() => {
       await pc.page.click('#fedinv-copy');   // ignored while Copy the invitation waits
       await pc.page.waitForTimeout(100);
       const bareWhileBusy = await step(pc.page);
+      // #5275 slice 2: the person clicks into the code field while it waits (explicit, not left to how an engine
+      // focuses a clicked button).
+      await pc.page.evaluate(() => document.getElementById('fedinv-code').focus());
       await pc.page.waitForTimeout(3200);   // ~600 ms past the 3 s limit, for a loaded runner
       const limit = await step(pc.page);
+      // #5275 slice 2 review 1: focus was moved off Copy the invitation during the wait, so the refusal must not
+      // pull it into the field: the whole invitation is selected where it is, and the line says to click in it first.
+      const moved = await pc.page.evaluate(() => { const w = document.getElementById('fedinv-whole');
+        return { focus: document.activeElement && document.activeElement.id, shown: !!(w && !w.hidden), sel: w ? [w.selectionStart, w.selectionEnd, w.value.length] : null,
+          status: document.getElementById('fedinv-status').textContent }; });
+      const keysC6 = await pc.page.evaluate(() => [selectAllKeysWord(), copyKeysWord()]);
+      check('C6 #5275 focus moved during the wait stays put: the field is shown, all selected, and the line says to click in it (control: C4, focus moves in)',
+        moved.focus === 'fedinv-code' && moved.shown && moved.sel[0] === 0 && moved.sel[1] === moved.sel[2]
+        && moved.status === 'Kosmos could not copy the invitation, so it is below. Click in it, press ' + keysC6[0] + ', then ' + keysC6[1] + ', and paste it into your message.',
+        JSON.stringify(moved));
       await pc.page.evaluate(() => window.__releaseClip());
       await pc.page.waitForTimeout(150);
+      const goneC6 = await pc.page.evaluate(() => { const w = document.getElementById('fedinv-whole'); return !!(w && w.hidden && w.value === ''); });
+      check('C6 #5275 the late write that copied it hides the field (its refusal is no longer the line)', goneC6, String(goneC6));
       const late = await step(pc.page);
       check('C6 a held clipboard: nothing said while it waits, the bare Copy ignored, the 3 s limit says it could not copy, a late write says Copied',
         waiting.status === '' && waiting.allText === 'Copy the invitation'
@@ -1939,8 +1958,9 @@ const closeAll = (page) => page.evaluate(() => {
       await untilStatus(p7.page, { text: 'Invitation copied.' });
       const landed = await step(p7.page);
       check('C7c a stale same-text write after a refused newer press says "Invitation copied."',
-        refused.status.startsWith('Kosmos could not copy the invitation,') && landed.status === 'Invitation copied.',
-        JSON.stringify({ refused: refused.status, landed: landed.status }));
+        refused.status.startsWith('Kosmos could not copy the invitation,') && landed.status === 'Invitation copied.'
+        && landed.wholeHidden === true,   // #5275 slice 2: the field goes with its refusal
+        JSON.stringify({ refused: refused.status, landed: landed.status, wholeHidden: landed.wholeHidden }));
       await p7.ctx.close();
     }
     /* C7d: the other direction. The bare Copy's clipboard is held past the limit, then Copy the invitation succeeds by
