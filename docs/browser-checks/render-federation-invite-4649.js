@@ -859,7 +859,9 @@ const closeAll = (page) => page.evaluate(() => {
     // B3 first: 502 keeps the dialog, says why, keeps the row.
     await page.evaluate(() => { window.__remove = { status: 502, body: { error: 'The connection service refused just now.' } }; });
     await page.click('#mem-go');
-    await page.waitForTimeout(200);
+    // #5373: wait for the refusal's sentence, not a fixed 200 ms.
+    await page.waitForFunction(() => (document.getElementById('mem-msg') || {}).textContent === 'The connection service refused just now.',
+      null, { timeout: 4000 }).catch(() => {});
     m = await modal(page);
     let f = await readFed(page, '#pj-fed-outside');
     check('B3 remove 502: the dialog stays open with the board\'s sentence', m.open && m.msg === 'The connection service refused just now.', JSON.stringify(m));
@@ -872,7 +874,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
     await setMembers(page, answer(ALL.map((r) => (r === DANA ? Object.assign({}, r, { state: 'removed' }) : r))));
     await page.click('#mem-go');
-    await page.waitForTimeout(250);
+    // #5373: wait for the dialog to close and Dana's row to go (the list asked again), not a fixed 250 ms.
+    await page.waitForFunction(() => document.getElementById('mem-modal').hidden
+      && !document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="e:edge-dana"]'), null, { timeout: 4000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__removes.slice());
     m = await modal(page);
     f = await readFed(page, '#pj-fed-outside');
@@ -889,7 +893,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__remove = { status: 404, body: { error: 'That member is not in this project.' } }; });
     await setMembers(page, answer([LEE]));
     await page.click('#mem-go');
-    await page.waitForTimeout(250);
+    // #5373: wait for the dialog to close and the board's sentence under the list, not a fixed 250 ms.
+    await page.waitForFunction(() => document.getElementById('mem-modal').hidden
+      && document.getElementById('pj-fed-outside').textContent.includes('That member is not in this project.'), null, { timeout: 4000 }).catch(() => {});
     m = await modal(page);
     f = await readFed(page, '#pj-fed-outside');
     check('B3 remove 404: the dialog closes, the board\'s sentence is shown, and the list is asked again',
