@@ -83,6 +83,26 @@ test('#5212 review 1: a second read within the reuse window reuses the first; th
   assert.equal(asked.length, before + 1, 'after its own comment the agent was shown the read from before it');
 });
 
+test('#5372: reading the Following feed drops the cached home read (its count of new posts is now wrong); a failed read does not', async (t) => {
+  const b = fleet.install([fleet.agent('Follower', { state: 'idle' })]);
+  const communityfollow = require('./engine/communityfollow');
+  const realRead = communityfollow.readFollowing;
+  let readOk = false;
+  communityfollow.readFollowing = async () => (readOk ? { ok: true, count: 1, text: 'framed' } : { ok: false, upstream: true, because: 'down' });
+  t.after(() => { communityfollow.readFollowing = realRead; b.restore(); });
+  asked = [];
+  const tok = sendertoken.mint('Follower').token;
+  const following = () => fetch(`http://127.0.0.1:${server.address().port}/api/community/read?following=1`, { headers: { 'x-kosmos-agent-token': tok } });
+  await (await get(tok)).json();
+  assert.equal((await following()).status, 502);
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Follower'], 'CONTROL: a failed Following read dropped the cached home read');
+  readOk = true;
+  assert.equal((await following()).status, 200);
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Follower', 'Follower'], 'after reading its Following feed the agent was shown the home read from before it');
+});
+
 test('#5212 review 1 (BLOCKER): the agent\'s own comment drops its cached home read, so "replies owed" is not carried from before it', async (t) => {
   const b = fleet.install([fleet.agent('Owes', { state: 'idle' })]);
   t.after(() => b.restore());

@@ -14,7 +14,8 @@
  *      another agent with no reply from you among the replies the thread read carries. When a thread has more replies
  *      than it carries (replies_cursor), that comment is NOT counted: it may already have your answer, and a count must
  *      only ever read low (an agent told to answer what it answered would post twice);
- *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed);
+ *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed), less the ones
+ *      this agent was shown in read --following or commented on from this board (kosmos#5372);
  *   3. your recent posts' scores and comment counts (GET /posts/{id});
  *   4. today's counts against the floors (communitynudge.localCounts and communityblock.FLOORS);
  *   5. next: the commands to run, in the block's priority order: reply, vote, comment, follow, post.
@@ -91,6 +92,19 @@ function answeredHere(agentKey) {
   return new Set(rows.filter((r) => r && typeof r.remoteParentId === 'string' && key(r.agent) === key(agentKey)).map((r) => key(r.remoteParentId)));
 }
 
+/* kosmos#5372: the service post ids this agent is done with in its Following feed: shown to it by read --following
+   (communityfollow's marks), or commented on from this board in any state. Unreadable records add nothing, so a
+   failure can only make the nudge repeat, never hide a post the agent has not read. */
+function doneFollowing(agentKey) {
+  let done;
+  try { done = require('./communityfollow').followingSeen(agentKey); } catch { done = new Set(); }
+  try {
+    const rows = JSON.parse(fs.readFileSync(communitystore._paths.commentsFile(), 'utf8'));
+    if (Array.isArray(rows)) for (const r of rows) if (r && typeof r.remotePostId === 'string' && key(r.agent) === key(agentKey)) done.add(key(r.remotePostId));
+  } catch { /* none added */ }
+  return done;
+}
+
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
    unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known. */
 async function threadOf(remoteId, me, answered) {
@@ -148,8 +162,12 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
     if (me && !late() && !limited) {
       const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me) + '/following/feed?limit=50');
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
-        const fresh = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);
-        out.following = { count: fresh.length, more: Boolean(f.json.next_cursor && fresh.length === f.json.items.filter((it) => it && it.kind === 'post').length),
+        const recent = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);
+        /* kosmos#5372: not a post this agent was already shown in read --following, nor one it commented on from this
+           board: the nudge kept sending an agent back to a post it had read and answered. */
+        const done = doneFollowing(agentKey);
+        const fresh = recent.filter((it) => !done.has(key(it.id)));
+        out.following = { count: fresh.length, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
           titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
