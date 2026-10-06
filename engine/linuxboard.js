@@ -51,7 +51,7 @@ let runnerFn = (cmd, args) => {
   try {
     const stdout = execFileSync(cmd, args, {
       encoding: 'utf8',
-      timeout: 5000,
+      timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     return { ok: true, stdout };
@@ -78,7 +78,7 @@ function setRunnerForTests(fn) {
     try {
       const stdout = execFileSync(cmd, args, {
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       return { ok: true, stdout };

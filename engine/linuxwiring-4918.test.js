@@ -32,7 +32,10 @@ after(() => {
   fs.rmSync(unitDir, { recursive: true, force: true });
 });
 
-test('#4918 remove.jobOps(linux) drives systemctl with the agent\'s (escaped) unit, and reports a refusal as false', () => {
+test('#4918 remove.jobOps(linux) drives systemctl with the agent\'s (escaped) unit, and reports a refusal as false', (t) => {
+  // review 6: the Linux ops go through remove.js's own run() (setRunner, dry run, live gate), as the Mac arm does.
+  remove.setRunner((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
+  t.after(() => remove.setRunner(null));
   const ops = remove.jobOps('linux');
   assert.equal(ops.linux, true);
   const job = { worldId: 'w1' };
@@ -194,5 +197,19 @@ test('#4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH) keeps its units
     if (savedDir !== undefined) process.env.AGENT_WORKFORCE_SYSTEMD_DIR = savedDir;
     linuxjob.setSystemdDirForTests(() => unitDir);
     fs.rmSync(launch, { recursive: true, force: true });
+  }
+});
+
+test('#4918 review 6: under remove.js\'s dry run, the Linux ops never reach systemd', () => {
+  remove.setRunner(null);   // re-arms dry run
+  let reached = 0;
+  linuxjob.setRunnerForTests(() => { reached += 1; return { ok: true, stdout: '' }; });
+  try {
+    const ops = remove.jobOps('linux');
+    ops.stopNow('kenshi', { worldId: 'w1' });
+    ops.disable('kenshi', { worldId: 'w1' });
+    assert.equal(reached, 0, 'a dry-run stop or disable reached the systemd runner');
+  } finally {
+    linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
   }
 });
