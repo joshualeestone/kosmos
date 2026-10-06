@@ -843,9 +843,21 @@ test('telling an agent writes the block into its real instruction file', () => {
 test('#5320 part 2: the block points a person at the Pause and Resume buttons beside the project name', () => {
   const body = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: ['mara'], tasks: [] }], 'mara');
   const flat = body.replace(/\n/g, ' ');
-  assert.match(flat, /If you cannot tell whether they mean the whole project, ask them in the room; they can also press Pause beside the project's name themselves\./);
+  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. If you cannot tell whether they mean the whole project, ask them where they asked, and tell them they can also press Pause beside the project's name themselves\./,
+    'the ask follows the pause line, so its "they" is the pause request');
   assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\./);
   assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
+  // CONTROL: the member rules are written only for a named agent.
+  const anon = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: [], tasks: [] }]);
+  assert.doesNotMatch(anon, /press Pause beside/);
+});
+
+test('#5320 part 2: the button the instructions name exists on the project page (merge after #5391)', () => {
+  // The block tells agents to point their person at a Pause / Resume button beside the project name. If that button
+  // is ever removed or renamed, this goes red instead of agents describing a button that is not there.
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.match(page, /id="pj-head-pause"/, 'no Pause / Resume button beside the project name (#5391)');
+  assert.match(page, /const word = paused \? 'Resume' : 'Pause';/, 'the button is not labelled Pause / Resume');
 });
 
 test('#5320: only a change to the block\'s standing rules owes the running agent a re-read', () => {
