@@ -283,7 +283,7 @@ test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that
 });
 
 test('#5420 the argv arm reads Unicode spaces too, and a signal 0 after one stays allowed', () => {
-  for (const ws of [' ', ' ', '　']) {
+  for (const ws of ['\u00a0', '\u1680', '\u2000', '\u2003', '\u2007', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff']) {
     const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
     for (const content of [
       `execFileSync('KILL',${ws}['-9', 'N1']);\n`,
@@ -300,5 +300,12 @@ test('#5420 the argv arm reads Unicode spaces too, and a signal 0 after one stay
     }
     // Control for the signal arm: a real signal after the same space still blocks.
     assert.equal(run('Write', { file_path: '/tmp/x.js', content: `process.KILL(N1,${ws}9);\n` }).code, 2, `${name} signal 9`);
+  }
+  // Control for the other direction: a signal that merely starts with the same lead byte as a JW space (a
+  // copyright sign, katakana, an ideographic comma, a hyphen) is a nonzero signal and still blocks.
+  for (const sig of ['\u00a9x', '\u30b7\u30b0', '\u3001', '\u2010', '\u1681', '\uff21', '\ufeffx']) {
+    const content = `process.KILL(N1, ${sig});\n`;
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `a non-ASCII signal blocks with jq: ${content}`);
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `a non-ASCII signal blocks without jq: ${content}`);
   }
 });

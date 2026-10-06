@@ -28,9 +28,12 @@ did this. The patterns are ASCII. What C changes, in both directions (the first 
   The test covers twelve of them (every row of the list, plus U+2000, U+2007 and U+2028/2029 inside the
   byte range), with and without jq, and a non-whitespace letter as the control.
 - **A side effect, fixed:** with `JW*` matching zero spaces, `NZ` (a signal other than 0) took the first
-  byte of a Unicode space as its character and refused a harmless signal 0. `NZ` now never starts with a
-  lead byte of a `JW` space (review 3). Tested: signal 0 with such a space before or after it is allowed,
-  signal 9 after one is refused.
+  byte of a Unicode space as its character and refused a harmless signal 0 (review 3). Excluding those lead
+  bytes outright (my first fix) let every other character on them pass as a signal, a copyright sign or
+  katakana included, which main blocked (review 4). `NZ` now excludes only the exact byte sequences of the
+  `JW` spaces. Tested: signal 0 with such a space before or after it is allowed; signal 9 after one, and
+  seven non-ASCII signals that share a lead byte with a `JW` space, are refused. Each direction was
+  mutation-checked against both earlier versions of `NZ`.
 - **Narrower, accepted:** a Unicode space between a shell `kill` and `-1` no longer matches the shell arms.
   Bash splits words on ASCII whitespace only, so it would not run that text as `kill -1` either.
 - **Wider, an improvement:** an invalid UTF-8 byte just before `kill -9 -1` used to defeat the boundary
