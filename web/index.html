@@ -21861,10 +21861,9 @@ function loginAdvGo(dir) {
     showTab('settings');
     settingsOpen('accounts');
   }
-  /* Review 1: the pressed button sat in a notice that has just stepped aside, so focus goes to the section until the
-     row paints (acctLand then moves it to the row's Sign in again); with no row for that folder it stays there. */
-  const sec = document.getElementById('s-sec-accounts');
-  if (sec && !sec.contains(document.activeElement)) sec.focus({ preventScroll: true });
+  /* Review 1: the pressed button sat in a notice that has just stepped aside. Opening the section already puts focus
+     in it (settingsOpen), and acctLand moves it on to the row's Sign in again once the row paints; with no row for that
+     folder it stays in the section (render-refreshlogin-5407 C2). */
   acctLand();
 }
 /* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
