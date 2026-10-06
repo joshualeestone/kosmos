@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -1765,6 +1765,90 @@ const closeAll = (page) => page.evaluate(() => {
         && late.status === 'Invitation copied.' && late.allText === 'Copied' && late.copied.length === 1 && late.copied[0] === invitation('Maya Chen (' + ADDR + ')'),
         JSON.stringify({ waiting: waiting.status, bare: [bareWhileBusy.status, bareWhileBusy.copyText], limit: limit.status, late: [late.status, late.allText, late.copied.length] }));
       await pc.ctx.close();
+    }
+
+    /* kosmos#5275 S1-S4: the create screen's invite Copy (pjCopyInvite) and the own-account code's Copy (pjsOwnCopy) use
+       the sheet's order through copyTextOrdered. Per screen: S1 select-and-copy goes FIRST (the clipboard API is not
+       asked); S2 both ways refuse: the refusal names this computer's keys; S3 a clipboard that never answers: a second
+       press is ignored while it waits, the 3 s limit refuses, the late write takes the refusal back; S4 a late write
+       for a code the screen no longer shows says nothing. Both screens' elements are in the page whether or not their
+       section is open, so the arms press the real buttons through the real handlers. */
+    for (const scr of [
+      { name: 'create screen invite Copy', field: 'pj-invite-code', btn: 'pj-invite-copy', line: 'pj-invite-status', copiedBtn: 'Copied' },
+      { name: 'own-account code Copy', field: 'pjs-own-code', btn: 'pjs-own-copy', line: 'pjs-own-msg', copiedBtn: null },
+    ]) {
+      const ps = await newPage(1280, SHOW);
+      await openProjectIn(ps.page, 'tabs');
+      const read = () => ps.page.evaluate((s) => ({
+        line: document.getElementById(s.line).textContent, btn: document.getElementById(s.btn).textContent.trim(),
+        execs: window.__execTexts.slice(), copied: window.__copied.slice(), unhandled: window.__unhandled.slice(),
+      }), scr);
+      const press = () => ps.page.evaluate((s) => { document.getElementById(s.btn).click(); }, scr);
+      const setUp = (o) => ps.page.evaluate(({ s, o }) => {
+        document.getElementById(s.field).value = o.code;
+        document.getElementById(s.line).textContent = 'BEFORE';
+        window.__execTexts.length = 0; window.__copied.length = 0; window.__execOk = o.exec;
+        const writeText = o.clip === 'ok' ? async (t) => { window.__copied.push(t); }
+          : o.clip === 'refuse' ? async () => { throw new Error('Write permission denied.'); }
+          : (t) => new Promise((ok) => { window.__releaseClip = () => { window.__copied.push(t); ok(); }; });
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+      }, { s: scr, o });
+      const keys = await ps.page.evaluate(() => copyKeysWord());
+      const refusal = 'Kosmos could not copy it. Select the code and press ' + keys + '.';
+      // how: 'not' (any change from v), 'starts' (begins with v) or 'is' (equals v). A plain comparison, no eval in the page.
+      const untilLine = (how, v) => ps.page.waitForFunction(({ id, how, v }) => {
+        const t = document.getElementById(id).textContent;
+        return how === 'not' ? t !== v : how === 'starts' ? t.startsWith(v) : t === v;
+      }, { id: scr.line, how, v }, { timeout: 6000 }).catch(() => {});
+
+      await setUp({ code: 'CODE-5275-A', exec: true, clip: 'ok' });
+      await press();
+      await untilLine('not', 'BEFORE');
+      let r = await read();
+      check(`#5275 S1 ${scr.name}: select-and-copy goes first and copies the exact code; the clipboard API is not asked`,
+        r.execs.length === 1 && r.execs[0] === 'CODE-5275-A' && r.copied.length === 0 && r.line === 'Code copied.'
+        && (!scr.copiedBtn || r.btn === scr.copiedBtn) && r.unhandled.length === 0, JSON.stringify(r));
+
+      await ps.page.waitForTimeout(2200);   // past the create screen's 2 s revert, so S2 starts from a quiet button
+      await setUp({ code: 'CODE-5275-A', exec: false, clip: 'refuse' });
+      await press();
+      await untilLine('not', 'BEFORE');
+      r = await read();
+      check(`#5275 S2 ${scr.name}: both ways refused: the line names this computer's keys (control: S1 said Code copied.)`,
+        r.line === refusal && r.execs.length === 1 && r.copied.length === 0 && r.unhandled.length === 0, JSON.stringify({ r, refusal }));
+
+      await ps.page.waitForTimeout(2200);
+      await setUp({ code: 'CODE-5275-A', exec: false, clip: 'held' });
+      await press();
+      await ps.page.waitForTimeout(300);
+      const waiting = await read();
+      await press();                          // ignored: one press at a time
+      await ps.page.waitForTimeout(100);
+      const second = await read();
+      await untilLine('starts', 'Kosmos could not copy it.');
+      const limit = await read();
+      await ps.page.evaluate(() => window.__releaseClip());
+      await untilLine('is', 'Code copied.');
+      const late = await read();
+      check(`#5275 S3 ${scr.name}: a clipboard that never answers: nothing said while it waits, a second press ignored, the 3 s limit refuses, the late write says Code copied.`,
+        waiting.line === 'BEFORE' && second.execs.length === 1 && limit.line === refusal
+        && late.line === 'Code copied.' && late.copied.length === 1 && late.copied[0] === 'CODE-5275-A' && late.unhandled.length === 0,
+        JSON.stringify({ waiting: waiting.line, execs: second.execs.length, limit: limit.line, late: [late.line, late.copied] }));
+
+      await ps.page.waitForTimeout(2200);
+      await setUp({ code: 'CODE-5275-A', exec: false, clip: 'held' });
+      await press();
+      await ps.page.waitForTimeout(300);
+      await ps.page.evaluate((s) => { document.getElementById(s.field).value = 'CODE-5275-B'; }, scr);   // a new code arrives
+      await ps.page.waitForTimeout(3300);   // past the limit: the old press's answer is about a code no longer shown
+      const afterLimit = await read();
+      await ps.page.evaluate(() => window.__releaseClip());
+      await ps.page.waitForTimeout(300);
+      const stale = await read();
+      check(`#5275 S4 ${scr.name}: a late write for a code the screen no longer shows says nothing (control: S3, same code, says Code copied.)`,
+        afterLimit.line === 'BEFORE' && stale.line === 'BEFORE' && stale.copied.length === 1 && stale.copied[0] === 'CODE-5275-A',
+        JSON.stringify({ afterLimit: afterLimit.line, stale: [stale.line, stale.copied] }));
+      await ps.ctx.close();
     }
 
     /* C7: the cross-button case. The invitation's clipboard is held past the 3 s limit (refusal shown), then the bare
