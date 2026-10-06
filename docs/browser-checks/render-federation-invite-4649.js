@@ -188,7 +188,7 @@ function initStub(cfg) {
   window.__fed = cfg.fed;
   window.__posts = [];
   window.__inviteDelay = 0;
-  window.__inviteAnsweredAt = -1;   // B7b: the members-ask count at the moment an invite answer is handed back
+  window.__inviteAnsweredAt = -1;   // B7b reads it
   window.__inviteBodyStall = false;
   window.__copied = [];
   window.__invite = { status: 200, body: { code: cfg.code, expires_at: cfg.expires, invite_id: 'inv-1' } };
@@ -1047,8 +1047,7 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { PJ_CURRENT = 'elsewhere'; });
     // #5373: wait until the held answer (300 ms) is in and handled, not a fixed 500 ms: the arm says what that
     // answer did NOT do, so reading before it lands would pass for the wrong reason. FED_BUSY is the row keys with
-    // a Remove or Withdraw being asked: the handler deletes the key when the answer is in and finishes that answer
-    // synchronously.
+    // a Remove or Withdraw being asked.
     await page.waitForFunction(() => window.__removes.length > 0 && FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const m = await modal(page);
     const loose = await page.evaluate(() => Object.keys(FED_MSGS).length);

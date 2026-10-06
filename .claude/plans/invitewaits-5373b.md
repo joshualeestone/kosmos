@@ -13,7 +13,12 @@ sleep (fedMembersLoad via evaluate, gate stamps, past-a-timer waits) is left, as
 Each site waits for the state its assertion reads, through a page-side signal, with a 4 s cap and
 .catch(() => {}) so a missing state still reaches the assertion and fails it:
 - Remove/Withdraw: FED_BUSY.size === 0 (added before the ask, deleted when the answer is in or given up
-  on; the rest of that answer is handled synchronously). B14 also waits for #fed-live (fedSay, 50 ms timer).
+  on). Up to its first await after that delete, the handler runs synchronously: the sentence, the paint, the
+  dialog close and the list ask (the stub counts the ask at call time). After that await, the Withdraw and
+  timed-out Remove paths refocus once the reload answers, so an arm that read focus there would need its own
+  wait. Read in the page code, per arm (not measured): B14 and B18d refocus synchronously; B15e and B11a read no
+  focus after; B15i reads focus after, but asserts only that it is not <body>, and fedRemoveDone places it on the
+  Members "+" synchronously. B14 also waits for #fed-live (fedSay, 50 ms timer).
 - Make: the list's re-ask (__memberUrls) and the new row; a limit line past the in-flight text.
 - Copy: untilStatus on the line; C9d the late write's line; C3 polls each step word.
 Kept: synchronous opens, deliberate mid-flight reads, the ignored-while-busy press, copyAll's 100 ms.
