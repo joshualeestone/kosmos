@@ -31,6 +31,8 @@ Review 9 (fixed): a BLOCKER. The line was typed into a reviewer whatever its sta
 
 Review 10 (fixed): a BLOCKER, round 9's harm through another path: one sweep typed a line for every owed task, so several tasks reviewed by one agent put lines in back to back, each judged idle from the same roster read; a later Enter could answer a prompt the first line raised. Now one line per reviewer per pass, the rest held with no try spent. And a line is typed only after the reviewer has been seen idle on two passes about a minute apart (kept across passes in MISSED_TELL_IDLE; a gap of more than 90 s breaks the run), as the nudge and the reply nudge wait for an idle that has lasted.
 
+Review 11 (fixed): "only just went idle" is judged by the reviewer's own idle report (selfreport, as the reply nudge and the community turn read it), which sees a turn taken and finished between two passes; the two-pass record is the fallback when there is no report. After a line is typed the record is dropped, so the reviewer's idle starts again (never two lines a minute apart).
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.

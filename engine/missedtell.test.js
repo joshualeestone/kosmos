@@ -137,6 +137,7 @@ test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside t
   assert.match(body, /const r = allowed && owed\.some\(\(x\) => !x\.person && !x\.swarmOff && x\.members\.includes\(x\.reviewer\)\)/, 'reviews 6 to 8: no roster read while nothing can be typed');
   assert.equal((src.match(/missedtell\.sweep\(/g) || []).length, 1, 'and nowhere else');
   assert.match(body, /idleSeen: MISSED_TELL_IDLE/, 'review 10: the idle record is kept across passes (a fresh Map each minute would never settle)');
+  assert.match(body, /idleSince: \(session\) => \{ const sr = selfreport\.read\(session\);/, 'review 11: the reviewer\'s own idle report');
 });
 
 test('#4787 slice 3 review 1: a quota hold or a busy pane spends no try; the slot is told once the reviewer can take it', () => {
@@ -255,10 +256,11 @@ test('#4787 slice 3 review 10: one line to a reviewer per pass, the rest held wi
   let typed = 0;
   const pass = (now) => mt.sweep({ projects: projects.readAll().filter((x) => [a.id, b.id, c.id].includes(x.id)), roster, now, allowed: true, limit: { on: false }, sent: [], book, idleSeen: seen, DELIVERY, deliver: () => { typed += 1; return { state: 'placed' }; } });
   assert.equal(projs.length, 3, 'precondition: three tasks reviewed by one agent');
-  pass(NOW);
-  assert.equal(typed, 1, 'one line this minute');
-  pass(NOW + 60000); pass(NOW + 120000);
-  assert.equal(typed, 3, 'one a minute until all three are told');
+  const typedAt = [];
+  for (let m = 0; m <= 6; m += 1) { const before = typed; pass(NOW + m * 60000); if (typed > before) typedAt.push(m); }
+  assert.equal(typed, 3, 'all three told in the end');
+  assert.equal(typedAt[0], 0, 'the first at once (idle had lasted)');
+  for (let i = 1; i < typedAt.length; i += 1) assert.ok(typedAt[i] - typedAt[i - 1] >= 2, 'review 11: after a line, its idle starts again, so never two lines a minute apart: ' + typedAt.join(','));
 });
 
 test('#4787 slice 3 review 10: a reviewer that has only just gone idle is held until it has been idle on a previous pass', () => {
@@ -276,4 +278,15 @@ test('#4787 slice 3 review 10: a reviewer that has only just gone idle is held u
   p2(NOW); const before = typed;
   assert.equal(p2(NOW + 10 * 60000).results[0].because, 'the reviewer has only just gone idle');
   assert.equal(typed, before);
+});
+
+test('#4787 slice 3 review 11: the reviewer\'s own idle report decides "just went idle", and sees a turn the two passes missed', () => {
+  const { id } = fixture('ada');
+  let typed = 0;
+  const pass = (since, seen) => mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), idleSeen: seen, DELIVERY,
+    idleSince: () => since, deliver: () => { typed += 1; return { state: 'placed' }; } });
+  assert.equal(pass(NOW - 10000, settled()).results[0].because, 'the reviewer has only just gone idle', 'its report says 10 s ago, though two passes saw it idle');
+  assert.equal(typed, 0);
+  pass(NOW - 120000, new Map());
+  assert.equal(typed, 1, 'its report says two minutes: told, with no two-pass record needed');
 });

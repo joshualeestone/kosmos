@@ -21055,6 +21055,8 @@ function start(port = PORT) {
             allowed,
             limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
             sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK, idleSeen: MISSED_TELL_IDLE,
+            // Review 11: when the reviewer went idle, by its own report (as the reply nudge and the community turn read it).
+            idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
             deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
