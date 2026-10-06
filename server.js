@@ -20840,10 +20840,21 @@ function start(port = PORT) {
       const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
       /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
          so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
+      /* Review 1 NIT: the records are read at most once every few seconds, not once per line typed (a room post to N
+         members), and anyOwed answers the common case (nothing owed anywhere) first; a told() drops the cached read. */
+      const movedRecs = { at: 0, recs: null };
+      const movedRecords = () => {
+        if (!movedRecs.recs || Date.now() - movedRecs.at > 5000) { movedRecs.recs = projects.readAll(); movedRecs.at = Date.now(); }
+        return movedRecs.recs;
+      };
       chat.setMovedTell({
-        owed: (session) => require('./engine/failovertell').owedFor(session, projects.readAll()),
+        owed: (session) => {
+          const ft = require('./engine/failovertell');
+          const recs = movedRecords();
+          return ft.anyOwed(recs) ? ft.owedFor(session, recs) : [];
+        },
         note: (items) => require('./engine/failovertell').noteFor(items),
-        told: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
+        told: (session, items) => { movedRecs.recs = null; require('./engine/failovertell').markAll(session, items, tasks.markMoveTold); },
       });
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {

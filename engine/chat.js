@@ -1705,11 +1705,17 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
    Enter pressed on Claude Code's own limit menu reaches no Kosmos line: that stays the idle sweep's.
    Weakest premise: that the agent reads a bracketed note above a person's message as Kosmos's, not the person's. */
 let MOVED_TELL = null;
+/* Review 1 asked whether a synchronous line in an async line's paste-to-Enter gap could carry the note a second time.
+   It cannot: deliver() refuses an agent whose window still has a line being placed (deliveryQueues, "busy"), so the
+   two never overlap (engine/chat.movedtell-5400.test.js pins the refusal). */
 function setMovedTell(h) {
   MOVED_TELL = h && typeof h.owed === 'function' && typeof h.note === 'function' && typeof h.told === 'function' ? h : null;
 }
 function movedNoteFor(sessionName, raw) {
   if (!MOVED_TELL || typeof raw !== 'string' || !raw.trim()) return null;
+  /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
+     allowed commands match ^/), and a /clear would erase the note anyway. */
+  if (raw.trim().startsWith('/')) return null;
   let items = [];
   try { items = MOVED_TELL.owed(sessionName) || []; } catch { items = []; }
   items = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.phrase === 'string' && i.phrase && !raw.includes(i.phrase));
@@ -1723,8 +1729,11 @@ function movedNoteFor(sessionName, raw) {
 }
 function movedToldAfter(sessionName, m, v) {
   if (!m) return v;
+  /* Review 1: told only when the line was PLACED. An UNCONFIRMED verdict includes certain non-submits (the window
+     changed before the Enter; part of it reached the window before the send failed), and a note said twice is
+     harmless where a note lost is not. */
   const mark = (x) => {
-    if (x && x.held !== true && x.state != null && x.state !== DELIVERY.COULD_NOT) {
+    if (x && x.state === DELIVERY.PLACED) {
       try { MOVED_TELL && MOVED_TELL.told(sessionName, m.items); } catch { /* the next line or the sweep tells again */ }
     }
     return x;

@@ -130,3 +130,46 @@ test('CONTROL: with no hook installed (resetForTests), nothing is added', () => 
     assert.equal(tmux.pastedText(), 'Hello.');
   });
 });
+
+/* Review 1 (opus, blind). */
+test('review 1 BLOCKER: a slash command is typed exactly, with no note in front, and nothing is marked told', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', '/clear', board.agents);
+    assert.equal(tmux.pastedText(), '/clear');
+    assert.equal(told.length, 0);
+  });
+});
+
+test('review 1: a line typed while the note is on its way (a sync send in an async line\'s gap) carries no second note', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try {
+    const told = hook([ITEM]);
+    const tmux = arm([]);
+    const first = chat.deliverAsync('casey', 'First.', board.agents);   // takes the note; settles later
+    const second = chat.deliver('casey', 'Second.', board.agents);       // bypasses the queue
+    await first;
+    // What keeps them apart: a window with a line still being placed refuses another line ("busy").
+    assert.equal(second.state, chat.DELIVERY.COULD_NOT, JSON.stringify(second));
+    assert.equal(second.busy, true, 'the second line was refused for another reason: ' + JSON.stringify(second));
+    const typed = tmux.pastedText();
+    assert.equal(typed.split(ITEM.phrase).length - 1, 1, 'the note went out twice: ' + JSON.stringify(typed));
+    assert.equal(told.length, 1);
+  } finally { board.restore(); }
+});
+
+test('review 1: an UNCONFIRMED line does not count as told; the note rides again on the next line', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    const timedOut = { ran: false, spawnFailed: false, status: null, out: '', err: 'timed out' };
+    arm([ok(), timedOut, timedOut, timedOut]);
+    const v = chat.deliver('casey', 'Hello.', board.agents);
+    assert.equal(v.state, chat.DELIVERY.UNCONFIRMED, 'fixture: not unconfirmed: ' + JSON.stringify(v));
+    assert.equal(told.length, 0, 'an unconfirmed line counted as told');
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'Again.', board.agents);
+    assert.ok(tmux.pastedText().includes(ITEM.phrase), 'the note did not ride again');
+    assert.equal(told.length, 1);
+  });
+});
