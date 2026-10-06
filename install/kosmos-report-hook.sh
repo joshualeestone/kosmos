@@ -192,9 +192,8 @@ json_field() { # $1 jq path, $2 sed key fallback
 # 🛑 IT IS A SEATBELT, NOT A SANDBOX. Shell has more ways to say "everything" than
 # a text match can list. Known to pass: `ps -U me | xargs kill`, `pkill -f '.+'`,
 # `printf '%s' <minus one> | xargs kill`, Ruby's `Process.kill :KILL, <minus one>`
-# without parentheses, pkill with long flags (--signal), a Unicode space between a
-# shell kill and its operand (refused before #5420; bash does not split on it
-# either), and any shape not listed above. Known to be refused although harmless: `pkill -n -u me`, `killall -s -u
+# without parentheses, pkill with long flags (--signal), and any shape not listed
+# above. Known to be refused although harmless: `pkill -n -u me`, `killall -s -u
 # me` (a dry run), a user-wide pgrep that is filtered (| grep x | xargs kill) or
 # sits beside an unrelated kill in the same text, a kill whose operands run on
 # past a tab, and a mention inside a command
@@ -252,11 +251,7 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   local T="([[:space:]]|\$|\\\\[nrt]|[;&|)<>\`\"'\\\\])" E="([[:space:]]|\\\\[rt])*(\$|\\\\[rn]|[;&|)]|[0-9]*[<>]|\"[,}])"
   # FL: any flags before the one that matters (a signal like -TERM or -9 included); the user flag itself is
   # lowercase letters then u/U, so a signal NAME such as -HUP or -USR1 is never read as a user flag.
-  # NZ, a signal other than 0: any character but 0 or a space, read byte-wise in C. A lead byte that a JW space
-  # (below) also starts with counts only when the bytes after it are not that space: a JW* that matched nothing
-  # would otherwise hand NZ the first byte of `, <U+2003>0)` and refuse a signal 0, and excluding whole lead
-  # bytes instead let every other character on them (a copyright sign, all of CJK) pass.
-  local NEG1="${Q}-1${Q}" FL="(-[A-Za-z0-9]+${SP})*" NZ="([^0[:space:]"$'\xc2\xe1\xe2\xe3\xef'"]|"$'\xc2[^\xa0]|\xe1[^\x9a]|\xe1\x9a[^\x80]|\xe2[^\x80\x81]|\xe2\x80[^\x80-\x8a\xa8\xa9\xaf]|\xe2\x81[^\x9f]|\xe3[^\x80]|\xe3\x80[^\x80]|\xef[^\xbb]|\xef\xbb[^\xbf]'"|0([^[:space:])"$'\xc2\xe1\xe2\xe3\xef'"]|"$'\xc2[^\xa0]|\xe1[^\x9a]|\xe1\x9a[^\x80]|\xe2[^\x80\x81]|\xe2\x80[^\x80-\x8a\xa8\xa9\xaf]|\xe2\x81[^\x9f]|\xe3[^\x80]|\xe3\x80[^\x80]|\xef[^\xbb]|\xef\xbb[^\xbf]'"))"
+  local NEG1="${Q}-1${Q}" FL="(-[A-Za-z0-9]+${SP})*" NZ='([^0[:space:]]|0[^[:space:])])'
   # OP: one user or pattern operand, quoted or not, or a $( ... ). Note `(${SP})?`, never `${SP}?`:
   # that expands to `(...)+?`, which POSIX ERE leaves undefined and BSD grep reads as "at least one".
   local OP="${Q}(\\\$\\([^)]*\\)|[^[:space:]\\\;&|)\"'(-][^[:space:]\\\;&|)\"'(]*)${Q}"
@@ -265,13 +260,9 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   local SIG="(-s${SP}[A-Za-z1-9][A-Za-z0-9]*|-n${SP}[1-9][0-9]*|--|-([A-Za-mo-rt-z1-9][A-Za-z0-9]*|[sn][A-Za-z0-9]+))"
   local shkill="${B}kill${SP}(${SIG}${SP})+([^-[:space:];&|][^[:space:];&|]*${SP})*${NEG1}${T}"
   local xkill="${B}(echo|printf)${SP}(--${SP})?${NEG1}${T}[^;&\\]*xargs[^;&\\]*${B}kill|xargs[^|;]*${B}kill[^|;]*<<<(${SP})?${NEG1}"
-  # JW: whitespace as JavaScript reads it, for the code arm below. The greps run in C (see the if below), so
-  # [[:space:]] is ASCII only; these are the UTF-8 bytes of the rest (U+00A0, U+1680, U+2000-200A, U+2028,
-  # U+2029, U+202F, U+205F, U+3000, U+FEFF), or process.kill(<U+2003>-1, 9) would pass.
-  local JW="([[:space:]]|"$'\xc2\xa0|\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80|\xef\xbb\xbf'")"
-  local code="((${B}|(globalThis|global|window|self)\\.)([Pp]rocess|os|syscall|unix|libc|posix)|require\\([^)]*\\))(\\.|::)[Kk]ill(pg)?${JW}*\\(${JW}*-${JW}*1${JW}*(\\)|,${JW}*${NZ})|${B}kill${JW}*\\(${JW}*-1${JW}*,${JW}*${NZ}|${B}Process\\.kill${JW}*\\([^,()]+,${JW}*-1${JW}*\\)|${B}kill(${SP}|${JW}*\\()[-A-Za-z0-9\"'\\\\]+${JW}*(,|=>)${JW}*-1([^0-9]|\$)"
+  local code="((${B}|(globalThis|global|window|self)\\.)([Pp]rocess|os|syscall|unix|libc|posix)|require\\([^)]*\\))(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}|${B}Process\\.kill[[:space:]]*\\([^,()]+,[[:space:]]*-1[[:space:]]*\\)|${B}kill(${SP}|[[:space:]]*\\()[-A-Za-z0-9\"'\\\\]+[[:space:]]*(,|=>)[[:space:]]*-1([^0-9]|\$)"
   local KW="\\\\?[\"']([^\"',]*/)?kill\\\\?[\"']" M1="\\\\?[\"']-1\\\\?[\"']"
-  local argv="\\[${JW}*${KW}${JW}*,[^]]*${M1}|${KW}${JW}*,${JW}*\\[[^]]*${M1}"   # an argv, not any object
+  local argv="\\[[[:space:]]*${KW}[[:space:]]*,[^]]*${M1}|${KW}[[:space:]]*,[[:space:]]*\\[[^]]*${M1}"   # an argv, not any object
   local user="${B}(pkill|killall)${SP}${FL}-[a-z]*[uU](${SP})?${OP}${EF}"
   local every="${B}(pkill|killall)${SP}${FL}(-m${SP})?(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^)${EF}"
   # A pgrep limited only by a user (or matching everything) counts when the same text also holds a kill:
@@ -282,16 +273,23 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   local sess="${B}(pkill|killall)${SP}${FL}${Q}(loginwindow|WindowServer)${Q}${T}"
   local uid="(\\\$\\(id -u[^)]*\\)|\\\$\\{?UID\\}?|[0-9]+)"
   local lctl="${B}launchctl${SP}(reboot|bootout${SP}${Q}(gui|user|login)/${Q}${uid}${Q}${E})"
-  local _t="$1"
-  # LC_ALL=C on every grep (#5420): under a UTF-8 locale GNU grep took over 60 s on the first pattern for one
-  # 1.5 MB line (each of its four parts alone: under 0.1 s), past the hook's 15 s timeout; in C it took 0.07 s.
-  # The patterns are ASCII. Bash splits words on ASCII whitespace only; JavaScript's wider whitespace is JW above,
-  # used by the code and argv arms.
-  if printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
-  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$user|$every"; then echo "a kill that matches every process you own"
-  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$pgall" && printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$kword"; then echo "a kill fed by a pgrep that matches every process you own"
-  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$sess"; then echo "a kill of the login window or window server (it ends your login session)"
-  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$lctl"; then echo "a launchctl command that ends your whole login session or the computer"
+  # JavaScript reads more characters as whitespace than [[:space:]] does in C (below): U+00A0, U+1680,
+  # U+2000-200A, U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF. Each is folded to an ASCII space here, once,
+  # so every arm reads them; a fold that fails leaves the text as it came.
+  local _ws=$'s/\xc2\xa0/ /g;s/\xe1\x9a\x80/ /g;s/\xe2\x80[\x80-\x8a\xa8\xa9\xaf]/ /g;s/\xe2\x81\x9f/ /g;s/\xe3\x80\x80/ /g;s/\xef\xbb\xbf/ /g'
+  local _t; _t="$(printf '%s' "$1" | LC_ALL=C sed "$_ws")" && [ -n "$_t" ] || _t="$1"
+  # The C locale for GNU grep (#5420): under a UTF-8 locale it took over 60 s on the first pattern for one 1.5 MB
+  # line (each of its four parts alone: under 0.1 s), past the hook's 15 s timeout; in C it took 0.07 s. BSD grep
+  # (a Mac) is the other way round, about twice as slow in C, so it keeps the caller's locale. The patterns are
+  # ASCII and the wider whitespace is folded above, so the locale changes speed, not what matches, except that
+  # C also reads an invalid UTF-8 byte as a boundary. BSD grep calls itself "GNU compatible": match the exact name.
+  local _lc="${LC_ALL:-}"
+  case "$(grep --version 2>/dev/null)" in *'(GNU grep)'*) _lc=C ;; esac
+  if printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
+  elif printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$user|$every"; then echo "a kill that matches every process you own"
+  elif printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$pgall" && printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$kword"; then echo "a kill fed by a pgrep that matches every process you own"
+  elif printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$sess"; then echo "a kill of the login window or window server (it ends your login session)"
+  elif printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$lctl"; then echo "a launchctl command that ends your whole login session or the computer"
   else return 1; fi
 }
 if [ "$EVENT" = PreToolUse ] && [ "${KOSMOS_KILL_GUARD:-}" != off ]; then

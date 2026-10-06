@@ -256,17 +256,43 @@ test('#4671 KNOWN GAP, pinned so it is not mistaken for coverage: a pid computed
   assert.equal(r.code, 0);
 });
 
-test('#5420 every grep in the kill guard runs in the C locale, so GNU grep stays fast on one long line', () => {
+test('#5420 every grep in the kill guard runs in the locale it picked: C for GNU grep, the caller\'s otherwise', () => {
   // On Linux (GNU grep 3.11, LANG=C.UTF-8) the first pattern took over 60 s on the 1.5 MB case above and the
-  // hook's 15 s timeout cut it off; in C it took 0.07 s. BSD grep on a Mac is fast either way, so the timing
-  // test above cannot catch a dropped LC_ALL=C here: this pins it in the source.
+  // hook's 15 s timeout cut it off; in C it took 0.07 s. BSD grep on a Mac is about twice as slow in C, so the
+  // hook picks per grep flavour. The Mac cannot run GNU grep, so the next test fakes one; this pins the source.
   const src = fs.readFileSync(HOOK, 'utf8');
   const start = src.indexOf('_kill_all_reason() {');
   const body = src.slice(start, src.indexOf('\n}\n', start));
-  // Any spelling of grep (-qE, -F, bare), not only grep -E; pgrep has no word boundary before its g.
-  const greps = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').match(/(\S+=\S+ )?\bgrep\b/g) || [];
+  // Any spelling of grep (-qE, -F, bare), not only grep -E; pgrep has no word boundary before its g. The
+  // flavour probe (`grep --version`, and the `(GNU grep)` it is matched against) is not a match.
+  const greps = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').match(/(\S+=\S+ )?\bgrep\b(?! --version|\))/g) || [];
   assert.equal(greps.length, 6, 'the guard has six greps; a change in that number needs this test read again');
-  for (const g of greps) assert.equal(g, 'LC_ALL=C grep', 'every grep in _kill_all_reason sets LC_ALL=C');
+  for (const g of greps) assert.equal(g, 'LC_ALL="$_lc" grep', 'every grep in _kill_all_reason runs in the picked locale');
+});
+
+test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s locale under BSD grep', () => {
+  // A fake grep first on PATH: it answers --version as the flavour asked for, records the LC_ALL each guard
+  // grep (the -Eq -- calls) ran with, and otherwise runs the real grep, so the block decision is real.
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'fakegrep-'));
+  const log = path.join(dir, 'log');
+  fs.writeFileSync(path.join(dir, 'grep'), [
+    '#!/bin/bash',
+    'if [ "$1" = --version ]; then',
+    '  if [ "$FAKE_GREP_FLAVOUR" = gnu ]; then echo "grep (GNU grep) 3.11"; else echo "grep (BSD grep, GNU compatible) 2.6.0-FreeBSD"; fi',
+    '  exit 0',
+    'fi',
+    'if [ "$1" = -Eq ] && [ "$2" = -- ]; then printf "[%s]\\n" "${LC_ALL-unset}" >> "$FAKE_GREP_LOG"; fi',
+    'exec "$FAKE_GREP_REAL" "$@"',
+  ].join('\n') + '\n', { mode: 0o755 });
+  const real = spawnSync('/bin/sh', ['-c', 'command -v grep'], { encoding: 'utf8' }).stdout.trim();
+  for (const [flavour, want] of [['gnu', '[C]'], ['bsd', '[]']]) {
+    fs.rmSync(log, { force: true });
+    const env = { PATH: `${dir}:${process.env.PATH}`, FAKE_GREP_FLAVOUR: flavour, FAKE_GREP_LOG: log, FAKE_GREP_REAL: real, LC_ALL: '' };
+    assert.equal(run('Bash', { command: 'KILL -9 N1' }, { env }).code, 2, `${flavour}: still blocks`);
+    const seen = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.ok(seen.length >= 1, `${flavour}: the guard's greps went through the fake`);
+    for (const s of seen) assert.equal(s, want, `${flavour}: every guard grep ran with LC_ALL ${want}`);
+  }
 });
 
 test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that the greps run in C', () => {

@@ -18,37 +18,49 @@ So the cause is GNU grep's multibyte path on one big alternation over one long l
 
 ## The fix
 
-`LC_ALL=C` on all six greps in `_kill_all_reason`. The hook's two other greps on the raw input already
-did this. The patterns are ASCII. What C changes, in both directions (the first found by blind review 1):
+Two changes inside `_kill_all_reason`, and the patterns themselves are main's, unchanged:
 
-- **Narrower, and fixed here:** in C, `[[:space:]]` is ASCII only, but JavaScript reads U+00A0, U+1680,
-  U+2000-200A, U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF as whitespace, so `process.kill(<U+2003>-1, 9)`
-  would have passed. The `code` and `argv` arms now use `JW`, `[[:space:]]` plus the UTF-8 bytes of those
-  characters (`argv` found by blind review 3: an `execFileSync` or `spawn` argv with such a space passed).
-  The test covers twelve of them (every row of the list, plus U+2000, U+2007 and U+2028/2029 inside the
-  byte range), with and without jq, and a non-whitespace letter as the control.
-- **A side effect, fixed:** with `JW*` matching zero spaces, `NZ` (a signal other than 0) took the first
-  byte of a Unicode space as its character and refused a harmless signal 0 (review 3). Excluding those lead
-  bytes outright (my first fix) let every other character on them pass as a signal, a copyright sign or
-  katakana included, which main blocked (review 4). `NZ` now excludes only the exact byte sequences of the
-  `JW` spaces. Tested: signal 0 with such a space before or after it is allowed; signal 9 after one, and
-  seven non-ASCII signals that share a lead byte with a `JW` space, are refused. Each direction was
-  mutation-checked against both earlier versions of `NZ`.
-- **Narrower, accepted:** a Unicode space between a shell `kill` and `-1` no longer matches the shell arms.
-  Bash splits words on ASCII whitespace only, so it would not run that text as `kill -1` either.
-- **Wider, an improvement:** an invalid UTF-8 byte just before `kill -9 -1` used to defeat the boundary
-  class `[^A-Za-z0-9_.-]` (a UTF-8 grep does not match invalid bytes against it); in C it matches, so that
-  text is now blocked. Not pinned by a test (it needs a non-UTF-8 payload); recorded here.
+1. **The C locale for GNU grep only.** The function asks `grep --version` once; `(GNU grep)` (exactly: BSD
+   grep calls itself "GNU compatible") runs the six greps with `LC_ALL=C`, anything else keeps the caller's
+   `LC_ALL`. Measured on this Mac, BSD grep is about twice as slow in C (blind review 5: 0.89 s against
+   1.56 s at 1.5 MB, worse on non-ASCII text), and C only fixes GNU grep. The hook's two other greps on
+   the raw input already ran in C and are untouched.
+2. **A fold of JavaScript's wider whitespace, once.** In C, `[[:space:]]` is ASCII only, but JavaScript
+   reads U+00A0, U+1680, U+2000-200A, U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF as whitespace,
+   so `process.kill(<U+2003>-1, 9)` would have passed under GNU grep. One C-locale `sed` pass turns each of
+   them into an ASCII space before any grep runs, so every arm reads them and the list exists once.
+
+**How this design was reached, so nobody rebuilds the earlier ones:** blind reviews 1 to 4 drove a version
+that taught each pattern the multi-byte spaces (a `JW` class in the `code` and `argv` arms, and a byte-level
+`NZ` so a signal 0 beside such a space stayed allowed). Each review found the next arm or edge it missed (the
+`argv` arm, then signal 0, then a lead-byte exclusion that let a copyright sign or katakana pass as a signal).
+Review 5 found it also made the Mac guard 2 to 4 times slower and kept the space list in three places. The
+fold replaces all of that: `code`, `argv` and `NZ` are main's text again.
+
+**What changes against main:** under GNU grep, a Unicode space between a shell `kill` and `-1` is now read
+as a space (the fold), and an invalid UTF-8 byte just before `kill -9 -1` now counts as a boundary (in a
+UTF-8 locale grep does not match an invalid byte against `[^A-Za-z0-9_.-]`; in C it does). On a Mac with
+BSD grep in a UTF-8 locale, `[[:space:]]` already read most of these spaces, so the fold mostly matters for
+U+FEFF there; the invalid-byte change does not apply. The invalid-byte case is not pinned by a test.
+
+**Cost on this Mac** (the hook end to end, jq path): ASCII 1.5 MB 0.47 s on main, 0.58 s here; CJK and
+Unicode spaces 4.6 MB 0.91 s on main, 1.10 s here. The difference is the fold.
 
 ## Decided, not missed
 
 - The 12 s bound in the timing test is not widened (#4919's decision; production times out at 15 s).
-- A source pin, not a second timing test: main's CI is Mac-only and BSD grep is fast in either locale,
-  so no timing test on main can see a dropped `LC_ALL=C`. The pin counts every `grep` token (six) and
-  requires the prefix on each; mutations (one dropped, all dropped, a seventh bare grep) all turn it red.
+- The flavour probe costs one `grep --version` per guarded call (a few milliseconds). Rejected: caching it
+  in a file (a stale cache on a machine whose grep changes would silently pick the slow locale).
+- Tests on this Mac: a source pin that every guard grep runs in `LC_ALL="$_lc"`; a fake `grep` first on PATH
+  that answers `--version` as GNU or as BSD and records each guard grep's `LC_ALL` (C under GNU, the caller's
+  under BSD), with the block decision still real; the Unicode-space tests from earlier rounds (twelve spaces,
+  `code` and `argv`, signal 0 allowed beside one, seven non-ASCII signals still blocked). Mutations, each red:
+  GNU never picked, C always, the fold removed, and a loose `GNU` match that BSD's version line satisfies.
 - Not changed: the awk decode, the 256 KB line, the sed drop. All measured under 0.15 s on Linux.
 
 ## Verification
 
 - Mac: report-hook-killguard-4671.test.js, every test green (the count is in the proof).
-- Linux: run 37530775125 on `linux-ci-5420-fix` (the #4919 lane plus only this commit).
+- Linux: the #4919 lane plus only this branch's commits, on `linux-ci-5420-fix`. The first fix passed there
+  (run 37530775125: the 1.5 MB test in 1.35 s, failures 118 against the lane's 120 baseline, the drop being
+  this test and the probe); the run for the final head is recorded in the proof.
