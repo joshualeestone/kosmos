@@ -18053,7 +18053,10 @@ window.kosmosMeasureScrollbarWidth();
            /api/usage data. The per-agent breakdown is the "By agent" block
            below (#2617, from /api/usage's byAgent). -->
       <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
-      <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
+      <!-- #5362 (Josh, 2026-10-05: "add our loading spinner to the token usage page"): the standard Sweep spinner beside
+           the reading line while it loads. Every later message is set with textContent, which removes it, so it never
+           spins beside a result or an error. -->
+      <p id="usage-msg" class="dhint" role="status" aria-live="polite"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
       <!-- #2840: the approved /design/token-value HERO -- active-days eyebrow +
            the blended tokens = human-cost equation + three stats (work hours /
            years / equivalent API cost). Josh RULED 2026-09-14 (via Splinter) to
@@ -39289,6 +39292,8 @@ function usageHistoryHtml(byDay) {
     + rows.join('');
 }
 let USAGE_BUSY = false;
+/* #5362: the standard loading spinner (Take D Sweep), shown beside the reading line while /api/usage loads. */
+const USAGE_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
   const hero = document.getElementById('usage-hero'); // #2840: the approved value-view hero
@@ -39302,7 +39307,7 @@ async function paintUsage() {
   const anote = document.getElementById('usage-agents-note');
   if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
-  msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
+  msg.innerHTML = USAGE_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';   // #5362
   /* #2840: reset every value-view region to a known-empty state. Shared by the
      no-data and error paths so they cannot drift apart. */
   const clearAll = () => {
