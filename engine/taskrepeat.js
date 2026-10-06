@@ -138,16 +138,18 @@ function graceFor(rule) {
   const period = !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
   return Math.min(RUN_GRACE_MS, Math.floor(period / 30));
 }
-function waitingForNextRun(t, now = Date.now()) {
-  if (!t || !t.repeat) return false;
+/* The scheduled slot this task is due for next: the first slot after its last run (or after the rule was set), or null
+   when there is no time to measure from (no rule, no stamp, or a run stamped in the future). Shared by
+   waitingForNextRun, missedRuns and recordRun's late mark, so the three can never disagree about which slot is due. */
+function dueSlot(t, now = Date.now()) {
+  if (!t || !t.repeat) return null;
   // review 4: with no run yet, from when the RULE was set (a rule put on an old task is not due at once).
   const raw = Date.parse(t.lastRunAt || t.repeatSetAt || t.createdAt || '');
-  if (!Number.isFinite(raw)) return false;   // no time to measure from: treat it as work, never hide it
-  /* review 2: a run stamped more than a minute in the future (a clock stepped back) cannot say when the job last ran,
-     so the task is due: work is shown, never hidden. (Measuring from "now" instead would wait for ever, one slot past
-     each check.) A run reported a little early (08:59:50 for 09:00) is that slot's run, so the next is measured past a
-     short grace. */
-  if (raw > now + 60 * 1000) return false;
+  if (!Number.isFinite(raw)) return null;
+  /* review 2: a run stamped more than a minute in the future (a clock stepped back) cannot say when the job last ran.
+     (Measuring from "now" instead would wait for ever, one slot past each check.) A run reported a little early
+     (08:59:50 for 09:00) is that slot's run, so the next is measured past a short grace. */
+  if (raw > now + 60 * 1000) return null;
   /* review 3: the grace is for a RUN reported early, never for the moment the task was made (a task made at 08:55 for
      09:00 must be due at 09:00), and it is a small share of the period: at most 10 minutes, 2 for an hourly job, so a
      late run at 09:55 for the 09:00 slot still leaves 10:00 due. */
@@ -155,8 +157,34 @@ function waitingForNextRun(t, now = Date.now()) {
   const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
   const fromRun = t.lastRunAt ? raw + graceFor(t.repeat) : raw;
   const since = Number.isFinite(ruleFrom) ? Math.max(fromRun, ruleFrom) : fromRun;
-  const due = nextAfter(t.repeat, since);
+  return nextAfter(t.repeat, since);
+}
+function waitingForNextRun(t, now = Date.now()) {
+  if (!t || !t.repeat) return false;
+  const due = dueSlot(t, now);
+  // No time to measure from: treat it as work (due), never hide it.
   return due !== null && due > now;
+}
+
+/* kosmos#4787 slice 2: a run is MISSED when its scheduled time plus a grace has passed with no run reported since. The
+   grace is the smaller of 15 minutes and a quarter of the period, so a job that starts a few minutes late is not called
+   missed. Returns { count, more, lastAt } (the slots missed since the last run, counted up to MISSED_CAP, and the latest
+   of them), or null when nothing is missed or there is no time to measure from (never claim a miss we cannot see). */
+const MISS_GRACE_MS = 15 * 60 * 1000;
+const MISSED_CAP = 99;
+function missGraceFor(rule) {
+  const r = normalise(rule);
+  const period = !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
+  return Math.min(MISS_GRACE_MS, Math.floor(period / 4));
+}
+function missedRuns(t, now = Date.now()) {
+  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return null;
+  const grace = missGraceFor(t.repeat);
+  let slot = dueSlot(t, now);
+  if (slot === null || slot + grace > now) return null;
+  let count = 0, lastAt = slot;
+  while (slot !== null && slot + grace <= now && count < MISSED_CAP) { count += 1; lastAt = slot; slot = nextAfter(t.repeat, slot); }
+  return { count, more: slot !== null && slot + grace <= now, lastAt };
 }
 
 /* kosmos#4787 slice 1b: the fields a screen shows for a repeating task (its rule in words, its next run in this board's
@@ -165,7 +193,11 @@ function waitingForNextRun(t, now = Date.now()) {
 function fieldsOf(t, now = Date.now()) {
   if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};
   const nextAt = nextAfter(t.repeat, now);
-  return { repeatWords: describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: whenWords(nextAt, now) };
+  const out = { repeatWords: describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: whenWords(nextAt, now) };
+  /* slice 2: the missed runs, in the board's own time like the next run. */
+  const missed = missedRuns(t, now);
+  if (missed) Object.assign(out, { repeatMissed: missed.count, repeatMissedMore: missed.more, repeatMissedAt: missed.lastAt, repeatMissedWords: whenWords(missed.lastAt, now) });
+  return out;
 }
 
-module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf };
+module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, MISSED_CAP };

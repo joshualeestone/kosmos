@@ -4238,6 +4238,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
 .tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
+/* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
+.tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
   border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
@@ -58590,17 +58592,27 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
 function tskRepeatSentence(t, now) {
   const words = t.repeatWords || 'on a schedule';
-  let s = 'Repeats ' + words + '.';
+  /* kosmos#4787 slice 2: a missed run leads the line, in the board's own words (taskrepeat.missedRuns), so the person
+     sees it before the rhythm. The latest missed slot is the one named; more than one is counted. */
+  let s = tskRepeatMissed(t);
+  s += (s ? ' ' : '') + 'Repeats ' + words + '.';
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
-    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
   } else {
     s += ' No run reported yet.';
   }
   // The board's own words for the next run (review 1: never this browser's time zone beside the board's rule).
   if (t.repeatNextWords) s += ' Next ' + t.repeatNextWords + '.';
   return s;
+}
+/* slice 2: "Missed the run due today at 9am." or "Missed 3 runs, the latest due today at 9am.", or '' when none is. */
+function tskRepeatMissed(t) {
+  const n = Number(t && t.repeatMissed);
+  if (!(n >= 1) || !t.repeatMissedWords) return '';
+  if (n === 1 && t.repeatMissedMore !== true) return 'Missed the run due ' + t.repeatMissedWords + '.';
+  return 'Missed ' + (t.repeatMissedMore === true ? 'more than ' + n : n) + ' runs, the latest due ' + t.repeatMissedWords + '.';
 }
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
@@ -58781,7 +58793,7 @@ function tskRow(t, at) {
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
-  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
+  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat' + (tskRepeatMissed(t) ? ' missed' : '') + '">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
     + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -59569,7 +59581,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -60124,6 +60136,7 @@ function tkPaintRepeat(p, t) {
   const line = document.getElementById('tk-repeat-line');
   const said = t.repeat ? tskRepeatSentence(t, Date.now()) : '';
   if (line.textContent !== said) line.textContent = said;
+  line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
   line.hidden = !said;
 }
 function tkOpenTask() {

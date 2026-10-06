@@ -207,3 +207,24 @@ test('#4787 review 5: the person\'s run is a flag; an agent named operator is an
   assert.equal(runs[0].person, true);
   assert.equal(runs[1].by, 'operator');
 });
+
+test('#4787 slice 2: a run reported past its slot\'s miss grace is marked late, in the task and its history; an on-time run clears it', () => {
+  const taskrepeat = require('../engine/taskrepeat');
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' });
+  const slot1 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, Date.parse(stored(id, n).repeatSetAt));
+  tasks.recordRun(id, n, 'ada', 'on time', slot1 + 5 * 60000);
+  assert.equal(stored(id, n).lastRunLate, undefined, 'five minutes after its slot is on time');
+  const slot2 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, slot1 + 5 * 60000 + 10 * 60000);
+  tasks.recordRun(id, n, 'ada', 'slow', slot2 + 20 * 60000);
+  assert.equal(stored(id, n).lastRunLate, true, 'twenty minutes after its slot is late');
+  const runs = taskchat.read(id, n).filter((e) => e.kind === 'run');
+  assert.deepEqual(runs.map((e) => e.late === true), [false, true], 'the history says which run was late');
+  const slot3 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, slot2 + 20 * 60000 + 10 * 60000);
+  tasks.recordRun(id, n, 'ada', 'back on time', slot3 + 60000);
+  assert.equal(stored(id, n).lastRunLate, undefined, 'the next on-time run clears the mark');
+  tasks.recordRun(id, n, 'bob', 'very late', slot3 + 3 * 86400000);
+  assert.equal(stored(id, n).lastRunLate, true, 'CONTROL: a run days after the slot it answers is late');
+  tasks.setRepeat(id, n, null);
+  assert.equal(stored(id, n).lastRunLate, undefined, 'stopping the repeat clears it with the other run fields');
+});
