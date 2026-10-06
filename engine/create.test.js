@@ -210,6 +210,18 @@ const WIN_LAUNCHD = onWin('reads or drives the launchd job (plist, launchctl, th
    Windows are unchanged. */
 const LINUX_LAUNCHD_TEMP = process.platform === 'linux'
   ? { skip: 'macOS launchd leftover-job fixture: tempRoots() lists only macOS /private temp folders; Linux agent jobs are #4918, not yet on main' } : {};
+/* #4919: two #4279 tests need our plist folder to have a second spelling (a symlink on its path, as macOS's /var ->
+   /private/var gives the sandbox). Keyed on that premise, not on the platform: where the folder has one spelling
+   (Linux, or a Mac sandbox off /var) they cannot reach the case they test. */
+function plistFolderHasSecondSpelling() {
+  try {
+    const dir = nodePath.dirname(create.plistPath('spelling-probe-4919'));
+    fs.mkdirSync(dir, { recursive: true });
+    return fs.realpathSync.native(dir) !== dir;
+  } catch { return true; }   // cannot tell: run the test, whose own premise assert then says why
+}
+const NO_SECOND_SPELLING = plistFolderHasSecondSpelling() ? {}
+  : { skip: 'needs our plist folder reached through a symlink (a second spelling), as on macOS; here it has one spelling (#4919)' };
 const WIN_LAUNCHD_FAIL = onWin('simulates a failed start or write through the launchd runner seam (create.setRunner), '
   + 'which the win32 create path never calls. Windows failed starts: create.win32-launch-570.test.js (7c-2)');
 const WIN_TASK_STUB = onWin('switches an agent by rewriting its launch job, and this file\'s win32 stub answers every '
@@ -904,7 +916,7 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
 });
 
-test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
+test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', { ...WIN_LAUNCHD, ...NO_SECOND_SPELLING }, () => {
   /* Unit level on purpose: through createAgent an existing own plist is refused earlier ("no folder
      for it") and launchctl is never asked, so a create-level test of this arm tests nothing. */
   const own = create.plistPath('leftover-ownreal');
@@ -922,7 +934,7 @@ test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real 
   } finally { fs.rmSync(own, { force: true }); }
 });
 
-test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
+test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', { ...WIN_LAUNCHD, ...NO_SECOND_SPELLING }, () => {
   const own = create.plistPath('leftover-ownabsent');
   fs.mkdirSync(nodePath.dirname(own), { recursive: true });
   const printed = nodePath.join(fs.realpathSync.native(nodePath.dirname(own)), nodePath.basename(own));
