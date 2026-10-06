@@ -8,15 +8,19 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
 (rejected: a new interaction surface and an authority path triggered by agent-written content); it is one instruction.
 
 ## Change (engine/projects.js blockRules().member)
-- "If you cannot tell whether they mean the whole project, ask them in the room; they can also press Pause beside the
-  project's name themselves."
+- Right after the pause line: "If you cannot tell whether they mean the whole project, ask them where they asked, and
+  tell them they can also press Pause beside the project's name themselves." (review 1: "where they asked", not "in the
+  room", since the request can come directly; placed after the pause line so "they" is the pause request)
 - The resume pointer names the button: "tell them to press Resume beside the project's name, at the top of its page"
   (was "tell them it is on the project's page").
-- Delivery: part 1 (#5409, merged) owes every running member a re-read when a rule is added, so running agents learn
-  this without a restart.
+- Delivery: part 1 (#5409, merged) owes a running member a re-read when its block is next rewritten (a task or
+  membership change) and the rule is new there. Until then it keeps the old pointer ("it is on the project's page"),
+  which is still true.
 
 ## Ordering
-Do NOT merge before #5395: the line names a button that only exists once it lands.
+Do NOT merge before #5395: the line names a button that only exists once it lands. ENFORCED by a test (review 1): it
+reads web/index.html for id="pj-head-pause" and the Pause / Resume label, so it is red on main until #5395 lands and
+red again if the button is ever removed or renamed.
 
 ## Tests
 engine/projects.test.js "#5320 part 2": both sentences present, the old pointer gone. Red against main's projects.js.
