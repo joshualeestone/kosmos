@@ -23,6 +23,9 @@ card's two-account run); with members left, the owner's 90 s grace after its rot
   any answer asked before then, and says the same line from its `revoked_at`.
 - Said as "may not", not "was not delivered": B cannot tell whether anyone else is left, so it cannot
   tell whether the owner's grace applied (see above).
+- Unsealed rooms get the line too, on purpose: there no key stops the post, and the relay cuts a
+  removed member only when its room ticket runs out, so the others may or may not have seen it.
+- The log holds at most 64; a full log is said as "At least 64 messages".
 
 ## Rejected
 - Holding every member post for its edge check (as the owner side does with holdForCheck): a larger
@@ -34,12 +37,16 @@ card's two-account run); with members left, the owner's 90 s grace after its rot
 ## Known gap
 With no `revoked_at` (the coordinator cannot be asked, or its answer lacks the field), nothing is said
 about the posts: no claim without a time.
+A post the connector also refused (its "A message was not sent" line) can be named again by the gap
+line. Both are true; it is a repeat, not a contradiction.
 
 ## Tests
-`engine/fedseats.test.js`, five #5404 tests beside the #5193 ones: the card's case (one post 3 s after),
-two posts in one sentence, the connector's refusal arriving first, a control with the revoke stamped
-after the posts (no line), and no `revoked_at` (no line). On origin/main's fedseats.js the three
-positive ones fail and the two controls pass.
+`engine/fedseats.test.js`, seven #5404 tests beside the #5193 ones. Four positive: the card's case
+(one post 3 s after), two posts in one sentence, past the cap (said as a floor), the connector's
+refusal arriving first. Three controls that must say nothing more: the revoke stamped after the posts,
+the refusal path with a fresh answer that failed or still says active, and no `revoked_at`. Measured
+on origin/main's fedseats.js: 5 fail (the four positive, and the refusal-path control, which also
+asserts the fresh ask that main never makes) and 2 pass (the other two controls).
 
 ## Weakest premise
 That B's clock is within about 5 s of the coordinator's. Behind by more, a gap post can go unnamed
