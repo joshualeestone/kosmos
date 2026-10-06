@@ -1,14 +1,17 @@
 'use strict';
 /**
  * kosmos#5358 (beta-day report, a Windows install): "the `kosmos` CLI is still not on PATH in an agent's own shell".
- * The same report says scripts were refused ("running scripts is disabled") after a policy reset, and in PowerShell
- * a bare `kosmos` IS kosmos.ps1, so a Restricted policy makes the command look missing. engine/win32launch.childEnv
- * now gives a Kosmos-launched agent the process-scope policy PowerShell reads from PSExecutionPolicyPreference.
+ * Kosmos's own launch path is meant to make it work in every shell an agent uses (engine/win32launch.childEnv puts
+ * <zip>\bin first on PATH, and gives the PowerShell runners the process-scope policy, #3380). Until now that was
+ * measured by hand on one box; these arms measure it on the Windows CI runner, so a red names which half broke:
+ *   - Git Bash (Claude Code's Bash tool): a login shell finds `kosmos` on the agent's PATH;
+ *   - Claude Code's PowerShell tool, with the flags it passes itself (measured in #570): runs kosmos.ps1 under a
+ *     Restricted policy;
+ *   - Codex's `powershell -Command`: refused under Restricted WITHOUT the variable (the control), runs WITH it.
+ * Plus pure arms (any OS) for the one fix this card makes: the policy variable is ONE key whatever case it arrives in.
  *
- * The first tests are pure (any OS). The shell arms run only on Windows (tools/windows-tests.js selects this file by
- * its name): a zip-shaped folder with the real shims and a stub CLI, the agent's env from the real childEnv, and a
- * bare `kosmos` typed in PowerShell and in a Git Bash login shell. The policy arms change the CurrentUser policy, so
- * they run only on GitHub Actions and put it back.
+ * Windows arms use a zip-shaped folder with the real shims and a stub CLI. The policy arms change the CurrentUser
+ * policy, so they run only on GitHub Actions and put it back.
  *
  *   node --test engine/win32-kosmos-shell-5358.test.js
  */
@@ -23,18 +26,15 @@ const launcher = require('./win32launch');
 
 const keysOf = (env, name) => Object.keys(env).filter((k) => k.toUpperCase() === name.toUpperCase());
 
-test('#5358: an agent given the kosmos CLI gets PowerShell\'s process-scope policy; one without it does not', () => {
-  const env = launcher.childEnv({ Path: 'C:\\Windows' }, 't', null, 'C:\\K\\bin', 'claude');
-  assert.equal(env.PSExecutionPolicyPreference, 'Bypass');
-  assert.equal(env.Path, 'C:\\K\\bin;C:\\Windows', 'control: the CLI folder is first on the one PATH key');
-  const none = launcher.childEnv({ Path: 'C:\\Windows' }, 't', null, null, 'claude');
-  assert.deepEqual(keysOf(none, 'PSExecutionPolicyPreference'), [], 'an agent with no CLI folder was given a policy');
-});
-
-test('#5358: a policy the environment already sets is kept, whatever the spelling of its name, and never doubled', () => {
-  const env = launcher.childEnv({ psexecutionpolicypreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', 'claude');
-  assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['psexecutionpolicypreference']);
-  assert.equal(env.psexecutionpolicypreference, 'AllSigned');
+test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives in; claude gets none (#3380)', () => {
+  for (const runner of ['codex', 'gemini', 'grok', 'antigravity']) {
+    const env = launcher.childEnv({ psexecutionpolicypreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
+    assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['psexecutionpolicypreference'], runner + ': two keys');
+    assert.equal(env.psexecutionpolicypreference, 'Bypass', runner);
+    assert.equal(launcher.childEnv({}, 't', null, 'C:\\K\\bin', runner).PSExecutionPolicyPreference, 'Bypass', runner + ' (no key before)');
+  }
+  assert.deepEqual(keysOf(launcher.childEnv({}, 't', null, 'C:\\K\\bin', 'claude'), 'PSExecutionPolicyPreference'), [],
+    'control: a claude child is left as #3380 decided (its PowerShell tool passes its own policy flag)');
 });
 
 /* ---------- Windows only: the shells themselves ---------- */
@@ -44,6 +44,7 @@ const onCi = process.env.GITHUB_ACTIONS === 'true';
 const SYSROOT = process.env.SystemRoot || 'C:\\Windows';
 const POWERSHELL = path.join(SYSROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 const GIT_BASH = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files (x86)\\Git\\bin\\bash.exe'].find((p) => fs.existsSync(p));
+const STUB = /KOSMOS-STUB \["--version"\]/;
 
 /* A zip-shaped folder: bin\ with the real shims and a stub kosmos-cli.js, runtime\node.exe. */
 function stageZip() {
@@ -66,40 +67,53 @@ function stageZip() {
   return { root, bin };
 }
 
-function agentEnv(bin, keepPolicy) {
-  const env = launcher.childEnv(process.env, null, null, bin, 'claude');
-  if (!keepPolicy) for (const k of keysOf(env, 'PSExecutionPolicyPreference')) delete env[k];
+/* The runner's own environment with no policy variable in it, so every arm's policy is the one it states. */
+function baseEnv() {
+  const env = { ...process.env };
+  for (const k of keysOf(env, 'PSExecutionPolicyPreference')) delete env[k];
   return env;
 }
+const agentEnv = (bin, runner) => launcher.childEnv(baseEnv(), null, null, bin, runner);
+const run = (cmd, args, env) => spawnSync(cmd, args, { env, encoding: 'utf8', timeout: 30000 });
+const said = (r) => 'status ' + r.status + '\nstdout ' + r.stdout + '\nstderr ' + r.stderr;
 
-function powershell(env, command) {
-  return spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', command], { env, encoding: 'utf8', timeout: 45000 });
-}
-
-test('#5358 Windows: in a Git Bash login shell (Claude Code\'s), a bare kosmos is found on the agent\'s PATH', { skip: !onWindows ? 'Windows only' : !GIT_BASH ? 'no Git Bash on this machine' : false }, () => {
-  const z = stageZip();
-  try {
-    const r = spawnSync(GIT_BASH, ['-lc', 'kosmos --version'], { env: agentEnv(z.bin, true), encoding: 'utf8', timeout: 45000 });
-    assert.match(String(r.stdout), /KOSMOS-STUB \["--version"\]/, 'status ' + r.status + '\nstdout ' + r.stdout + '\nstderr ' + r.stderr);
-  } finally { fs.rmSync(z.root, { recursive: true, force: true }); }
-});
-
-test('#5358 Windows: under a Restricted policy, a bare kosmos in PowerShell is refused without the agent\'s policy and runs with it',
-  { skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
+test('#5358 Windows: in a Git Bash login shell (Claude Code\'s Bash tool), a bare kosmos is found on the agent\'s PATH',
+  { skip: !onWindows ? 'Windows only' : !GIT_BASH ? 'no Git Bash on this machine' : false }, () => {
     const z = stageZip();
-    const was = String(powershell(process.env, 'Get-ExecutionPolicy -Scope CurrentUser').stdout || '').trim() || 'Undefined';
     try {
-      const set = powershell(process.env, 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Restricted -Force');
+      const r = run(GIT_BASH, ['-lc', 'kosmos --version'], agentEnv(z.bin, 'claude'));
+      assert.match(String(r.stdout), STUB, said(r));
+      const none = run(GIT_BASH, ['-lc', 'kosmos --version'], baseEnv());
+      assert.doesNotMatch(String(none.stdout), STUB, 'control: kosmos was found without the agent\'s PATH');
+    } finally { fs.rmSync(z.root, { recursive: true, force: true }); }
+  });
+
+test('#5358 Windows: under a Restricted policy, Claude Code\'s PowerShell runs kosmos; codex\'s needs the agent\'s variable',
+  // Its own timeout: several PowerShell starts, past the runner script's 60 s per test default.
+  { timeout: 240000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
+    const z = stageZip();
+    const ps = (env, command, flags = []) => run(POWERSHELL, ['-NoProfile', '-NonInteractive', ...flags, '-Command', command], env);
+    const was = String(ps(baseEnv(), 'Get-ExecutionPolicy -Scope CurrentUser').stdout || '').trim() || 'Undefined';
+    try {
+      const set = ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Restricted -Force');
       assert.equal(set.status, 0, 'could not set the CurrentUser policy: ' + set.stderr);
-      const eff = String(powershell(agentEnv(z.bin, false), 'Get-ExecutionPolicy').stdout || '').trim();
-      assert.equal(eff, 'Restricted', 'control: this runner\'s effective policy is not Restricted (a higher scope sets it), so the test cannot show the defect');
-      const before = powershell(agentEnv(z.bin, false), 'kosmos --version');
-      assert.doesNotMatch(String(before.stdout), /KOSMOS-STUB/, 'control: a Restricted policy did not stop kosmos.ps1, so this test cannot see the defect');
-      assert.match(String(before.stderr) + String(before.stdout), /scripts is disabled|cannot be loaded/i, 'control: refused for another reason: ' + before.stderr);
-      const after = powershell(agentEnv(z.bin, true), 'kosmos --version');
-      assert.match(String(after.stdout), /KOSMOS-STUB \["--version"\]/, 'with the agent\'s policy: status ' + after.status + '\nstderr ' + after.stderr);
+      assert.equal(String(ps(baseEnv(), 'Get-ExecutionPolicy').stdout || '').trim(), 'Restricted',
+        'control: this runner\'s effective policy is not Restricted (a higher scope sets it), so no arm here can show a refusal');
+      // Claude Code's PowerShell tool, as measured in #570: it passes its own process-scope policy.
+      const claude = ps(agentEnv(z.bin, 'claude'), 'kosmos --version', ['-ExecutionPolicy', 'Bypass']);
+      assert.match(String(claude.stdout), STUB, 'Claude Code\'s PowerShell: ' + said(claude));
+      // Codex's `powershell -Command`, without and with what childEnv gives a codex agent.
+      const bare = { ...agentEnv(z.bin, 'codex') };
+      for (const k of keysOf(bare, 'PSExecutionPolicyPreference')) delete bare[k];
+      const refused = ps(bare, 'kosmos --version');
+      assert.doesNotMatch(String(refused.stdout), STUB, 'control: a Restricted policy did not stop kosmos.ps1');
+      assert.match(String(refused.stderr) + String(refused.stdout), /scripts is disabled|cannot be loaded/i, 'control: refused for another reason: ' + said(refused));
+      const codex = agentEnv(z.bin, 'codex');
+      assert.equal(codex.PSExecutionPolicyPreference, 'Bypass', 'the policy must come from childEnv (baseEnv carries none)');
+      const ran = ps(codex, 'kosmos --version');
+      assert.match(String(ran.stdout), STUB, 'codex\'s PowerShell with the agent\'s variable: ' + said(ran));
     } finally {
-      powershell(process.env, 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy ' + (/^[A-Za-z]+$/.test(was) ? was : 'Undefined') + ' -Force');
+      ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy ' + (/^[A-Za-z]+$/.test(was) ? was : 'Undefined') + ' -Force');
       fs.rmSync(z.root, { recursive: true, force: true });
     }
   });

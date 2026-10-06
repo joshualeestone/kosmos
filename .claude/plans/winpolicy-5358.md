@@ -1,28 +1,28 @@
-# #5358: a Windows agent's `kosmos` runs in PowerShell under a Restricted script policy
+# #5358: measure the Windows agent's `kosmos` in each shell on the Windows runner; one-key policy fix
 
-## What the report says, and what the code says
-The source report (install 45461372, 2026-10-05): "the `kosmos` CLI is still not on PATH in an agent's own shell"
-and, in the same paragraph, PowerShell scripts refused ("running scripts is disabled") after a machine policy reset.
+## What the report says, and what the code and earlier measurements say
+The source report (install 45461372, 2026-10-05): "the `kosmos` CLI is still not on PATH in an agent's own shell",
+beside PowerShell scripts refused after a machine policy reset.
 - PATH: engine/win32launch.childEnv puts `<zip>\bin` first on every Kosmos-launched agent's PATH (launch,
-  launchStreaming, the codex supervisor, agy), and the task-started supervisor reaches the same code through the engine
-  pointer. Read, not measured on Windows.
-- PowerShell: a bare `kosmos` resolves to `bin\kosmos.ps1`, which a Restricted policy (the Windows CLIENT default)
-  refuses. An agent reads that as "kosmos is not there".
+  launchStreaming, the codex supervisor, agy; task-started agents reach it through the engine pointer).
+- Policy: Claude Code's PowerShell tool passes `-ExecutionPolicy Bypass` itself (measured in #570, plan
+  win32-cli-verbs line 200), and childEnv already gives codex, gemini, grok and antigravity the process-scope
+  variable (#3380). So no Kosmos-launched runner should meet the Restricted policy.
 
 ## Call
-- childEnv sets `PSExecutionPolicyPreference=Bypass` (PowerShell's PROCESS scope) for an agent that was given the
-  CLI folder, and never over a value the environment already sets (any spelling of the name).
-- Process scope outranks CurrentUser and LocalMachine. It does NOT outrank a Group Policy (MachinePolicy/UserPolicy);
-  a managed machine that forbids scripts still refuses kosmos.ps1. Stated on the card.
-- Rejected: a `kosmos.cmd` shim for cmd/PowerShell. kosmos.ps1's own header records cmd's `%*` mangling messages
-  (multi-line replies cut, `&` run as a command), and in PowerShell the .ps1 is still found first.
-- Rejected: `-ExecutionPolicy Bypass` per call. Claude Code starts the agent's PowerShell, not Kosmos.
+- RETRACTED (review iteration 1): my first version extended the variable to claude, on the premise that Claude
+  Code's PowerShell meets the policy. The #570 measurement says it does not; #3380's claude exclusion stands.
+- Kept: the variable is ONE key whatever case it arrives in (an inherited `psexecutionpolicypreference` plus a new
+  `PSExecutionPolicyPreference` is the two-keys trap the PATH comment names).
+- New Windows-runner arms measure each shell: Git Bash login shell finds `kosmos` on the agent's PATH (control: not
+  without it); Claude Code's exact PowerShell flags run it under a Restricted policy; codex's `powershell -Command`
+  is refused without the variable (control) and runs with it.
+- If all pass on the runner, Kosmos's launch path is right and #5358 is specific to that box (most likely an agent
+  Kosmos did not launch, or an old build): parked needs-device for a measurement there.
 
 ## Weakest premise
-That the reporting agent's shell was PowerShell under that policy. If it was Git Bash, the PATH half is the defect;
-the Windows test's Git Bash arm measures that a login shell finds `kosmos` on the agent's PATH.
+That windows-latest (Server, admin) answers the same as a person's Windows 11 laptop for these shells.
 
 ## Tests
-- engine/win32-kosmos-shell-5358.test.js: pure arms (any OS) for the env; Windows arms on the Windows CI runner:
-  Git Bash login shell finds `kosmos`; under a Restricted CurrentUser policy the shim is refused WITHOUT the
-  preference (control) and runs WITH it. The policy arm runs only on GitHub Actions and restores the policy.
+- engine/win32-kosmos-shell-5358.test.js (pure arms anywhere; shell arms on the Windows runner, the policy arm only
+  on GitHub Actions and restoring the CurrentUser policy).
