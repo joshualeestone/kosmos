@@ -832,6 +832,26 @@ test('telling an agent writes the block into its real instruction file', () => {
   assert.equal(projects.get(p.id, []).agents[0].told.state, projects.TOLD.TOLD, 'and the verdict is recorded');
 });
 
+test('#5320: a CHANGED projects block owes the running agent a re-read; an unchanged write owes none', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  projects.create({ name: 'Henderson lease', folder: folder('henderson-5320'), agents: ['mara'] });
+  clear();
+  const first = projects.syncAgent('mara', ROSTER);
+  assert.equal(first.state, projects.TOLD.TOLD);
+  assert.equal(first.changed, true, 'fixture: the first write must change the block, or this test proves nothing');
+  assert.deepEqual((ir.readOwed().mara || {}).sections, ['projects'], 'a changed block was not owed as a re-read');
+  // CONTROL: the same write again changes nothing, and owes nothing.
+  clear();
+  const again = projects.syncAgent('mara', ROSTER);
+  assert.equal(again.state, projects.TOLD.TOLD);
+  assert.notEqual(again.changed, true, 'fixture: the second write must be unchanged');
+  assert.equal(ir.readOwed().mara, undefined, 'an unchanged write owed a re-read');
+  assert.equal(ir.SECTIONS.projects, 'the section headed "Your projects"');
+});
+
 test('an agent with no worker folder is recorded as a member we COULD NOT tell', () => {
   reset();
   // ⚠️ Not hypothetical: measured on this machine 2026-08-11, `claudebot` — the

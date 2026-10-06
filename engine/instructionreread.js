@@ -39,6 +39,9 @@ const SECTIONS = Object.freeze({
   connections: 'the sections headed "How connecting a provider works", "A plugin the person installed in their own app (Claude and Codex agents)" and "The Connections tab: the services you can work with"',
   dmfiles: 'the section headed "Where to save files you make for the person"',
   language: 'the section headed "The person\'s language"',
+  /* kosmos#5320: the projects block (engine/projects.js, rewritten by syncAgent on task and membership changes) carries
+     rules a running agent started without, such as `kosmos project pause` (#4982). */
+  projects: 'the section headed "Your projects"',
 });
 
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
