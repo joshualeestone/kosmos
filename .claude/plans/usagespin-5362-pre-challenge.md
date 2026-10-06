@@ -23,3 +23,8 @@ converged: true
 #### Iteration 2 (sonnet)
 - NO NEW ISSUES. Checked: the single write gives identical text for roots null / one / several and the unpriced suffix for one or several models; no test asserts #usage-msg text or HTML; the aria-hidden spinner pattern matches #d-instr-loading; the arm waits for USAGE_BUSY === true before reading the during state.
 - Two observations, not defects: a repaint keeps the previous hero and tables under the spinner (existing behaviour); the leading space before the sentence is trimmed by the check.
+
+### Gates run on the branch after convergence
+- Browser-check surface gate: first run FAILED on render-unread-edge-3743 and render-agentdm-3414 (token 'msg' changed: paintUsage's own local). Both checks assert chat bubbles (msg-b, msg-av, msg-bd, msg-flash, msg-nm) and contain no reference to usage, so per-check trailers carry that reason; gate then rc=0. CI's browser-checks job runs both.
+- fixture-discipline and no-name-refs-3071 lints: 24/24.
+- render-token-usage-2617 locally: queued in the light lane with 14 runs ahead at 22:19, so CI is the first run of the new arm.
