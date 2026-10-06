@@ -716,6 +716,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      AS READ, its sentence, the direct-children "2 of 5"), from the one tree derivation, so the
      project column and the task page never count children themselves. Built once per call. */
   const tree = tasksModEarly.treeOf({ tasks });
+  const taskrepeatMod = require('./taskrepeat');   // review 1: once per call, not per task
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
@@ -723,7 +724,8 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
     subtasks: tree.progress(t.number),
-    ...require('./taskrepeat').fieldsOf(t),   // kosmos#4787 slice 1b: the task page's repeat line, in the board's words
+    // kosmos#4787 slice 1b: the task page's repeat line, in the board's words; a task its parts closed has no next run (review 1).
+    ...taskrepeatMod.fieldsOf(tasksModEarly.progressOf(t).closed ? Object.assign({}, t, { isClosed: true }) : t),
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
