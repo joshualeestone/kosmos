@@ -451,7 +451,7 @@ function tellEveryoneOn(t, roster) {
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
      taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -463,7 +463,11 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
   }
-  const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+  /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
+     still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
+  const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
+  const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
+    : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
@@ -480,7 +484,8 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      // #5382: a failover move goes back to the agent it was taken from, not to nobody.
+      const back = tasks.assignPart(projectId, n, partId, failoverFrom, { via: 'assigner', onlyIfWho: who });
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
@@ -9645,7 +9650,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = assignerSetting.read();
-      sendJson(res, 200, { on: r.on, ok: r.ok });
+      sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
@@ -9659,11 +9664,13 @@ const server = http.createServer(async (req, res) => {
            Recommender, refuse a caller isViaScreen reads as a process. ADVISORY (a local process
            can send the header); it stops the default CLI path only. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
-        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = assignerSetting.setOn(body.on);
+        /* #5382: one change per PUT, `on` or `failover`, as the Recommender's guards are. */
+        const field = typeof body.on === 'boolean' ? 'on' : typeof body.failover === 'boolean' ? 'failover' : null;
+        if (!field) { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = field === 'on' ? assignerSetting.setOn(body.on) : assignerSetting.setFailover(body.failover);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = assignerSetting.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
+        sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -20576,13 +20583,13 @@ function start(port = PORT) {
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
             readGoal: (project) => brief.readGoal(project && project.folder),
-            give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
             ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
           assignerSaved = assigner.saveMemory(assignerPrev, assignerSaved);
-          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}${a.from ? ' (moved from ' + a.from + ', rate-limited)' : ''}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
           for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only

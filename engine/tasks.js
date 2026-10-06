@@ -512,6 +512,9 @@ function assignPart(projectId, n, partId, who, made) {
       /* #4771: nor one put on hold, or whose project was paused, since it was picked. */
       if (made && made.onlyIfFree && (isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
+      /* #5382: a failover move (the Assigner taking a rate-limited agent's part) is refused, as a fresh give is, if the
+         part was finished, or its task built, put on hold or its project paused, since it was picked. */
+      if (made && made.failover === true && (x.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {

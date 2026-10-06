@@ -50,6 +50,14 @@ const MAX_ASK_FAILS = 3;
 /* At most one goal ask per agent per hour, so an agent that answers "nothing to add" is not asked
    about its next goal project a minute later. */
 const MAX_ASKS_PER_AGENT_PER_HOUR = 1;
+/* #5382: failover (the setting's `failover`, off by default). An agent whose card has read rate_limited for this long,
+   continuously, has its open parts given to an idle agent on the same project that runs on ANOTHER provider. Long, so a
+   limit line misread off the screen (#966: a scraped limit is a warning) has time to clear before work moves, and so
+   a short per-minute limit is waited out rather than acted on. */
+const FAILOVER_MS = 15 * 60 * 1000;
+/* A limit whose reset Kosmos knows (Antigravity's quotaUntil, or the shared pool's poolUntil) and that resets within
+   this long is waited out: the agent holding the work will be back before a new one has read the task. */
+const RESET_SOON_MS = 10 * 60 * 1000;
 /* #4552: does this agent's commitments record leave it free for new work? Stated clear, yes. Also,
    with nothing stated: an agent that never reported a list, or whose last list was empty and has only
    aged. Nothing shipped writes the record (only an agent's own PUT does), so requiring `clear` meant
@@ -86,6 +94,14 @@ const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
    Once anyone else is on the project it is an ordinary project and the maker an ordinary member. */
 const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length === 1 && p.agents[0] === session
   && !!p.made && typeof p.made === 'object' && p.made.by === session;
+
+/* #5382: a card the failover may take work FROM: ours, reading rate_limited, and not about to reset. */
+function limitedCard(a, now) {
+  if (!(a && a.sessionName && a.isNamedOurs === true && a.state === 'rate_limited')) return false;
+  // Each reset on its own: Math.max over a missing one (NaN) is NaN, which would read as no reset known.
+  const resets = [Date.parse(a.quotaUntil || ''), Date.parse(a.poolUntil || '')].filter(Number.isFinite);
+  return !(resets.length && Math.max(...resets) - now <= RESET_SOON_MS);
+}
 
 /* Live (non-archived) project records only. */
 function liveProjects(records) {
@@ -161,7 +177,8 @@ function pick(session, projects, taken) {
 
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
-  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map() };
+  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map(),
+    limitedSince: new Map() };
 }
 
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
@@ -292,6 +309,40 @@ function askText(item) {
  * @param {number} o.now  ms clock
  * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
  */
+/* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
+   may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
+   those out, #1307). `runnerOf` maps session -> provider. */
+function stalledParts(projects, ripe, runnerOf) {
+  const out = [];
+  for (const p of projects) {
+    if (require('./projects').isPaused(p)) continue;
+    for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') continue;
+      const prog = tasks.progressOf(t);
+      if (prog.closed) continue;
+      for (const x of prog.parts) {
+        if (x.closedAt || !ripe.has(x.who)) continue;
+        out.push({ projectId: p.id, n: t.number, partId: x.id, from: x.who, fromRunner: runnerOf.get(x.who) || 'claude',
+          due: dueKey(t), age: ageKey(t) });
+      }
+    }
+  }
+  out.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
+  return out;
+}
+
+/* #5382: the stalled part this idle agent takes, if any: in a project it belongs to (and is not swarm-off in), held by
+   an agent on a DIFFERENT provider (the same provider is likely the same limit), not already moved this step. */
+function failoverPick(session, runner, stalled, projects, movedParts) {
+  for (const s of stalled) {
+    if (s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
+    const p = projects.find((q) => q.id === s.projectId);
+    if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    return s;
+  }
+  return null;
+}
+
 function step({ prev, roster, setting, records, commitments, goals, now }) {
   const base = prev && prev.idleSince instanceof Map ? prev : emptyMemory();
   if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: emptyMemory() };
@@ -310,6 +361,21 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
   const askedSig = new Map([...(base.askedSig instanceof Map ? base.askedSig : new Map())].filter(([id]) => ids.has(id)));
   const askLog = (Array.isArray(base.askLog) ? base.askLog : []).filter((e) => e && now - e.at < HOUR_MS);
   const toAsk = [];
+  /* #5382: how long each of our agents has read rate_limited, kept like idleSince (a card that stops reading it starts
+     again from zero). Kept with the failover off too, so turning it on does not restart every clock. */
+  const limitedSince = new Map();
+  const runnerOf = new Map();
+  const ripe = new Set();
+  const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
+  for (const a of Array.isArray(roster) ? roster : []) {
+    if (a && a.sessionName) runnerOf.set(a.sessionName, a.runner || 'claude');
+    if (!limitedCard(a, now)) continue;
+    const since = baseLimited.has(a.sessionName) ? baseLimited.get(a.sessionName) : now;
+    limitedSince.set(a.sessionName, since);
+    if (now - since >= FAILOVER_MS) ripe.add(a.sessionName);
+  }
+  const stalled = setting.failover === true && ripe.size ? stalledParts(projects, ripe, runnerOf) : [];
+  const movedParts = new Set();
   for (const a of Array.isArray(roster) ? roster : []) {
     if (!idleCard(a)) continue;
     const session = a.sessionName;
@@ -324,12 +390,17 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     let held = null;
     try { held = require('./agyquota').heldForQuota(session, roster, now); } catch { held = null; }
     if (held !== null) continue;
-    const choice = pick(session, projects, taken);
+    /* #5382: work stalled on a rate-limited agent comes before the backlog: it was already started for somebody. */
+    const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || 'claude', stalled, projects, movedParts) : null;
+    const choice = moved
+      ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from }
+      : pick(session, projects, taken);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
       if (log.length >= MAX_PER_HOUR) continue;
       if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
-      taken.add(choice.projectId + '#' + choice.n);
+      if (moved) movedParts.add(choice.projectId + '#' + choice.n + '#' + choice.partId);
+      else taken.add(choice.projectId + '#' + choice.n);
       toAssign.push({ session, name: a.name || session, ...choice });
       log.push({ at: now, session });
       continue;
@@ -348,7 +419,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig } };
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince } };
 }
 
 /**
@@ -367,7 +438,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
   const acted = [];
   for (const item of out.toAssign) {
     let res;
-    try { res = give(item.projectId, item.n, item.partId, item.session); } catch (err) { res = { ok: false, because: String((err && err.message) || err) }; }
+    try { res = give(item.projectId, item.n, item.partId, item.session, item.from); } catch (err) { res = { ok: false, because: String((err && err.message) || err) }; }
     const ok = Boolean(res && res.ok);
     if (!ok) {
       // Finds this give's own charge by (now, session): step charges each session at most once
@@ -376,7 +447,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
       const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
       if (i !== -1) out.next.log.splice(i, 1);
     }
-    acted.push({ session: item.session, name: item.name, projectId: item.projectId, n: item.n, ok,
+    acted.push({ session: item.session, name: item.name, projectId: item.projectId, n: item.n, ok, from: item.from || null,
       because: ok ? null : (res && res.because) || 'refused', heard: (res && res.heard) || null });
   }
   // Phase 3 asks. One that reached nobody (COULD_NOT, or a throw) is tried again after
@@ -424,7 +495,8 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
  * Goals (phase 3) are read only for live projects with no open task that an idle agent
  * belongs to, and a goal read that throws is no goal.
  * @param {object} o  prev, now, readSetting, readRoster, readRecords, readCommitment(session)->
- *   {state}, readGoal(project)->string|null, give(projectId, n, partId, who, roster),
+ *   {state}, readGoal(project)->string|null, give(projectId, n, partId, who, roster, from) (`from`: #5382, the
+ *   rate-limited agent a failover move takes the part from, else undefined),
  *   ask(session, text, roster), DELIVERY
  * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
@@ -448,10 +520,10 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     }
   }
   return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY,
-    give: (projectId, n, partId, who) => give(projectId, n, partId, who, roster),
+    give: (projectId, n, partId, who, from) => give(projectId, n, partId, who, roster, from),
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, limitedCard, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
