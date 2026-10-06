@@ -615,11 +615,13 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let closed = false;
   let same = false;
   let personMark = false;
+  let repeating = false;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
       if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
+      if (t.repeat) { repeating = true; throw NO_WRITE; }   // kosmos#4787 review 3: a recurring job is never "built, waiting"
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
@@ -640,6 +642,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
     if (err !== NO_WRITE) return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
+  if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
   taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
@@ -819,6 +822,7 @@ function setRepeat(projectId, n, rule, opts = {}) {
   const person = opts.person === true;
   let changed;
   let didChange = false;
+  let droppedBuilt = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -829,10 +833,16 @@ function setRepeat(projectId, n, rule, opts = {}) {
     didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
     changed = { ...t };
     // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.
-    if (next) { changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson; }
-    else { delete changed.repeat; delete changed.repeatByPerson; }
+    if (next) {
+      changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
+      if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
+    } else {
+      // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunNote;
+    }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
+  if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats' });
   if (didChange) {
     // Flat fields (review 1: taskchat keeps strings and numbers; an object was stored as "[object Object]").
     taskchat.record(projectId, changed.number, next

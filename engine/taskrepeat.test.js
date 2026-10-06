@@ -91,3 +91,13 @@ test('#4787 review 2: a run reported a little early is that slot\'s run; a run s
   assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 6, 9, 0) + 30000).toISOString() }, at(2026, 10, 6, 9, 0)), true,
     'CONTROL: a stamp 30 seconds ahead (ordinary clock skew) is still that slot\'s run');
 });
+
+test('#4787 review 3: the grace is for a run, never for when the task was made; and a late hourly run leaves the next slot due', () => {
+  const made = { repeat: { every: 'day', at: '09:00' }, createdAt: new Date(at(2026, 10, 6, 8, 55)).toISOString() };
+  assert.equal(r.waitingForNextRun(made, at(2026, 10, 6, 9, 30)), false, 'made at 08:55 and never run: due at 09:30, not tomorrow');
+  assert.equal(r.waitingForNextRun(made, at(2026, 10, 6, 8, 58)), true, 'CONTROL: before its first slot it is waiting');
+  const hourly = { repeat: { every: 'hour' }, createdAt: made.createdAt, lastRunAt: new Date(at(2026, 10, 6, 9, 55)).toISOString() };
+  assert.equal(r.waitingForNextRun(hourly, at(2026, 10, 6, 10, 1)), false, 'a 09:55 run (late, for 09:00) leaves 10:00 due');
+  const early = { ...hourly, lastRunAt: new Date(at(2026, 10, 6, 9, 59) + 50000).toISOString() };
+  assert.equal(r.waitingForNextRun(early, at(2026, 10, 6, 10, 1)), true, 'a 09:59:50 run is the 10:00 run: waiting for 11:00');
+});

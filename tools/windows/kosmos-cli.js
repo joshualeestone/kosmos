@@ -750,7 +750,9 @@ async function taskList(ctx, args) {
        name reads as what it is. Same as install/kosmos task list. */
     const key = (v) => String(v).toLowerCase().replace(/[^a-z0-9_-]/g, '');   // as store.safeKey keys a name; addedBy can be that key
     const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => key(n) !== '' && key(n) === key(x.addedBy))) ? ' [added by ' + q(x.addedBy) + ']' : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids);
+    /* kosmos#4787 review 3, as install/kosmos: a repeating task says so, with its next run in the board's words. */
+    const rep = !x.isClosed && x.repeatWords ? ' [repeats ' + one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : '') + ']' : '';
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids + rep);
   }
   return 0;
 }
@@ -997,7 +999,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear) {
     /* review 1: not "safe" to repeat for a run: a second ran records a second run (a minute apart or more). */
     return r.timedOut ? maybe(ctx.err, which === 'ran'
       ? 'Kosmos was slow to answer and we stopped waiting. The run may have been recorded; check the task (kosmos task list ' + project + ') before recording it again.'
-      : 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : 'Kosmos was slow to answer and we stopped waiting. It may have been done; check the task (kosmos task list ' + project + ') before doing it again.')
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {

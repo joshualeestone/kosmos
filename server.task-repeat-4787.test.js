@@ -117,3 +117,17 @@ test('#4787: refusals: a bad rule (400), a run on a one-off task (400), a non-me
   r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, screen);
   assert.equal(r.status, 200, 'CONTROL: the same rule from the screen is accepted');
 });
+
+test('#4787 review 3: an agent cannot close a task the person set to repeat; the person can (control)', async () => {
+  const n = newTask('Morning digest');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '07:00' }, screen);
+  assert.equal(r.status, 200);
+  const mona = sendertoken.mint('mona');
+  r = await post(`/api/project/${projectId}/task/${n}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /only they can close it/);
+  assert.ok(stored(n).repeat, 'still repeating');
+  r = await post(`/api/project/${projectId}/task/${n}/close`, {}, screen);
+  assert.equal(r.status, 200, 'CONTROL: the person closes it');
+  assert.equal('repeat' in stored(n), false);
+});

@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox tsk-repeat tskRepeatSentence repeatWhen
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox tsk-repeat tskRepeatSentence
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
