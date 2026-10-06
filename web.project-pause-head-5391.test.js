@@ -47,3 +47,20 @@ test('#5391: the header button says Pause or Resume, and the Paused line shows o
   assert.equal(el('pj-head-pause').hidden, false);
   assert.equal(el('pj-one-paused').hidden, true);
 });
+
+test('#5391 review 2: the button is inert while projects cannot be read, comes back on recovery, and stays off under a press still waiting', () => {
+  const els = {};
+  const el = (id) => els[id] || (els[id] = { id, hidden: false, textContent: '', dataset: {}, title: '', disabled: false, _attr: {},
+    classList: { toggle() {} }, setAttribute(k, v) { this._attr[k] = String(v); }, querySelector() { return el(id + ':t'); } });
+  const src = page.liftAll(SCRIPT, ['paintHeadPause']) + '\nreturn paintHeadPause;';
+  const failed = new Function('document', 'PJ_READ_FAILED', src)({ getElementById: el }, true);
+  const ok = new Function('document', 'PJ_READ_FAILED', src)({ getElementById: el }, false);
+  const p = { id: 'p1', name: 'Launch', paused: false };
+  failed(p);
+  assert.equal(el('pj-head-pause').disabled, true, 'a failed read: inert');
+  ok(p);
+  assert.equal(el('pj-head-pause').disabled, false, 'recovered: usable again');
+  el('pj-head-pause').dataset.busy = '1';
+  ok(p);
+  assert.equal(el('pj-head-pause').disabled, true, 'a repaint under a press still waiting does not re-enable it');
+});

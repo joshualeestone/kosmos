@@ -58174,6 +58174,8 @@ async function loadProjects() {
     BOARD_SIGNED_OUT = gotSignedOut;
     BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
     PJ_READ_FAILED = true;
+    // kosmos#5391 review 2: the header Pause / Resume goes inert while the projects cannot be read (it repaints on recovery).
+    try { if (PJ_CURRENT) paintHeadPause(pjById(PJ_CURRENT)); } catch { /* a paint never breaks the failure path */ }
     paintPjNone();
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
     // add-member and remove-member paths call this from the one-project view,
@@ -69621,7 +69623,8 @@ function paintHeadPause(p) {
   const live = !!(p && !p.archived);
   btn.hidden = !live;
   // review 1: never act on a state the board could not just read (a press could undo an agent's pause it cannot see).
-  btn.disabled = PJ_READ_FAILED === true;
+  // Review 2: nor re-enable it under a press still waiting for its answer.
+  btn.disabled = PJ_READ_FAILED === true || btn.dataset.busy === '1';
   const word = paused ? 'Resume' : 'Pause';
   const t = btn.querySelector('.pj-head-pause-t');
   if (t.textContent !== word) {
@@ -69644,12 +69647,13 @@ function paintHeadPause(p) {
    button and Settings' button, so the two cannot drift; each says a failure on its own line. */
 async function pjTogglePause(btn, msg) {
   const p = pjById(PJ_CURRENT);
-  if (!p) return;
+  if (!p || PJ_READ_FAILED === true) return;   // review 2: never act on a state the board could not just read
   // review 1: one press, one answer: both lines start clear, so neither keeps a failure the other press has moved past.
   for (const id of ['pj-one-pause-msg', 'pj-head-pause-msg']) { const m = document.getElementById(id); if (m) m.textContent = ''; }
   msg.textContent = '';
   msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
   btn.disabled = true;
+  btn.dataset.busy = '1';
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -69661,7 +69665,8 @@ async function pjTogglePause(btn, msg) {
   } catch {
     msg.textContent = 'we could not reach Kosmos to change that project';
   } finally {
-    btn.disabled = false;
+    delete btn.dataset.busy;
+    btn.disabled = PJ_READ_FAILED === true;   // review 2: a failed re-read after the press keeps it off
   }
 }
 document.getElementById('pj-one-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-one-pause'), document.getElementById('pj-one-pause-msg')));
