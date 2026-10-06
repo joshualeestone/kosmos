@@ -4227,7 +4227,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
    (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
+   own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -18624,6 +18626,60 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, code, { error: msg || 'we could not change what that task is part of' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #5300: a member says what it does on THIS project (`kosmos project role`). Body { role } (empty clears it).
+     The caller is identified by processCaller and sets its own: a token names it exactly; a pane (from_pane) is taken
+     as given, and the screen names the member (`name`), with a local process that claims to be the screen
+     (isViaScreen) taken at its word, as on the sibling routes. describe carries it as `roleHere`, beside `role`.
+     Not valved: one field per member per project, rewritten in place; display only, so it decides no routing. */
+  const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
+  if (roleHere && req.method === 'POST') {
+    const id = decodeSegment(roleHere[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      let name = null;
+      if (viaScreen) {
+        name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
+        if (!name) { sendJson(res, 400, { error: 'say which member' }); return; }
+      } else {
+        const caller = processCaller(req, body, roster, false, 'the role was not set');
+        if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
+        name = (caller.card && caller.card.sessionName) || null;
+        // A roster nobody could read names nobody: a 503, not "could not tell which agent you are".
+        if (!name && roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the role was not set' }); return; }
+        if (!name) { sendJson(res, 403, { error: 'run this as an agent: Kosmos could not tell which agent you are' }); return; }
+        /* The stored spelling of this member, as task built finds it: a paneless caller (every Windows agent) by key. */
+        let stored = null;
+        try { stored = projects.readAll().find((x) => x && x.id === id) || null; }
+        catch { sendJson(res, 503, { error: 'we could not read the projects, so the role was not set' }); return; }
+        if (stored) {
+          const match = (stored.agents || []).find((a) => sameAgentName(a, name, caller.byKey));
+          if (match) name = match;
+        }
+      }
+      let out;
+      try { out = projects.setRoleHere(id, name, body.role); }
+      catch (err) {
+        const because = String((err && err.message) || '');
+        // Only the engine's own sentences go back; anything else (a failed write) is ours, said without its details.
+        if (err && err.code === 'UNREADABLE') { sendJson(res, 503, { error: because }); return; }
+        if (/no project by that name/.test(because)) { sendJson(res, 404, { error: because }); return; }
+        if (/not on this project/.test(because)) { sendJson(res, viaScreen ? 400 : 403, { error: because }); return; }
+        if (/^say the role in words$|^keep the role to /.test(because)) { sendJson(res, 400, { error: because }); return; }
+        sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, role: out.role });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
     return;
   }
 

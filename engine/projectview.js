@@ -248,6 +248,8 @@ function overviewOf(p, roster, o) {
          same downloaded catalogue the page learns its titles from. The CLI only prints it: requiring roles.js in
          the CLI would read the store there and can print a catalogue line on stderr (review 1). */
       roleTitle: m.role ? require('./roles').roleTitle(m.role) : null,
+      // #5300: what the member said it does on this project.
+      roleHere: typeof m.roleHere === 'string' && m.roleHere ? m.roleHere : null,
       state: m.present && m.tied ? m.state : 'unknown',
       present: Boolean(m.present),
       family: m.tied ? familyOf(m.runner) : null,
@@ -409,13 +411,15 @@ function renderShow(payload) {
     const sum = (SUMMARY_WORDS[m.summary && m.summary.state] || SUMMARY_WORDS.unreadable)(m.summary || {});
     /* Round 2: when the board could not read its agents, "not running" would be a claim nobody checked. */
     const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
-    /* #4896: the board's own spelling of the role (overviewOf's roleTitle); an older board sends none, and then
-       the role is printed as it is stored, as before. */
-    const role = m.roleTitle || m.role || '';
+    /* #4896: the board's own spelling of the role (an older board sends none: the role as stored), then (#5300) what
+       the member said it does here, quoted: agent-written words, so they cannot pass for Kosmos's own (inner double
+       quotes become single, as for the brief). */
+    const role = [m.roleTitle || m.role || '', m.roleHere ? 'on this project: "' + String(m.roleHere).replace(/["\u201C\u201D]/g, "'") + '"' : '']
+      .filter(Boolean).join('; ');
     out.push('  ' + one(m.name) + (role ? ', ' + one(role) : '') + '  | ' + fam + '  | ' + where
       + '  | summary: ' + sum);
   }
   return out;
 }
 
-module.exports = { summaryFreshness, idleExcused, familyOf, overviewOf, listOf, renderList, renderShow, SUMMARY_RHYTHM_HOURS };
+module.exports = { summaryFreshness, idleExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS };

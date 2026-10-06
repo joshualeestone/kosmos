@@ -3563,7 +3563,7 @@ kosmos_command_list() {
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos+ community\n'
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, message, mark built\n'
-  printf '  kosmos project       list, show, create or pause projects\n'
+  printf '  kosmos project       list, show, create or pause projects, or say your role on one\n'
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
@@ -4145,11 +4145,12 @@ cmd_project() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos project <list|show|create|pause>"
+      say "Usage: kosmos project <list|show|create|pause|role>"
       say "  kosmos project list                                             every project: members, model families, tasks"
       say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
       say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
       say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
+      say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project; project show lists it beside you (\"\" clears it)"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
     list)
@@ -4180,14 +4181,22 @@ cmd_project() {
       { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project pause <project-id>   (it is resumed on the screen)"; exit 2; }
       require_valid_project_id "$1"
       case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac ;;
+    # #5300 (10-05 user diagnostic R10): every member showed its agent's one role. An agent says what it does on one
+    # project, for itself only (the board names the caller from its token or pane). An empty role clears it.
+    role)
+      { [ -n "${1:-}" ] && [ $# -eq 2 ]; } || { say "Usage: kosmos project role <project-id> \"<what you do here>\"   (quote it; \"\" clears it)"; exit 2; }
+      require_valid_project_id "$1"
+      case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac
+      case "$2" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project role" "Usage: kosmos project role <project-id> \"<what you do here>\"" "$2" target ;; esac ;;
     *)
-      say "Unknown: kosmos project $sub. Try: list | show | create | pause"
+      say "Unknown: kosmos project $sub. Try: list | show | create | pause | role"
       exit 2 ;;
   esac
   if ! healthy; then
     case "$sub" in   # #4466's say_not_up: a busy board is running, and must not be told to start
       create) say_not_up "a project cannot be created" ;;
       pause) say_not_up "the project cannot be paused" ;;
+      role) say_not_up "the role cannot be set" ;;
       *) say_not_up "its projects cannot be read" ;;
     esac
     exit 1
@@ -4241,6 +4250,25 @@ cmd_project() {
           because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not pause that project: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when pausing that project."; exit 1 ;;
+      esac
+      exit 0
+      ;;
+    role)
+      local _rtok="" _rbt rc=0 body because esc_role esc_pane
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
+      _rbt="$(agent_board_token || true)"
+      esc_role=$(printf '%s' "$2" | tr '\000-\037' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      body=$(kosmos_curl "$_rbt" "$_rtok" -sS -m 15 -X POST "$URL/api/project/$1/role" \
+        -H 'content-type: application/json' --data "{\"role\":\"$esc_role\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "set your role there" "$rc" write; exit 1; }
+      case "$body" in
+        '{"ok":true,"role":null}'*) say "Cleared your role on $1. kosmos project show $1 lists your own role again." ;;
+        '{"ok":true'*) say "Set your role on $1. kosmos project show $1 prints it beside your name." ;;
+        '{"error":'*)
+          because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos did not set that role: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when setting that role."; exit 1 ;;
       esac
       exit 0
       ;;

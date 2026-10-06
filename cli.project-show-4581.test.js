@@ -108,7 +108,7 @@ test('#4581 usage: list takes nothing, show takes exactly one id; the help names
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
   }
   const help = await runCli(['project'], env);
-  assert.match(help.stdout, /Usage: kosmos project <list\|show\|create\|pause>/);   // #4771 added pause
+  assert.match(help.stdout, /Usage: kosmos project <list\|show\|create\|pause\|role>/);   // #4771 added pause, #5300 role
   assert.equal(seen.length, 0);
 }));
 

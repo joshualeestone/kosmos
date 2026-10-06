@@ -72,7 +72,7 @@ test('#4581 Windows show: a garbled id is refused, never stripped; an unknown on
 });
 
 test('#4581 Windows usage and subcommands', async () => {
-  assert.deepEqual(cli.SUBCOMMANDS.project, ['list', 'show', 'create', 'pause']);   // #4771 added pause (an agent's; resume stays on the screen)
+  assert.deepEqual(cli.SUBCOMMANDS.project, ['list', 'show', 'create', 'pause', 'role']);   // #4771 added pause (an agent's; resume stays on the screen)
   for (const argv of [['project', 'list', 'x'], ['project', 'show'], ['project', 'show', 'a', 'b']]) {
     const r = await run(argv, () => { throw new Error('no request may be made'); });
     assert.equal(r.code, 2, argv.join(' '));

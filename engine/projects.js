@@ -634,6 +634,13 @@ function profileRole(card) {
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
+/* #5300: the role a member set for this project, or null. Display only: `role` (who a room opens on, the
+   two-coordinators warning, a person-saved role) never reads it. */
+function roleHereOf(p, key) {
+  const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
+  return typeof r === 'string' && r.trim() ? r : null;
+}
+
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
 function profileReportsTo(card) {
   const profile = card && card.profile;
@@ -946,6 +953,8 @@ function describe(project, roster, all) {
       // the gate-bites test in chat.test.js holds it with a produced card
       // whose tie flag is deliberately flipped).
       role: (card && card.isNamedOurs) ? (profileRole(card) || card.role || null) : null,
+      // #5300: what the member said it does on this project (kosmos project role), or null. Display only.
+      roleHere: (card && card.isNamedOurs) ? roleHereOf(project, sessionName) : null,
       // #4557: who this member reports to (the session name the org chart stores), under the same
       // isNamedOurs gate as role. chat.defaultAgentFor prefers the member others report to, so a
       // seeded team's room opens on its lead, not on whichever role text says "manager".
@@ -2860,6 +2869,40 @@ function addAgent(id, sessionName, roster, made) {
   });
 }
 
+/* #5300: the longest role here, in characters. */
+const ROLE_HERE_MAX = 60;
+/* #5300: a role here as one line of plain words; throws on words that are not text or too long. */
+function cleanRoleHere(role) {
+  if (typeof role !== 'string') throw new Error('say the role in words');
+  // The filter project show prints it through, so the two cannot differ.
+  const one = require('./projectview').one(role.toWellFormed());
+  if ([...one].length > ROLE_HERE_MAX) throw new Error('keep the role to ' + ROLE_HERE_MAX + ' characters or fewer');
+  return one;
+}
+/* #5300: every member showed its agent's one role, so five agents made as Project Managers read as five Project Managers on
+   every project. A member can say what it does on THIS project; describe carries it as `roleHere`, beside `role`.
+   Kept per project in `rolesHere` (session name -> words), removed with the membership. One line of plain words, at
+   most ROLE_HERE_MAX characters; an empty one clears it. Throws on a non-member or words that are not text. */
+function setRoleHere(id, sessionName, role) {
+  const key = String(sessionName || '').trim();
+  const words = cleanRoleHere(role);
+  let out = null;
+  // Unchanged: no write, so re-running the verb is not project activity (updatedAt). A non-member goes on to mutate,
+  // which refuses it. Advisory: this read is outside mutate, so a race costs at most one extra write.
+  const cur = readAll().find((p) => p && p.id === id);
+  if (cur && (cur.agents || []).includes(key) && roleHereOf(cur, key) === (words || null)) return { role: words || null };
+  mutate(id, (p) => {
+    if (!(p.agents || []).includes(key)) throw new Error('that agent is not on this project');
+    const rolesHere = { ...(p.rolesHere || {}) };
+    // Defined, not assigned, so no session name (a "__proto__") can reach the object's prototype.
+    if (words) Object.defineProperty(rolesHere, key, { value: words, enumerable: true, writable: true, configurable: true });
+    else delete rolesHere[key];
+    out = { role: words || null };
+    return { ...p, rolesHere };
+  });
+  return out;
+}
+
 function removeAgent(id, sessionName, made) {
   const key = String(sessionName || '').trim();
   return mutate(id, (p) => {
@@ -2873,6 +2916,12 @@ function removeAgent(id, sessionName, made) {
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.
     delete told[key];
+    // #5300: the role here goes with the membership.
+    if (p.rolesHere && Object.prototype.hasOwnProperty.call(p.rolesHere, key)) {
+      const rolesHere = { ...p.rolesHere };
+      delete rolesHere[key];
+      p = { ...p, rolesHere };
+    }
     return withMemberChange({ ...p, agents: (p.agents || []).filter((a) => a !== key), told, everSeen }, key, 'remove', made, Date.now());
   });
 }
@@ -3198,6 +3247,10 @@ function blockBody(projects, sessionName) {
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
       'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
       'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
+      /* #5300: every member showed its agent's one role (five Project Managers on one project). */
+      '',
+      `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
+      `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
     ] : []),
   ].join('\n');
 }
@@ -3527,7 +3580,7 @@ module.exports = {
   changedFileTimes,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
-  file, readAll, writeAll, idFor, folderState, describe, andList,
+  file, readAll, writeAll, idFor, folderState, describe, andList, setRoleHere, ROLE_HERE_MAX,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
