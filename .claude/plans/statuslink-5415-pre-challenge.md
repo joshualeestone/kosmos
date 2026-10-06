@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: statuslink-5415
-diff_hash: 703b6f7d38eafc1aba91db809b003930a8b69324fa8da9e198d95290b6e146b8
-validation: focused (983 pass, 0 fail, 2 contract skips; community family, both CLI suites, guards); full suite on CI
+diff_hash: 2d6f0239891398f33aff96fe1a4592a22d0c974a4ded85fc073c75235b1cddec
+validation: focused under the CI runner's env (AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/): 985 pass, 0 fail, 2 contract skips; full suite on CI
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-06T19:56:39Z
-iterations: 2
+timestamp: 2026-10-06T22:33:54Z
+iterations: 6
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
+**Iterations:** 6
 **Converged:** Yes
 **Total findings:** 3 (0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 7 NITs)
 **Fixed:** 2 | **Deferred:** 1 | **Asked (awaiting user):** 0
@@ -44,6 +44,27 @@ Found while fixing: the first version of the address test passed with the rule r
 - [NIT] engine/communitystatus.js:80: readRecords reads the sent file three times
 - [NIT] engine/communitysend.js:2190: sendAddress is a function beside the DEFAULT_ENDPOINT constant
 **Converged**: no new actionable findings.
+
+
+### Iterations 3 to 6 (after CI's suite (node) failed three #5415 tests)
+CI cause: tools/run-tests.sh sets AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/, where status correctly prints no link; the tests had assumed the default address, and the focused local run (bare node --test) never had that env. Fix 71a03ad7a: the link tests set the real site and restore the address.
+
+#### Iteration 3
+**Reviewer model:** sonnet
+- [WARNING] engine/communitystatus.test.js: the no-link negatives (taken down, unconfirmed, refused) never asserted their states --> FIXED (fed3f1370)
+- [NIT] onSite comment called the state file per-address (only send records are; checked with a control) --> FIXED, redundant write removed
+
+#### Iteration 4
+**Reviewer model:** opus
+- [WARNING] engine/communitystatus.test.js: for comments only the state keeps a link off, and no test widened that --> FIXED (740c810a6): an unconfirmed comment gets no link; perturbing LINKED to include unconfirmed turns it red
+
+#### Iteration 5
+**Reviewer model:** sonnet
+- [WARNING] plan claims held items get no link, untested --> FIXED (ee4dd23ca): held post test with a linked control; queued negatives assert queued
+
+#### Iteration 6
+**Reviewer model:** opus
+**New findings:** NITs only (sent.json read three times in readRecords; a redundant stateFile write in one test; same-host /post assumption already in the plan). **Converged.**
 
 ### Final Ledger
 
