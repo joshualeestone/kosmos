@@ -236,7 +236,6 @@ function withoutSpan(text, last) {
   const head = text.slice(0, at).replace(/\n+$/, '');
   const tail = text.slice(at + coreOf(last.block).length);
   if (!tail.trim()) return head.replace(/\s*$/, '') + '\n';
-  if (!head) return tail.replace(/^\n+/, '');
   return head + text.slice(head.length, at) + tail.replace(/^\n+/, '');
 }
 function publicLast(agent, last) {
