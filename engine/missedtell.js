@@ -18,11 +18,9 @@ const taskrepeat = require('./taskrepeat');
 const MAX_TRIES = 3;
 const HOUR_MS = 60 * 60 * 1000;
 
-/* One line of plain words: no newlines, at most `max` characters. */
-function plain(s, max) {
-  const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-  return t.length > max ? t.slice(0, max - 1) + '…' : t;
-}
+/* One line of plain words, as the nudge writes them (agentnudge.plainWords: control characters and quotes out, so the
+   board's typing path never refuses the line, review 9). */
+function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
 
 /* The tasks whose reviewer is owed a line now: open, repeating, reviewed, with a missed slot newer than the last one
    told and not before the reviewer was named. Pure: `projects` as projects.readAll() gives them. */
@@ -119,9 +117,10 @@ function sweep(o) {
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         const card = cards.get(item.reviewer);
         if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }
-        /* As the nudge's card rule (agentnudge.nudgeableCard), less its idle test: a line is typed only into a pane that is
-           ours and not a switched-off swarm. A busy reviewer is tried again on the next minute (below), never skipped. */
-        if (card.isNamedOurs !== true || (card.swarm && card.swarm.active === false)) { results.push({ ...item, act: 'held', because: 'the reviewer cannot be typed into' }); continue; }
+        /* Review 9: the nudge's card rule WHOLE (agentnudge.nudgeableCard): ours, not a switched-off swarm, and IDLE. Typed
+           into a pane stopped on a permission prompt, "...and Enter" can answer it; a rate-limited or signed-out session
+           cannot take it either. Held with no try spent; it goes on a later minute, once the reviewer is idle. */
+        if (!require('./agentnudge').nudgeableCard(card)) { results.push({ ...item, act: 'held', because: 'the reviewer is not idle, or cannot be typed into' }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
         let wait = false;
