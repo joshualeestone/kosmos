@@ -393,3 +393,10 @@ test('#5275: a refused copy after focus moved on selects the code in place, leav
   assert.equal(s.doc.getElementById('pj-invite-status').textContent, 'Kosmos could not copy it. Click the code, press Command A, then Command C.');
   assert.equal(s.doc.getElementById('pj-invite-copy').textContent, 'Copy');
 });
+test('#5275 review 3: a refused copy while focus is already in the code itself counts as in: selected there, and the copy keys are named', async () => {
+  const { s, calls, code } = refusalRig('elsewhere');
+  s.doc.activeElement = code;   // the person clicked into the code during the wait
+  await s.pjCopyInvite();
+  assert.deepEqual(calls, ['focus', 'select']);
+  assert.equal(s.doc.getElementById('pj-invite-status').textContent, 'Kosmos could not copy it. Select the code and press Command C.');
+});
