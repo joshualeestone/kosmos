@@ -98,9 +98,21 @@ function agentCliDir(root, exists) {
  * 🔑 A PURE FUNCTION OVER AN ENV OBJECT, so the stripping is assertable from a
  * Mac without spawning anything.
  */
+/* #5358: Windows env names are case-insensitive, an env object is not, and Node on Windows sorts the names and keeps
+   the first case-insensitive match. So every name childEnv sets or removes goes through these two: removing takes every
+   spelling, and setting leaves exactly one key (the inherited spelling if there was one). */
+function envDelete(env, name) {
+  for (const k of Object.keys(env)) if (k.toUpperCase() === name.toUpperCase()) delete env[k];
+}
+function envSet(env, name, value) {
+  const variants = Object.keys(env).filter((k) => k.toUpperCase() === name.toUpperCase());
+  for (const k of variants.slice(1)) delete env[k];
+  env[variants[0] || name] = value;
+}
+
 function childEnv(baseEnv, token, configDir, cliDir, runner) {
   const env = Object.assign({}, baseEnv || {});
-  for (const k of INHERITED_MARKERS) delete env[k];
+  for (const k of INHERITED_MARKERS) envDelete(env, k);
   /* #570: the agent's `kosmos` command. Every instruction and every message the
      board delivers teaches a bare `kosmos reply` / `kosmos msg` / `kosmos post`,
      and the Windows zip's command lives in its own `bin` folder, so that folder
@@ -112,8 +124,8 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
     const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
     env[pathKey] = env[pathKey] ? String(cliDir) + path.win32.delimiter + env[pathKey] : String(cliDir);
   }
-  if (token) env.KOSMOS_AGENT_TOKEN = token;
-  else delete env.KOSMOS_AGENT_TOKEN;   // never inherit somebody else's credential
+  if (token) envSet(env, 'KOSMOS_AGENT_TOKEN', token);
+  else envDelete(env, 'KOSMOS_AGENT_TOKEN');   // never inherit somebody else's credential
   /* 🔑 THE ACCOUNT, THE WAY THIS PLATFORM CARRIES IT. On the Mac a non-default
      account rides in the plist's EnvironmentVariables as CLAUDE_CONFIG_DIR;
      there is no plist here, so it rides in the child's environment instead --
@@ -126,8 +138,8 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      card about that leaking: an agent meant for the DEFAULT account would
      silently inherit the engine's account instead. A default-account agent must
      start with no CLAUDE_CONFIG_DIR at all. */
-  if (configDir) env.CLAUDE_CONFIG_DIR = String(configDir);
-  else delete env.CLAUDE_CONFIG_DIR;
+  if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', String(configDir));
+  else envDelete(env, 'CLAUDE_CONFIG_DIR');
   /* 🔑 A CODEX AGENT'S ACCOUNT IS ITS CODEX_HOME (round 1 BUG). A Mac job writes the
      account directory under the runner's own variable (accountenv.accountEnvVar,
      the key create.plistFor uses). Here only CLAUDE_CONFIG_DIR was ever set, so a
@@ -137,7 +149,7 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      written, so it keeps inheriting exactly what it did before. The
      CLAUDE_CONFIG_DIR handling above is unchanged for every runner. */
   const accountKey = accountEnvVar(runner);
-  if (accountKey !== 'CLAUDE_CONFIG_DIR' && configDir) env[accountKey] = String(configDir);
+  if (accountKey !== 'CLAUDE_CONFIG_DIR' && configDir) envSet(env, accountKey, String(configDir));
   /* 🛑 A CODEX AGENT REPLIES THROUGH POWERSHELL, AND THE DEFAULT POLICY BLOCKS IT
      (#3380 round 2). Measured on the box 2026-09-22: codex 0.149.1 runs every shell
      command as `powershell.exe -Command '<cmd>'`, and PowerShell resolves a bare
@@ -162,11 +174,7 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      PowerShell shell), so their `kosmos reply` meets the same policy. */
   /* #3568: Antigravity too; its shell tool on Windows is PowerShell's (UNPROVEN until a real turn). */
   if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
-    // ONE KEY, WHATEVER ITS CASE: Node on Windows sorts env names and keeps the first case-insensitive match, so an
-    // inherited PSEXECUTIONPOLICYPREFERENCE would win over a Bypass added beside it (#5358).
-    const variants = Object.keys(env).filter((k) => k.toUpperCase() === 'PSEXECUTIONPOLICYPREFERENCE');
-    for (const k of variants.slice(1)) delete env[k];
-    env[variants[0] || 'PSExecutionPolicyPreference'] = 'Bypass';
+    envSet(env, 'PSExecutionPolicyPreference', 'Bypass');   // one key, whatever case it arrived in (#5358)
   }
   return env;
 }

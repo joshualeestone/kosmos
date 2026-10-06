@@ -53,6 +53,20 @@ test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives i
     'control: a claude child keeps an inherited value untouched');
 });
 
+test('#5358 review 9: every name childEnv removes or sets is matched whatever its case (the #2129 account leak too)', () => {
+  // A default-account agent inherits no account folder, however the engine's spelling of it.
+  const dflt = launcher.childEnv({ Claude_Config_Dir: 'C:\\engine', kosmos_agent_token: 'someone-else', claudecode: '1' }, null, null, null, 'claude');
+  assert.deepEqual(keysOf(dflt, 'CLAUDE_CONFIG_DIR'), [], 'the engine\'s account folder leaked to a default-account agent');
+  assert.deepEqual(keysOf(dflt, 'KOSMOS_AGENT_TOKEN'), [], 'another agent\'s token was inherited');
+  assert.deepEqual(keysOf(dflt, 'CLAUDECODE'), [], 'a child-session marker survived in another spelling');
+  // A named account and a token are set as ONE key each.
+  const named = launcher.childEnv({ Claude_Config_Dir: 'C:\\engine', kosmos_agent_token: 'x' }, 'mine', 'C:\\acct', null, 'claude');
+  assert.deepEqual(keysOf(named, 'CLAUDE_CONFIG_DIR').map((k) => named[k]), ['C:\\acct']);
+  assert.deepEqual(keysOf(named, 'KOSMOS_AGENT_TOKEN').map((k) => named[k]), ['mine']);
+  const codex = launcher.childEnv({ codex_home: 'C:\\old' }, 't', 'C:\\h\\.codex-w', null, 'codex');
+  assert.deepEqual(keysOf(codex, 'CODEX_HOME').map((k) => codex[k]), ['C:\\h\\.codex-w']);
+});
+
 /* ---------- Windows only: the shells themselves ---------- */
 
 const onWindows = process.platform === 'win32';
@@ -91,7 +105,7 @@ function baseEnv() {
 }
 const agentEnv = (bin, runner) => launcher.childEnv(baseEnv(), null, null, bin, runner);
 const run = (cmd, args, env) => spawnSync(cmd, args, { env, encoding: 'utf8', timeout: 30000 });
-const said = (r) => 'status ' + r.status + '\nstdout ' + r.stdout + '\nstderr ' + r.stderr;
+const said = (r) => 'status ' + r.status + (r.error ? ' (' + (r.error.code || r.error.message) + ')' : '') + '\nstdout ' + r.stdout + '\nstderr ' + r.stderr;
 
 test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -c), a bare kosmos is found on the agent\'s PATH',
   // On the CI runner a missing Git Bash FAILS rather than skipping: a skip there would read as green with no evidence.

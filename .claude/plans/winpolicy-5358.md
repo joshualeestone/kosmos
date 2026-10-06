@@ -14,6 +14,10 @@ beside PowerShell scripts refused after a machine policy reset.
   Code's PowerShell meets the policy. The #570 measurement says it does not; #3380's claude exclusion stands.
 - Kept: the variable is ONE key whatever case it arrives in (an inherited `psexecutionpolicypreference` plus a new
   `PSExecutionPolicyPreference` is the two-keys trap the PATH comment names).
+- Review 9: the same case trap held for every other name childEnv touches (the child-session markers,
+  KOSMOS_AGENT_TOKEN, CLAUDE_CONFIG_DIR, CODEX_HOME and the like): an inherited `Claude_Config_Dir` survived
+  `delete env.CLAUDE_CONFIG_DIR`, the #2129 account leak in another spelling. All of them now go through two helpers,
+  envDelete (every spelling) and envSet (one key). PATH keeps its own one-key line, unchanged.
 - New Windows-runner arms measure each shell: Git Bash, run as Claude Code's tool runs it (`bash -c`), finds `kosmos`
   on the agent's PATH (control: not without it; a red says whether it was the PATH or the shim); PowerShell with the flags Claude Code passes (taken from #570, not measured here) finds kosmos.ps1 and runs it under a Restricted policy; codex's `powershell -Command`
   is refused without the variable (control) and runs with it.
