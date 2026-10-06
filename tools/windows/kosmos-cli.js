@@ -978,7 +978,7 @@ async function taskRepeat(ctx, args) {
   if (at) body.at = at;
   if (on) body.on = on;
   if (reviewer) body.reviewer = reviewer;
-  return taskRepeatCall(ctx, project, num, 'repeat', body, clear, every ? '' : reviewer);
+  return taskRepeatCall(ctx, project, num, 'repeat', body, clear, every ? '' : reviewer, every && reviewer && reviewer !== 'none' ? reviewer : '');
 }
 const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...")';
 async function taskRan(ctx, args) {
@@ -998,7 +998,7 @@ async function taskRan(ctx, args) {
   if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
   return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), from_pane: '' }, false);
 }
-async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly) {
+async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly, alsoReviewer) {
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
   if (!r.reached) {
     /* review 1: not "safe" to repeat for a run: a second ran records a second run (a minute apart or more). */
@@ -1012,7 +1012,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'
-        : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '. Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
+        : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '.' + (alsoReviewer ? ' ' + alsoReviewer + ' will be told when it misses a run.' : '') + ' Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }

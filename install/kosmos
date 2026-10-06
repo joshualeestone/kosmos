@@ -4215,7 +4215,7 @@ cmd_task() {
           elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
           elif [ -z "$every" ] && [ "$reviewer" = none ]; then say "Nobody is told now when task $num on ${project:-the project} misses a run."
           elif [ -z "$every" ]; then say "$reviewer will be told when task $num on ${project:-the project} misses a run."
-          else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}. Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
+          else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}.$( [ -z "$reviewer" ] || [ "$reviewer" = none ] || printf ' %s will be told when it misses a run.' "$reviewer") Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;

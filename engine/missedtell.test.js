@@ -133,3 +133,49 @@ test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside t
   assert.match(body, /allowed: agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'the nudge\'s gate: live execution and the brake');
   assert.equal((src.match(/missedtell\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });
+
+test('#4787 slice 3 review 1: a quota hold or a busy pane spends no try; the slot is told once the reviewer can take it', () => {
+  const { id, n } = fixture('ada');
+  const book = new Map();
+  let calls = 0;
+  const run = (verdict) => mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY,
+    deliver: () => { calls += 1; return verdict; } });
+  for (let i = 0; i < mt.MAX_TRIES + 2; i += 1) run({ state: 'could_not', held: true });
+  for (let i = 0; i < mt.MAX_TRIES + 2; i += 1) run({ state: 'could_not', busy: true });
+  assert.equal(calls, 2 * (mt.MAX_TRIES + 2), 'asked every minute');
+  assert.equal(stored(id, n).missToldAt, undefined, 'never given up on while it could not take a line');
+  run({ state: 'placed' });
+  assert.ok(stored(id, n).missToldAt, 'told once it could');
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'missed' && e.reached === true).length, 1);
+});
+
+test('#4787 slice 3 review 1: a line placed but whose told mark cannot be saved is not typed again in this process', () => {
+  const { id } = fixture('ada');
+  const book = new Map();
+  let calls = 0;
+  const real = projects.mutate;
+  projects.mutate = () => { throw new Error('disk full'); };
+  try {
+    for (let i = 0; i < 3; i += 1) mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY, deliver: () => { calls += 1; return { state: 'placed' }; } });
+  } finally { projects.mutate = real; }
+  assert.equal(calls, 1);
+});
+
+test('#4787 slice 3 review 1: a reviewer taken off the project is not typed into; a held task or paused project is never on the person', () => {
+  const gone = fixture('ada');
+  projects.mutate(gone.id, (x) => ({ ...x, agents: ['rex'] }));
+  const r = mt.sweep({ projects: only(gone.id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: () => { throw new Error('typed'); } });
+  assert.equal(r.results[0].act, 'held');
+  assert.match(r.results[0].because, /no longer on the project/);
+  const me = fixture('me');
+  assert.equal(mt.personReviewMissed(stored(me.id, me.n), NOW), true, 'precondition: missed and the person reviews it');
+  assert.equal(mt.personReviewMissed({ ...stored(me.id, me.n), onHold: true }, NOW), false, 'held');
+  assert.equal(mt.personReviewMissed({ ...stored(me.id, me.n), projectPaused: true }, NOW), false, 'paused project');
+});
+
+test('#4787 slice 3 review 1: the history entry names the slot that was missed', () => {
+  const { id, n } = fixture('me');
+  mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: () => ({ state: 'placed' }) });
+  const ev = taskchat.read(id, n).find((e) => e.kind === 'missed');
+  assert.equal(Date.parse(ev.slot), at(2026, 10, 6, 9, 0));
+});

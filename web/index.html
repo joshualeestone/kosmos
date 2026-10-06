@@ -60357,10 +60357,12 @@ document.getElementById('tk-review-who').addEventListener('change', async () => 
   delete sel.dataset.busy;
   sel.disabled = false;
   delete sel.dataset.sig;   // repaint from what is stored now (a refusal puts the stored choice back)
+  const [p2, t2] = tkOpenTask();
+  // Review 1: repaint whatever task is open now (its own answer, under the person's focus; or the task they moved to).
+  if (p2 && t2) tkPaintReviewer(p2, t2, true);
   if (still()) {
     if (msg) msg.textContent = said;
-    const [p2, t2] = tkOpenTask();
-    if (p2 && t2) tkPaintReviewer(p2, t2, true);   // its own answer: repaint under the person's focus too
+    sel.focus();   // review 1: disabling it while saving dropped focus; it goes back, as the Repeats Save does
   }
 });
 function tkOpenTask() {

@@ -864,12 +864,25 @@ function setRepeat(projectId, n, rule, opts = {}) {
  * Only the person can name themselves, and a reviewer the person chose is theirs: a process cannot change or clear it
  * (as the person's rule, setRepeat). An agent must be on the project, checked inside the same read that stores it.
  */
+/* The checks a reviewer must pass, on a task as it stands (`t`) in its project (`p`); a sentence, or null. Shared by
+   setReviewer and the repeat route, which checks a reviewer BEFORE storing a rule sent with it (review 1: a refused
+   reviewer must not leave the rule half-applied). "Does it repeat" is setReviewer's own check. */
+function reviewerChoice(who) {
+  const raw = who === undefined || who === null ? 'none' : String(who).trim();
+  return raw === '' ? 'none' : raw;
+}
+function reviewerProblem(p, t, who, opts = {}) {
+  const person = opts.person === true;
+  const after = reviewerChoice(who);
+  if (after === 'me' && !person) return 'only the person can name themselves as the reviewer';
+  if (after !== 'me' && after !== 'none' && !((p && p.agents) || []).includes(after)) return 'that agent is not on this project, so it cannot review this task';
+  const before = t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none';
+  if (!person && t && t.repeatReviewerByPerson === true && before !== after) return 'the person chose who reviews this task, so only they can change it';
+  return null;
+}
 function setReviewer(projectId, n, who, opts = {}) {
   const person = opts.person === true;
-  const raw = who === undefined || who === null ? 'none' : String(who).trim();
-  const toPerson = raw === 'me';
-  const none = raw === '' || raw === 'none';
-  if (toPerson && !person) throw new Error('only the person can name themselves as the reviewer');
+  const after = reviewerChoice(who);
   let changed;
   let didChange = false;
   projects.mutate(projectId, (p) => {
@@ -877,18 +890,22 @@ function setReviewer(projectId, n, who, opts = {}) {
     if (!t) throw new Error('there is no task by that number on this project');
     if (!t.repeat) throw new Error('that task does not repeat; set how often first, then who reviews its results');
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
-    if (!toPerson && !none && !(p.agents || []).includes(raw)) throw new Error('that agent is not on this project, so it cannot review this task');
+    const problem = reviewerProblem(p, t, after, { person });
+    if (problem) throw new Error(problem);
     const before = t.repeatReviewerPerson === true ? 'me' : (t.repeatReviewer || 'none');
-    const after = toPerson ? 'me' : none ? 'none' : raw;
-    if (!person && t.repeatReviewerByPerson === true && before !== after) throw new Error('the person chose who reviews this task, so only they can change it');
     didChange = before !== after;
     changed = { ...t };
-    if (!didChange) return p;
-    delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.repeatReviewerByPerson; delete changed.missToldAt;
-    if (after === 'me') changed.repeatReviewerPerson = true;
-    else if (after !== 'none') changed.repeatReviewer = after;
-    if (after === 'none') delete changed.repeatReviewerSetAt; else changed.repeatReviewerSetAt = new Date().toISOString();
-    if (person && after !== 'none') changed.repeatReviewerByPerson = true;
+    /* Review 1: the person's choice is theirs, Nobody included, and choosing what an agent already named makes it theirs
+       (the mark is written even when the reviewer itself is unchanged; nothing is recorded then). */
+    const lock = person && t.repeatReviewerByPerson !== true;
+    if (!didChange && !lock) return p;
+    if (didChange) {
+      delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.missToldAt;
+      if (after === 'me') changed.repeatReviewerPerson = true;
+      else if (after !== 'none') changed.repeatReviewer = after;
+      if (after === 'none') delete changed.repeatReviewerSetAt; else changed.repeatReviewerSetAt = new Date().toISOString();
+    }
+    if (person) changed.repeatReviewerByPerson = true; else if (didChange) delete changed.repeatReviewerByPerson;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (didChange) {
@@ -1489,4 +1506,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, recordRun };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

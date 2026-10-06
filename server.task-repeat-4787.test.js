@@ -208,3 +208,25 @@ test('#4787 slice 3: the reviewer rides the repeat route: an agent names an agen
   const list2 = await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json();
   assert.notEqual(list2.tasks.find((t) => t.number === n).state, 'decision');
 });
+
+test('#4787 slice 3 review 1: a rule sent with a refused reviewer leaves the rule as it was; a held person-reviewed miss stays On hold', async () => {
+  const n = newTask('Weekly sweep');
+  const mona = sendertoken.mint('mona');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '08:00' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200);
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'weekly', on: 'mon', at: '09:00', reviewer: 'bobb' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 400);
+  assert.deepEqual(stored(n).repeat, { every: 'day', at: '08:00' }, 'nothing half-applied');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'weekly', on: 'mon', at: '09:00', reviewer: 'fixture' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200, 'CONTROL: a good reviewer with the rule takes both');
+  assert.equal(stored(n).repeat.every, 'week');
+  // Held: the person reviews it and a run is missed, but parking it means not now.
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'me' }, screen);
+  const ago = new Date(Date.now() - 15 * 86400000).toISOString();
+  projects.mutate(projectId, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeatSetAt: ago, repeatReviewerSetAt: ago } : t)) }));
+  const before = (await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json()).tasks.find((t) => t.number === n);
+  assert.equal(before.state, 'decision', 'precondition');
+  tasks.setOnHold(projectId, n, true, { viaScreen: true });
+  const after = (await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json()).tasks.find((t) => t.number === n);
+  assert.equal(after.state, 'held');
+});
