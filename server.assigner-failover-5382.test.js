@@ -120,3 +120,16 @@ test('a failover move tells the receiver where the part came from; an ordinary g
     assert.equal(g.lines[0].line.includes('It was moved to you from'), false, 'an ordinary give said it was moved: ' + g.lines[0].line);
   } finally { s.board.restore(); }
 });
+
+/* Review 7: the Assigner runner's two failover reads are wiring nothing else exercises: pin them in source. */
+test('review 7: the runner passes readRunner (non-claude card value, else the recorded runner) and tell (failoverTell)', () => {
+  const SRC = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
+  const tickCall = SRC.slice(SRC.indexOf('const out = assigner.tick({'), SRC.indexOf('assignerPrev = out.next;'));
+  assert.ok(tickCall.length > 100, 'fixture: the assigner.tick call was not found');
+  assert.match(tickCall, /readRunner: \(card\) => \(card && card\.runner && card\.runner !== 'claude' \? card\.runner : create\.recordedRunner\(card\.sessionName\)\)/);
+  assert.match(tickCall, /tell: \(session, since, roster\) => failoverTell\(session, since, roster\)/);
+  const fn = SRC.slice(SRC.indexOf('function failoverTell('), SRC.indexOf('function givePart('));
+  assert.match(fn, /card\.runner === 'antigravity'\) return null/, 'failoverTell no longer leaves Antigravity to its carry-on line');
+  assert.match(fn, /movedAwayFrom\(session, since\)/);
+  assert.match(fn, /if \(!gone\.length\) return null/, 'failoverTell types a line when nothing was moved');
+});

@@ -98,27 +98,32 @@ const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length
 
 /* #5382: the provider a runner bills, for the failover's "another provider" test, from create.runnerProvider (the ONE
    runner -> provider map). One more rule on top: Antigravity and the Gemini CLI are one, because both can run on the
-   same Google account, whose shared quota (#4588) is what stopped the first agent. A runner that is not known (null)
-   has no provider, and the failover neither takes from nor gives to it. */
+   same Google account, whose shared quota (#4588) is what stopped the first agent. Only a runner Kosmos recognises
+   has a provider; anything else (null, empty, an unknown string, which runnerProvider would call anthropic) is null,
+   and the failover neither takes from nor gives to it. Note: readRunner's create.recordedRunner floors a missing record
+   at claude, so in practice "unknown" reaches here as claude; that errs toward missing a move (review 7). */
 function providerOf(runner) {
   if (typeof runner !== 'string' || !runner) return null;
-  const p = require('./create').runnerProvider(runner);
+  const create = require('./create');
+  if (runner !== 'claude' && !create.isNonClaudeRunner(runner)) return null;
+  const p = create.runnerProvider(runner);
   return p === 'antigravity' ? 'google' : p;
 }
 
 /* #5382: a card the failover may take work FROM: ours, reading rate_limited on evidence that is still current, and not
    about to reset. "Current" means Kosmos can date it: a reset time from Antigravity's report (quotaUntil), the shared
-   pool (poolUntil) or the vendor's own line (status.limitResetAt), still in the future; or a Codex or Gemini CLI limit,
-   which status sets only while the vendor's limit still holds. A limit line with no reset time is NOT acted on: an idle
-   pane can keep showing an old one long after the agent recovered (status.js, the #5031 notes), and 15 minutes of
-   waiting cannot tell those apart (review 6). */
+   pool (poolUntil) or the vendor's own line (status.limitResetAt), still in the future. A limit with no reset time is
+   NOT acted on, whoever's it is: an idle pane can keep showing an old line long after the agent recovered (status.js,
+   the #5031 notes), and 15 minutes of waiting cannot tell those apart (review 6). That includes Codex and Gemini CLI
+   limits: status keeps them only until a newer turn appears below the line, and nothing clears them at the reset
+   (review 7). So, today, a Claude 5-hour limit (printed with no date) never moves work; a weekly one does. */
 function limitedCard(a, now) {
   if (!(a && a.sessionName && a.isNamedOurs === true && a.state === 'rate_limited')) return false;
   let fromLine = null;
   try { fromLine = typeof a.stateEvidence === 'string' && a.stateEvidence ? require('./status').limitResetAt(a.stateEvidence, now) : null; } catch { fromLine = null; }
   // Each reset on its own: Math.max over a missing one (NaN) is NaN, which would read as no reset known.
   const resets = [Date.parse(a.quotaUntil || ''), Date.parse(a.poolUntil || ''), Number(fromLine)].filter((x) => Number.isFinite(x) && x > 0);
-  if (!resets.length) return a.limitFrom === 'codex' || a.limitFrom === 'gemini';
+  if (!resets.length) return false;
   return Math.max(...resets) - now > RESET_SOON_MS;
 }
 
@@ -197,7 +202,7 @@ function pick(session, projects, taken) {
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
   return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map(),
-    limitedSince: new Map() };
+    limitedSince: new Map(), pausedSince: new Map() };
 }
 
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
@@ -387,6 +392,16 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
   const runnerOf = new Map();
   const ripe = new Set();
   const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
+  /* #5382 (review 7): when each of our agents started reading rate_limited at all (dated or not), so the moment it stops
+     is seen: an agent whose parts the failover gave away is then told, once (runOnce's `tell`), whatever its runner. */
+  const pausedSince = new Map();
+  const released = [];
+  const basePaused = base.pausedSince instanceof Map ? base.pausedSince : new Map();
+  for (const a of Array.isArray(roster) ? roster : []) {
+    if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
+    if (a.state === 'rate_limited') pausedSince.set(a.sessionName, basePaused.has(a.sessionName) ? basePaused.get(a.sessionName) : now);
+    else if (basePaused.has(a.sessionName)) released.push({ session: a.sessionName, since: basePaused.get(a.sessionName) });
+  }
   /* `runners` (session -> runner or null) is the board's own derivation, passed in by tick (review 6: a card's runner of
      'claude' can be a default, not a fact). Without it, the card's own field. */
   for (const a of Array.isArray(roster) ? roster : []) {
@@ -441,7 +456,8 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince } };
+  return { toAssign, toAsk, released: setting.failover === true ? released : [],
+    next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, pausedSince } };
 }
 
 /**
@@ -449,8 +465,18 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
  * charge back off the budget, so a refusal does not spend an hour's allowance.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY, runners }) {
+function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY, runners, tell }) {
   const out = step({ prev, roster, setting, records, commitments, goals, now, runners });
+  /* #5382 (review 7): an agent whose limit just lifted is told which of its parts the failover gave away during it
+     (tell(session, since) does the lookup and the line, and sends nothing when none were). One try per lift. */
+  const told = [];
+  if (typeof tell === 'function') {
+    for (const r of out.released || []) {
+      let v = null;
+      try { v = tell(r.session, r.since); } catch { v = null; }
+      told.push({ session: r.session, result: v });
+    }
+  }
   /* #5161: an ask that did not land must not record the project as asked-about-in-this-state, or a pane that refused
      once would silence that project until something changed. */
   const unrecord = (item) => {
@@ -506,7 +532,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
     }
     asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
   }
-  return { next: out.next, acted, asks };
+  return { next: out.next, acted, asks, told };
 }
 
 /**
@@ -522,7 +548,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
  *   ask(session, text, roster), DELIVERY
  * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
-function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY, readRunner }) {
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY, readRunner, tell }) {
   const setting = readSetting();
   const roster = setting && setting.on === true ? readRoster() : null;
   const records = setting && setting.on === true ? readRecords() : [];
@@ -552,6 +578,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     }
   }
   return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY, runners,
+    tell: typeof tell === 'function' ? (session, since) => tell(session, since, roster) : undefined,
     give: (projectId, n, partId, who, from) => give(projectId, n, partId, who, roster, from),
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }

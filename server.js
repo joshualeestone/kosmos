@@ -459,8 +459,9 @@ function movedAwayFrom(session, since) {
   try {
     for (const p of projects.readAll()) {
       for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-        if (tasks.progressOf(t).closed) continue;
-        for (const x of tasks.progressOf(t).parts) {
+        const prog = tasks.progressOf(t);
+        if (prog.closed) continue;
+        for (const x of prog.parts) {
           if (x.movedFrom !== session || x.who === session || x.closedAt) continue;
           const at = Date.parse(x.movedAt || '');
           if (Number.isFinite(since) && !(at >= since)) continue;
@@ -470,6 +471,18 @@ function movedAwayFrom(session, since) {
     }
   } catch { return []; }
   return out;
+}
+/* #5382 (review 7): the line an agent gets when its usage limit lifts, naming the parts the failover gave to another
+   agent while it was limited, so it does not carry on with them. Null (nothing typed) when there were none, or for an
+   Antigravity agent, whose quota carry-on line names them (engine/agyquota.js nudgeText). */
+function failoverTell(session, since, roster) {
+  const card = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === session);
+  if (card && card.runner === 'antigravity') return null;
+  const gone = movedAwayFrom(session, since);
+  if (!gone.length) return null;
+  const one = gone.length === 1;
+  return chat.deliverAutomatic(session, '[Kosmos: while you were at your usage limit, ' + gone.join(', ') + (one ? ' was' : ' were')
+    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.]', roster);
 }
 function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {
@@ -20615,6 +20628,9 @@ function start(port = PORT) {
             readCommitment: (session) => commitments.read(session),
             /* #5382: the runner the failover compares, as whoami resolves it: a non-claude value on the card is a recorded
                or command-read fact; 'claude' there can be a default, so the launch job or profile answers instead. */
+            /* #5382 (review 7): an agent whose limit lifted is told which parts were given away meanwhile (movedAwayFrom
+               since the limit began). Antigravity agents are skipped: agyquota's carry-on line already says it. */
+            tell: (session, since, roster) => failoverTell(session, since, roster),
             readRunner: (card) => (card && card.runner && card.runner !== 'claude' ? card.runner : create.recordedRunner(card.sessionName)),
             readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
@@ -20624,6 +20640,7 @@ function start(port = PORT) {
           assignerPrev = out.next;
           assignerSaved = assigner.saveMemory(assignerPrev, assignerSaved);
           for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}${a.from ? ' (moved from ' + a.from + ', rate-limited)' : ''}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const t of out.told || []) if (t.result) process.stdout.write(`assigner: told ${t.session} which of its parts were moved while it was limited: ${(t.result && t.result.state) || 'sent'}\n`);
           for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only

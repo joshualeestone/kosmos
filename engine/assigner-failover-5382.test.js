@@ -255,6 +255,7 @@ test('Antigravity and the Gemini CLI count as one provider (one Google account c
   assert.equal(a.providerOf(''), null);
   assert.equal(a.providerOf(undefined), null);
   assert.equal(a.providerOf('codex'), 'openai', 'not create.runnerProvider\'s answer');
+  assert.equal(a.providerOf('somethingnew'), null, 'an unrecognised runner was given a provider (runnerProvider says anthropic)');
   const w = world([{ name: 'agylim', paneState: 'rate_limited' }, { name: 'agygem', runner: 'gemini' }]);
   try {
     heldTask(w.pid, w.key.agylim, 'write the deploy notes');
@@ -280,7 +281,10 @@ test('a limit Kosmos cannot date is not acted on (an old line on an idle screen)
       ? { ...c, stateEvidence: "You've hit your limit \u00b7 resets Jan 1, 2000 at 3pm (America/Chicago)" } : c));
     assert.equal(at(passed), 0, 'a vendor line whose reset has passed (a stale screen) moved the part');
     const codex = w.cards.map((c) => (c.sessionName === w.key.udlim ? { ...c, limitFrom: 'codex' } : c));
-    assert.equal(at(codex), 1, 'a current Codex limit did not move the part');
+    // Review 7: a Codex or Gemini CLI limit carries no reset Kosmos reads, and status keeps it until a newer turn, so it
+    // can be as stale as a Claude line: not acted on.
+    assert.equal(at(codex), 0, 'an undated Codex limit moved the part');
+    assert.equal(at(w.cards.map((c) => (c.sessionName === w.key.udlim ? { ...c, limitFrom: 'gemini' } : c))), 0, 'an undated Gemini CLI limit moved the part');
   } finally { w.restore(); }
 });
 
@@ -372,5 +376,59 @@ test('a repeating task between runs is not moved (#4787: it holds no work then);
       'moved a repeating task that ran a minute ago and waits for tomorrow');
     assert.equal(later(w, { records: withRun(new Date(at - 3 * 24 * 3600 * 1000).toISOString()) }).toAssign.length, 1,
       'control: a repeating task due again moves');
+  } finally { w.restore(); }
+});
+
+test('review 7: tick reads each card\'s runner through readRunner, not the card\'s field', () => {
+  const w = world([{ name: 'tklim', paneState: 'rate_limited' }, { name: 'tkgem', runner: 'gemini' }]);
+  try {
+    heldTask(w.pid, w.key.tklim, 'write the deploy notes');
+    const run = (readRunner) => {
+      const gives = [];
+      const base = { readSetting: () => ON, readRoster: () => w.cards, readRecords: () => projects.readAll(),
+        readCommitment: (s) => commitments.read(s), readGoal: () => null, DELIVERY: require('./chat').DELIVERY,
+        give: (pid, n, partId, who, roster, from) => { gives.push({ who, from }); return { ok: true }; }, readRunner };
+      const first = a.tick({ ...base, prev: undefined, now: T0 });
+      a.tick({ ...base, prev: first.next, now: T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS) });
+      return gives;
+    };
+    // The cards say claude and gemini (different providers); the derivation says the source is Antigravity: one Google.
+    assert.deepEqual(run((c) => (c.sessionName === w.key.tklim ? 'antigravity' : c.runner)), [], 'tick moved on the card\'s runner, not readRunner\'s');
+    assert.deepEqual(run(() => { throw new Error('unreadable'); }), [], 'a runner read that throws was not treated as unknown');
+    assert.deepEqual(run((c) => c.runner), [{ who: w.key.tkgem, from: w.key.tklim }], 'control: the same runners the cards carry move it');
+  } finally { w.restore(); }
+});
+
+test('review 7: when a limit lifts, runOnce tells that agent (once), with when its limit began; not with failover off', () => {
+  const w = world([{ name: 'rllim', paneState: 'rate_limited' }, { name: 'rlgem', runner: 'gemini' }]);
+  try {
+    const base = { setting: ON, records: projects.readAll(), commitments: w.states(), give: () => ({ ok: true }) };
+    const told = [];
+    const tell = (session, since) => { told.push({ session, since }); return { state: 'placed' }; };
+    const s1 = a.runOnce({ ...base, roster: w.cards, prev: undefined, now: T0, tell });
+    const s2 = a.runOnce({ ...base, roster: w.cards, prev: s1.next, now: T0 + 60000, tell });
+    assert.deepEqual(told, [], 'told while still limited');
+    const lifted = w.cards.map((c) => (c.sessionName === w.key.rllim ? { ...c, state: 'idle' } : c));
+    const s3 = a.runOnce({ ...base, roster: lifted, prev: s2.next, now: T0 + 120000, tell });
+    assert.deepEqual(told, [{ session: w.key.rllim, since: T0 }]);
+    a.runOnce({ ...base, roster: lifted, prev: s3.next, now: T0 + 180000, tell });
+    assert.equal(told.length, 1, 'told again on the next tick');
+    const off = [];
+    const o1 = a.runOnce({ ...base, setting: { on: true }, roster: w.cards, prev: undefined, now: T0, tell: (x) => off.push(x) });
+    a.runOnce({ ...base, setting: { on: true }, roster: lifted, prev: o1.next, now: T0 + 60000, tell: (x) => off.push(x) });
+    assert.deepEqual(off, [], 'told with failover off');
+  } finally { w.restore(); }
+});
+
+test('review 7: a refused failover move says the work changed, not that the part left its owner', () => {
+  const w = world([{ name: 'whylim', paneState: 'rate_limited' }, { name: 'whygem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.whylim, 'write the deploy notes');
+    tasks.setPartClosed(w.pid, h.n, h.partId, new Date().toISOString());
+    const r = tasks.assignPart(w.pid, h.n, h.partId, w.key.whygem, { via: 'assigner', onlyIfWho: w.key.whylim, failover: true });
+    assert.equal(r.ok, false);
+    assert.match(r.because, /finished, closed, built or put on hold/);
+    const r2 = tasks.assignPart(w.pid, h.n, h.partId, w.key.whygem, { via: 'assigner', onlyIfWho: 'somebody-else', failover: true });
+    assert.match(r2.because, /no longer on somebody-else/, 'control: a part not on that agent still says so');
   } finally { w.restore(); }
 });

@@ -493,6 +493,7 @@ function assignPart(projectId, n, partId, who, made) {
   // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
   // takeback, so it never clears a part somebody else took in the meantime).
   let taken = false;
+  let stopped = false;   // #5382: a failover move refused because the work itself changed (finished, closed, held), not its owner
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -514,7 +515,7 @@ function assignPart(projectId, n, partId, who, made) {
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       /* #5382: a failover move (the Assigner taking a rate-limited agent's part) is refused if the part was finished, or
          its task built, put on hold or its project paused, since it was picked. */
-      if (made && made.failover === true && (x.closedAt || t.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
+      if (made && made.failover === true && (x.closedAt || t.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; stopped = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
@@ -531,6 +532,7 @@ function assignPart(projectId, n, partId, who, made) {
     });
   }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  if (stopped) return { ok: false, because: 'that part was finished, closed, built or put on hold since it was picked' };
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
