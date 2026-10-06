@@ -130,7 +130,7 @@ function propose(agent, text, askedBy, now) {
     return { ok: false, code: 'bad', because: 'the addition holds an HTML comment (<!-- or -->), which Kosmos uses for its own markers in instructions; take it out and propose again' };
   }
   /* Review 12: a line in Kosmos's own heading format would name an asker who asked for nothing. */
-  if (/^##\s*Added on /m.test(body)) {
+  if (/^\s*#{1,6}\s*Added on /im.test(body)) {
     return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
   }
   if (Buffer.byteLength(body, 'utf8') > MAX_TEXT_BYTES) {
@@ -159,9 +159,11 @@ function dismiss(agent) {
   if (!rec || !rec.pending) return { ok: false, code: 'none', because: 'there is no addition waiting' };
   /* Review 10: an Apply that wrote the file but could not record it leaves the addition both waiting and in the file.
      Dismissing then would leave it there with nothing on the page that says so or can take it out. */
-  const { text } = readText(agent);
-  /* Review 12: and while the file cannot be read, since then nobody can tell (Undo refuses the same way). */
-  const w = whereIs(text, { block: blockOf(rec.pending) });
+  const { cur, text } = readText(agent);
+  /* Review 12: and while the file cannot be read, since then nobody can tell (Undo refuses the same way).
+     Review 13: a file that does not exist yet (editable, just absent) holds no addition: that is 'gone', not 'unread'. */
+  const absent = !!(cur && !cur.exists && cur.editable);
+  const w = absent ? 'gone' : whereIs(text, { block: blockOf(rec.pending) });
   if (w === 'unread') return { ok: false, because: 'these instructions could not be read just now, so Kosmos cannot tell whether an earlier Apply already added this. Try again' };
   if (w === 'here') {
     return { ok: false, code: 'applied', because: 'this addition is already in the instructions (an earlier Apply wrote it but could not record it). Press Apply to finish; Undo can then take it out' };

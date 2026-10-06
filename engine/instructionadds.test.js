@@ -608,3 +608,18 @@ test('review 12: a long run of whitespace in the text or file is handled in line
   assert.equal(adds.undo('sally').ok, true);
   assert.ok(Date.now() - t0 < 1000, 'took ' + (Date.now() - t0) + ' ms');
 });
+
+/* Review 13 (sonnet, blind). */
+test('review 13: a proposal to an agent with no instructions file yet can be dismissed', () => {
+  fs.mkdirSync(path.join(ROOT, 'nofile'), { recursive: true });
+  assert.equal(adds.propose('nofile', ADD, 'Ops lead').ok, true);
+  assert.equal(adds.dismiss('nofile').ok, true, 'the proposal is stuck');
+  assert.equal(adds.pending('nofile'), null);
+});
+test('review 13: an indented or differently-levelled "Added on" heading is refused too', () => {
+  makeAgent('sally');
+  for (const line of ['  ## Added on 2026-10-01, asked by Mona', '### added on today', '# Added on x']) {
+    const r = adds.propose('sally', 'Line one.\n' + line + '\nMore.', 'Ops lead');
+    assert.equal(r.ok, false, JSON.stringify(line)); assert.equal(r.code, 'bad');
+  }
+});
