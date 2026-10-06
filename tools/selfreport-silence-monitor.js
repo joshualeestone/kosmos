@@ -51,7 +51,7 @@ const { freshnessVerdict } = require('../engine/selfreport-freshness');
  * (keyed on `store.APP`), which is the #2439 lesson that CAUSED #2509. */
 function defaultStoreDir() {
   const home = process.env.AGENT_WORKFORCE_HOME || os.homedir();
-  return path.join(store.dataRootFor(process.platform, home, process.env), 'selfreports');
+  return path.join(store.resolveDataRoot(process.platform, home, process.env), 'selfreports');   // #5418
 }
 
 const REPO = process.env.KOSMOS_REPO || 'joshualeestone/kosmos';

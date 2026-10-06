@@ -9,11 +9,16 @@ test that requires any of those modules before setting its sandbox gets the REAL
 module for the rest of the process, and every write lands in the operator's store.
 
 ## Decision (ask 1: make it impossible)
-Refuse at the single derivation every module reads, `store.root()`:
+Refuse at the derivation, `store.resolveDataRoot()` (review 3 found `store.root()` was not the only one:
+`create.supportDir()`, `worlds.baseRoot()` and `tools/selfreport-silence-monitor.js` called
+`store.dataRootFor` directly; all four now go through `resolveDataRoot`, so one process always agrees on
+one root). Left on `dataRootFor` on purpose: `boardauth` and `setup-assistant` read the LEGACY root,
+`win32uninstall` targets win32 explicitly with its own home. The rule:
 - A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
-- In a test process, a resolved root equal to the machine's REAL default root is never used:
+- In a test process, a resolved root equal to the machine's REAL default root, or inside it (a named
+  world hangs off it), is never used:
   - with NO sandbox variable set, the store answers ONE throwaway root of that process's own (mkdtemp,
     prefix `kosmos-test-home-`), removed at exit (best effort; run-tests.sh sweeps ones older than two
     hours). It is the store's alone: no environment variable is set, so no other seam changes (an
@@ -58,9 +63,17 @@ is not one of the board's #634 half-sandbox variables, so in-process boards stil
 web.told-banner, server.socket-split, engine/store and engine/team (all failed under the throw) pass,
 43/43, with no throwaway home left behind.
 
-## Existing test changed
-`engine/store.lazyroot-1443.test.js`'s CONTROL reads the unsandboxed root to prove it is the real
-per-platform location (a path read only). It now says KOSMOS_ALLOW_REAL_ROOT=1 for that read.
+## Existing tests changed
+Four controls read the unsandboxed root's PATH on purpose to prove the product's derivation: the CONTROLs
+in `engine/store.lazyroot-1443`, `store.dataroot-1820` and `store.dataroot-570`, and the first
+`create.supportdir-win32-2039` test. Each now says KOSMOS_ALLOW_REAL_ROOT=1 (with KOSMOS_NO_LEGACY_MIGRATION=1,
+so the read cannot run the legacy rename) for that read only. The #2039 source pin accepts
+`store.resolveDataRoot(` and pins that `resolveDataRoot` delegates to `dataRootFor`.
+
+## The harness sweep
+Throwaway names carry their pid (`kosmos-test-home-<pid>-XXXXXX`); tools/run-tests.sh removes one only
+when that process is gone (tested: dead pid removed; live pid, malformed name and other dirs kept). It
+runs before run-tests.sh re-points TMPDIR, so it reaches leftovers of direct `node --test` runs.
 
 ## Second redesign (review 2): store-only, no environment
 Exporting the throwaway as AGENT_WORKFORCE_HOME changed every seam that reads that variable, depending

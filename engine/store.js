@@ -262,9 +262,10 @@ function maybeMigrateLegacyStore() {
      process the test starts is a test process too and gets a throwaway of its own. Removed at
      exit, best effort (a killed process leaves it; tools/run-tests.sh sweeps old ones). The
      legacy migration is skipped for it, since its own target would be the real store.
-   - A sandbox variable IS set and still resolves to exactly the real root (a symlink to the
-     real home, a DATA that equals the real root's parent): that is a misconfiguration, and it
-     throws. */
+   - A sandbox variable IS set and still resolves to the real root or inside it (a symlink to the
+     real home, a DATA aimed at the real root's parent, a named world under it): that is a
+     misconfiguration, and it throws.
+   Every caller that derives the root goes through resolveDataRoot below, not only this file. */
 function isTestProcess(env) {
   return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
 }
@@ -278,9 +279,12 @@ function realDefaultRoot(platform) {
 }
 /* The nearest existing ancestor's realpath with the rest re-attached, so two spellings of one
    directory (a symlinked /var, a home reached through a link) compare equal even before the
-   root exists; lower-cased where the default volume ignores case (macOS, Windows). Only test
-   processes reach it. */
+   root exists; lower-cased where the default volume ignores case (macOS, Windows). Cached per
+   spelling, since store.ROOT is read often. Only test processes reach it. */
+const realishSeen = new Map();
 function realish(p, platform) {
+  const key = platform + '\0' + p;
+  if (realishSeen.has(key)) return realishSeen.get(key);
   let head = path.resolve(p); const rest = [];
   let out = null;
   for (;;) {
@@ -289,39 +293,54 @@ function realish(p, platform) {
     if (up === head) { out = path.resolve(p); break; }
     rest.unshift(path.basename(head)); head = up;
   }
-  return platform === 'darwin' || platform === 'win32' ? out.toLowerCase() : out;
+  if (platform === 'darwin' || platform === 'win32') out = out.toLowerCase();
+  if (realishSeen.size > 256) realishSeen.clear();
+  realishSeen.set(key, out);
+  return out;
 }
-let realRootSeen = null;   // [platform, realish(real root)], once per process
+/* Equal to the real root or inside it (a named world hangs off it). */
 function isRealRootInTests(resolved, platform, env) {
   if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
-  if (!realRootSeen || realRootSeen[0] !== platform) {
-    const real = realDefaultRoot(platform);
-    realRootSeen = [platform, real ? realish(real, platform) : null];
-  }
-  return !!realRootSeen[1] && realish(resolved, platform) === realRootSeen[1];
+  const real = realDefaultRoot(platform);
+  if (!real) return false;
+  const r = realish(real, platform);
+  const at = realish(resolved, platform);
+  return at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }
 const TEST_HOME_PREFIX = 'kosmos-test-home-';
-let testRoot = null;
+const testRoots = new Map();   // platform -> this process's throwaway root
 function throwawayRootForThisProcess(platform) {
-  if (!testRoot) {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX));
-    testRoot = dataRootFor(platform, home, {});
+  if (!testRoots.has(platform)) {
+    // The pid is in the name so tools/run-tests.sh can sweep only the ones whose process is gone.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX + process.pid + '-'));
+    testRoots.set(platform, dataRootFor(platform, home, {}));
     process.on('exit', () => { try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* swept later */ } });
   }
-  return testRoot;
+  return testRoots.get(platform);
+}
+/**
+ * #5418: the data root with the test-process rule applied and NO migration. Every caller that
+ * derives the store's root (root() below, create.supportDir, worlds.baseRoot, the silence
+ * monitor) goes through this, so one process always agrees on one root, throwaway or real.
+ * `env` supplies the sandbox variables (worlds passes the launch's original env); whether this
+ * is a test process is always read from process.env.
+ */
+function resolveDataRoot(platform, home, env) {
+  const e = env || process.env;
+  const resolved = dataRootFor(platform, home, e);
+  if (!isRealRootInTests(resolved, platform, process.env)) return resolved;
+  if (e.AGENT_WORKFORCE_DATA || e.AGENT_WORKFORCE_HOME) {
+    throw new Error('store: a test process resolved this machine\'s REAL data root (' + resolved + ') '
+      + 'through its own sandbox variable. Point AGENT_WORKFORCE_DATA (or AGENT_WORKFORCE_HOME) somewhere else. #5418');
+  }
+  return throwawayRootForThisProcess(platform);
 }
 
 function root() {
   const env = process.env;
-  const resolved = dataRootFor(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
-  // #5418: settled before the migration below, which would otherwise rename the real store first.
-  if (isRealRootInTests(resolved, process.platform, env)) {
-    if (env.AGENT_WORKFORCE_DATA || env.AGENT_WORKFORCE_HOME) {
-      throw new Error('store: a test process resolved this machine\'s REAL data root (' + resolved + ') '
-        + 'through its own sandbox variable. Point AGENT_WORKFORCE_DATA (or AGENT_WORKFORCE_HOME) somewhere else. #5418');
-    }
-    return throwawayRootForThisProcess(process.platform);   // no migration: its target is the real store
-  }
+  const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
+  // #5418: a throwaway root is not migrated (the migration's own target is the real store).
+  if (testRoots.get(process.platform) === resolved) return resolved;
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
@@ -724,7 +743,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, TEST_HOME_PREFIX, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

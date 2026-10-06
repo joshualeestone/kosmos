@@ -21,12 +21,22 @@ const store = require('./store');
 
 const homeDir = () => process.env.AGENT_WORKFORCE_HOME || os.homedir();
 
+/* #5418: a test process is never given the real data root unless it says so. These controls read
+   the real root's PATH on purpose (nothing is written; the legacy migration is off for the read). */
+function withRealRootAllowed(fn) {
+  const saved = { KOSMOS_ALLOW_REAL_ROOT: process.env.KOSMOS_ALLOW_REAL_ROOT, KOSMOS_NO_LEGACY_MIGRATION: process.env.KOSMOS_NO_LEGACY_MIGRATION };
+  process.env.KOSMOS_ALLOW_REAL_ROOT = '1';
+  process.env.KOSMOS_NO_LEGACY_MIGRATION = '1';
+  try { return fn(); }
+  finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+}
+
 test('supportDir delegates to store.dataRootFor with the running platform + env', () => {
   const prev = process.env.AGENT_WORKFORCE_DATA;
   try {
     delete process.env.AGENT_WORKFORCE_DATA;
-    assert.equal(create.supportDir(), store.dataRootFor(process.platform, homeDir(), process.env),
-      'supportDir no longer returns what store.dataRootFor derives -- a copy has drifted back in');
+    withRealRootAllowed(() => assert.equal(create.supportDir(), store.dataRootFor(process.platform, homeDir(), process.env),
+      'supportDir no longer returns what store.dataRootFor derives -- a copy has drifted back in'));
     // AGENT_WORKFORCE_DATA is the sandbox path every other test relies on; it must
     // survive the collapse unchanged (the branch that WAS byte-identical before).
     process.env.AGENT_WORKFORCE_DATA = nodePath.join(os.tmpdir(), 'aw-supportdir-2039');
@@ -44,7 +54,12 @@ test('#2039: supportDir keeps NO second copy of the data-root formula (source-pi
   const at = src.indexOf('function supportDir()');
   assert.ok(at > -1, 'supportDir vanished or was renamed');
   const body = src.slice(at, src.indexOf('\n}', at) + 2);
-  assert.match(body, /store\.dataRootFor\(/, 'supportDir stopped delegating to store.dataRootFor');
+  // #5418: through store.resolveDataRoot, which applies the test-process rule and then delegates
+  // to dataRootFor (pinned in store.js below), so there is still one formula.
+  assert.match(body, /store\.(?:resolveDataRoot|dataRootFor)\(/, 'supportDir stopped delegating to store.dataRootFor');
+  const storeSrc = fs.readFileSync(nodePath.join(__dirname, 'store.js'), 'utf8');
+  const r = storeSrc.slice(storeSrc.indexOf('function resolveDataRoot('), storeSrc.indexOf('\n}', storeSrc.indexOf('function resolveDataRoot(')) + 2);
+  assert.match(r, /dataRootFor\(platform, home, e\)/, 'store.resolveDataRoot no longer delegates to dataRootFor');
   /* A re-added copy would build the path itself with `path.join(...)`; the
      delegating version has none. This is the pin that catches the class (a
      second, win32-less formula) coming back -- verified to red on that revert. */
