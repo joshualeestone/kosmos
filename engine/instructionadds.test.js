@@ -689,3 +689,18 @@ test('review 16: "Added on" behind any markup is refused (no-break space, quote,
   }
   assert.equal(adds.propose('sally', 'We added on a new rule.', 'Ops lead').ok, true, 'CONTROL: the words mid-sentence are fine');
 });
+
+/* Review 17 (sonnet, blind). */
+test('review 17: the history reason for an Apply and an Undo carries the asker\'s name on one line, like the heading', () => {
+  makeAgent('sally');
+  const seen = [];
+  const real = instructions.write;
+  instructions.write = (...args) => { seen.push(args[4] && args[4].because); return real.apply(instructions, args); };
+  try {
+    adds.propose('sally', ADD, 'Ops\nlead <!-- x -->');
+    adds.apply('sally');
+    adds.undo('sally');
+  } finally { instructions.write = real; }
+  assert.equal(seen.length, 2, JSON.stringify(seen));
+  for (const why of seen) assert.ok(!/[\n]|<!--|-->/.test(String(why)), JSON.stringify(why));
+});

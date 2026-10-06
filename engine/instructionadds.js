@@ -138,7 +138,11 @@ function propose(agent, text, askedBy, now) {
      whatever the space between the words (a tab, two spaces, a no-break space), and "Added on" alone on its line.
      After the size check, so the scan is over at most 16 KB. */
   /* Review 16: whatever comes first on the line that is not a letter or digit (heading marks, a quote, a list dash, bold,
-     an HTML tag's brackets, any space). */
+     an HTML tag's brackets, any space).
+     🛑 Review 17, DECIDED: this is a COURTESY for the ordinary spellings, NOT a security boundary, and it is not to be
+     extended spelling by spelling (entities, zero-width or fullwidth letters will always find another). What marks
+     Kosmos's own heading is the id comment line under it, which a proposal cannot hold (comments are refused above),
+     and the person reads the whole text before pressing Apply. */
   if (/^[^\p{L}\p{N}\n]*(h[1-6]>)?Added\s+on(\s|$)/imu.test(body)) {
     return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
   }
@@ -217,7 +221,7 @@ function apply(agent, now) {
   }
   if (w !== 'here') {
     try {
-      instructions.write(agent, curText.trimEnd() + block, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
+      instructions.write(agent, curText.trimEnd() + block, cur.version, undefined, { who: 'person', because: `You added a section ${askerWords(p.askedBy)} asked for` });
     } catch (e) {
       return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
     }
@@ -332,7 +336,7 @@ function undo(agent) {
   if (w === 'changed') return { ok: false, code: 'edited', because: 'the addition was edited after it was added, so it cannot be undone here' };
   try {
     const out = withoutSpan(text, last);
-    instructions.write(agent, crlf ? out.replace(/\n/g, '\r\n') : out, cur.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
+    instructions.write(agent, crlf ? out.replace(/\n/g, '\r\n') : out, cur.version, undefined, { who: 'person', because: `You took out the section ${askerWords(last.askedBy)} asked for` });
   } catch (e) {
     return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
   }
