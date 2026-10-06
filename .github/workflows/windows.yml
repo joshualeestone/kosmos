@@ -19,7 +19,7 @@ name: windows
 on:
   push:
     # Main only, as in test.yml (#3499): a PR runs this once, via pull_request.
-    branches: ["main"]
+    branches: ["main", "win-probe-*"]
   pull_request:
 
 permissions:
@@ -64,4 +64,6 @@ jobs:
         env:
           # Empty on a push to main, where every stale entry fails the run.
           WINDOWS_TESTS_PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: node tools/windows-tests.js
+        run: |
+          "step shell: PowerShell $($PSVersionTable.PSVersion)"
+          node --test engine/win32-psmodule-5385-probe.test.js
