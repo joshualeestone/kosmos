@@ -9,3 +9,5 @@
 **Rejected:** display:block at zero height (review 1: still a flex item, so its parent's 4px gap came back on the sideways DM); moving the element out of .dtext (more churn for the same result).
 
 **Weakest premise:** that keeping an empty live region in the tree makes the first announcement reliable across screen readers; it is the documented pattern, not tested with VoiceOver here.
+
+**Surface gate:** render-agent-pill-3958 asserts which element the Restart follow-up lands in (noteFor resolves to #d-linklost-msg, outside the notice), not how the empty line is styled; trailer on the commit; CI runs it.
