@@ -2568,16 +2568,20 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 @media (prefers-reduced-motion: reduce) { .act i { animation: work-fade 1.6s ease-in-out infinite; } }
 .rest { width: 10px; height: 2.5px; border-radius: 2px; background: #b8bcc2; flex: 0 0 10px; }
 .pause { display: inline-flex; gap: 2.5px; }
-.linkish.pj-head-pause { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 28px; padding: 0 10px; border-radius: 8px;   /* kosmos#5391 */
-                 font: 600 .8125rem var(--font-ui); color: var(--k-ink-2); border: 1px solid var(--k-rule); background: transparent; }
+.linkish.pj-head-pause { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none; position: relative;   /* kosmos#5391 */
+                 /* Josh 09:00: smaller, the same height as the + buttons for members and tasks (22px, 7px corners, their fill). */
+                 height: 22px; padding: 0 8px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
+                 border: 1px solid var(--k-rule); background: var(--k-surface); }
 .linkish.pj-head-pause:not(:disabled):hover { color: var(--k-ink); background: var(--k-sunk); }
 .linkish.pj-head-pause:disabled { opacity: .5; cursor: default; }   /* review 5: off looks off, as .btn:disabled does */
-.pj-head-pause .pause i { background: currentColor; }
+.pj-head-pause .pause { gap: 2px; }
+.pj-head-pause .pause i { background: currentColor; width: 2px; height: 8px; }
 .pj-head-pause.on .pause { display: none; }
-.pj-head-pause.on::before { content: ""; width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.pj-head-pause.on::before { content: ""; width: 0; height: 0; border-left: 6px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
 .pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
 #pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
-@media (hover: none) { .linkish.pj-head-pause { min-height: 36px; } }   /* a touch target, as the cog beside it */
+/* On touch it still LOOKS 22px, as Josh asked, but takes a 36px-tall tap, as the cog beside it does (an invisible ring). */
+@media (hover: none) { .pj-head-pause::after { content: ""; position: absolute; inset: -7px -2px; } }
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
 .stop { width: 9px; height: 9px; border-radius: 2px; background: var(--k-ink-2); flex: 0 0 9px; }
 .qmark { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px;
