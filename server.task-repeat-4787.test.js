@@ -131,3 +131,18 @@ test('#4787 review 3: an agent cannot close a task the person set to repeat; the
   assert.equal(r.status, 200, 'CONTROL: the person closes it');
   assert.equal('repeat' in stored(n), false);
 });
+
+test('#4787 review 4: an agent may close a non-last part of the person\'s repeating task, but not the last one', async () => {
+  const n = newTask('Weekly sweep');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'weekly', on: 'fri', at: '16:00' }, screen);
+  assert.equal(r.status, 200);
+  tasks.addPart(projectId, n, { sentence: 'second half', who: 'mona' });
+  const parts = tasks.partsOf(stored(n));
+  assert.equal(parts.length, 2, 'precondition: two parts');
+  const mona = sendertoken.mint('mona');
+  r = await post(`/api/project/${projectId}/task/${n}/part/${parts[0].id}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200, 'a part that leaves another open is just work: allowed ' + JSON.stringify(r.json));
+  r = await post(`/api/project/${projectId}/task/${n}/part/${parts[1].id}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 409, 'closing the last part would end the person\'s rule');
+  assert.ok(stored(n).repeat);
+});

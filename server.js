@@ -18883,7 +18883,7 @@ const server = http.createServer(async (req, res) => {
         }
       } catch (err) {
         const msg = String((err && err.message) || 'we could not change that task');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can change it/.test(msg) ? 403 : 400, { error: msg });
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat)/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
       sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
@@ -19261,8 +19261,10 @@ const server = http.createServer(async (req, res) => {
         if (verb === 'close' && !screen) {   // kosmos#4787 review 3: as the task close route
           let held = null;
           try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
-          if (held && held.repeat && held.repeatByPerson === true) {
-            sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+          // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
+          const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
+          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && String(open[0].id) === String(partAct[3])) {
+            sendJson(res, 409, { error: 'the person set this task to repeat, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
             return;
           }
         }

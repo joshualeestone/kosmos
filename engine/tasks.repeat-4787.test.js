@@ -175,3 +175,19 @@ test('#4787 review 3: clearing a rule clears its runs, so a rule set again later
   const t = stored(id, n);
   assert.equal('lastRunAt' in t || 'lastRunBy' in t || 'lastRunNote' in t, false);
 });
+
+test('#4787 review 4: an agent cannot make a task repeat over the person\'s built mark; the person can (control)', () => {
+  const { id, n } = freshTask();
+  assert.equal(tasks.setBuilt(id, n, { person: true }).ok, true);
+  assert.throws(() => tasks.setRepeat(id, n, { every: 'hour' }), /only they can make it repeat/);
+  assert.ok(stored(id, n).builtAt, 'the person\'s mark stays');
+  tasks.setRepeat(id, n, { every: 'hour' }, { person: true });
+  assert.equal('builtAt' in stored(id, n), false);
+});
+
+test('#4787 review 4: a rule put on an old task is measured from when the rule was set, not when the task was made', () => {
+  const { id, n } = freshTask();
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, createdAt: '2026-01-01T00:00:00.000Z' } : t)) }));
+  tasks.setRepeat(id, n, { every: 'day', at: new Date(Date.now() + 2 * 3600000).toTimeString().slice(0, 5) });   // two hours from now
+  assert.equal(require('./taskrepeat').waitingForNextRun(stored(id, n)), true, 'the first run is two hours away, not months overdue');
+});

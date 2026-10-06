@@ -140,7 +140,8 @@ function graceFor(rule) {
 }
 function waitingForNextRun(t, now = Date.now()) {
   if (!t || !t.repeat) return false;
-  const raw = Date.parse(t.lastRunAt || t.createdAt || '');
+  // review 4: with no run yet, from when the RULE was set (a rule put on an old task is not due at once).
+  const raw = Date.parse(t.lastRunAt || t.repeatSetAt || t.createdAt || '');
   if (!Number.isFinite(raw)) return false;   // no time to measure from: treat it as work, never hide it
   /* review 2: a run stamped more than a minute in the future (a clock stepped back) cannot say when the job last ran,
      so the task is due: work is shown, never hidden. (Measuring from "now" instead would wait for ever, one slot past
