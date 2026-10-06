@@ -279,6 +279,30 @@ function chk(ok, label, extra) {
           await page.context().close();
         }
 
+        /* --- #5316 (Josh 11:06): the team step's Meta option says what its state is ---------------------
+           A plain select shows an option's text as it is; an enabled option that still said "coming soon"
+           read as disabled. Ready: offered, and its words are "Meta Muse". Switched on, not signed in:
+           not offered, and its words say to sign in first. */
+        for (const [muse, wantOff, wantText] of [
+          [{ enabled: true, installed: true, signedIn: true }, false, 'Meta Muse'],
+          [{ enabled: true, installed: true, signedIn: false }, true, 'Meta Muse \u00b7 sign in first'],
+        ]) {
+          const { page, errs } = await newPage(1280);
+          await page.route('**/api/muse', (r) => r.fulfill({ status: 200, json: muse }));
+          await page.route('**/api/accounts*', (r) => r.fulfill({ status: 200, json: { accounts: [] } }));
+          await page.evaluate(() => { MUSE_CREATE = null; MUSE_CREATE_ASKING = null; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.evaluate(() => museCreateAsk());
+          const got = await page.evaluate(() => { const o = document.querySelector('#tc-provider option[value="meta"]');
+            return o ? { off: o.disabled, text: o.textContent } : null; });
+          chk(!!got && got.off === wantOff && got.text === wantText,
+            `${E} #5316 Muse ${muse.signedIn ? 'ready' : 'not signed in'}: the team step's Meta option is ${wantOff ? 'not offered' : 'offered'} and reads "${wantText}"`, JSON.stringify(got));
+          chk(errs.length === 0, `${E} no page errors (#5316 arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
         /* --- #4719: an account list slower than the 5 s wait still sets the default when it lands ---- */
         {
           const { page, errs } = await newPage(1280);

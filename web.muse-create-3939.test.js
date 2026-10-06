@@ -53,18 +53,21 @@ function page(answers) {
 }
 
 test('#3939 3c-3b: the create form offers Meta only when Muse is on, installed and signed in', async () => {
+  /* #5316: the words follow the state. A plain select (the team step) shows the option's text as it is, so an enabled
+     option that still said "coming soon" read as disabled (Josh 11:06). */
   const cases = [
-    [{ enabled: false }, true, ''],
-    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models'],
-    [{ enabled: true, installed: true, signedIn: false }, true, 'Set up in Settings, AI Models'],
-    [{ enabled: true, installed: true, signedIn: true }, false, ''],
+    [{ enabled: false }, true, '', 'Meta Muse \u00b7 coming soon'],
+    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models', 'Meta Muse \u00b7 set up first'],
+    [{ enabled: true, installed: true, signedIn: false }, true, 'Sign in to Meta Muse first', 'Meta Muse \u00b7 sign in first'],
+    [{ enabled: true, installed: true, signedIn: true }, false, '', 'Meta Muse'],
   ];
-  for (const [answer, disabled, off] of cases) {
+  for (const [answer, disabled, off, text] of cases) {
     const p = page([answer]);
     await p.api.museCreateAsk();
     const o = p.els['create-provider'].opt('meta');
     assert.equal(o.disabled, disabled, JSON.stringify(answer));
     assert.equal(o.dataset.off || '', off, JSON.stringify(answer));
+    assert.equal(o.textContent, text, 'the option\'s words do not match its state: ' + JSON.stringify(answer));
   }
 });
 
@@ -163,4 +166,63 @@ test('#3939 3c-3b: the "back on Claude" sentence names the real reason', () => {
   assert.match(notSetUp.why, /^Meta Muse is not set up on this computer, .*Set it up in Settings, AI Models: Add a provider, then Meta\.$/);
   const signedOut = goneSays({ on: true, installed: true, ready: false });
   assert.match(signedOut.why, /^Meta Muse is not signed in on this computer, .*Sign in to it in Settings, AI Models: Add a provider, then Meta\.$/);
+});
+
+test('#5316: the team step (tc-provider) and the agent page say the same words as its state', async () => {
+  const p = page([{ enabled: true, installed: true, signedIn: true }]);
+  p.els['tc-provider'] = menu('tc-provider');
+  await p.api.museCreateAsk();
+  const tc = p.els['tc-provider'].opt('meta');
+  assert.equal(tc.disabled, false, 'Meta is not offered in the team step while Muse is ready');
+  assert.equal(tc.textContent, 'Meta Muse', 'the team step still says coming soon for a usable Muse');
+  // The agent page offers Meta only as an agent's current provider (switching onto Muse is not offered): its words
+  // say so for any other agent, and "Meta Muse" for an agent on Muse.
+  const d = p.els['d-provider'];
+  p.api.paintMuseOption(d, 'anthropic');
+  assert.equal(d.opt('meta').disabled, true);
+  assert.equal(d.opt('meta').textContent, 'Meta Muse \u00b7 coming soon');
+  p.api.paintMuseOption(d, 'meta');
+  assert.equal(d.opt('meta').textContent, 'Meta Muse');
+});
+
+test('#5316: the logo list strips the new suffix as it strips "coming soon"', () => {
+  const lines = PAGE.split("\n").filter((l) => /const label = .*textContent\.replace\(.*coming soon/.test(l));
+  assert.equal(lines.length, 2, 'fixture: the two label lines moved: ' + lines.length);
+  for (const l of lines) {
+    const re = new RegExp(l.match(/replace\(\/(.*)\/i,/)[1], 'i');
+    assert.equal('Meta Muse \u00b7 sign in first'.replace(re, '').trim(), 'Meta Muse', l);
+    assert.equal('Meta Muse \u00b7 coming soon'.replace(re, '').trim(), 'Meta Muse', l);
+    assert.equal('Meta Muse \u00b7 set up first'.replace(re, '').trim(), 'Meta Muse', l);
+    assert.equal('Google Gemini (API key)'.replace(re, '').trim(), 'Google Gemini (API key)', l);
+  }
+});
+
+/* #5316 review 3: Add a provider's option (museAsk) says the same words as its state, without the browser queue. */
+// eslint-disable-next-line no-new-func
+const loadAsk = new Function('document', 'fetch', `
+  ${grabLine('const ACCT_ADD_INTRO =')}
+  ${grabLine('const ACCT_ADD_INTRO_MUSE =')}
+  ${grabLine('const MUSE_NOT_HERE =')}
+  function acctAddPickSay() {}
+  function pjSentence(b) { return typeof b === 'string' && b ? b : ''; }
+  ${grabLine('function museMetaOption(')}
+  let MUSE_ASK_GEN = 0;
+  ${grab('async function museAsk(')}
+  return { museAsk };
+`);
+test('#5316: Add a provider\'s Meta option says what its state is (live, not installed, off, a failed read)', async () => {
+  const cases = [
+    [{ enabled: true, installed: true, signedIn: false }, false, 'Meta Muse'],
+    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, true, 'Meta Muse \u00b7 set up first'],
+    [{ enabled: false }, true, 'Meta Muse \u00b7 coming soon'],
+    ['throw', true, 'Meta Muse \u00b7 coming soon'],
+  ];
+  for (const [answer, disabled, text] of cases) {
+    const opt = { value: 'meta', disabled: true, dataset: {}, textContent: 'Meta Muse \u00b7 coming soon', parentElement: { dataset: {} } };
+    const doc = { querySelector: (q) => (q === '#acct-provider-pick option[value="meta"]' ? opt : null), getElementById: () => null };
+    const fetch = async () => { if (answer === 'throw') throw new Error('offline'); return { ok: true, json: async () => answer }; };
+    await loadAsk(doc, fetch).museAsk();
+    assert.equal(opt.disabled, disabled, JSON.stringify(answer));
+    assert.equal(opt.textContent, text, 'Add a provider\'s words do not match its state: ' + JSON.stringify(answer));
+  }
 });
