@@ -11693,10 +11693,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
    second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
-window.kosmosMeasureScrollbarWidth = function () {
+window.kosmosMeasureScrollbarWidth = function (opts) {
   var root = document.documentElement;
-  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
-  if (root.getAttribute('data-layout') === 'consolidated') return;
+  /* The consolidated layout reserves no gutter, so measuring there forces a whole-page reflow: skipped, unless a zoom
+     asks for it (#5399, below). */
+  if (root.getAttribute('data-layout') === 'consolidated' && !(opts && opts.inConsolidated === true)) return;
+  kosmosMeasuredRatio = window.devicePixelRatio;
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
@@ -11732,6 +11734,8 @@ window.kosmosMeasureScrollbarWidth = function () {
     if (thread && thread.scrollTop !== threadTop) thread.scrollTop = threadTop;
   }
 };
+/* #5399: the devicePixelRatio at the last measurement. A zoom changes it, and with it the scrollbar's width in CSS px. */
+var kosmosMeasuredRatio = null;
 window.kosmosMeasureScrollbarWidth();
 /* A window drag fires resize many times a second; one measurement per frame is plenty. */
 (function () {
@@ -11739,7 +11743,12 @@ window.kosmosMeasureScrollbarWidth();
   window.addEventListener('resize', function () {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
+    requestAnimationFrame(function () {
+      queued = false;
+      /* #5399: in the consolidated view only a zoom re-measures (one reflow), so the width it pads by stays current;
+         a plain resize there changes no scrollbar and is left alone. */
+      window.kosmosMeasureScrollbarWidth({ inConsolidated: window.devicePixelRatio !== kosmosMeasuredRatio });
+    });
   });
   /* The fewest ms between two pointer-press re-measures. Each probe forces a layout, and a Mac's
      scrollbar mode changes when a mouse is plugged in, not between two clicks. */
