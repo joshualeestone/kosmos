@@ -59,7 +59,7 @@ function build(opts) {
   const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView', 'roleLine', 'ROLE_TITLES', 'discTint', 'discInk', 'initials', 'PJ_ADD_AGENTS',
     // kosmos#5275: pjCopyInvite now goes through copyTextOrdered, whose first step (select-and-copy) needs a real DOM;
     // this stub doc has none, so that step reports a refusal and the clipboard path below it is what these tests drive.
-    'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = []; var PJ_COPY_TIMER = null; var PJ_COPY_BUSY = false; var copyTextViaExec = () => false;\n' + src +
+    'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = []; var PJ_COPY_TIMER = null; var PJ_COPY_BUSY = ""; var copyTextViaExec = () => false; var COPY_LATE_OLDER = "older";\n' + src +
     '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, pjResetFederation, pjCopyInvite, pjJoinPickOptions, pjPaintJoinAgents, get verified() { return PJ_JOIN_VERIFIED; }, get joinAgents() { return PJ_JOIN_ADD_AGENTS; }, get copyTimer() { return PJ_COPY_TIMER; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, setJoinAgents: (a) => { PJ_JOIN_ADD_AGENTS = a; }, ref: pjFederationRef };');
   const doc = makeDoc();
   const fieldBadCalls = [];

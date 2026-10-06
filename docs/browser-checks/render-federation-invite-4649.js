@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -1849,10 +1849,28 @@ const closeAll = (page) => page.evaluate(() => {
       await ps.page.evaluate(() => window.__releaseClip());
       await ps.page.waitForTimeout(300);
       const stale = await read();
-      check(`#5275 S4 ${scr.name}: a late write for a code the screen no longer shows says nothing (control: S3, same code, says Code copied.)`,
+      check(`#5275 S4 ${scr.name}: the old code's press says nothing at its limit; its late write says the clipboard now holds an older code (control: S3, same code, says Code copied.)`,
         afterLimit.line === 'BEFORE' && afterLimit.copied.length === 0   // F6: the write was still held at the limit
-        && stale.line === 'BEFORE' && stale.copied.length === 1 && stale.copied[0] === 'CODE-5275-A',
+        && stale.line === 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.'
+        && stale.copied.length === 1 && stale.copied[0] === 'CODE-5275-A',
         JSON.stringify({ afterLimit: afterLimit.line, stale: [stale.line, stale.copied] }));
+      // S5 (review 2): a held press for an old code neither blocks a new code's press nor clears its flag. B copies at
+      // once by select-and-copy; A's late write then lands and the line says the clipboard holds an older code.
+      await ps.page.waitForTimeout(300);
+      await setUp({ code: 'CODE-5275-A', exec: false, clip: 'held' });
+      await press();
+      await ps.page.waitForTimeout(300);
+      await ps.page.evaluate((s) => { document.getElementById(s.field).value = 'CODE-5275-B'; window.__execOk = true; }, scr);
+      await press();
+      await untilLine('is', 'Code copied.');
+      const newer = await read();
+      await ps.page.evaluate(() => window.__releaseClip());
+      await untilLine('is', 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.');
+      const older = await read();
+      check(`#5275 S5 ${scr.name}: a new code copies while an old code's press is held, and the old write landing later says so (control: S4)`,
+        newer.line === 'Code copied.' && newer.execs.length === 2 && newer.execs[1] === 'CODE-5275-B'
+        && older.line === 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.' && older.unhandled.length === 0,
+        JSON.stringify({ newer: [newer.line, newer.execs], older: older.line }));
       await ps.ctx.close();
     }
 
