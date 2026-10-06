@@ -952,6 +952,31 @@ test('#5320: a pause set or lifted on the screen marks the agent\'s open task, a
   assert.equal(owed(), undefined, 'a reworded task was owed as a hold change');
 });
 
+test('#5320: two projects with one name: a pause on one of them is still owed', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  const one = projects.create({ name: 'Q1: budget', folder: folder('q1a-5320'), agents: ['mara'] });
+  const two = projects.create({ name: 'Q1: tax', folder: folder('q1b-5320'), agents: ['mara'] });
+  const edit = (id, fn) => { const all = projects.readAll(); fn(all.find((x) => x.id === id)); projects.writeAll(all); };
+  edit(one.id, (x) => { x.tasks = [{ number: 1, sentence: 'set the budget', who: 'mara' }]; });
+  edit(two.id, (x) => { x.tasks = [{ number: 1, sentence: 'file the return', who: 'mara' }]; });
+  projects.syncAgent('mara', ROSTER);
+  edit(two.id, (x) => { x.paused = true; x.pausedByPerson = true; });
+  clear();
+  const paused = projects.syncAgent('mara', ROSTER);
+  assert.equal(paused.changed, true, 'fixture: the pause must mark a task line');
+  assert.deepEqual(owed(), ['projects'], 'a pause behind a shared key was missed');
+  // CONTROL: the other project's task closing under the shared key is not a hold change.
+  edit(one.id, (x) => { x.tasks[0].closedAt = Date.now(); });
+  clear();
+  const closed = projects.syncAgent('mara', ROSTER);
+  assert.equal(closed.changed, true, 'fixture: closing must change the block');
+  assert.equal(owed(), undefined, 'a task closing under a shared key was read as a hold change');
+});
+
 test('an agent with no worker folder is recorded as a member we COULD NOT tell', () => {
   reset();
   // ⚠️ Not hypothetical: measured on this machine 2026-08-11, `claudebot` — the
