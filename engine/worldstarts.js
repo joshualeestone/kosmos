@@ -284,6 +284,12 @@ function jobSwitchState(name, platform, macOff) {
     if (st.known === false) return 'unknown';
     return (st.registered === true && st.enabled === false) ? 'off' : 'on';
   }
+  if (platform === 'linux') {
+    // #4918 review 5: systemd answers this directly; a launchctl question has no answer on Linux.
+    const st = require('./linuxjob').enabledState(name);
+    if (!st.known) return 'unknown';
+    return st.enabled ? 'on' : 'off';
+  }
   if (!macOff || macOff.ok === false) return 'unknown';
   return macOff.jobs.has(name) ? 'off' : 'on';
 }
@@ -684,6 +690,7 @@ function drainAtBoot(opts) {
 
 module.exports = {
   AGENT_CHOICES,
+  jobSwitchState,   // #4918 review 5: exported so the Linux arm is tested directly
   DEFAULT_AGENT_CHOICE,
   RECORD_FILE,
   recordFileIn,

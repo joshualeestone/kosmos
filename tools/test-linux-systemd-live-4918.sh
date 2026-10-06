@@ -322,9 +322,9 @@ if [ -n "$AFTER_PID" ] && [ "$AFTER_PID" != "$STOP_PID" ] && kill -0 "$AFTER_PID
 else
   ok "board.stopped held: no new board within 12s of the crash, with the unit still installed"
 fi
-# #4918 review 3: the stub board-run also exits on the marker, so the pid check alone passes without the Condition.
-# What ConditionPathExists decides is whether systemd starts the unit at all: after the crash it schedules one
-# restart, and the start is refused (ConditionResult=no). Without the Condition every 5s start succeeds and exits.
+# The stub board-run also exits on the marker, so the pid check alone passes without the Condition. systemd's
+# automatic restart does NOT re-check ConditionPathExists (measured 2026-10-06): what keeps a crashed, stopped board
+# down is Restart=on-failure, checked here by NRestarts.
 # What matters is that systemd stops restarting: with board.stopped there, board-run exits 0 and Restart=on-failure
 # leaves it down. Measured as NRestarts over 12 more seconds (Restart=always + RestartSec=5 would add 2 or 3).
 R1="$(systemctl --user show -p NRestarts --value "$BOARD_UNIT" 2>/dev/null || echo x)"
@@ -335,6 +335,16 @@ if [ "$R1" = "$R2" ] && [ "$ST" != "active" ] && [ "$ST" != "activating" ]; then
   ok "with board.stopped, systemd stopped restarting the board (NRestarts $R1 -> $R2, $ST)"
 else
   bad "with board.stopped, systemd kept restarting the board (NRestarts $R1 -> $R2, $ST)"
+fi
+# #4918 review 5: what the Condition DOES decide is a fresh start (boot, or a start by hand): refused while the
+# marker is there. Without the ConditionPathExists line this start succeeds (ConditionResult=yes).
+systemctl --user start "$BOARD_UNIT" >/dev/null 2>&1 || true
+sleep 1
+COND="$(systemctl --user show -p ConditionResult --value "$BOARD_UNIT" 2>/dev/null || true)"
+if [ "$COND" = "no" ]; then
+  ok "a fresh start of the board is refused while board.stopped exists (ConditionResult=no)"
+else
+  bad "a fresh start was not refused with board.stopped in place (ConditionResult=$COND)"
 fi
 if node -e '
   const linuxboard = require("./engine/linuxboard");
