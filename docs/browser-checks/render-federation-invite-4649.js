@@ -418,13 +418,13 @@ const closeAll = (page) => page.evaluate(() => {
     await page.fill('#fedinv-label', 'Dana Ruiz');
     await page.evaluate(() => { window.__invite = { status: 409, body: { reason: 'not-owner', error: 'board words' } }; });
     await page.click('#fedinv-make');
-    await page.waitForTimeout(150);
+    await page.waitForFunction((t) => document.getElementById('fedinv-msg').textContent === t, 'Only the owner of this project can invite people to it.', { timeout: 4000 }).catch(() => {});   // #5373
     let err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, label: document.getElementById('fedinv-label').value, asking: !document.getElementById('fedinv-ask').hidden }));
     check('A5 a 409 not-owner shows "Only the owner of this project can invite people to it." and keeps the label',
       err.msg === 'Only the owner of this project can invite people to it.' && err.label === 'Dana Ruiz' && err.asking, JSON.stringify(err));
     await page.evaluate(() => { window.__invite = { status: 502, body: { error: 'The connection service said no just now.' } }; });
     await page.click('#fedinv-make');
-    await page.waitForTimeout(150);
+    await page.waitForFunction((t) => document.getElementById('fedinv-msg').textContent === t, 'The connection service said no just now.', { timeout: 4000 }).catch(() => {});   // #5373
     err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, label: document.getElementById('fedinv-label').value }));
     check('A5 a 502 shows the board\'s sentence as given', err.msg === 'The connection service said no just now.' && err.label === 'Dana Ruiz', JSON.stringify(err));
 
@@ -718,7 +718,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.fill('#fedinv-label', 'Dana Ruiz');
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteBodyStall = true; });
     await page.click('#fedinv-make');
-    await page.waitForTimeout(700);
+    // #5373: wait for the limit's message (300 ms here), not a fixed 700 ms.
+    await page.waitForFunction(() => document.getElementById('fedinv-msg').textContent !== '', null, { timeout: 4000 }).catch(() => {});
     const msg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteBodyStall = false; });
     check('A12 an abort during the body read still says a code may have been made (control: A11, an abort before the headers)',
