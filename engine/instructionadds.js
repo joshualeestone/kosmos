@@ -12,8 +12,8 @@
  * One pending addition per target (Splinter 10-05): a second proposal is REFUSED, naming the waiting one, never a
  * silent replacement. Apply appends a line saying who asked and when, then the text, through instructions.write with
  * the version just read (in one synchronous call, so this guards against another PROCESS editing the file, not against
- * this board). It keeps the text from just before and the version it wrote; Undo puts that text back only while the
- * file is still that version.
+ * this board). It keeps the exact span it wrote; the page and Undo read where that span stands from the file itself
+ * (whereIs), and Undo takes out just that span while it is there exactly as written.
  *
  * Keyed by the agent's SESSION name: the route resolves whatever spelling it was given to the one agent first (review
  * 1: a case variant was stored apart and never shown). Removing an agent forgets its entry (engine/remove.js).
@@ -172,34 +172,22 @@ function apply(agent, now) {
   const block = '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
   const curText = String(cur.text == null ? '' : cur.text);
   /* Review 3: IDEMPOTENT. If the file already holds exactly this addition (an earlier press wrote it but could not record
-     it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail.
-     Rebase review: ANYWHERE in the file, not only at the end: since #5297 a board start can append Kosmos's community
-     block after it, and a second press must still find it (the block carries this proposal's own id line). */
-  /* Review 7: matched without its leading blank lines (spanAt), which taking Kosmos's block out also takes.
-     Review 8: if the addition is there but not exactly once as written (copied, or typed onto), it is neither added
-     again nor recorded: recording the file as "before" would make the page say undone while the addition is there. */
-  const cutNow = withoutSpan(curText, { block });
-  const already = cutNow !== null;
-  if (!already && curText.includes(coreOf(block))) {
+     it), it is only recorded now, never added a second time. Review 9: where the addition stands is read from the FILE
+     (whereIs); if its id line is there but the addition is not there exactly as written (edited, copied), it is neither
+     added again nor recorded. */
+  const w = whereIs(curText, { block });
+  if (w === 'changed') {
     return { ok: false, code: 'edited', because: 'this addition is already in the instructions but was changed or copied there, so Kosmos will not add it again. Remove it by hand if you want it gone, or Dismiss it' };
   }
-  const before = already ? cutNow : curText;
-  let version = cur.version;
-  if (!already) {
-    const after = curText.replace(/\s*$/, '') + block;
-    let res;
+  if (w !== 'here') {
     try {
-      res = instructions.write(agent, after, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
+      instructions.write(agent, curText.replace(/\s*$/, '') + block, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
     } catch (e) {
       return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
     }
-    version = res && res.version;
   }
-  /* Only a real content version can guard an Undo (instructions.read's sentinels 'absent'/'unreadable' cannot). */
-  if (typeof version !== 'string' || !version.startsWith('sha256:')) version = null;
-  /* `block`: the exact span written, so Undo can take out just that span later even after Kosmos rewrote another part
-     of the file (rebase review: #5297's board-start community refresh changes the version without anybody editing). */
-  rec.last = { appliedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(), askedBy: p.askedBy, before, version, block };
+  /* `block`: the exact span written. Everything the page and Undo say is read from the file against it. */
+  rec.last = { appliedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(), askedBy: p.askedBy, block };
   delete rec.pending;
   all.agents[k] = rec;
   try {
@@ -214,11 +202,11 @@ function apply(agent, now) {
  *  Review 3: read from the FILE, not only the record: a file back at the earlier text is undone (even if recording the
  *  undo failed), and each reason Undo is not offered is told apart, so the page never says "edited" when nobody did. */
 /* Rebase review: where the applied span sits in the current text, once and exactly; -1 when it is not there exactly
-   once (taken out, edited, or duplicated by hand). Records from before `block` was kept have none: -1. */
+   once (taken out, edited, or duplicated by hand). */
 /* Review 7: the span is matched from its heading line on, WITHOUT the blank lines Apply wrote in front of it. When the
    addition sits right after Kosmos's community block, projects.removeBlock (the community switch turned off, or a
    restart while not taking part) takes the blank lines on both sides of the block, so a match that needed them read
-   as "edited" though nobody edited. Records written before this keep their `block`; only its leading newlines go. */
+   as "edited" though nobody edited. */
 function coreOf(block) { return typeof block === 'string' ? block.replace(/^\n+/, '') : ''; }
 function spanAt(text, last) {
   const core = coreOf(last && last.block);
@@ -238,27 +226,37 @@ function withoutSpan(text, last) {
   if (!tail.trim()) return head.replace(/\s*$/, '') + '\n';
   return head + text.slice(head.length, at) + tail.replace(/^\n+/, '');
 }
-function publicLast(agent, last) {
-  if (!last) return null;
+/* Review 9: where the applied addition stands, read from the file alone (never from the record, which can lag the file:
+   a failed record write, or the person restoring an earlier version). 'here': exactly once as written; 'gone': its id
+   line is not in the file (Undo, or taken out by hand); 'changed': the id line is there but the addition is not there
+   exactly once as written; 'unread': the file could not be read. Proposals cannot hold comments (propose refuses them),
+   so the id line is only ever Kosmos's own. */
+function idLineOf(block) { const m = /<!-- kosmos addition [^\n]*? -->/.exec(String(block || '')); return m ? m[0] : ''; }
+function whereIs(text, last) {
+  if (typeof text !== 'string') return 'unread';
+  if (withoutSpan(text, last) !== null) return 'here';
+  const id = idLineOf(last && last.block);
+  return (id ? text.includes(id) : text.includes(coreOf(last && last.block))) ? 'changed' : 'gone';
+}
+function readText(agent) {
   let cur = null;
   try { cur = instructions.read(agent); } catch { cur = null; }
-  const backToBefore = Boolean(cur && cur.exists && typeof last.before === 'string' && cur.text === last.before);
-  const undone = Boolean(last.undoneAt) || backToBefore;
-  const cut = cur && cur.exists ? withoutSpan(String(cur.text), last) : null;
-  const spanHere = cut !== null;
-  /* Review 7: "short" is judged on the text Undo would actually write: the cut when the span is here. */
-  const writes = spanHere ? cut : last.before;
+  return { cur, text: cur && cur.exists ? String(cur.text == null ? '' : cur.text) : null };
+}
+function publicLast(agent, last) {
+  if (!last) return null;
+  const { text } = readText(agent);
+  const w = whereIs(text, last);
   let blocked = null;
-  if (!undone) {
-    if (typeof writes !== 'string' || writes.trim().length < instructions.MIN_CHARS) blocked = 'short';
-    else if (spanHere) blocked = null;   // the addition is still there as written: Undo takes out just that
-    else if (!last.version || !cur || !cur.exists) blocked = 'unknown';
-    else if (cur.version !== last.version) blocked = 'edited';
-  }
-  return { appliedAt: last.appliedAt, askedBy: last.askedBy, undoable: !undone && !blocked, undone, blocked };
+  /* "short" is judged on the text Undo would actually write. */
+  if (w === 'here') blocked = withoutSpan(text, last).trim().length < instructions.MIN_CHARS ? 'short' : null;
+  else if (w === 'changed') blocked = 'edited';
+  else if (w === 'unread') blocked = 'unknown';
+  const undone = w === 'gone';
+  return { appliedAt: last.appliedAt, askedBy: last.askedBy, undoable: w === 'here' && !blocked, undone, blocked };
 }
 
-/** The person undoes the last addition: the text from just before it, only if nothing was edited since. */
+/** The person undoes the last addition: takes out just that span, while it is there exactly as written. */
 function undo(agent) {
   const k = keyFor(agent);
   if (!k) return { ok: false, because: 'that is not a name we can look up' };
@@ -266,24 +264,23 @@ function undo(agent) {
   if (failedRead(all)) return { ok: false, because: failSaid(all) };
   const rec = recOf(all, k);
   const last = rec && rec.last;
-  if (!last || last.undoneAt) return { ok: false, code: 'none', because: 'there is no addition to undo' };
-  const cur = instructions.read(agent);
-  /* Rebase review: the addition still there exactly as written is taken out by itself, whatever else changed (Kosmos's
-     own block refreshes since #5297); otherwise the whole earlier text only while nothing changed at all. */
-  const curText = cur && cur.exists ? String(cur.text == null ? '' : cur.text) : null;
-  const cut = curText === null ? null : withoutSpan(curText, last);
-  if (!cur || (cut === null && cur.version !== last.version)) {
-    return { ok: false, code: 'edited', because: 'the instructions were edited after the addition, so it cannot be undone here' };
-  }
+  if (!last) return { ok: false, code: 'none', because: 'there is no addition to undo' };
+  /* Review 9: from the file, as the page reads it: taken out just as written, whatever else changed (Kosmos's own block
+     refreshes since #5297, the person's edits elsewhere); refused when the addition itself changed. */
+  const { cur, text } = readText(agent);
+  const w = whereIs(text, last);
+  if (w === 'gone') return { ok: false, code: 'none', because: 'that addition is no longer in the instructions' };
+  if (w === 'unread') return { ok: false, because: (cur && cur.because) || 'these instructions could not be read' };
+  if (w === 'changed') return { ok: false, code: 'edited', because: 'the addition was edited after it was added, so it cannot be undone here' };
   try {
-    instructions.write(agent, cut !== null ? cut : last.before, cur.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
+    instructions.write(agent, withoutSpan(text, last), cur.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
   } catch (e) {
     return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
   }
-  last.undoneAt = new Date().toISOString();
+  last.undoneAt = new Date().toISOString();   // a note for the record only; the page reads undone from the file
   rec.last = last;
   all.agents[k] = rec;
-  try { writeAll(all); } catch { /* the file is back; publicLast reads it as undone from the file itself */ }
+  try { writeAll(all); } catch { /* the addition is out of the file; the page reads it as undone from the file */ }
   return { ok: true };
 }
 

@@ -428,3 +428,62 @@ test('review 8: Undo with nothing left above the addition (deleted by hand) and 
   assert.equal(adds.undo('sally').ok, true);
   assert.equal(fileText('sally'), projects.COMMUNITY_START + '\nCommunity rules here.\n' + projects.COMMUNITY_END + '\n');
 });
+
+/* Review 9 (opus, blind): everything the page and Undo say is read from the file. */
+test('review 9: an unrecorded apply, then the addition\'s TEXT edited, then Apply again: refused, not added twice', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  unrecordedApply('sally');
+  const edited = fileText('sally').replace('write to them once', 'write to them twice');
+  instructions.write('sally', edited, instructions.read('sally').version, undefined, { who: 'person', because: 'edited by hand' });
+  const r = adds.apply('sally');
+  assert.equal(r.ok, false); assert.equal(r.code, 'edited');
+  assert.equal(fileText('sally'), edited, 'Apply changed the file');
+  assert.equal((fileText('sally').match(/kosmos addition/g) || []).length, 1, 'the addition went in twice');
+});
+test('review 9: undone, then the earlier version put back by the person: the page offers Undo again, and it works', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  const applied = fileText('sally');
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(adds.state('sally').last.undone, true);
+  instructions.write('sally', applied, instructions.read('sally').version, undefined, { who: 'person', because: 'restored the earlier version' });
+  const last = adds.state('sally').last;
+  assert.equal(last.undone, false, 'the page says undone while the addition is in the file');
+  assert.equal(last.undoable, true);
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE);
+});
+test('review 9: an Undo whose record fails after Kosmos refreshed its block reads as undone, not "edited"', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
+  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  let r;
+  try { r = adds.undo('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(r.ok, true, 'fixture: the undo itself failed');
+  assert.ok(!fileText('sally').includes('## Added on'), 'fixture: the addition is still there');
+  const last = adds.state('sally').last;
+  assert.equal(last.undone, true, JSON.stringify(last));
+  assert.equal(last.blocked, null);
+});
+test('review 9: the addition taken out by hand reads as taken out (undone); a second Undo says it is no longer there', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  instructions.write('sally', BASE, instructions.read('sally').version, undefined, { who: 'person', because: 'deleted by hand' });
+  assert.equal(adds.state('sally').last.undone, true);
+  const u = adds.undo('sally');
+  assert.equal(u.ok, false); assert.equal(u.code, 'none');
+  assert.equal(fileText('sally'), BASE);
+});
+test('review 9: lines the person typed directly under the addition are theirs: Undo keeps them', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  instructions.write('sally', fileText('sally') + 'My own line, typed right under it.\n', instructions.read('sally').version, undefined, { who: 'person', because: 'typed' });
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE.trimEnd() + '\n\nMy own line, typed right under it.\n');
+});
