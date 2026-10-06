@@ -374,8 +374,27 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await advanceToAnchor(page, '#fr-you');
     await page.fill('#fr-you-name', 'Josh');
     await page.fill('#fr-you-do', 'Testing the create path');
+    /* #5362: the "Looking for agents already here" wait (a disk read, /api/scan-agents measured 5.5s cold on a real
+       board) carries the standard Sweep spinner. The found-agents answer is HELD so the interim screen is a real state. */
+    let releaseFound;
+    const foundHeld = new Promise((r) => { releaseFound = r; });
+    await page.route('**/api/found-agents*', async (r) => { await foundHeld; await r.continue(); });
     await page.click('#fr-next');
     await waitAnchorLeft(page, '#fr-you');
+    await page.waitForFunction(() => {
+      const pane = [...document.querySelectorAll('.fr-pane')].find((p) => !p.hidden);
+      const h2 = pane && pane.querySelector('h2');
+      return h2 && /Looking for agents/i.test(h2.textContent || '');
+    }, null, { timeout: 5000 });
+    const lookingSpin = await page.evaluate(() => {
+      const pane = [...document.querySelectorAll('.fr-pane')].find((p) => !p.hidden);
+      const s = pane && pane.querySelector('.spin.spin-sweep');
+      return { spin: !!(s && s.getClientRects().length), dots: s ? s.querySelectorAll('i').length : 0 };
+    });
+    ok(lookingSpin.spin === true && lookingSpin.dots === 8,
+      `while it looks for agents already here, the Sweep spinner shows (#5362; saw ${JSON.stringify(lookingSpin)})`);
+    releaseFound();
+    await page.unroute('**/api/found-agents*');
     /* 🛑 THE CREATE ARM PAINTS TWICE. It renders "Looking for agents already here"
        and RETURNS while frFindAgents() reads the disk, then repaints to the real
        ending. Wait past the interim screen before reading the heading. */
