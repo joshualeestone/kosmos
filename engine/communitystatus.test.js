@@ -258,13 +258,11 @@ test('--replies with only a queued post says it is waiting to go out, not "no po
 /* #5415: an item in the community prints where it can be seen; nothing else does. */
 const RID = '5f0e8c1a-1111-4222-8333-444455556666';
 /* The test runner points the community address at an unreachable local one (tools/run-tests.sh), where no link is
-   printed by design; these tests name the real site, and the ON period is recorded under it (records are kept per
-   address). */
+   printed by design; these tests name the real site. Set it before writing send records: those are kept per address. */
 function onSite(t) {
   const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
   t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
   process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com';
-  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
 }
 test('#5415: a sent post prints its public link on its own line; a queued one prints none', (tc) => {
   onSite(tc);
@@ -306,6 +304,7 @@ test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed a
   const by = Object.fromEntries(status.itemsFor('ava').map((x) => [x.title, x]));
   assert.equal(by['Sent then refused'].state, 'sent_refused', 'fixture');
   assert.ok(by['Sent then refused'].link, 'CONTROL: a post that is in the community lost its link');
+  assert.deepEqual(['Taken down', 'Unconfirmed', 'Refused'].map((t) => by[t].state), ['taken_down', 'unconfirmed', 'refused'], 'fixture');
   for (const t of ['Taken down', 'Unconfirmed', 'Refused']) assert.equal(by[t].link, undefined, t + ' was given a link (state ' + by[t].state + ')');
 });
 
