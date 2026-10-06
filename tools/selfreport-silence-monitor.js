@@ -245,4 +245,4 @@ if (require.main === module) {
   process.exit(run(process.argv.slice(2)));
 }
 
-module.exports = { run, computeVerdict, alertBody, resolveAgentsRunning, isAgentCommand };
+module.exports = { run, computeVerdict, alertBody, resolveAgentsRunning, isAgentCommand, defaultStoreDir };   // defaultStoreDir: #5418 pins its root

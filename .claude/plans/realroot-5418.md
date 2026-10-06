@@ -1,4 +1,4 @@
-# realroot-5418: a test process is refused this machine's real data root
+# realroot-5418: a test process never gets this machine's real data root
 
 Card: kosmos#5418 (found by Renet on a fleet Mac, 2026-10-06). Owner: April. Claimed 2026-10-06 15:10 CDT (claim log, 20:10:48Z).
 
@@ -9,7 +9,7 @@ test that requires any of those modules before setting its sandbox gets the REAL
 module for the rest of the process, and every write lands in the operator's store.
 
 ## Decision (ask 1: make it impossible)
-Refuse at the derivation, `store.resolveDataRoot()` (review 3 found `store.root()` was not the only one:
+Apply the rule at the derivation, `store.resolveDataRoot()` (review 3 found `store.root()` was not the only one:
 `create.supportDir()`, `worlds.baseRoot()` and `tools/selfreport-silence-monitor.js` called
 `store.dataRootFor` directly; all four now go through `resolveDataRoot`, so one process always agrees on
 one root). Review 5: `boardauth`'s legacy-token read goes through it too (`resolveDataRoot` takes the
@@ -38,7 +38,7 @@ leaf), so a test can never load a real legacy token. Left on `dataRootFor` on pu
   may sandbox it); a machine whose AppData is redirected elsewhere is not recognised.
 - Paths are compared by realpath of the nearest existing ancestor, so a symlinked spelling of the real
   home is still the real root.
-- The refusal runs before the legacy migration, which would otherwise rename the real store first.
+- The rule runs before the legacy migration, and a throwaway is never migrated (the migration's own target is the real store).
 - `KOSMOS_ALLOW_REAL_ROOT=1` is the explicit way out for a process that must read the real store under a
   test runner.
 
@@ -52,11 +52,16 @@ Separate and later. Destructive to a person's real store, so: dry-run listing fi
 only entries whose agent is not on the board AND whose dates predate this guard, never a live agent's.
 
 ## Tests
-`engine/store.real-root-5418.test.js`, child processes with a controlled env, reading `store.ROOT` only:
-refused under NODE_TEST_CONTEXT and under KOSMOS_TEST_RUN; sandbox by DATA or HOME var allowed; HOME
-pointed elsewhere allowed; real home through a symlink refused; controls: no test marker returns the
-real root as before, KOSMOS_ALLOW_REAL_ROOT returns it on purpose. On origin/main's store.js the two
-refusal tests fail; on the first (string-compare) version the symlink test fails.
+`engine/store.real-root-5418.test.js` (also run by the Windows job, `tools/windows-tests.js` ALSO), child
+processes with a controlled env, reading paths only: a throwaway under NODE_TEST_CONTEXT and under
+KOSMOS_TEST_RUN, with no variable leaking; one per process, one exit listener, removed at exit; HOME set
+after the first read honoured; every caller agrees (store.ROOT, create.supportDir, worlds.baseRoot, the
+silence monitor); a named world's inherited DATA, a DATA at the real root's parent and the real home
+through a symlink all get the throwaway; the legacy leaf is a legacy-shaped throwaway, with boardauth's
+read pinned to it; a sandbox by DATA, HOME var or HOME kept; the dead-pid sweep's four arms; the
+test-support helper and the store agree on "real". Controls: no test marker returns the real root as
+before, KOSMOS_ALLOW_REAL_ROOT returns it on purpose. Each arm added in a review round was run against the
+previous commit and failed there.
 
 ## Blast radius: measured, and why the first version changed
 The first version threw in every case. Its full suite on Mortals (5bb6bbbbd): 15373 tests, 122 fail, 121 of
@@ -75,12 +80,13 @@ in `engine/store.lazyroot-1443`, `store.dataroot-1820` and `store.dataroot-570`,
 so the read cannot run the legacy rename) for that read only. The #2039 source pin accepts
 `store.resolveDataRoot(` and pins that `resolveDataRoot` delegates to `dataRootFor`.
 
-## The harness sweep
-Throwaway names carry their pid (`kosmos-test-home-<pid>-XXXXXX`). `tools/sweep-test-homes.sh` removes one
-only when that pid cannot be signalled; `tools/sweep-test-homes.test.js` pins the four arms (dead pid
-removed; live pid, malformed name and other folders kept), that its prefix equals store.TEST_HOME_PREFIX,
-and that run-tests.sh runs it (before TMPDIR is re-pointed, so it reaches direct `node --test` leftovers).
-The four controls that read the real root's path share `test-support/real-root-allowed.js`.
+## The sweep (review 7: moved into the store, so it works on Windows too)
+Throwaway names carry their pid (`kosmos-test-home-<pid>-XXXXXX`). When a test process makes its throwaway,
+`store.sweepDeadTestHomes(os.tmpdir())` first removes the ones whose pid answers "no such process"
+(ESRCH); a live pid, another user's (EPERM), a name with no pid and anything without the prefix are kept.
+It was a bash script called only by run-tests.sh, which Windows never runs; that script is gone.
+The four controls that read the real root's path share `test-support/real-root-allowed.js`;
+`test-support/data-root-sandbox.js` takes "real root" from the store (one definition, not two).
 
 ## Second redesign (review 2): store-only, no environment
 Exporting the throwaway as AGENT_WORKFORCE_HOME changed every seam that reads that variable, depending
@@ -100,6 +106,10 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
 - With no user-database home (os.userInfo throws, some containers) the rule is off.
 - The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
 - A plain `node file.test.js` (no `--test`, no run-tests.sh) sets no marker and is not guarded.
+
+## Full-suite measurement of THIS design
+The 122-failure run was the first (throwing) design. The current design's own full suite is recorded here
+before the proof is written (the 6j gate), not assumed from the four-file check.
 
 ## Residual
 A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks

@@ -242,8 +242,8 @@ function maybeMigrateLegacyStore() {
 /* #5418: a test process never gets this machine's real data root. Test runs wrote fixture
    records (sender tokens and more) into a fleet Mac's real store and left them there for
    weeks, through a module that froze `store.ROOT` at require time before its test set the
-   sandbox (about forty modules do). So the refusal is HERE, on the one derivation every
-   one of them reads, not in each of them.
+   sandbox (about forty modules do). So the rule is HERE, on the derivation every one of them
+   reads, not in each of them.
 
    A test process is one `node --test` started (it sets NODE_TEST_CONTEXT in every file it
    runs) or one tools/run-tests.sh started (KOSMOS_TEST_RUN=1, which also reaches its shell
@@ -260,8 +260,11 @@ function maybeMigrateLegacyStore() {
      environment variable is set, so nothing else in the process (agystatus, accounts, the
      workers root) changes, and a test that sets HOME later is honoured from then on. A child
      process the test starts is a test process too and gets a throwaway of its own. Removed at
-     exit, best effort (a killed process leaves it; tools/run-tests.sh sweeps old ones). The
-     legacy migration is skipped for it, since its own target would be the real store.
+     exit, best effort; a process that was killed leaves it, and the next test process to make a
+     throwaway removes the ones whose process is gone (sweepDeadTestHomes, any platform). The
+     legacy migration is skipped for it, since its own target would be the real store
+     (maybeMigrateLegacyStore derives both roots itself and is safe only because root() is its one
+     caller and returns before it for a throwaway).
    - A sandbox variable that still resolves to the real root or inside it (a symlink to the real
      home, a named world's DATA an agent inherits from its world) gets the same throwaway. It is
      not refused: an inherited world variable cannot be told from a test's own, and a refusal
@@ -317,11 +320,29 @@ function isRealRootInTests(resolved, platform, env, app) {
   return at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }
 const TEST_HOME_PREFIX = 'kosmos-test-home-';
+/* Remove throwaway homes in `dir` whose process is gone: kosmos-test-home-<pid>-XXXXXX where
+   signalling <pid> says no such process (ESRCH). A live pid, another user's (EPERM), a name with
+   no numeric pid and anything without the prefix are kept. */
+function sweepDeadTestHomes(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    if (!n.startsWith(TEST_HOME_PREFIX)) continue;
+    const m = /^(\d+)-/.exec(n.slice(TEST_HOME_PREFIX.length));
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (pid === process.pid) continue;
+    let gone = false;
+    try { process.kill(pid, 0); } catch (e) { gone = e && e.code === 'ESRCH'; }
+    if (gone) { try { fs.rmSync(path.join(dir, n), { recursive: true, force: true }); } catch { /* next time */ } }
+  }
+}
 let testHome = null;            // this process's one throwaway home
 const testRoots = new Set();     // the throwaway roots handed out, so root() can skip migrating them
 function throwawayRootForThisProcess(platform, app) {
   if (!testHome) {
-    // The pid is in the name so tools/sweep-test-homes.sh can sweep only the ones whose process is gone.
+    // The pid is in the name so sweepDeadTestHomes can remove only the ones whose process is gone.
+    sweepDeadTestHomes(os.tmpdir());
     testHome = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX + process.pid + '-'));
     const made = testHome;
     process.on('exit', () => { try { fs.rmSync(made, { recursive: true, force: true }); } catch { /* swept later */ } });
@@ -751,7 +772,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
