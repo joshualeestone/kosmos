@@ -573,19 +573,9 @@ test('review 9: markMoveTold changes owedTell only, never the holder, the move r
   } finally { w.restore(); }
 });
 
-test('review 10: the line names finished parts as finished, and adds "carry on" only for an agent waiting to resume', () => {
+test('review 10/11: the line names finished parts as finished, and never tells anybody to carry on', () => {
   const items = [{ phrase: 'task 1 in "P" (now bob\'s)' }, { phrase: 'task 2 in "P" (finished by bob)' }];
-  const plain = ft.lineFor(items);
-  assert.match(plain, /task 2 in "P" \(finished by bob\) were given to another agent\. Leave those to them/);
-  assert.doesNotMatch(plain, /carry on/);
-  assert.match(ft.lineFor(items, { resume: true }), /Leave those to them; .* Then carry on with the rest of what you were doing\.\]$/);
-  const D = require('./chat').DELIVERY;
-  const rec = [{ id: 'p1', name: 'P', agents: ['agy', 'cla', 'bob'], tasks: [{ number: 1, sentence: 's',
-    parts: [{ id: 1, sentence: 's', who: 'bob', owedTell: ['agy', 'cla'] }] }] }];
-  const sent = {};
-  ft.sweepOnce({ roster: [{ sessionName: 'agy', isNamedOurs: true, runner: 'antigravity' }, { sessionName: 'cla', isNamedOurs: true, runner: 'claude' }],
-    records: rec, DELIVERY: D, isIdle: () => true, markTold: () => ({ ok: true }), resumeFor: (c) => c.runner === 'antigravity',
-    deliver: (s, text) => { sent[s] = text; return { state: D.PLACED }; } });
-  assert.match(sent.agy, /carry on with the rest/, 'the Antigravity agent was not told to carry on');
-  assert.doesNotMatch(sent.cla, /carry on/, 'a Claude agent was told to carry on');
+  const line = ft.lineFor(items);
+  assert.match(line, /task 2 in "P" \(finished by bob\) were given to another agent\. Leave those to them/);
+  assert.doesNotMatch(line, /carry on/i, 'the tell resumes the agent (resuming is agyquota\'s, behind its own switch)');
 });

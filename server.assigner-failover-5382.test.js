@@ -134,10 +134,14 @@ test('review 8: readRunner is failoverRunnerOf (null when nothing recorded); the
   assert.doesNotMatch(fn, /recordedRunner/, 'recordedRunner floors at claude');
   const after = SRC.slice(SRC.indexOf('assignerPrev = out.next;'), SRC.indexOf('assignerSaved = assigner.saveMemory'));
   assert.match(after, /const ft = require\('\.\/engine\/failovertell'\)/);
-  assert.match(after, /!ft\.anyOwed\(records\) \? \[\] : ft\.sweepOnce\(\{ roster: safeRoster\(\)/, 'the sweep reads the roster even when nothing is owed');
+  assert.match(after, /const owed = ft\.anyOwed\(records\);/);
+  assert.match(after, /!owed \? \[\] : ft\.sweepOnce\(\{ roster: safeRoster\(\)/, 'the sweep reads the roster even when nothing is owed');
   assert.match(after, /seenIdle: FAILOVER_TELL_SEEN/, 'the sweep types into a card the moment it goes idle');
-  assert.match(after, /resumeFor: \(c\) => c\.runner === 'antigravity',/, 'the sweep no longer tells an Antigravity agent to carry on');
-  assert.doesNotMatch(after, /skip: /, 'review 10: the sweep skips some agents again (an Antigravity one could go untold for good)');
+  // Review 11: an Antigravity agent is skipped only while agyquota will still resume it (then told plainly).
+  assert.match(after, /skip: \(c\) => c\.runner === 'antigravity' && agyQuota\.resumePending\(c\.sessionName,\s*\{ book: AGY_QUOTA_BOOK, now: Date\.now\(\), env: process\.env, allowed: liveExecution\.liveExecutionAllowed\(\) \}\)/);
+  assert.doesNotMatch(after, /resumeFor/, 'the sweep resumes agents again');
+  assert.match(after, /isIdle: \(c\) => c\.state === 'idle'/, 'the sweep no longer types only into idle cards');
+  assert.match(after, /if \(!owed\) FAILOVER_TELL_SEEN\.clear\(\);/, 'the idle memory outlives a quiet spell');
   assert.match(after, /markTold: tasks\.markMoveTold/);
   assert.match(SRC, /movedAway: \(session\) => require\('\.\/engine\/failovertell'\)\.owedFor\(session, projects\.readAll\(\)\)/);
   assert.match(SRC, /movedTold: \(session, items\) => require\('\.\/engine\/failovertell'\)\.markAll\(session, items, tasks\.markMoveTold\)/);

@@ -155,6 +155,23 @@ function plan(report, entry, now, heldBackUntil) {
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
 
+/* #5382 (review 11): will this module still type its carry-on line into this agent for its CURRENT pause? True only
+   while the resume is switched on (resumeEnabled, live execution and the operator brake) and plan() says nudge or
+   wait. The failover tell sweep leaves such an agent to that line (which names the same moved parts) and tells it
+   plainly otherwise, so the sweep never resumes anybody itself (it once added "carry on", which ignored the brake and
+   could resume an agent twice). o = { book, now, env, allowed, readReport? }. Never throws. */
+function resumePending(session, o = {}) {
+  try {
+    if (!resumeEnabled(o.allowed === true, o.env)) return false;
+    const read = typeof o.readReport === 'function' ? o.readReport : (s) => require('./selfreport').read(s);
+    const report = read(session);
+    const entry = o.book instanceof Map ? o.book.get(session) : undefined;
+    const now = Number.isFinite(o.now) ? o.now : Date.now();
+    const act = plan(report, entry, now, heldBackBy(pausedUntil(report), o.memo || POOL_MEMO)).act;
+    return act === 'nudge' || act === 'wait';
+  } catch { return false; }
+}
+
 /* #5382: the carry-on line, plus the parts the Assigner's failover gave to other agents that this one has not been told
    about (`gone`: items from engine/failovertell.js owedFor, each with a `phrase`, or plain strings), so it does not
    carry on with work that is now somebody else's. Review 8: the list is the part's own owedTell record, not a time
@@ -245,4 +262,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, nudgeText, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, nudgeText, resumePending, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

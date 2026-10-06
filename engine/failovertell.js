@@ -10,9 +10,9 @@
  *
  * Two senders use this one selector: the sweep below, for an agent that reads idle, and agyquota's carry-on line for an
  * Antigravity agent at its quota reset (engine/agyquota.js nudgeText), which marks what it named once that line has
- * reached the pane. The sweep runs whatever the failover setting says, because the parts were already moved. It does
- * NOT skip Antigravity agents (review 10): its line to one adds "carry on with the rest", so whichever of the two
- * lines lands first does the whole job, and the other finds nothing owed.
+ * reached the pane. The sweep runs whatever the failover setting says, because the parts were already moved. It skips
+ * an Antigravity agent only while agyquota will still resume it (agyquota.resumePending, review 11), and tells it
+ * plainly otherwise; it never tells anybody to carry on.
  *
  * Pure apart from the injected deliver and markTold; never throws.
  */
@@ -69,14 +69,12 @@ function owedFor(session, records) {
   return out;
 }
 
-/* The sweep's line, naming every owed part. `resume`: the agent's own limit is over and it may be waiting to carry on
-   (an Antigravity agent at its quota reset, whose carry-on line this may be typed before, review 10), so the line says
-   to carry on with the rest; whichever of the two lands first does the whole job. */
-function lineFor(items, { resume = false } = {}) {
+/* The sweep's line, naming every owed part. It never tells an agent to carry on (review 11): resuming is agyquota's,
+   behind its own switch, and an Antigravity agent whose resume is still due is left to that line (the caller's skip). */
+function lineFor(items) {
   const one = items.length === 1;
   return '[Kosmos: while you were at your usage limit, ' + items.map((i) => i.phrase).join(', ') + (one ? ' was' : ' were')
-    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.'
-    + (resume ? ' Then carry on with the rest of what you were doing.' : '') + ']';
+    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.]';
 }
 
 /* Did a delivery verdict (maybe) reach the pane? Anything but COULD_NOT, and never a held line (the quota or the Gemini
@@ -97,8 +95,8 @@ function markAll(session, items, markTold) {
    person's next message), that the caller does not skip, and is owed a line gets one. What a line may have reached is
    marked told. Only lines that may have reached a pane count toward MAX_PER_PASS (review 9: agents that cannot be
    reached must not take every slot each pass and starve the rest).
-   o = { roster, records, isIdle(card), seenIdle (Set), skip(card)?, resumeFor(card)? (the line adds "carry on"),
-   deliver(session, text, roster) -> verdict, markTold, DELIVERY, max? }. Returns [{ session, n, verdict }]. */
+   o = { roster, records, isIdle(card), seenIdle (Set), skip(card)?, deliver(session, text, roster) -> verdict,
+   markTold, DELIVERY, max? }. Returns [{ session, n, verdict }]. */
 function sweepOnce(o) {
   const out = [];
   try {
@@ -121,9 +119,7 @@ function sweepOnce(o) {
       const items = owedFor(card.sessionName, o.records);
       if (!items.length) continue;
       let v = null;
-      let resume = false;
-      if (typeof o.resumeFor === 'function') { try { resume = o.resumeFor(card) === true; } catch { resume = false; } }
-      try { v = o.deliver(card.sessionName, lineFor(items, { resume }), roster); } catch { v = null; }
+      try { v = o.deliver(card.sessionName, lineFor(items), roster); } catch { v = null; }
       if (reached(v, o.DELIVERY)) { markAll(card.sessionName, items, o.markTold); landed += 1; }
       out.push({ session: card.sessionName, n: items.length, verdict: (v && v.state) || null });
     }

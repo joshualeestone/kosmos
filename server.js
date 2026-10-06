@@ -20622,12 +20622,14 @@ function start(port = PORT) {
             const ft = require('./engine/failovertell');
             const records = projects.readAll();
             // Review 9: on almost every board nothing is owed, and then no roster is read at all.
-            const told = !ft.anyOwed(records) ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
+            const owed = ft.anyOwed(records);
+            if (!owed) FAILOVER_TELL_SEEN.clear();   // review 11: no stale "idle last pass" outlives a quiet spell
+            const told = !owed ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
               isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
-              /* An Antigravity agent may be waiting for agyquota's carry-on line at its reset; this line, typed first, says
-                 to carry on with the rest itself, so whichever lands first does the whole job (review 10: skipping them
-                 left one untold for good whenever that carry-on line never came). */
-              resumeFor: (c) => c.runner === 'antigravity',
+              /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
+                 same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
+              skip: (c) => c.runner === 'antigravity' && agyQuota.resumePending(c.sessionName,
+                { book: AGY_QUOTA_BOOK, now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed() }),
               deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
             for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
           } catch { /* best-effort, like the tick */ }

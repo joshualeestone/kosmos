@@ -171,3 +171,17 @@ test('#5382 review 8: a carry-on line that reached nothing marks nothing told (t
   assert.equal(w.sent.length, 1, 'fixture: no delivery was tried');
   assert.deepEqual(told, [], 'marked told although the line reached nothing');
 });
+
+test('#5382 review 11: resumePending is true only while this module will still type its carry-on line for the current pause', () => {
+  const read = (r) => () => r;
+  const base = { allowed: true, env: {}, book: new Map(), now: AT + q.GRACE_MS, memo: q.newPoolMemo() };
+  assert.equal(q.resumePending('agy-a', { ...base, readReport: read(paused()) }), true, 'a due resume read as not pending');
+  assert.equal(q.resumePending('agy-a', { ...base, now: AT, readReport: read(paused()) }), true, 'a resume still waiting for its grace read as not pending');
+  assert.equal(q.resumePending('agy-a', { ...base, env: { AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF: '1' }, readReport: read(paused()) }), false, 'pending with the operator brake on');
+  assert.equal(q.resumePending('agy-a', { ...base, allowed: false, readReport: read(paused()) }), false, 'pending without live execution');
+  assert.equal(q.resumePending('agy-a', { ...base, readReport: read({ found: true, state: 'working', by: 'self' }) }), false, 'pending for an agent not paused');
+  const book = new Map([['agy-a', { until: paused().until, nudgedAt: AT + q.GRACE_MS }]]);
+  assert.equal(q.resumePending('agy-a', { ...base, book, readReport: read(paused()) }), false, 'pending after the resume was sent');
+  assert.equal(q.resumePending('agy-a', { ...base, now: AT + q.MAX_AGE_MS + q.GRACE_MS + 1, readReport: read(paused()) }), false, 'pending for a reset over six hours old');
+  assert.equal(q.resumePending('agy-a', { ...base, readReport: () => { throw new Error('unreadable'); } }), false, 'a report read that throws read as pending');
+});
