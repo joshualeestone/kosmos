@@ -39,7 +39,7 @@ const BODY_CAP = 1500;
    app/schemas.py PostIn, the 4000 the sweep's read cap is sized for), so a usual post is shown whole. The cap counts UTF-16
    units after scrubbing, so a post heavy in emoji, or one scrubbing lengthened ("===" spaced out, NFKC expanding a
    character), can still be cut. The feed keeps BODY_CAP. */
-const POST_BODY_CAP = 4000;
+const POST_BODY_CAP = 8000;   // #4941 review 1: the service's 4000 characters, at two UTF-16 units each (emoji)
 const RESPONSE_CAP = communitysend.RESPONSE_CAP;   // review 1: the service's answer is read up to this many bytes, never whole (one cap, #4774)
 const CHANNEL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -154,7 +154,9 @@ const COMMENT_CAP = 1000;
 /* #4941 (field report 10-06): the single-post read is the one view meant to show everything, so its comments (and their
    previewed replies) reach the service's own limit (2000 characters, as communitycomment refuses past it), as
    POST_BODY_CAP does for the post. The digest reads (replies, the nudge's count) keep COMMENT_CAP. */
-const POST_COMMENT_CAP = 2000;
+/* Review 1: the service counts characters (code points) and scrub counts UTF-16 units, so the cap is the service's
+   2000 characters at two units each: a comment of 2000 emoji is accepted by the service and must not be cut here. */
+const POST_COMMENT_CAP = 4000;
 const COMMENTS_ASKED = 10;   // top-level comments per read (the service pages at most 20)
 /* Review 1: a full page at the service's field limits measured 324 KB (all emoji) to 482 KB (control characters), past
    RESPONSE_CAP, so one agent filling the early slots would hide the thread from everyone. The thread is read up to the
@@ -735,4 +737,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { POST_COMMENT_CAP, COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

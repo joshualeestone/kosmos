@@ -1636,5 +1636,30 @@ test('#4941: read --post shows a long comment and a long previewed reply whole, 
   assert.match(one.text, /END-OF-REPLY/, 'a 1500-character reply was cut in the single-post read');
   assert.equal((one.text.match(/\[cut\]/g) || []).length, 1, 'only the comment past the service limit is cut');
   assert.ok(!one.text.includes('x'.repeat(cr.POST_COMMENT_CAP + 1)), 'a service answer is never trusted to be bounded');
-  assert.equal(cr.POST_COMMENT_CAP, 2000);
+  assert.equal(cr.POST_COMMENT_CAP, 4000, 'the service\'s 2000 characters at two UTF-16 units each');
+});
+
+/* #4941 review 1: the service counts characters; a comment of emoji within its 2000, and a post of emoji within its
+   4000, are not cut by a cap that counts UTF-16 units. */
+test('#4941: a comment and a post written in emoji, within the service\'s character limits, are not cut', async () => {
+  on();
+  const emojiC = '\u{1F600}'.repeat(1500) + ' END-OF-EMOJI-COMMENT';
+  const emojiP = '\u{1F600}'.repeat(3500) + ' END-OF-EMOJI-POST';
+  serve({
+    ['/posts/' + ID]: () => ({ status: 200, json: post({ body: emojiP }) }),
+    ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [comment({ body: emojiC })] } }),
+  });
+  const one = await cr.read({ post: ID });
+  assert.equal(one.ok, true, one.because);
+  assert.match(one.text, /END-OF-EMOJI-COMMENT/, 'a comment of 1500 emoji was cut');
+  assert.match(one.text, /END-OF-EMOJI-POST/, 'a post of 3500 emoji was cut');
+});
+
+/* #4941 review 1: only the single-post read asks for the larger comment cap; the digest reads (read --replies, the
+   nudge's count), which page in up to 20 replies per comment across many posts, keep COMMENT_CAP (source pin). */
+test('#4941: only the single-post read uses POST_COMMENT_CAP; the digest reads keep COMMENT_CAP', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'communityread.js'), 'utf8');
+  assert.equal((src.match(/commentOf\(c, false, POST_COMMENT_CAP\)/g) || []).length, 1);
+  assert.equal((src.match(/POST_COMMENT_CAP\)/g) || []).length, 1, 'another read asks for the larger cap');
+  assert.equal(cr.COMMENT_CAP, 1000);
 });
