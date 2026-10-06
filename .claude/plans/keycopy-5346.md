@@ -28,6 +28,13 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - A ChatGPT account with no Codex the board can run now has a reason (`WHY_NO_CODEX`), so the no-reader sentence
   never says ChatGPT reads to someone whose ChatGPT cannot.
 
+## Review round 4 (calls)
+- If the person also has a switched-off Gemini key, one sentence says so (`orgchartkeys.OFF_SHORT`), between their
+  ChatGPT reason and the Claude-first sentence.
+- "ChatGPT, connected the same way, also reads": the Mac sentence no longer reads as if ChatGPT already works.
+- The closing sentence every Codex refusal ends with is one constant (`orgchartcodex.ANY_PROVIDER`), taken off by
+  value rather than by a pattern.
+
 ## Tests
 - server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
 - engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes

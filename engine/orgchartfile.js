@@ -449,11 +449,10 @@ function noModelFor(platform, opts) {
   const chatgpt = opts && opts.chatgpt !== undefined ? opts.chatgpt === true : platform !== 'win32';
   return 'Claude reads a picture or PDF, connected in Settings, AI Models. '
     + (!chatgpt ? 'OpenAI or Grok connected with a key can read a PNG or JPG picture too'
-      : 'ChatGPT also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too')
+      : 'ChatGPT, connected the same way, also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too')
     + ' (OpenAI reads a PDF as well). A CSV or Excel export works with any provider, and so does typing the list.';
 }
 const NO_MODEL = noModelFor(process.platform);
-const ANY_PROVIDER_TAIL = / A CSV or Excel export works with any provider, and so does typing the list\.$/;
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
@@ -634,7 +633,12 @@ function currentReader(name) {
   // null-shaped answer the caller can read, from the same look at the accounts (see whyNoReader).
   // #5346 step 2: a person whose own ChatGPT account cannot be used hears why, then what does read (Claude first, and
   // not ChatGPT again); with no ChatGPT account, a switched-off key provider's reason.
-  lastWhy = sub.offWhy ? sub.offWhy.replace(ANY_PROVIDER_TAIL, '') + ' ' + noModelFor(process.platform, { chatgpt: false }) : got.offWhy;
+  if (sub.offWhy) {
+    const any = ' ' + require('./orgchartcodex').ANY_PROVIDER;
+    const own = sub.offWhy.endsWith(any) ? sub.offWhy.slice(0, -any.length) : sub.offWhy;
+    // A switched-off key provider (Gemini) the person also has is said in one sentence, so they know theirs is off.
+    lastWhy = [own, got.offShort, noModelFor(process.platform, { chatgpt: false })].filter(Boolean).join(' ');
+  } else lastWhy = got.offWhy;
   return got.reader ? { kind: 'key', ...got.reader } : null;
 }
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */

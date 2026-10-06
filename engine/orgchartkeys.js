@@ -185,6 +185,10 @@ function googleOffWhyFor(platform) {
       : ', and ChatGPT a PNG or JPG picture (so can OpenAI or Grok connected with a key, and OpenAI a PDF as well)')
     + '; a CSV or Excel export works with any provider, and so does typing the list.';
 }
+/* #5346: the same, in one sentence, for when another reason comes first (orgchartfile currentReader). */
+const OFF_SHORT = {
+  google: 'Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key.',
+};
 const OFF_WHY = {
   google: googleOffWhyFor(process.platform),
 };
@@ -232,7 +236,7 @@ function pick() {
   const r = list.find((a) => a && PROVIDERS[a.provider] && enabled[a.provider]);
   if (r) return { reader: { provider: r.provider, dir: r.dir, account: r.account || null, keyTail: r.keyTail || null }, offWhy: null };
   const off = list.find((a) => a && PROVIDERS[a.provider] && !enabled[a.provider] && OFF_WHY[a.provider]);
-  return { reader: null, offWhy: off ? OFF_WHY[off.provider] : null };
+  return { reader: null, offWhy: off ? OFF_WHY[off.provider] : null, offShort: off ? OFF_SHORT[off.provider] : null };
 }
 function chooseReader() { return pick().reader; }
 function offReason() { return pick().offWhy; }
@@ -390,4 +394,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, googleOffWhyFor, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, OFF_SHORT, googleOffWhyFor, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

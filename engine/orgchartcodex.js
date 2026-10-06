@@ -207,16 +207,18 @@ const systemConfigPathsReal = systemConfigPaths;
 function managedConfig() {
   return systemConfigPaths().some((p) => { try { fs.lstatSync(p); return true; } catch { return false; } });
 }
-const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has Codex settings an administrator manages, which Kosmos cannot switch off. A CSV or Excel export works with any provider, and so does typing the list.';
+/* The sentence every refusal here ends with; orgchartfile takes it off when it adds what else reads (#5346). */
+const ANY_PROVIDER = 'A CSV or Excel export works with any provider, and so does typing the list.';
+const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has Codex settings an administrator manages, which Kosmos cannot switch off. ' + ANY_PROVIDER;
 /* Windows: the flags, the catalog and the capture were measured on a Mac only, and no administrator-managed layer is
    known there to check. Off until measured, as an unknown is everywhere else in this file. */
-const WHY_NO_CODEX = 'ChatGPT reads org charts through Codex, and Kosmos cannot find a Codex it can run on this computer. A CSV or Excel export works with any provider, and so does typing the list.';
-const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. A CSV or Excel export works with any provider, and so does typing the list.';
-const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up its model list for this account. Start an OpenAI agent once, then try again. A CSV or Excel export works with any provider, and so does typing the list.';
-const WHY_CATALOG_VERSION = 'ChatGPT does not read org charts with this account: its model list was written by a Codex other than the version Kosmos has checked. A CSV or Excel export works with any provider, and so does typing the list.';
-const WHY_CATALOG_UNKNOWN = 'ChatGPT does not read org charts with this account: its model list has settings Kosmos has not checked, so it is not used. A CSV or Excel export works with any provider, and so does typing the list.';
-const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. A CSV or Excel export works with any provider, and so does typing the list.';
-const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. A CSV or Excel export works with any provider, and so does typing the list.';
+const WHY_NO_CODEX = 'ChatGPT reads org charts through Codex, and Kosmos cannot find a Codex it can run on this computer. ' + ANY_PROVIDER;
+const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. ' + ANY_PROVIDER;
+const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up its model list for this account. Start an OpenAI agent once, then try again. ' + ANY_PROVIDER;
+const WHY_CATALOG_VERSION = 'ChatGPT does not read org charts with this account: its model list was written by a Codex other than the version Kosmos has checked. ' + ANY_PROVIDER;
+const WHY_CATALOG_UNKNOWN = 'ChatGPT does not read org charts with this account: its model list has settings Kosmos has not checked, so it is not used. ' + ANY_PROVIDER;
+const WHY_INSTRUCTIONS = 'ChatGPT does not read org charts on this computer: Codex would send your own instructions file (AGENTS.md) along with the chart, and Kosmos cannot switch that off. ' + ANY_PROVIDER;
+const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Codex on this computer (' + (have ? 'version ' + have : 'its version could not be read') + '): Kosmos has checked only version ' + want + '. ' + ANY_PROVIDER;
 
 /* The reader and, when a ChatGPT account is here but cannot be used, why, from one look. */
 function pickWithWhy() {
@@ -448,4 +450,4 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
   });
 }
 
-module.exports = { WHY_NO_CODEX, MAX_CATALOG_BYTES, KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { ANY_PROVIDER, WHY_NO_CODEX, MAX_CATALOG_BYTES, KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

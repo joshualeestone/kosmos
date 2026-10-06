@@ -89,7 +89,9 @@ keys.setAccounts(() => []);
 test.after(() => { c.setBin(null); c.setVersion(null); c.setSystemConfigPaths(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
 
 /* #5346 step 2: what a person whose ChatGPT cannot be used is told: that reason, then what does read (Claude first). */
-const combined = (why, platform = process.platform) => why.replace(/ A CSV or Excel export works with any provider, and so does typing the list\.$/, '') + ' ' + o.noModelFor(platform, { chatgpt: false });
+const combined = (why, platform = process.platform, short = null) => [why.slice(0, -(' ' + c.ANY_PROVIDER).length), short, o.noModelFor(platform, { chatgpt: false })].filter(Boolean).join(' ');
+/* Nothing after "Claude reads" mentions ChatGPT: it was just said not to read. */
+const noChatgptAfterClaude = (why) => !/ChatGPT/.test(String(why).split('Claude reads')[1] || 'ChatGPT');
 
 test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', () => {
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey', isDefault: true }, { dir: '/b', authMode: 'chatgpt', email: 'b@x.test' }, { ...SUB, isDefault: true }]);
@@ -277,7 +279,8 @@ test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s 
     assert.equal(o.currentReader(), null);
     assert.match(o.whyNoReader(), /Kosmos has checked only version/, 'the Gemini reason (which says ChatGPT reads) hid why their ChatGPT did not');
     assert.match(o.whyNoReader(), /Claude reads a picture or PDF, connected in Settings, AI Models/, 'review 3: it named nothing that does read');
-    assert.doesNotMatch(o.whyNoReader(), /ChatGPT also reads/);
+    assert.ok(noChatgptAfterClaude(o.whyNoReader()), o.whyNoReader());
+    assert.ok(o.whyNoReader().includes(keys.OFF_SHORT.google), 'review 4: a Gemini key holder was not told Gemini is off');
     c.setVersion(() => PINNED);
     c.setAccounts(() => []);
     assert.equal(o.currentReader(), null);
@@ -472,9 +475,9 @@ test('#5346 step 2 review 2/3: on Windows, a ChatGPT account hears why it does n
   try {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32'), 'the Windows ChatGPT reason, then Claude first');
+    assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32', keys.OFF_SHORT.google), 'the Windows ChatGPT reason, Gemini off, then Claude first');
     assert.match(o.whyNoReader(), /Claude reads a picture or PDF/);
-    assert.doesNotMatch(o.whyNoReader(), /ChatGPT also reads/, 'it said ChatGPT reads right after saying it does not here');
+    assert.ok(noChatgptAfterClaude(o.whyNoReader()), 'it said ChatGPT reads right after saying it does not here');
     keys.setAccounts(() => []);
     assert.equal(o.currentReader(), null);
     assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32'), 'CONTROL: the same with no key provider');
