@@ -4196,7 +4196,9 @@ cmd_task() {
       case "$body" in
         '{"task":'*)
           local words; words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"]*\)".*/\1/p')
-          if [ "$sub" = ran ]; then say "Recorded a run of task $num on ${project:-the project}."
+          if [ "$sub" = ran ]; then
+            case "$body" in *'"duplicate":true'*) say "That run of task $num on ${project:-the project} was already recorded a moment ago, so it was not recorded twice." ;;
+              *) say "Recorded a run of task $num on ${project:-the project}." ;; esac
           elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
           else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}. Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
         '{"error":'*)

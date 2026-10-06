@@ -124,3 +124,32 @@ test('#4787 review 1: the same run reported twice within a minute counts once', 
   tasks.recordRun(id, n, 'ada', 'next hour', at + 3600000);
   assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'run').length, 2, 'CONTROL: an hour later is a new run');
 });
+
+test('#4787 review 2: an agent re-sending the person\'s own rule leaves it theirs; a later agent change is still refused', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'hour' });                    // agent's rule
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' }, { person: true });
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' });        // agent re-sends the person's rule: no change
+  assert.equal(stored(id, n).repeatByPerson, true);
+  assert.throws(() => tasks.setRepeat(id, n, { every: 'hour' }), /only they can change it/);
+});
+
+test('#4787 review 2: a repeating task that closes because its last part closes ends the repetition too', () => {
+  const p = projects.create({ name: 'Part ' + Math.random().toString(36).slice(2), agents: ['ada'] });
+  const made = tasks.create(p.id, { sentence: 'Daily digest', who: 'ada' });
+  tasks.setRepeat(p.id, made.number, { every: 'day', at: '08:00' });
+  const parts = tasks.partsOf(stored(p.id, made.number));
+  tasks.setPartClosed(p.id, made.number, parts[0].id, true);
+  assert.equal('repeat' in stored(p.id, made.number), false);
+  assert.ok(taskchat.read(p.id, made.number).some((e) => e.kind === 'repeat-cleared' && e.via === 'close'));
+});
+
+test('#4787 review 2: the duplicate guard is per runner: another agent\'s run inside the minute is recorded', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'hour' });
+  const at = Date.parse('2026-10-06T09:00:00Z');
+  tasks.recordRun(id, n, 'ada', 'a', at);
+  const other = tasks.recordRun(id, n, 'bo', 'b', at + 20000);
+  assert.notEqual(other.duplicate, true);
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'run').length, 2);
+});
