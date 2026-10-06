@@ -1833,11 +1833,15 @@ test('the folder-preview ROUTE answers the case-corrected path, not the raw deri
   // engine test: the assertion is agreement with the act, not a spelling.
   reset();
   fs.mkdirSync(path.join(projects.projectsRoot(), 'Lease'), { recursive: true });
+  // #5424: whether `lease` opens `Lease` is the disk's answer (yes on macOS and Windows, no on Linux).
+  const sameFolder = fs.existsSync(path.join(projects.projectsRoot(), 'lease'));
   const body = json(await req('/api/project-folder?name=lease'));
   assert.equal(body.problem, null);
-  assert.equal(body.exists, true, 'an existing folder must preview as ADOPT, not make (round 17)');
-  assert.equal(body.path, projects.makeFolder('lease'),
-    'the route previewed one path and the act produced another');
+  assert.equal(body.exists, sameFolder, 'the route previews ADOPT exactly when this name opens a folder (round 17)');
+  const made = projects.makeFolder('lease');
+  assert.equal(body.path, made, 'the route previewed one path and the act produced another');
+  assert.equal(path.basename(made), sameFolder ? 'Lease' : 'lease',
+    'a case-insensitive disk adopts Lease; a case-sensitive one makes lease beside it');
   const fresh = json(await req('/api/project-folder?name=Entirely%20new%20here'));
   assert.equal(fresh.exists, false, 'control: a fresh name previews as make');
 });

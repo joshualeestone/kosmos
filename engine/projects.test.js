@@ -1755,9 +1755,9 @@ test('the previewed path IS the path the act produces, case correction included'
   const made = projects.makeFolder('lease');
   assert.equal(previewed.path, made,
     'the screen said one path and the filesystem got another');
-  // The act distinction travels with the path: this folder existed, so the
-  // screen must say ADOPT, and a fresh name must say MAKE (round 17: the
-  // preview claimed "make" over a folder adoption).
+  // The act distinction travels with the path: where `lease` opens the existing folder the screen must say
+  // ADOPT, and where it does not (a case-sensitive disk) MAKE, as must a fresh name (round 17: the preview
+  // claimed "make" over a folder adoption).
   assert.equal(previewed.exists, sameFolder, 'the folder previews as existing exactly when this name opens one');
   assert.equal(path.basename(made), sameFolder ? 'Lease' : 'lease',
     'a case-insensitive disk adopts Lease; a case-sensitive one makes lease beside it');
