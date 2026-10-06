@@ -23,8 +23,8 @@ not the store). The rule:
 - In a test process, a resolved root equal to the machine's REAL default root, or inside it (a named
   world hangs off it), is never used:
   - with NO sandbox variable set, the store answers ONE throwaway root of that process's own (mkdtemp,
-    prefix `kosmos-test-home-<pid>-`), removed at exit (best effort; run-tests.sh sweeps the ones whose
-    process is gone). It is the store's alone: no environment variable is set, so no other seam changes (an
+    prefix `kosmos-test-home-<pid>-`), removed at exit (best effort; the next test process to make one sweeps
+    the ones whose process is gone, store.sweepDeadTestHomes). It is the store's alone: no environment variable is set, so no other seam changes (an
     earlier version exported AGENT_WORKFORCE_HOME, which agystatus, accounts, codexupdate and others
     also read, and which overrode a HOME set later; review 2 caught it). A child process is a test
     process too and gets its own. The legacy migration is skipped for it, since its target would be
