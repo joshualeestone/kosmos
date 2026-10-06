@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: pausebtn-5391
-diff_hash: 78e67d514d90e1055b05fca5cfbc36c3ca477ed6bc58487a8453b8a3af96f298
+diff_hash: 273e2b794e80174e506bf11077bfc4e263a8d007c0a680075c1ae2cf84702925
 validation: focused, not the full local suite (light-lane queue). After every round: web.project-pause-head-5391 (4/4) and every page test touching the project card or Settings pause (24/24), the two lints (24/24), the page script parses (node --check), node --check on both browser-check files. Shots: mobile-shots exit 0, 12 shots, 0 errors, 0 overflow, all looked at (before rounds 1-5; the CSS since only adds an empty-line rule and a disabled style). render-onhold-4771's new arm is first run by CI's browser-checks on the PR.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-06T13:35:22Z
