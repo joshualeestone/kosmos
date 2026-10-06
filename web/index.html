@@ -6314,7 +6314,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-@media (hover: none) { .tk-repeat-in { min-height: 40px; } }
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -16568,10 +16568,10 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="tmeta" id="tk-repeat-when" hidden><span>When</span>
           <span class="tk-repeat-when">
-            <select id="tk-repeat-day" class="tsk-sel" aria-label="Day of the week" hidden>
+            <select id="tk-repeat-day" class="tsk-sel" aria-label="When: day of the week" hidden>
               <option value="mon">Monday</option><option value="tue">Tuesday</option><option value="wed">Wednesday</option><option value="thu">Thursday</option><option value="fri">Friday</option><option value="sat">Saturday</option><option value="sun">Sunday</option>
             </select>
-            <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="Time of day" value="09:00">
+            <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="When: time of day" value="09:00">
           </span>
         </div>
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" disabled>Save</button></div>
@@ -59958,7 +59958,8 @@ function tkRepeatChoice() {
   const every = document.getElementById('tk-repeat-every').value;
   if (!every) return { clear: true };
   if (every === 'hour') return { every: 'hour' };
-  const at = document.getElementById('tk-repeat-at').value || '09:00';
+  const at = document.getElementById('tk-repeat-at').value;
+  if (!at) return { needsTime: true };   // review 1: an empty time is no choice yet, never a silent 9am
   return every === 'day' ? { every: 'day', at } : { every: 'week', on: document.getElementById('tk-repeat-day').value, at };
 }
 function tkRepeatStoredChoice(t) {
@@ -59975,7 +59976,11 @@ function tkRepeatShowWhen() {
 function tkRepeatDirty(t) {
   const save = document.getElementById('tk-repeat-save');
   // Hourly from this screen runs on the hour; a rule an agent set at another minute still reads as unchanged.
-  if (save) save.disabled = JSON.stringify(tkRepeatChoice()) === JSON.stringify(tkRepeatStoredChoice(t));
+  const choice = tkRepeatChoice();
+  if (save) save.disabled = choice.needsTime === true || JSON.stringify(choice) === JSON.stringify(tkRepeatStoredChoice(t));
+  const msg = document.getElementById('tk-repeat-msg');
+  if (msg && choice.needsTime === true) { msg.textContent = 'Choose a time'; msg.dataset.needsTime = '1'; }
+  else if (msg && msg.dataset.needsTime === '1') { msg.textContent = ''; delete msg.dataset.needsTime; }
 }
 function tkPaintRepeat(p, t) {
   const done = TK_ACT === 'reopen';
@@ -59989,11 +59994,15 @@ function tkPaintRepeat(p, t) {
   document.getElementById('tk-repeat-row').hidden = false;
   const every = document.getElementById('tk-repeat-every');
   const stored = JSON.stringify(tkRepeatStoredChoice(t));
-  if (every.dataset.task !== key || every.dataset.stored !== stored) {
+  const newTask = every.dataset.task !== key;
+  // Review 1: never under a person mid-choice (a control has focus), the same guard the due date uses; another task always.
+  const choosing = ['tk-repeat-every', 'tk-repeat-day', 'tk-repeat-at', 'tk-repeat-save'].includes(document.activeElement && document.activeElement.id);
+  if (newTask || (every.dataset.stored !== stored && !choosing)) {
     const c = tkRepeatStoredChoice(t);
     every.value = c.clear ? '' : c.every;
-    if (c.at) document.getElementById('tk-repeat-at').value = c.at;
-    if (c.on) document.getElementById('tk-repeat-day').value = c.on;
+    // Review 1: a task with no time or day of its own starts from Monday 9am, never the last task's unsaved choice.
+    document.getElementById('tk-repeat-at').value = c.at || '09:00';
+    document.getElementById('tk-repeat-day').value = c.on || 'mon';
     every.dataset.task = key;
     every.dataset.stored = stored;
   }
@@ -60012,7 +60021,11 @@ function tkOpenTask() {
 for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day']) {
   const el = document.getElementById(id);
   if (!el) continue;
-  const on = () => { tkRepeatShowWhen(); const [, t] = tkOpenTask(); if (t) tkRepeatDirty(t); };
+  const on = () => {
+    const m = document.getElementById('tk-repeat-msg');
+    if (m && m.dataset.needsTime !== '1') m.textContent = '';   // review 1: a new choice retires the last answer
+    tkRepeatShowWhen(); const [, t] = tkOpenTask(); if (t) tkRepeatDirty(t);
+  };
   el.addEventListener('change', on);
   el.addEventListener('input', on);
 }
@@ -60028,12 +60041,20 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(tkRepeatChoice()),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { if (msg && PJ_CURRENT === p.id) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); return; }
+    // Review 1: an answer belongs to its own task; a person who moved on sees nothing of it.
+    const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+    if (!res.ok) { if (still()) { if (msg) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); } return; }
     await pjReload();
     paintTaskActivity(TK_OPEN);
+    if (still()) {
+      if (msg) msg.textContent = 'Saved.';   // review 1: said aloud (the line is aria-live), and focus goes back to the choice
+      document.getElementById('tk-repeat-every').focus();
+    }
   } catch {
-    if (msg && PJ_CURRENT === p.id) msg.textContent = 'we could not reach Kosmos to change how that task repeats';
-    tkRepeatDirty(t);
+    if (PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number)) {
+      if (msg) msg.textContent = 'we could not reach Kosmos to change how that task repeats';
+      tkRepeatDirty(t);
+    }
   }
 });
 
