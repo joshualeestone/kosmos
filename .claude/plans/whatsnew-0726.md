@@ -3,7 +3,7 @@
 Four lines, each checked against code on main 10-06 ~15:30; no API-key items (Josh 10-05; Splinter, this afternoon):
 | line | from | checked against |
 |---|---|---|
-| Tasks that repeat | #4787 (PR #5389), page control #5396 | the task page's "Repeats" row (tk-repeat-row: Never / hour / day / week). Kosmos does NOT run the job (engine/taskrepeat.js): a due run makes the task open work and its agent is nudged, so the line says reminded, not run (review 1) |
+| Tasks that repeat | #4787 (PR #5389), page control #5396 | the task page's "Repeats" row (tk-repeat-row: Never / hour / day / week). Kosmos does NOT run the job (engine/taskrepeat.js): a due run makes the task open work again. The agent is nudged only when idle and only if the Prompter is on (engine/agentnudge.js), so the line promises neither a run nor a reminder: only that it is open work again (review 1, Mona, review 2) |
 | Token Usage opens in seconds | #5363 (PR #5370), #5367 (PR #5402) | engine/usage.js skips transcripts not written in the window; measured 6.9 min -> 4 to 6 s on the fleet Mac (85,008 files). "On a long history": a small install was never minutes |
 | Org charts with a ChatGPT subscription (MAC only; wording Mona's) | #5346 (PR #5361) | engine/orgchartcodex.js returns WHY_WINDOWS on win32, so tagged platforms ["mac"] |
 | A cap for Gemini subscription agents | #4588 ask 3 (PR #5414) | Settings > Automation (s-sec-automation) "Gemini subscription agents at once": No limit by default, 1 to 4. It holds only Kosmos's own automatic sends and counts every Gemini subscription agent on the computer (not per Google account), so the line says "Kosmos sends work to" (review 1) |
