@@ -196,17 +196,19 @@ function latestAtOrBefore(rule, from, ms) {
   while (s !== null && s <= ms) { last = s; s = nextAfter(rule, s); }
   return last;
 }
-/* slice 2: is a run at `at` off the schedule? More than the miss grace after the latest slot since the rule was set
-   (or the task made), and not within the grace before the next slot. Before the rule's first slot a run is never late. */
+/* slice 2: is a run at `at` LATE? It answers whichever slot it is nearer: the latest slot since the rule was set, or
+   the next one (a run nearer the next slot is early, review 3: 08:44 for 9am, or a weekly job a day early). Nearer the
+   latest slot (a tie counts there), it is late once it is more than the miss grace after it. Before the rule's first
+   slot a run is never late. The first slot is dueSlot's (strictly after the rule was set, review 3). */
 function runIsLate(t, at) {
   if (!t || !t.repeat) return false;
   const from = Date.parse(t.repeatSetAt || t.createdAt || '');
   if (!Number.isFinite(from)) return false;
-  const grace = missGraceFor(t.repeat);
-  const latest = latestAtOrBefore(t.repeat, nextAfter(t.repeat, from - 1), at);
-  if (latest === null || at < latest + grace) return false;
+  const latest = latestAtOrBefore(t.repeat, nextAfter(t.repeat, from), at);
+  if (latest === null) return false;
   const next = nextAfter(t.repeat, at);
-  return !(next !== null && next - at <= grace);
+  if (next !== null && next - at < at - latest) return false;   // nearer the next slot: early
+  return at - latest >= missGraceFor(t.repeat);
 }
 function missedRuns(t, now = Date.now()) {
   if (!t || !t.repeat || t.isClosed === true || t.closedAt) return null;
