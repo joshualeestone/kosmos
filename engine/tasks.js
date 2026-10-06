@@ -841,11 +841,11 @@ function setRepeat(projectId, n, rule, opts = {}) {
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
-      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunNote;
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote;
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats', via: person ? 'screen' : 'agent' });
+  if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats', ...(person ? { person: true } : {}) });
   if (didChange) {
     // Flat fields (review 1: taskchat keeps strings and numbers; an object was stored as "[object Object]").
     taskchat.record(projectId, changed.number, next
@@ -862,7 +862,10 @@ function setRepeat(projectId, n, rule, opts = {}) {
  * and on a closed one.
  */
 const RUN_DEDUP_MS = 60 * 1000;
-function recordRun(projectId, n, by, note, at = Date.now()) {
+function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
+  /* review 5: the person is a FLAG, never a name (as setBuilt's builtByPerson): an agent called "operator" is not the person. */
+  const isPerson = opts.person === true;
+  const runner = isPerson ? null : String(by || '').slice(0, WHO_MAX) || null;
   const taskrepeat = require('./taskrepeat');
   const problem = taskrepeat.noteProblem(note);
   if (problem) throw new Error(problem);
@@ -878,13 +881,15 @@ function recordRun(projectId, n, by, note, at = Date.now()) {
        counts once: the first stays, nothing new is recorded. */
     // review 2: only the SAME runner's repeat, and only a recorded run not in the future (a clock stepped back).
     const prev = Date.parse(t.lastRunAt || '');
-    if (Number.isFinite(prev) && t.lastRunBy === String(by || 'operator').slice(0, WHO_MAX) && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
-    changed = { ...t, lastRunAt: new Date(at).toISOString(), lastRunBy: String(by || 'operator').slice(0, WHO_MAX) };   // ISO, as createdAt and builtAt are
+    const sameRunner = (t.lastRunByPerson === true) === isPerson && (isPerson || (t.lastRunBy || null) === runner);
+    if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
+    changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
+    if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
-  taskchat.record(projectId, changed.number, { kind: 'run', by: changed.lastRunBy, ...(said ? { note: said } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}) });
   return changed;
 }
 

@@ -151,7 +151,10 @@ function waitingForNextRun(t, now = Date.now()) {
   /* review 3: the grace is for a RUN reported early, never for the moment the task was made (a task made at 08:55 for
      09:00 must be due at 09:00), and it is a small share of the period: at most 10 minutes, 2 for an hourly job, so a
      late run at 09:55 for the 09:00 slot still leaves 10:00 due. */
-  const since = t.lastRunAt ? raw + graceFor(t.repeat) : raw;
+  /* review 5: never before the rule itself: a slot that passed before the rule was set or changed is not missed. */
+  const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
+  const fromRun = t.lastRunAt ? raw + graceFor(t.repeat) : raw;
+  const since = Number.isFinite(ruleFrom) ? Math.max(fromRun, ruleFrom) : fromRun;
   const due = nextAfter(t.repeat, since);
   return due !== null && due > now;
 }

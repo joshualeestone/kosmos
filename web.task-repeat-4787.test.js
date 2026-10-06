@@ -19,7 +19,9 @@ test('#4787: the sentence says the rule, the last run (who, when, its note) and 
   assert.equal(tskRepeatSentence(t, NOW), 'Repeats every day at 9am. Last run 2 hours ago by Ada: found 3 new listings. Next today at 9am.');
   assert.equal(tskRepeatSentence({ ...t, lastRunAt: undefined, lastRunBy: undefined, lastRunNote: undefined }, NOW),
     'Repeats every day at 9am. No run reported yet. Next today at 9am.');
-  assert.equal(tskRepeatSentence({ ...t, lastRunBy: 'operator', lastRunNote: undefined }, NOW), 'Repeats every day at 9am. Last run 2 hours ago by you. Next today at 9am.');
+  assert.equal(tskRepeatSentence({ ...t, lastRunBy: undefined, lastRunByPerson: true, lastRunNote: undefined }, NOW), 'Repeats every day at 9am. Last run 2 hours ago by you. Next today at 9am.');
+  assert.equal(tskRepeatSentence({ ...t, lastRunBy: 'operator', lastRunNote: undefined }, NOW), 'Repeats every day at 9am. Last run 2 hours ago by operator. Next today at 9am.',
+    'review 5: an agent named operator is not the person');
 });
 
 test('#4787: a repeating task\'s row carries the line; a one-off and a closed one do not (controls)', () => {

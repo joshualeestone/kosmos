@@ -81,8 +81,8 @@ test('#4787 review 1: between runs a repeating task holds no work for the Prompt
   const all = () => projects.readAll();
   assert.equal(nudge.openParts('ada', all()).length, 0, 'ran just now: not idle-with-open-work');
   assert.equal(assigner.hasOpenWork('ada', all()), false, 'and the Assigner agrees');
-  // CONTROL: the same task, its last run two hours ago, is due again: open work for both.
-  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === made.number ? { ...t, lastRunAt: new Date(Date.now() - 2 * 3600000).toISOString() } : t)) }));
+  // CONTROL: the same task, its rule set three hours ago and its last run two hours ago, is due again: open work for both.
+  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === made.number ? { ...t, lastRunAt: new Date(Date.now() - 2 * 3600000).toISOString(), repeatSetAt: new Date(Date.now() - 3 * 3600000).toISOString() } : t)) }));
   assert.equal(nudge.openParts('ada', all()).length, 1, 'overdue: the owner holds open work again');
   assert.equal(assigner.hasOpenWork('ada', all()), true);
 });
@@ -190,4 +190,19 @@ test('#4787 review 4: a rule put on an old task is measured from when the rule w
   projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, createdAt: '2026-01-01T00:00:00.000Z' } : t)) }));
   tasks.setRepeat(id, n, { every: 'day', at: new Date(Date.now() + 2 * 3600000).toTimeString().slice(0, 5) });   // two hours from now
   assert.equal(require('./taskrepeat').waitingForNextRun(stored(id, n)), true, 'the first run is two hours away, not months overdue');
+});
+
+test('#4787 review 5: the person\'s run is a flag; an agent named operator is an agent, and the two are different runners', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'hour' });
+  const at = Date.parse('2026-10-06T09:00:00Z');
+  tasks.recordRun(id, n, null, '', at, { person: true });
+  assert.equal(stored(id, n).lastRunByPerson, true);
+  const other = tasks.recordRun(id, n, 'operator', '', at + 10000);
+  assert.notEqual(other.duplicate, true, 'an agent called operator is not the person, so not a duplicate of the person\'s run');
+  assert.equal(stored(id, n).lastRunBy, 'operator');
+  assert.equal('lastRunByPerson' in stored(id, n), false);
+  const runs = taskchat.read(id, n).filter((e) => e.kind === 'run');
+  assert.equal(runs[0].person, true);
+  assert.equal(runs[1].by, 'operator');
 });
