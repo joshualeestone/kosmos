@@ -157,3 +157,16 @@ test('#4918 review 3: removeBoard reports a refused stop and keeps the unit', ()
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('#4918 review 4: disable\'s own "Unit file X.service does not exist" counts as already clean', () => {
+  const file = linuxjob.unitPath('kenshi', 'w1');
+  fs.writeFileSync(file, '[Service]\n');
+  answer = (cmd, args) => (args[1] === 'stop'
+    ? { ok: false, stderr: 'Failed to stop kosmos-agent-kenshi.service: Unit kosmos-agent-kenshi.service not loaded.' }
+    : args[1] === 'disable'
+      ? { ok: false, stderr: 'Failed to disable unit: Unit file kosmos-agent-kenshi.service does not exist.' }
+      : { ok: true, stdout: '' });
+  try {
+    assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }, 'a unit systemd never had read as stuck');
+  } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
+});

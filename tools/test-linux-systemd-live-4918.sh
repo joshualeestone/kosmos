@@ -90,7 +90,8 @@ SH
 chmod +x "$MOCK_RUNNER"
 
 # Generate and install systemd unit for the agent using engine/linuxjob.js
-node -e '
+# #4918 review 4: every engine call's own result is asserted, not only its side effects.
+if node -e '
   const create = require("./engine/create");
   create.installSupervisor();
   const linuxjob = require("./engine/linuxjob");
@@ -104,8 +105,13 @@ node -e '
   );
   const target = linuxjob.unitPath(process.argv[1]);
   linuxjob.writeUnitFile(target, unitContent);
-  linuxjob.start(process.argv[1]);
-' "$AGENT_NAME" "$MOCK_RUNNER" "$TMUX_BIN"
+  const r = linuxjob.start(process.argv[1]);
+  if (!r || r.ok !== true) { console.error("start:", JSON.stringify(r)); process.exit(3); }
+' "$AGENT_NAME" "$MOCK_RUNNER" "$TMUX_BIN"; then
+  ok "linuxjob.start returned ok"
+else
+  bad "linuxjob.start did not return ok"
+fi
 
 # Check if unit is active
 sleep 3
@@ -168,10 +174,37 @@ fi
 "$TMUX_BIN" kill-session -t "$AGENT_NAME" 2>/dev/null || true
 
 # Stop and remove agent unit using engine/linuxjob.js
-node -e '
+if node -e '
   const linuxjob = require("./engine/linuxjob");
-  linuxjob.remove(process.argv[1]);
-' "$AGENT_NAME"
+  const r = linuxjob.remove(process.argv[1]);
+  if (!r || r.ok !== true) { console.error("remove:", JSON.stringify(r)); process.exit(3); }
+' "$AGENT_NAME"; then
+  ok "linuxjob.remove returned ok"
+else
+  bad "linuxjob.remove did not return ok"
+fi
+
+# #4918 review 4: a NAMED world's agent. Its launch key carries "+", which systemd rejects in a unit name, so the
+# unit name is escaped; this proves the escaped unit is accepted and runs, then removes it.
+WORLD_UNIT="$(KOSMOS_WORLD=w4918 node -e 'console.log(require("./engine/linuxjob").unitName(process.argv[1]))' "$AGENT_NAME")"
+if KOSMOS_WORLD=w4918 node -e '
+  require("./engine/create").installSupervisor();
+  const lj = require("./engine/linuxjob");
+  lj.writeUnitFile(lj.unitPath(process.argv[1]), lj.unitFor(process.argv[1], process.argv[2], process.argv[3], "", "", "claude"));
+  const r = lj.start(process.argv[1]);
+  if (!r || r.ok !== true) { console.error("named-world start:", JSON.stringify(r)); process.exit(3); }
+' "$AGENT_NAME" "$MOCK_RUNNER" "$TMUX_BIN"; then
+  sleep 3
+  if systemctl --user is-active "$WORLD_UNIT" >/dev/null 2>&1; then
+    ok "a named world's agent runs under its escaped unit ($WORLD_UNIT)"
+  else
+    bad "the named world's unit did not come up: $(systemctl --user status "$WORLD_UNIT" 2>&1 | head -5)"
+  fi
+else
+  bad "the named world's agent did not start (unit $WORLD_UNIT)"
+fi
+KOSMOS_WORLD=w4918 node -e 'require("./engine/linuxjob").remove(process.argv[1])' "$AGENT_NAME" || true
+"$TMUX_BIN" kill-server 2>/dev/null || true
 
 sleep 1
 if [ ! -f "$HOME/.config/systemd/user/kosmos-agent-$AGENT_NAME.service" ]; then
@@ -209,10 +242,15 @@ BOARD_UNIT="$(node -e '
 ' "$MOCK_BOARD_HOME")"
 
 # Install board unit using engine/linuxboard.js
-node -e '
+if node -e '
   const linuxboard = require("./engine/linuxboard");
-  linuxboard.installBoard(process.argv[1], 18888);
-' "$MOCK_BOARD_HOME"
+  const r = linuxboard.installBoard(process.argv[1], 18888);
+  if (!r || r.ok !== true) { console.error("installBoard:", JSON.stringify(r)); process.exit(3); }
+' "$MOCK_BOARD_HOME"; then
+  ok "linuxboard.installBoard returned ok"
+else
+  bad "linuxboard.installBoard did not return ok"
+fi
 
 UNIT_FILE="$HOME/.config/systemd/user/$BOARD_UNIT"
 if [ -f "$UNIT_FILE" ]; then
@@ -292,10 +330,15 @@ if [ "$COND" = "no" ]; then
 else
   bad "systemd did not refuse the start on board.stopped (ConditionResult=$COND): the unit would restart every 5s"
 fi
-node -e '
+if node -e '
   const linuxboard = require("./engine/linuxboard");
-  linuxboard.removeBoard(process.argv[1]);
-' "$MOCK_BOARD_HOME"
+  const r = linuxboard.removeBoard(process.argv[1]);
+  if (!r || r.ok !== true) { console.error("removeBoard:", JSON.stringify(r)); process.exit(3); }
+' "$MOCK_BOARD_HOME"; then
+  ok "linuxboard.removeBoard returned ok"
+else
+  bad "linuxboard.removeBoard did not return ok"
+fi
 
 sleep 2
 if ! systemctl --user is-active "$BOARD_UNIT" >/dev/null 2>&1; then

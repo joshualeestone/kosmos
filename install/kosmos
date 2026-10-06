@@ -927,6 +927,8 @@ _kosmos_board_supervised() {
     fi
     local _cat
     _cat="$("$_sysctl" --user cat "$_unit" 2>/dev/null)" || return 1
+    # #4918 review 4: a unit file that exists but is disabled does not keep the board alive: not supervised.
+    "$_sysctl" --user is-enabled --quiet "$_unit" 2>/dev/null || return 1
     grep -qE 'ExecStart=.*[[:space:]]board-run([[:space:]]|$)' <<EOF
 $_cat
 EOF
@@ -1434,7 +1436,9 @@ cmd_stop() {
         _sup_unit="$(_kosmos_board_systemd_unit)"
       fi
       local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
-      "$_sysctl" --user stop "$_sup_unit" >/dev/null 2>&1 || true
+      # #4918 review 4: a refused stop is said, never hidden behind "Stopped." (board.stopped still holds a restart).
+      "$_sysctl" --user stop "$_sup_unit" >/dev/null 2>&1 \
+        || say "systemd did not stop $_sup_unit. The board process was stopped; if it comes back, run: $_sysctl --user stop $_sup_unit"
     fi
     local i
     for i in $(seq 1 10); do
