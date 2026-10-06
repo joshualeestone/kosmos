@@ -11675,8 +11675,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
-   the window edge, and wide headers are padded by this less what the page gives up, so the header
-   does not move between views. Read off the root itself, not a scrolling element: a runner that hides
+   the window edge, and wide headers are padded by this less what the page gives up (consolidated's by
+   all of it, #5379), so the header does not move between views. Read off the root itself, not a scrolling element: a runner that hides
    scrollbars still reserves the root's gutter, and an element probe then reads 0 against a 15px
    gutter. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar rule changes
    the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
@@ -11689,6 +11689,14 @@ window.kosmosMeasureScrollbarWidth = function () {
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
+  /* #5379: consolidated reserves no gutter, so forcing one narrows the page and its rails and panes reflow for one
+     layout; put back every inner scroller that was scrolled. (The tab view already reserves it: nothing moves.) */
+  var scrolled = [];
+  if (root.getAttribute('data-layout') === 'consolidated') {
+    document.querySelectorAll('body *').forEach(function (el) {
+      if (el.scrollTop || el.scrollLeft) scrolled.push([el, el.scrollTop, el.scrollLeft]);
+    });
+  }
   var vw = null;
   try {
     /* A WebKit older than scrollbar-gutter (the Mac floor is 13.5) never reserved the #1309 gutter,
@@ -11719,6 +11727,10 @@ window.kosmosMeasureScrollbarWidth = function () {
     root.style.overflow = prevOverflow;
     if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y);
     if (thread && thread.scrollTop !== threadTop) thread.scrollTop = threadTop;
+    scrolled.forEach(function (s) {
+      if (s[0].scrollTop !== s[1]) s[0].scrollTop = s[1];
+      if (s[0].scrollLeft !== s[2]) s[0].scrollLeft = s[2];
+    });
   }
 };
 window.kosmosMeasureScrollbarWidth();
@@ -11741,10 +11753,9 @@ window.kosmosMeasureScrollbarWidth();
        second width, and leaving Talk (or a resize) re-measures anyway (A1p). */
     if (window.matchMedia('(min-width: 56.01rem)').matches
       && document.querySelector('body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])')) return;
-    /* #5379: nor in consolidated once measured, for the same reason: its rails and panes would reflow at a second
-       width on every press. Load, resize, focus, a return to the tab and a flip out of consolidated still measure. */
-    var root = document.documentElement;
-    if (root.getAttribute('data-layout') === 'consolidated' && root.hasAttribute('data-scrollbar-measured')) return;
+    /* #5379: nor in consolidated, for the same reason: its rails and panes would reflow at a second width on every
+       press. Load, resize, focus, a return to the tab and a flip out of consolidated still measure. */
+    if (document.documentElement.getAttribute('data-layout') === 'consolidated') return;
     lastPress = now;
     window.kosmosMeasureScrollbarWidth();
   }, { capture: true, passive: true });
