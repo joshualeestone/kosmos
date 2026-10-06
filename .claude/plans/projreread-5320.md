@@ -20,15 +20,24 @@ the new lines until a restart. Splinter 21:53 named the stale-instructions root;
 engine/projects.test.js "#5320: only a change to the block's standing rules owes the running agent a re-read":
 join owes nothing; a block missing the pause rule (an older Kosmos) owes ['projects'] on rewrite; an unchanged
 write, a task arriving, the agent's own task closing and leaving the last project each owe nothing. Red on the old
-trigger (`changed`): "joining owed a second line".
+trigger (`changed`): "joining owed a second line". A second test covers the tasks rules: an older tasks wording beside
+a still-open task is owed; the same older block as the last task closes owes nothing. Red with the tasks rules never
+compared, and red with the new-block check removed.
 
 ## Part 2 (next): an agent unsure whether to pause asks in the room and points at the Pause button beside the project's
 name (Mona's #5391, PR #5395). Built after that merges, so the line never names a button that is not there.
+
+## Behaviour by design (review 2)
+- Only ADDED rules owe: a rule taken out needs no re-read. Tasks rules count only when the old block listed a task
+  and the new block still carries them (a last task closing takes them out; a first task is announced where assigned).
+- The rules embed the CLI command as this machine shows it (kosmosCliShown). If that spelling changes, every member is
+  owed one re-read at its next block rewrite: the command it would copy changed, so that is wanted.
 
 ## Known limit
 No board-start sweep: an agent whose FILE already got the pause rule before this ships, while its session predates it,
 is not owed a re-read; it learns at its next start. A sweep cannot tell what a session read. Its next rules change,
 or a restart, reaches it.
+Also one-shot: if the debt cannot be recorded (logged to stderr), the next sync sees no change and does not retry.
 
 ## Weakest premise
 That the tasks rules need not be owed when a first task arrives: the assignment is announced where it is made, and
