@@ -46123,8 +46123,12 @@ function plusSiRegisterMode(address, nameOnly) {
  * meantime so they cannot drift silently.
  */
 const KOSMOS_SITE = 'https://installkosmos.com';
-/* #3829 / #3479: the web account (billing, history, cancel) lives where people sign in to Kosmos+. */
+/* #3829 / #3479: where people sign in to Kosmos+. The Copy chip copies it (the address other devices use), and the
+   buy fallback builds on it. */
 const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
+/* #5403: View account opens the account view (Sign out everywhere, Delete account), not the sign-in home. It is
+   its own constant because the home above is still the address to copy and the base the buy link builds on. */
+const PLUS_ACCOUNT_VIEW_URL = PLUS_ACCOUNT_URL + 'account';
 /* #4744: Copy puts the address other devices use on the clipboard, as a full https URL so it pastes as a link.
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
@@ -46367,7 +46371,7 @@ async function paintPlus() {
     pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
       : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
   }
-  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
+  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_VIEW_URL !== 'undefined') acct.href = PLUS_ACCOUNT_VIEW_URL;
   const chip = document.getElementById('plus-chip');
   if (chip) { chip.hidden = !up; if (up) plusChipFit(); }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
