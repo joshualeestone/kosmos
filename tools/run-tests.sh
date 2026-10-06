@@ -434,6 +434,8 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
 else
   # Never fail a run over housekeeping: the suite is what matters.
   echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
+  # #5418: the marker is the temp folder in use, so this run's processes keep the real-root rule.
+  export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
