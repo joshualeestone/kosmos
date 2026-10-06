@@ -58402,6 +58402,34 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    field -- test-support/fleet refuses the read), falling back to the
    session name while the roster has not arrived; TSK.names remembers what was painted so the
    first roster that changes a name repaints once (see the LAST assignment). */
+/* kosmos#4787: a moment as the repeat line says it: "today at 9am", "tomorrow at 9am", "Monday at 9:30am", or a date
+   further out. Local time, as the rule is. Pure (node-testable): `now` is passed in. */
+function repeatWhen(ms, now) {
+  const d = new Date(ms);
+  const h = d.getHours(), m = d.getMinutes();
+  const time = (h % 12 === 0 ? 12 : h % 12) + (m ? ':' + String(m).padStart(2, '0') : '') + (h < 12 ? 'am' : 'pm');
+  const day0 = (x) => new Date(new Date(x).getFullYear(), new Date(x).getMonth(), new Date(x).getDate()).getTime();
+  const days = Math.round((day0(ms) - day0(now)) / 86400000);
+  if (days === 0) return 'today at ' + time;
+  if (days === 1) return 'tomorrow at ' + time;
+  if (days > 1 && days < 7) return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()] + ' at ' + time;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' at ' + time;
+}
+/* kosmos#4787: the repeat line's sentence, from the board's fields: "Repeats every day at 9am. Last run 2 hours ago by
+   Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
+function tskRepeatSentence(t, now) {
+  const words = t.repeatWords || 'on a schedule';
+  let s = 'Repeats ' + words + '.';
+  if (t.lastRunAt) {
+    const ago = agoWords(now - Date.parse(t.lastRunAt));
+    const who = t.lastRunBy === 'operator' ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+  } else {
+    s += ' No run reported yet.';
+  }
+  if (Number.isFinite(t.repeatNextAt)) s += ' Next ' + repeatWhen(t.repeatNextAt, now) + '.';
+  return s;
+}
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
   return String((a && a.name) || sessionName || '');
@@ -58578,6 +58606,10 @@ function tskRow(t, at) {
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
+  /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
+     so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
+     run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
+  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
     + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -58595,7 +58627,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + builtLine + '</div>'
+    + '</div>' + cannot + repeatLine + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -59361,6 +59393,10 @@ function tkActPhrase(ev, p) {
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
     case 'parent-cleared': return 'Taken out from under its task';
+    // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
+    case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
+    case 'repeat-cleared': return 'No longer repeats';
+    case 'run': { const who = ev.by === 'operator' ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The

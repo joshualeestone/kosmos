@@ -3808,7 +3808,7 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|message|built|hold|unhold>"
+      say "Usage: kosmos task <list|add|assign|close|message|built|hold|unhold|repeat|ran>"
       say "  kosmos task list <project-id>                                 list this project's tasks"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -3821,6 +3821,9 @@ cmd_task() {
       say "      --clear                                                  take the built mark off"
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
+      say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs"
+      say "      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
+      say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -3906,12 +3909,32 @@ cmd_task() {
       done
       [ "$_wantp" != 1 ] || { say "--part needs a part number; the board lists them if you leave it out."; exit 2; }
       [ "$_whos" = 1 ] || { say "$_usage"; exit 2; } ;;
+    repeat)
+      # kosmos#4787: <project> <task-number> <hourly|daily|weekly> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
+      # the board, as built is; the rule itself is checked whole by the board (taskrepeat.repeatProblem).
+      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon]   (or --clear)"
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local _r _rwant=""
+      for _r in "${@:3}"; do
+        if [ -n "$_rwant" ]; then _rwant=""; continue; fi
+        case "$_r" in
+          --at|--on) _rwant=1 ;;
+          --clear|hour|hourly|day|daily|week|weekly) ;;
+          --*) _refuse_option "task repeat" "$_rusage" "$_r" ;;
+          *) say "Say how often: hourly, daily or weekly. $_rusage"; exit 2 ;;
+        esac
+      done
+      [ -z "$_rwant" ] || { say "--at and --on each need a value. $_rusage"; exit 2; } ;;
+    ran)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     hold|unhold)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | built | hold | unhold"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | built | hold | unhold | repeat | ran"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -4128,6 +4151,47 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when marking that task."; exit 1 ;;
+      esac
+      ;;
+    repeat|ran)
+      # kosmos#4787: a repeating task's rule (repeat) and its runs (ran). The agent token names who ran it (the pane is the
+      # fallback, as for built); the board refuses a caller it cannot name.
+      local project num every="" at="" on="" clear=false note="" _w _wnext=""
+      project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
+      for _w in "$@"; do
+        case "$_wnext" in at) at="$_w"; _wnext=""; continue ;; on) on="$_w"; _wnext=""; continue ;; esac
+        if [ "$sub" = repeat ]; then
+          case "$_w" in --at) _wnext=at ;; --on) _wnext=on ;; --clear) clear=true ;; *) every="$_w" ;; esac
+        else
+          note="${note:+$note }$_w"
+        fi
+      done
+      local _jesc; _jesc() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
+      local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local _tok=""
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+      local data
+      if [ "$sub" = repeat ]; then
+        data="{\"every\":\"$(_jesc "$every")\",\"at\":\"$(_jesc "$at")\",\"on\":\"$(_jesc "$on")\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"}"
+        [ -n "$at" ] || data=$(printf '%s' "$data" | sed 's/"at":"",//')
+        [ -n "$on" ] || data=$(printf '%s' "$data" | sed 's/"on":"",//')
+      else
+        data="{\"note\":\"$(_jesc "$note")\",\"from_pane\":\"$esc_pane\"}"
+      fi
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
+        -H 'content-type: application/json' --data "$data" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
+      case "$body" in
+        '{"task":'*)
+          local words; words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"]*\)".*/\1/p')
+          if [ "$sub" = ran ]; then say "Recorded a run of task $num on ${project:-the project}."
+          elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
+          else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}. Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
       esac
       ;;
     message)
