@@ -539,6 +539,34 @@ async function measure(page) {
     chk(/^\d+px$/.test(relayout.after) && relayout.after !== '99px',
       'A1u leaving the consolidated layout re-measures the scrollbar width', JSON.stringify(relayout));
 
+    // A1v (#5399): IN the consolidated layout, a resize that changed devicePixelRatio (a zoom) re-measures, so the
+    // width consolidated pads by stays current; a resize with the same ratio does not (it would force a whole-page
+    // reflow for nothing). devicePixelRatio is stubbed: a headless page cannot be zoomed. A planted 99px must be
+    // replaced by the zoom and kept by the plain resize (the control).
+    const zoomed = await page.evaluate(async () => {
+      const root = document.documentElement;
+      const prev = root.getAttribute('data-layout');
+      const desc = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+      const real = window.devicePixelRatio;
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const resizeOnce = async () => { window.dispatchEvent(new Event('resize')); await frames(); return root.style.getPropertyValue('--scrollbar-width'); };
+      root.setAttribute('data-layout', 'consolidated');
+      root.style.setProperty('--scrollbar-width', '99px');
+      const plain = await resizeOnce();
+      Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => real * 1.25 });
+      const zoom = await resizeOnce();
+      root.style.setProperty('--scrollbar-width', '99px');
+      const zoomAgain = await resizeOnce();   // same (zoomed) ratio as the last measure: no second reflow
+      if (desc) Object.defineProperty(window, 'devicePixelRatio', desc); else delete window.devicePixelRatio;
+      if (prev === null) root.removeAttribute('data-layout'); else root.setAttribute('data-layout', prev);
+      window.kosmosMeasureScrollbarWidth();
+      return { plain, zoom, zoomAgain, restored: window.devicePixelRatio === real };
+    });
+    chk(zoomed.plain === '99px' && zoomed.zoomAgain === '99px',
+      'A1v in the consolidated layout a resize with an unchanged devicePixelRatio does not re-measure', JSON.stringify(zoomed));
+    chk(/^\d+px$/.test(zoomed.zoom) && zoomed.zoom !== '99px' && zoomed.restored,
+      'A1v in the consolidated layout a zoom (devicePixelRatio changed) re-measures the scrollbar width', JSON.stringify(zoomed));
+
     chk(errs.length === 0, 'A7 no page errors', errs.join(' | '));
 
     // A1n: the same promises measured with scrollbars that take width, as on a Mac that shows them,
