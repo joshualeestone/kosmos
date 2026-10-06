@@ -6314,6 +6314,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
+#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
 @media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
@@ -16574,7 +16575,7 @@ window.kosmosMeasureScrollbarWidth();
             <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="When: time of day" value="09:00">
           </span>
         </div>
-        <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" disabled>Save</button></div>
+        <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
         <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
@@ -59988,7 +59989,14 @@ for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day']) {
   const on = () => {
     const m = document.getElementById('tk-repeat-msg');
     if (m && m.dataset.needsTime !== '1') m.textContent = '';   // review 1: a new choice retires the last answer
-    tkRepeatShowWhen(); const [, t] = tkOpenTask(); if (t) tkRepeatDirty(t);
+    tkRepeatShowWhen(); const [, t] = tkOpenTask();
+    if (t) {
+      // CI round: choosing what is stored NOW is nothing unsaved, said at once (not at the next paint), so a rule changed
+      // elsewhere before that paint is still followed.
+      const nowStored = JSON.stringify(tkRepeatStoredChoice(t));
+      if (JSON.stringify(tkRepeatChoice()) === nowStored) document.getElementById('tk-repeat-every').dataset.stored = nowStored;
+      tkRepeatDirty(t);
+    }
   };
   el.addEventListener('change', on);
   el.addEventListener('input', on);
