@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox tsk-repeat tskRepeatSentence
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
@@ -602,6 +602,25 @@ function chk(ok, label, extra) {
           `${tag} Not built yet takes the mark off and the task stays open`, JSON.stringify({ n: after.n, state: after.row && after.row.state, msg: after.msg }));
         await page.click('#tsk-tiles [data-tile="built"]'); // back to everything
         tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        /* kosmos#4787: a repeating task's row says its rule, its last run (who and their note) and its next run, from the
+           board's words; and it stays in its owner's group (Assigned), not Unassigned. Made repeating and cleared here,
+           so every count above and below sees the fixture as it was. Control: before the rule, the row has no line. */
+        const repeatRow = () => page.evaluate(() => { const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.querySelector('.tl').textContent === 'Clean up bounced addresses');
+          const l = r && r.querySelector('.tsk-repeat');
+          return { line: l ? l.textContent : null, shown: !!(l && l.getClientRects().length), state: ((TSK.data || []).find((t) => t.sentence === 'Clean up bounced addresses') || {}).state }; });
+        const noRule = await repeatRow();
+        tasks.setRepeat(news.id, 1, { every: 'day', at: '09:00' });
+        tasks.recordRun(news.id, 1, 'rex', 'two bounced, both removed');
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const withRule = await repeatRow();
+        chk(noRule.line === null && withRule.shown
+          && /^Repeats every day at 9am\. Last run (just now|\d+ seconds ago) by Rex: two bounced, both removed\. Next (today|tomorrow) at 9am\.$/.test(withRule.line)
+          && withRule.state === 'assigned',
+          `${tag} #4787 a repeating task's row says its rule, its last run and its next run, and stays Assigned (control: no line before the rule)`, JSON.stringify({ noRule, withRule }));
+        tasks.setRepeat(news.id, 1, null);
         await page.evaluate(() => tskLoad());
         await page.waitForTimeout(300);
         /* A focused CHECKBOX keeps focus through a reload (its row shares its key, so a first-match

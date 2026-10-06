@@ -431,3 +431,12 @@ test('calibration: a stored one older than a week, or from the future, is not us
   fs.writeFileSync(path.join(dir, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: -5, at: now }));
   assert.equal(allowance.readCalibration(dir, now), null);
 });
+
+/* kosmos#5325: the sandbox is removed when the file ends. Every run used to leave it in the temp folder (about 20 MB
+   each here; 128 of them filled 2.6 GB on one Mac). Only a folder this file made under the temp folder is removed. */
+test.after(() => {
+  const tmp = fs.realpathSync(os.tmpdir());
+  const mine = fs.realpathSync(SANDBOX);
+  if (!mine.startsWith(tmp + path.sep) || !path.basename(mine).startsWith('kosmos-allowance-')) return;
+  fs.rmSync(mine, { recursive: true, force: true });
+});

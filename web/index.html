@@ -11624,6 +11624,15 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
+/* 0.7.25 fix-forward (render-dm-sideways-3969): #5333's follow-up line is always in the page, and an empty .fmsg still
+   took 12px, which a sideways phone DM cannot spare (38px of conversation shown, 50 needed). Empty, it takes nothing;
+   the moment the Restart's follow-up writes into it, it shows. */
+/* kosmos#5388 (Renet's accepted NIT; the follow-up line is an aria-live status): display:none takes it out of the
+   accessibility tree, so a screen reader may miss the first follow-up written into it. Empty, it is visually hidden
+   OUT OF FLOW instead (review 1: its parent .dtext is a flex column with a gap, and any in-flow item, even at zero
+   height, is charged that gap, 4px on a sideways phone DM). Written into, it is an ordinary line again. */
+#d-linklost-msg:empty { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; border: 0;
+                        overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -20434,6 +20443,35 @@ function menuRunsOn(a) {
 function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || (acct.keyTail ? 'API key ending ' + acct.keyTail : '') || acct.label)) || '';
+}
+/* #5145: which account an agent is on after a provider switch, as the page records it (CURRENT.account.dir), or
+   null. ONE function so its precedence can be tested (review 2). `landed` is the route's accountDir.
+   - Claude: the person's pick wins (it is what the engine resolved); else the landed account if listed; else, when the
+     route named an account the page's list does not have (a stale list), nothing; else the main Claude account.
+   - Others: the landed account wins (codex can fall back from an unpicked unknown row); if it is not listed (the
+     Gemini/Grok default with no key, or a stale list), nothing, even when it is what was sent; with no landed
+     account (a dry-run, Antigravity), the sent row.
+   A landed dir is matched to a row after normalising (see bare below), and the row's own stored dir is recorded; a
+   dir that matches no row records nothing rather than a guess. */
+function chooseSwitchedAccount(want, sentDir, out, accounts, mainClaudeDir) {
+  /* The landed dir is the server's path.resolve; a row's dir is stored as its engine wrote it: a trailing separator
+     (an env-override default), and on Windows either separator and either case of the drive letter. So a row matches
+     with separators unified, the trailing one dropped and a drive letter lower-cased, and the row's OWN stored dir is
+     what gets recorded, so a landed record names a real row (the "Right now" rebuild finds it by exact match). A
+     Claude pick is recorded as sent: it is what the engine resolved, listed or not, as before this card. */
+  const bare = (d) => String(d).replace(/\\/g, '/').replace(/\/+$/, '').replace(/^([A-Za-z]):/, (m, l) => l.toLowerCase() + ':');
+  const rowFor = (d) => (typeof d === 'string' && d !== ''
+    ? (accounts || []).find((x) => x && typeof x.dir === 'string' && x.dir !== '' && bare(x.dir) === bare(d)) || null : null);
+  const partial = !out || out.outcome === 'partial';
+  // A partial (the restart failed) records no landed account: the agent did not move, whatever the caller checks.
+  const landed = !partial && out && typeof out.accountDir === 'string' && out.accountDir ? out.accountDir : null;
+  if (want === 'anthropic') {
+    if (sentDir && !partial) { const picked = rowFor(sentDir); return picked ? picked.dir : sentDir; }   // its row's own spelling when listed
+    if (landed) { const row = rowFor(landed); return row ? row.dir : null; }
+    return mainClaudeDir || null;
+  }
+  if (landed) { const row = rowFor(landed); return row ? row.dir : null; }   // unlisted: nothing, never the sent dir
+  return (sentDir && !partial) ? sentDir : null;
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
@@ -46573,10 +46611,21 @@ function plusSetBusy(el, on) {
   if ('disabled' in el) { el.disabled = on; return; }
   if (on) el.setAttribute('aria-disabled', 'true'); else el.removeAttribute('aria-disabled');
 }
+/* kosmos#5354: a wait of two minutes or more is said in minutes, rounded up ("about 22 minutes", "about an hour" at
+   sixty), as the relay's own sign-in page says it (kosmos-relay coordinator/src/signin.html waitWords, the same words).
+   "in 1290 seconds" reached a person live on 2026-10-05. Under two minutes the seconds still count down. The app reads
+   the wait from the coordinator's sentence, whose "in N seconds" the relay keeps on purpose (its test
+   the_sentence_always_carries_the_seconds_the_app_matches): retry_after_secs does not reach this page, because the
+   sign-in goes through the setup tool, which hands back only the sentence. */
+function plusWaitWords(secs) {
+  if (secs < 120) return secs + (secs === 1 ? ' second' : ' seconds');
+  const m = Math.ceil(secs / 60);
+  return m === 60 ? 'about an hour' : 'about ' + m + ' minutes';
+}
 function plusCountdown(line, btn, why, secs) {
   if (PLUS_COUNTDOWN) clearInterval(PLUS_COUNTDOWN);
   let left = secs;
-  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + left + (left === 1 ? ' second' : ' seconds')) + '.'; };
+  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + plusWaitWords(left)) + '.'; };
   paint();
   plusSetBusy(btn, true);
   PLUS_COUNTDOWN = setInterval(() => {
@@ -49897,12 +49946,13 @@ async function changeProviderNow(say) {
       CURRENT.modelName = null;
       // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
       CURRENT.plannedModelName = want === 'anthropic' ? 'Claude (its default model)' : null;
-      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
-         would disable Move for an agent that is on main. */
+      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one. The one exception
+         (#5145): the route named an account the page's list does not have (a stale list). Then nothing is recorded,
+         since the agent is on THAT account, not main, and naming main would be wrong; Move waits for the next list. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
-      CURRENT.account = want === 'anthropic'
-        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
-        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null);   // round 5: OpenAI/Gemini/Grok keep the sent account too
+      /* #5145: the account the switch landed on, by chooseSwitchedAccount's precedence (tested there). */
+      const chosenDir = chooseSwitchedAccount(want, sentAccount, out, ACCOUNTS, mainClaude ? mainClaude.dir : null);
+      CURRENT.account = chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
@@ -58402,6 +58452,22 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    field -- test-support/fleet refuses the read), falling back to the
    session name while the roster has not arrived; TSK.names remembers what was painted so the
    first roster that changes a name repaints once (see the LAST assignment). */
+/* kosmos#4787: the repeat line's sentence, from the board's fields: "Repeats every day at 9am. Last run 2 hours ago by
+   Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
+function tskRepeatSentence(t, now) {
+  const words = t.repeatWords || 'on a schedule';
+  let s = 'Repeats ' + words + '.';
+  if (t.lastRunAt) {
+    const ago = agoWords(now - Date.parse(t.lastRunAt));
+    const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+  } else {
+    s += ' No run reported yet.';
+  }
+  // The board's own words for the next run (review 1: never this browser's time zone beside the board's rule).
+  if (t.repeatNextWords) s += ' Next ' + t.repeatNextWords + '.';
+  return s;
+}
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
   return String((a && a.name) || sessionName || '');
@@ -58578,6 +58644,10 @@ function tskRow(t, at) {
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
+  /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
+     so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
+     run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
+  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
     + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -58595,7 +58665,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + builtLine + '</div>'
+    + '</div>' + cannot + repeatLine + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -59361,6 +59431,10 @@ function tkActPhrase(ev, p) {
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
     case 'parent-cleared': return 'Taken out from under its task';
+    // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
+    case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
+    case 'repeat-cleared': return 'No longer repeats';
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -59372,6 +59446,7 @@ function tkActPhrase(ev, p) {
     /* #3951: who marked it built and what was left; and why the mark went. */
     case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
     case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: there is new work on it';
+      if (ev.reason === 'it repeats') return (ev.person ? 'You made it repeat' : 'Made to repeat') + ', so it is no longer built';   // #4787
       const who = ev.person ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }

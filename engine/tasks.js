@@ -279,6 +279,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
 function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
   let droppedForWork = false;
+  let repeatDropped = false;
   let heldDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
@@ -298,6 +299,8 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
+    // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -310,13 +313,16 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
      returned task, not in module state (review round 3), so nothing can leak to another task's write. */
   if (droppedForWork) DROPPED_FOR_WORK.add(changed);
   if (heldDropped) HELD_DROPPED.add(changed);   // #4771: the hold a close dropped, recorded the same way, after the close
+  if (repeatDropped) REPEAT_DROPPED.add(changed);   // kosmos#4787 review 2
   return changed;
 }
 const DROPPED_FOR_WORK = new WeakSet();
 const HELD_DROPPED = new WeakSet();
+const REPEAT_DROPPED = new WeakSet();
 function recordDroppedForWork(projectId, n, task) {
   if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
   if (task && HELD_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'hold-cleared', via: 'close' });
+  if (task && REPEAT_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'repeat-cleared', via: 'close' });
 }
 
 function nextPartId(parts) {
@@ -609,11 +615,13 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let closed = false;
   let same = false;
   let personMark = false;
+  let repeating = false;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
       if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
+      if (t.repeat) { repeating = true; throw NO_WRITE; }   // kosmos#4787 review 3: a recurring job is never "built, waiting"
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
@@ -634,6 +642,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
     if (err !== NO_WRITE) return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
+  if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
   taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
@@ -680,6 +689,7 @@ function setClosed(projectId, n, closedAt) {
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
+  let repeatDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -698,6 +708,8 @@ function setClosed(projectId, n, closedAt) {
     if (after) changed = withoutBuilt(changed);
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
+    // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -705,6 +717,7 @@ function setClosed(projectId, n, closedAt) {
   });
   if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
+  if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;
 }
 
@@ -791,6 +804,92 @@ function setDue(projectId, n, dueDate) {
       ? { kind: 'due-set', dueDate: next }
       : { kind: 'due-cleared' });
   }
+  return changed;
+}
+
+/**
+ * kosmos#4787: make a task repeat, change its rule, or stop it (`rule` null). The rule is checked whole before the write
+ * (taskrepeat.repeatProblem) and stored normalised. A closed task cannot be made to repeat: closing is how a recurring
+ * job ends. Setting the rule it already has records nothing, as setDue does.
+ */
+function setRepeat(projectId, n, rule, opts = {}) {
+  const taskrepeat = require('./taskrepeat');
+  const problem = taskrepeat.repeatProblem(rule);
+  if (problem) throw new Error(problem);
+  const next = taskrepeat.normalise(rule);
+  /* #4787 review 1: the person's rule is theirs, as the built mark is (#3951 refusePersonMark): a process cannot change
+     or clear a rule the person set. `opts.person`: this call is the person's (the screen). */
+  const person = opts.person === true;
+  let changed;
+  let didChange = false;
+  let droppedBuilt = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (next && progressOf(t).closed) throw new Error('that task is closed; reopen it to make it repeat');
+    // review 4: the person's built mark is theirs too (#3951): a process's rule must not take it off silently.
+    if (!person && next && t.builtAt && t.builtByPerson === true) throw new Error('the person marked this task built, so only they can make it repeat');
+    if (!person && t.repeatByPerson === true && JSON.stringify(t.repeat || null) !== JSON.stringify(next)) {
+      throw new Error('the person set how often this task repeats, so only they can change it');
+    }
+    didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
+    changed = { ...t };
+    // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.
+    if (next) {
+      changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
+      if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
+      if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
+    } else {
+      // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote;
+    }
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats', ...(person ? { person: true } : {}) });
+  if (didChange) {
+    // Flat fields (review 1: taskchat keeps strings and numbers; an object was stored as "[object Object]").
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'repeat-set', every: next.every, words: taskrepeat.describe(next), via: person ? 'screen' : 'agent' }
+      : { kind: 'repeat-cleared', via: person ? 'screen' : 'agent' });
+  }
+  return changed;
+}
+
+/**
+ * kosmos#4787: a repeating task's job ran. `by` is who ran it (the agent's name, or 'operator'), `note` one optional line
+ * about this run. Kept on the task as lastRunAt / lastRunBy / lastRunNote and recorded in its conversation, so every run
+ * is in its history while the row shows the latest. Refused on a task that does not repeat (a one-off is closed, not run)
+ * and on a closed one.
+ */
+const RUN_DEDUP_MS = 60 * 1000;
+function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
+  /* review 5: the person is a FLAG, never a name (as setBuilt's builtByPerson): an agent called "operator" is not the person. */
+  const isPerson = opts.person === true;
+  const runner = isPerson ? null : String(by || '').slice(0, WHO_MAX) || null;
+  const taskrepeat = require('./taskrepeat');
+  const problem = taskrepeat.noteProblem(note);
+  if (problem) throw new Error(problem);
+  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  let changed;
+  let duplicate = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (!t.repeat) throw new Error('that task does not repeat; set how often with kosmos task repeat, or close it when it is done');
+    if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    /* #4787 review 1: the same run reported twice (a retried command, a duplicated job: the 10-03 report) within a minute
+       counts once: the first stays, nothing new is recorded. */
+    // review 2: only the SAME runner's repeat, and only a recorded run not in the future (a clock stepped back).
+    const prev = Date.parse(t.lastRunAt || '');
+    const sameRunner = (t.lastRunByPerson === true) === isPerson && (isPerson || (t.lastRunBy || null) === runner);
+    if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
+    changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
+    if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
+    if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (duplicate) return Object.assign({}, changed, { duplicate: true });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}) });
   return changed;
 }
 
@@ -1340,4 +1439,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, recordRun };

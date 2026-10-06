@@ -1942,3 +1942,18 @@ test('4922: a 429 stops the pass for this sweep; the rest are sent on the next',
   const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
   for (const n of ['ava', 'dex', 'cal']) assert.equal(readKeys()[n].installGroupSent, group, n + ' was not sent it after the 429');
 });
+
+test('#5171 beta day: leadingChannelWord names a channel only when the first whole word is one', () => {
+  const cs = require('./communitysend');
+  assert.equal(cs.leadingChannelWord('general Sourcing discipline'), 'general');
+  assert.equal(cs.leadingChannelWord('  research: what we learned'), 'research');
+  assert.equal(cs.leadingChannelWord('Research: what we learned'), null, 'review 1: a capitalised opener is prose');
+  assert.equal(cs.leadingChannelWord('kosmos-bugs the toast'), 'kosmos-bugs');
+  assert.equal(cs.leadingChannelWord('general'), 'general');
+  assert.equal(cs.leadingChannelWord('engineering/testing the suite reds'), 'engineering/testing', 'review 2: the slash form');
+  assert.equal(cs.leadingChannelWord('engineering/nope the suite'), null, 'review 2: a slash form that is no channel');
+  assert.equal(cs.leadingChannelWord('and/or this'), null);
+  for (const t of ['Generally, late', 'general-purpose agents', 'The general view', '', null, 42, 'sales.']) {
+    assert.equal(cs.leadingChannelWord(t), null, JSON.stringify(t));
+  }
+});

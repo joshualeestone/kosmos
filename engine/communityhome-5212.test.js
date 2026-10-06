@@ -135,6 +135,39 @@ test('agents you follow: posts of the last 24 hours only, titles and names clean
   } finally { await be.close(); }
 });
 
+test('#5372: a followed post already shown in read --following, or commented on from this board, is not counted again', async () => {
+  const be = await backend();
+  const follow = require('./communityfollow');
+  const seenDir = path.join(require('./store').ROOT, 'communityread', 'following-seen');
+  try {
+    const now = Date.now();
+    fresh(now);
+    fs.rmSync(seenDir, { recursive: true, force: true });
+    be.st.feed = { next_cursor: null, items: [
+      { kind: 'post', id: id(401), created_at: new Date(now - 2 * H).toISOString(), agent: author('Neo'), post: { title: 'Read already' } },
+      { kind: 'post', id: id(402), created_at: new Date(now - 3 * H).toISOString(), agent: author('Neo'), post: { title: 'Answered already' } },
+    ] };
+    assert.equal((await home.homeFor('mara', { now })).following.count, 2, 'control: both count before any read or comment');
+    follow.noteSeen('mara', [id(401)]);
+    follow.noteSeen('lena', [id(402)]);
+    let h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 1, 'the post mara was shown is not counted; lena\'s read is not mara\'s');
+    assert.equal(h.following.titles[0].title, 'Answered already');
+    fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([{ agent: 'lena', remotePostId: id(402) }]));
+    assert.equal((await home.homeFor('mara', { now })).following.count, 1, 'control: another agent\'s comment does not count as mara\'s');
+    fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([{ agent: 'mara', remotePostId: id(402), status: 'queued' }]));
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 0, 'a post mara commented on from this board, in any state, is not counted');
+    assert.equal(home.nudgeLine(h), null, 'and the nudge does not send mara back to it');
+    // Review 1: a full page of posts all already done, with a next page, is not "0 new posts (or more)".
+    be.st.feed.next_cursor = 'next-page';
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 0);
+    assert.equal(h.following.more, false);
+    assert.match(home.homeText(h), /Agents you follow: 0 new posts in the last 24 hours\./);
+  } finally { fs.rmSync(seenDir, { recursive: true, force: true }); await be.close(); }
+});
+
 test('next: in the block\'s order, reply first with the exact command; the nudge line names what is waiting', async () => {
   const be = await backend();
   try {

@@ -825,6 +825,31 @@ function boardTokenRefusal(req, tail) {
    `tokenOk` callsites (the /api/team operator path and the report/reply #1968
    guards) have a CLI or agent-token presenter that reads the LIVE booted-world token
    off disk, never a stale cookie, so they stay strictly active-token. */
+/* #5247: the other worlds' tokens the gate may accept, TAKEN AT START: world id -> its board.token as read when
+   this board started (null when that world has no token yet). A world this board creates is recorded with no token
+   (knowWorld): it has none until its own board boots, and that boot is a new process with its own snapshot. The
+   registry on disk is still read so a world hidden since start stops counting, but no file written after start, a
+   registry entry or a token, widens what the gate accepts. A world switch restarts the board (#2346), so the
+   switched-to board snapshots then, and the world it left (booted, so it has a token) is in it (#3055).
+   AS OF START (Kitty's review): a token written BEFORE a restart is what the next board snapshots, so this backs up
+   #4491's file protections (which stop a token-only agent writing it), it does not replace them. Hiding is not
+   revoking: a world hidden after start and un-hidden later (there is no un-hide; a hand edit) counts again with its
+   start-time token.
+   null until start() takes it: before that the gate accepts the active token only (fail-closed). */
+let KNOWN_WORLD_TOKENS = null;
+function snapshotWorlds() {
+  const m = new Map();
+  try {
+    const base = worldBase();
+    for (const w of worlds.listWorlds(base)) {
+      let t = null;
+      try { t = boardauth.readTokenFrom(worlds.worldStoreRoot(base, w)) || null; } catch { t = null; }
+      m.set(w.id, t);
+    }
+  } catch { /* an unreadable registry: the active token only */ }
+  KNOWN_WORLD_TOKENS = m;
+}
+function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -834,8 +859,10 @@ function boardTokenOk(req) {
   let others;
   try {
     const base = worldBase();
+    const known = KNOWN_WORLD_TOKENS || new Map();   // #5247: tokens as of start, for worlds still listed (not hidden)
     others = worlds.listWorlds(base)
-      .map((w) => boardauth.readTokenFrom(worlds.worldStoreRoot(base, w)))
+      .filter((w) => known.has(w.id))
+      .map((w) => known.get(w.id))
       .filter(Boolean);
   } catch {
     return false; // fail-closed: registry unreadable -> active token only (above) applies
@@ -1289,6 +1316,19 @@ const fedseats = require('./engine/fedseats');
 const fedseal = require('./engine/fedseal');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
+const taskrepeat = require('./engine/taskrepeat');   // kosmos#4787
+/* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), added to a task row so neither
+   the page nor an agent's CLI computes the rule again. A task that does not repeat is returned as it is. */
+function repeatFields(t) {
+  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};   // review 1: a closed task has no next run
+  const now = Date.now();
+  const nextAt = taskrepeat.nextAfter(t.repeat, now);
+  return { repeatWords: taskrepeat.describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: taskrepeat.whenWords(nextAt, now) };
+}
+function withRepeatWords(t) {
+  if (!t || !t.repeat) return t;
+  return Object.assign({}, t, repeatFields(t));
+}
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
@@ -4240,7 +4280,7 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
 /* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -6102,7 +6142,7 @@ const server = http.createServer(async (req, res) => {
         const asked = worldimport.picksFromBody(base, body);
         if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
         let world;
-        try { world = worlds.createWorld(base, body.name); }
+        try { world = worlds.createWorld(base, body.name); knowWorld(world && world.id); }   // #5247: a world this board made counts at its gate
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
         /* An import failure must NOT fail the create: the Kosmos already exists, so
            a thrown copy would orphan it. Each agent is copied or refused with its
@@ -6457,7 +6497,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0 })) return;   // flat, as the list
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0, owner: { kind: 'agent', id: name } })) return;   // flat, as the list
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -7288,9 +7328,10 @@ const server = http.createServer(async (req, res) => {
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
      rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
-     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js) or, with no
-     Claude, by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools (engine/orgchartkeys.js,
-     #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js); with no Claude, a
+     picture by their ChatGPT subscription through Codex, offered only two tools that cannot act (engine/orgchartcodex.js,
+     #5346); otherwise by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools
+     (engine/orgchartkeys.js, #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
      `{ needsConsent, provider, reader, uses, keeps }`, so the page can say who reads it, and what that provider
      keeps, before anything leaves the Mac (Liu Kang's condition 1), and the send goes only to that reader. Nothing
      is stored. Board-token gated like every /api route, and the consent send also wants the screen
@@ -7314,7 +7355,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         // #4560: who reads it is worked out ONCE for this request, and every answer below is about that reader.
-        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy();
+        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy(name);
         if (!orgchartfile.modelAvailable(reader)) {
           // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
           sendJson(res, 200, { unavailable: true, problems: [noReaderWhy || orgchartfile.NO_MODEL] });
@@ -7336,8 +7377,8 @@ const server = http.createServer(async (req, res) => {
            id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
         const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' ? orgchartfile.readerId(reader) : null);
         if (!reader || handed !== orgchartfile.readerId(reader)) {
-          // An old page (no reader id) meeting a key reader: nothing changed, the page is simply older than the board.
-          const oldPage = !q.has('reader') && reader && reader.kind === 'key';
+          // An old page (no reader id) meeting any reader but Claude: nothing changed, the page is simply older than the board.
+          const oldPage = !q.has('reader') && reader && reader.kind !== 'claude';
           sendJson(res, 409, { error: oldPage
             ? 'This page is older than Kosmos. Reload the New Agent screen and choose the file again.'
             : 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
@@ -7346,8 +7387,8 @@ const server = http.createServer(async (req, res) => {
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
         /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
-           (Claude's run is killed; a key provider's HTTP request is dropped, so Kosmos stops waiting, though a provider
-           may finish work it had already started). */
+           (Claude's run is killed; Codex's whole process group is killed; a key provider's HTTP request is dropped, so
+           Kosmos stops waiting, though a provider may finish work it had already started). */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
         if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
@@ -8319,6 +8360,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
+          /* #5145: the dir of the account the switch landed on (the same `acct` the sentence names), resolved so it
+             compares with the listed rows. Null when the engine named none (a Claude switch with no account sent,
+             Antigravity, a dry-run). The engine-partial answer above sends none; the restart-failed partial here
+             does. For Gemini/Grok with no listed account it is the computed default ("this computer's own key"), so
+             the page uses it only when it matches a listed row. */
+          accountDir: acct && typeof acct.dir === 'string' && acct.dir ? path.resolve(acct.dir) : null,
           because: ok
             ? `${label} it is. Everything it knows and everything it has done stays. `
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
@@ -8708,7 +8755,17 @@ const server = http.createServer(async (req, res) => {
     if (q.get('following') === '1') {
       if (q.get('channel') || q.get('post') || q.get('older')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
       communityfollow.readFollowing(reader.card.sessionName)
-        .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .then((r) => {
+          if (r.ok) {
+            // #5372: the read marks what it showed, so the home line counting those posts as new is now wrong, as after a
+            // comment (below): a read in flight is stale and the cached line and route answer go.
+            const who = String(reader.card.sessionName);
+            HOME_GEN.set(who, homeGen(who) + 1);
+            HOME_LINES.delete(who);
+            HOME_ROUTE.delete(who);
+          }
+          sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+        })
         .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
       return;
     }
@@ -8922,6 +8979,19 @@ const server = http.createServer(async (req, res) => {
           const c = communitysend.channelChoice(body.channel);
           if (!c.ok) { sendJson(res, 400, { error: c.because }); return; }
           chosen = c.slug;
+        }
+        /* kosmos#5171 (beta day): no channel, and the text starts with a channel's name typed as an argument: the agent most
+           likely meant the channel. Refused with both ways forward, never guessed. Review 1: a topic does not excuse it
+           (`--topic X general "..."` is the same mistake). The sentence is lowercase with no final period, as this
+           route's other refusals, because both CLIs wrap it in their own "not posted" line. */
+        if (body.channel === undefined && body.kosmos_bug !== true) {
+          const lead = communitysend.leadingChannelWord(candidate.body);
+          if (lead) {
+            sendJson(res, 400, { error: 'your post starts with the word "' + lead + '", which is the name of a community channel; '
+              + 'to post in that channel, use --channel ' + lead + ' and leave the word out of the text, or to post the text as '
+              + 'written, name the channel it belongs in with --channel (for example --channel general)' });
+            return;
+          }
         }
         if (body.kosmos_bug === true && chosen && chosen !== communitysend.KOSMOS_BUGS_SLUG) {
           sendJson(res, 400, { error: 'a Kosmos bug report goes to kosmos-bugs; leave out --channel, or use --channel kosmos-bugs without --kosmos-bug' }); return;
@@ -16685,7 +16755,7 @@ const server = http.createServer(async (req, res) => {
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
     if (!forTasksView) {
-      sendJson(res, 200, { tasks: scoped, count: scoped.length, project: projectScope });
+      sendJson(res, 200, { tasks: scoped.map(withRepeatWords), count: scoped.length, project: projectScope });   // kosmos#4787
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
@@ -16744,6 +16814,9 @@ const server = http.createServer(async (req, res) => {
         waitingOnPerson,
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
+        /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
+           the page never computes the rule again. */
+        ...repeatFields(t),   // review 1: only the added fields, never the task again over the computed ones
       });
     });
     /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
@@ -17179,6 +17252,7 @@ const server = http.createServer(async (req, res) => {
     try { everyMember = [...new Set(projects.readAll().filter((p) => p && p.id === id).flatMap((p) => p.agents || []))]; } catch { everyMember = []; }
     try {
       gone = projects.remove(id);
+      try { filepreview.sweep(); } catch { /* #5254: best effort; the hourly sweep follows */ }
       /* #3311: its seat and its link go with it NOW. Project ids are name slugs
          and a freed one is reused, so a later local project of the same name
          would otherwise inherit a room outside this Mac. */
@@ -17747,7 +17821,7 @@ const server = http.createServer(async (req, res) => {
     try { record = projects.readAll().find((x) => x.id === id) || null; }
     catch (err) { refuse(500, String((err && err.message) || 'we cannot read your projects right now')); return; }
     if (!record) { refuse(404, 'there is no project by that name'); return; }
-    if (listedFileVerb(req, res, verb, record.folder, 'this project')) return;
+    if (listedFileVerb(req, res, verb, record.folder, 'this project', { owner: { kind: 'project', id } })) return;
     sendJson(res, 405, { ok: false, because: verb === 'reveal-file' ? 'use POST for that' : 'use GET for that' });   // as the agent route says
     return;
   }
@@ -18415,6 +18489,16 @@ const server = http.createServer(async (req, res) => {
       const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone);
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
     }
+    /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
+       set (as it cannot change the rule itself); it records each run with ran instead. */
+    if (taskAct[3] === 'close' && !isViaScreen(req, {})) {
+      let held = null;
+      try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
+      if (held && held.repeat && held.repeatByPerson === true) {
+        sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+        return;
+      }
+    }
     try {
       const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2]) : tasks.reopen(id, taskAct[2]);
       // Close and reopen change what the assignee's block should list, so
@@ -18760,6 +18844,62 @@ const server = http.createServer(async (req, res) => {
      process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+  /* kosmos#4787: a recurring task. POST .../repeat { every, at?, on?, minute?, clear? } sets, changes or stops its rule;
+     POST .../ran { note? } records that its job ran. Either from the screen (the person) or from an agent on the project,
+     identified the way the built mark is (its token, else its pane); an agent off the project is refused. The rule is
+     checked whole in the engine (taskrepeat.repeatProblem), so a bad one is a 400 with the sentence, never stored. */
+  const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran)$/);
+  if (taskRepeat && req.method === 'POST') {
+    const id = decodeSegment(taskRepeat[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      if (roster === null && !viaScreen && (presentedAgentToken(req, body) || fromPane)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not changed' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+      if (!viaScreen) {
+        let proj = null;
+        try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
+        catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
+        if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' });
+          return;
+        }
+      }
+      // Never a person's name on an unidentified process: a run or a rule from a caller Kosmos cannot name is refused.
+      if (!viaScreen && !card) { sendJson(res, 403, { error: 'Kosmos could not tell which agent sent that, so the task was not changed' }); return; }
+      const by = viaScreen ? 'operator' : card.sessionName;
+      let task;
+      try {
+        if (taskRepeat[3] === 'ran') {
+          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen });
+        } else {
+          const rule = body.clear === true ? null
+            : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
+          task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+        }
+      } catch (err) {
+        const msg = String((err && err.message) || 'we could not change that task');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat)/.test(msg) ? 403 : 400, { error: msg });
+        return;
+      }
+      sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
+
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
@@ -19125,6 +19265,16 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         // Close and reopen are not valved: they change a state, not who is commanded.
+        if (verb === 'close' && !screen) {   // kosmos#4787 review 3: as the task close route
+          let held = null;
+          try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
+          // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
+          const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
+          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1
+            sendJson(res, 409, { error: 'the person set this task to repeat, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
+            return;
+          }
+        }
         const out = tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         const roster = safeRoster();
@@ -20037,6 +20187,10 @@ function federateOut(projectId, delivery, operator) {
 }
 
 function start(port = PORT) {
+  snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
+  /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
+  try { filepreview.sweep(); } catch { /* best effort */ }
+  setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
@@ -21281,6 +21435,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests

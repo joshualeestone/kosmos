@@ -109,6 +109,7 @@ async function preview(folder, name, where, opts) {
       if (made) {
         for (const n of fs.readdirSync(dir)) if (/\.png$/.test(n) && path.join(dir, n) !== out) { try { fs.rmSync(path.join(dir, n), { force: true }); } catch { /* next time */ } }
         fs.renameSync(drawn, out);
+        noteSource(dir, got.target, opts && opts.owner);   // #5254: before prune/sweep, and only beside a page that exists
       }
     } catch { made = false; }
     finally { try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } }
@@ -119,8 +120,103 @@ async function preview(folder, name, where, opts) {
       return { ok: false, because: 'this computer could not draw the first page' };
     }
     prune();
+    sweep();   // #5254
   }
+  // #5254: a page drawn before this change gets its record on its next view. Only beside a page that exists (review
+  // 1: a sweep during this render may have taken the folder; never recreate it holding a record and no page).
+  if (fs.existsSync(out)) noteSource(dir, got.target, opts && opts.owner);
   try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
+}
+
+/* #5254: a cached first page goes when its PDF, its project or its agent goes, not only when 200 newer renders push it
+   out. Each cache folder carries SOURCE_FILE (mode 0600, in the board's own data folder like the picture): the
+   resolved path the page was drawn from and its owner ({ kind: 'project' | 'agent', id }). sweep() removes a folder
+   whose file is no longer a regular file at that path, whose project is no longer listed, or whose agent was removed,
+   and any folder without a readable record (drawn before this, so its file cannot be checked; a picture is cheap to
+   draw again). It runs after each new render, at board start, after a project is removed, and hourly (server.js).
+   A removed-agents list that cannot be read is not taken as "nobody removed": that check is skipped, never guessed.
+   Known cost (review 1): the file check is a synchronous lstat per folder (at most CACHE_KEEP), so a PDF on a network
+   drive that hangs can stall the board for that sweep; an unmounted one answers at once and its page is swept. */
+const SOURCE_FILE = 'source.json';
+const YOUNG_MS = 10 * 60 * 1000;   // a folder with no record younger than this may be a first render in progress
+function noteSource(dir, target, owner) {
+  const own = owner && (owner.kind === 'project' || owner.kind === 'agent') && typeof owner.id === 'string' ? { kind: owner.kind, id: owner.id } : null;
+  const body = JSON.stringify({ target, owner: own });
+  const f = path.join(dir, SOURCE_FILE);
+  try { if (fs.readFileSync(f, 'utf8') === body) return; } catch { /* not there yet */ }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, '.' + SOURCE_FILE + '.' + process.pid + '.tmp');
+    fs.writeFileSync(tmp, body, { mode: 0o600 });
+    fs.renameSync(tmp, f);
+  } catch { /* the sweep removes a folder it cannot read a record for */ }
+}
+function sweep(deps = {}) {
+  const CACHE = cacheDir();
+  // Review 2 (WARNING): the cache folder itself must be a real folder. If it were a symlink, every old folder without a
+  // record wherever it points would be removed; a folder that is not the board's own is never swept.
+  try { if (!fs.lstatSync(CACHE).isDirectory()) return { removed: 0 }; } catch { return { removed: 0 }; }
+  let ents;
+  try { ents = fs.readdirSync(CACHE, { withFileTypes: true }).filter((e) => e.isDirectory()); } catch { return { removed: 0 }; }
+  let projectIds = null;
+  try { projectIds = new Set((deps.projects || projects).readAll().map((x) => x && x.id)); } catch { projectIds = null; }
+  let removedAgents = null;
+  try {
+    const got = (deps.removal || require('./remove')).removedNames();
+    removedAgents = got && got.ok ? new Set(got.names) : null;
+  } catch { removedAgents = null; }
+  // Review 1 (BLOCKER): a FIRST render works inside its folder (r-<pid>-...) before the record exists, so a sweep
+  // during it must not take the folder. A folder with a LIVE render in it is skipped (review 2), and one with no record is left
+  // until it is YOUNG_MS old (a render's own timeout is far shorter).
+  const now = deps.now || Date.now();
+  // Review 1: removed-agent names are stored cleaned (create.cleanName), so the owner is compared the same way.
+  let clean = (n) => n;
+  try { clean = require('./create').cleanName; } catch { /* compare as given */ }
+  let removed = 0;
+  for (const e of ents) {
+    const d = path.join(CACHE, e.name);
+    let inside = [];
+    try { inside = fs.readdirSync(d); } catch { inside = []; }
+    // Review 2 (WARNING): a render folder (r-<pid>-...) protects this folder only while it is live: its process is still
+    // running and it is younger than YOUNG_MS. One a crash or restart left behind holds a full copy of the person's PDF,
+    // so it is removed now, and the folder is then judged as any other.
+    let rendering = false;
+    for (const n of inside) {
+      if (!n.startsWith('r-')) continue;
+      const m = /^r-(\d+)-/.exec(n);
+      const pid = m ? Number(m[1]) : NaN;
+      let alive = pid === process.pid;
+      if (!alive && Number.isSafeInteger(pid) && pid > 0) {
+        try { (deps.kill || process.kill)(pid, 0); alive = true; } catch (er) { alive = !!(er && er.code === 'EPERM'); }
+      }
+      let young = false;
+      // Real time, not deps.now: whether a render is still running is a fact about this moment.
+      try { young = Date.now() - fs.statSync(path.join(d, n)).mtimeMs < YOUNG_MS; } catch { young = false; }
+      if (alive && young) { rendering = true; continue; }
+      // Review 3: a removal that fails does not shield the folder; it is judged below, which tries to remove it whole.
+      try { fs.rmSync(path.join(d, n), { recursive: true, force: true }); } catch { /* judged below */ }
+    }
+    if (rendering) continue;   // a render is in progress here
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(path.join(d, SOURCE_FILE), 'utf8')); } catch { rec = null; }
+    if (!rec) {
+      let young = true;
+      try { young = now - fs.statSync(d).mtimeMs < YOUNG_MS; } catch { young = true; }
+      if (young) continue;
+    }
+    let gone = !rec || typeof rec.target !== 'string';
+    if (!gone) {
+      try { gone = !fs.lstatSync(rec.target).isFile(); } catch { gone = true; }
+    }
+    if (!gone && rec.owner && rec.owner.kind === 'project' && projectIds) gone = !projectIds.has(rec.owner.id);
+    if (!gone && rec.owner && rec.owner.kind === 'agent' && removedAgents) {
+      let c = rec.owner.id;
+      try { c = clean(rec.owner.id) || rec.owner.id; } catch { c = rec.owner.id; }
+      gone = removedAgents.has(rec.owner.id) || removedAgents.has(c);
+    }
+    if (gone) { try { fs.rmSync(d, { recursive: true, force: true }); removed++; } catch { /* next sweep */ } }
+  }
+  return { removed };
 }
 
 /** Show the listed file selected in its folder (Finder / File Explorer), never opening it. */
@@ -130,4 +226,4 @@ function reveal(folder, name, where, opts) {
   return projects.revealFile(got.target, { namedAs: path.join(String(folder), got.given) });   // the record's spelling, for Windows (as openFile)
 }
 
-module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, resolve, preview, reveal, _setNofollowForTest };
+module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, SOURCE_FILE, resolve, preview, reveal, sweep, _setNofollowForTest };

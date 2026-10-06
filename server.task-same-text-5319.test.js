@@ -179,7 +179,10 @@ test('#5319: the macOS CLI prints the note from a real answer, and nothing witho
   const mac = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
   const i = mac.indexOf('added to ${project:-the project}');
   assert.ok(i > 0, 'the macOS CLI still says the task was added');
-  const after = mac.slice(i, i + 700);
+  // #5376: anchored on the note's own lift, so a line added between the sentence and the note cannot push it out of view.
+  const j = mac.indexOf('local _note;', i);
+  assert.ok(j > i, 'the note is lifted after the added sentence');
+  const after = mac.slice(j, j + 400);
   const lift = (after.match(/^\s*local _note; (_note=\$\(printf '%s' "\$body" \| sed -n .*\))$/m) || [])[1];
   assert.ok(lift, 'the macOS CLI lifts the note with one sed line after the added sentence');
   assert.match(after, /if \[ -n "\$_note" \]; then say "\$_note"; fi ;;/);
@@ -206,7 +209,11 @@ test('#5319: the Windows CLI prints the note after the added sentence (run, not 
   const note = 'Note: an open task with the same text already exists: #1 (Verify Theo AI). If this is the same ask, close the new one: kosmos task close p5319 31';
   const withNote = await go({ task: { number: 31, who: null }, note });
   assert.equal(withNote.code, 0, withNote.err);
-  assert.equal(withNote.out, 'Task 31 added to p5319. See it with: kosmos task list p5319\n' + note);
+  // #5376: who null, so the nobody-has-it line comes between the sentence and the note.
+  const nobody = 'Nobody has it yet: it waits for someone to take it, or Kosmos gives it to an idle agent on the project. To choose who does it: kosmos task assign p5319 31 <agent> (or me)';
+  assert.equal(withNote.out, 'Task 31 added to p5319. See it with: kosmos task list p5319\n' + nobody + '\n' + note);
   const without = await go({ task: { number: 31, who: null } });
-  assert.equal(without.out, 'Task 31 added to p5319. See it with: kosmos task list p5319', 'CONTROL: no note, one line');
+  assert.equal(without.out, 'Task 31 added to p5319. See it with: kosmos task list p5319\n' + nobody, 'CONTROL: no note, no note line');
+  const owned = await go({ task: { number: 31, who: 'mara' } });
+  assert.equal(owned.out, 'Task 31 added to p5319, for mara. See it with: kosmos task list p5319', 'CONTROL: given to someone, no nobody line');
 });

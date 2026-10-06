@@ -77,7 +77,7 @@ const CODEX_OUT_OF_CREDITS = [
   let served = ACCOUNTS;   // round 3: swapped for a no-target world below
   await page.route('**/api/accounts', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ accounts: served }) }));
   let posted = null;
-  await page.route('**/api/agent/*/provider', (r) => { posted = JSON.parse(r.request().postData() || '{}'); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'changed', provider: 'anthropic', because: 'Claude it is.' }) }); });
+  await page.route('**/api/agent/*/provider', (r) => { posted = JSON.parse(r.request().postData() || '{}'); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'changed', provider: 'anthropic', accountDir: ACCOUNTS[0].dir, because: 'Claude it is.' }) }); });   // #5145: the route names an account; the PICK (account-b) must still win
   try {
     await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(1500);
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
@@ -131,7 +131,7 @@ const CODEX_OUT_OF_CREDITS = [
     const modelRow = await page.evaluate(() => { const m = document.getElementById('d-model'); return m ? [...m.options].map((o) => o.textContent).join(' | ') : 'no #d-model'; });
     chk(!/GPT|Sol/.test(modelRow) && /^Claude \(its default model\)/.test(modelRow), "#5091: after the switch the model row says Claude's default model, not the old provider's model or Unknown Model", modelRow.slice(0, 200));
     const runsOn = await page.$eval('#d-runson', (e) => e.textContent);
-    chk(/Claude/.test(runsOn) && /b@example\.com/.test(runsOn), '#5091: Right now names Claude and the picked account', runsOn);
+    chk(/Claude/.test(runsOn) && /b@example\.com/.test(runsOn), '#5091 + #5145: Right now names Claude and the picked account (the pick wins over the account the route names)', runsOn);
     // Round 3: and they speak for the NEW provider: the Move row lists the Claude accounts, on the one picked.
     // The Move menu's first option ("") names the account it is ON; the rest are the Claude accounts it could move to.
     const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { here: (s.options[0] || {}).textContent || '', opts: [...s.options].slice(1).map((o) => o.value), msg: document.getElementById('d-account-msg').textContent }; });

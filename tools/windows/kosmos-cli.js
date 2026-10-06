@@ -89,7 +89,7 @@ const USAGE = {
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|assign|close|message|built|hold|unhold>',
+    'Usage: kosmos task <list|add|assign|close|message|built|hold|unhold|repeat|ran>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -102,6 +102,9 @@ const USAGE = {
     '      --clear                                                  take the built mark off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
+    '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
+    '      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
+    '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -747,7 +750,9 @@ async function taskList(ctx, args) {
        name reads as what it is. Same as install/kosmos task list. */
     const key = (v) => String(v).toLowerCase().replace(/[^a-z0-9_-]/g, '');   // as store.safeKey keys a name; addedBy can be that key
     const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => key(n) !== '' && key(n) === key(x.addedBy))) ? ' [added by ' + q(x.addedBy) + ']' : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids);
+    /* kosmos#4787 review 3, as install/kosmos: a repeating task says so, with its next run in the board's words. */
+    const rep = !x.isClosed && x.repeatWords ? ' [repeats ' + one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : '') + ']' : '';
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids + rep);
   }
   return 0;
 }
@@ -804,6 +809,8 @@ async function taskAdd(ctx, args) {
     /* #5175: the new task's number, from the board's answer; a missing or odd one keeps the sentence without it. */
     const num = Number.isInteger(r.json.task.number) && r.json.task.number > 0 ? ' ' + r.json.task.number : '';
     ctx.out('Task' + num + ' added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project);
+    /* #5376, as install/kosmos: given to nobody (the board says null), the Assigner may hand it to an idle agent; say so. */
+    if (r.json.task.who === null) ctx.out('Nobody has it yet: it waits for someone to take it, or Kosmos gives it to an idle agent on the project. To choose who does it: kosmos task assign ' + project + ' ' + (num ? num.trim() : '<task-number>') + ' <agent> (or me)');
     if (typeof r.json.note === 'string' && r.json.note) ctx.out(r.json.note);   // #5319: open tasks with the same text
     return 0;
   }
@@ -942,6 +949,67 @@ async function taskBuilt(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when marking that task.');
+  return 1;
+}
+
+/* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
+   names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon]   (or --clear)';
+async function taskRepeat(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  let every = '', at = '', on = '', clear = false, want = '';
+  for (const a of args.slice(2)) {
+    if (want) { if (want === 'at') at = a; else on = a; want = ''; continue; }
+    if (a === '--at') want = 'at';
+    else if (a === '--on') want = 'on';
+    else if (a === '--clear') clear = true;
+    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a)) every = a;
+    else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task repeat', REPEAT_USAGE, a); return 2; }
+    else { ctx.err('Say how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
+  }
+  if (want) { ctx.err('--at and --on each need a value. ' + REPEAT_USAGE); return 2; }
+  const body = { every, clear, from_pane: '' };
+  if (at) body.at = at;
+  if (on) body.on = on;
+  return taskRepeatCall(ctx, project, num, 'repeat', body, clear);
+}
+const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...")';
+async function taskRan(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num) { ctx.err(RAN_USAGE); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  /* #4787 review 1, as install/kosmos: --note is ran's one option, a bare -- ends options, any other --word is refused. */
+  const words = [];
+  let past = false, want = false;
+  for (const a of args.slice(2)) {
+    if (want) { words.push(a); want = false; continue; }
+    if (!past && a === '--') { past = true; continue; }
+    if (!past && a === '--note') { want = true; continue; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task ran', RAN_USAGE, a); return 2; }
+    words.push(a);
+  }
+  if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
+  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), from_pane: '' }, false);
+}
+async function taskRepeatCall(ctx, project, num, which, body, clear) {
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
+  if (!r.reached) {
+    /* review 1: not "safe" to repeat for a run: a second ran records a second run (a minute apart or more). */
+    return r.timedOut ? maybe(ctx.err, which === 'ran'
+      ? 'Kosmos was slow to answer and we stopped waiting. The run may have been recorded; check the task (kosmos task list ' + project + ') before recording it again.'
+      : 'Kosmos was slow to answer and we stopped waiting. It may have been done; check the task (kosmos task list ' + project + ') before doing it again.')
+      : ctx.unreachable('change that task');
+  }
+  if (r.json && r.json.task) {
+    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + '.')
+      : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
+        : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '. Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when changing that task.');
   return 1;
 }
 
@@ -1604,7 +1672,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },

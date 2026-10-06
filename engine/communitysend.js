@@ -252,6 +252,18 @@ function channelChoice(spec) {
   if (parts.length === 2 && CHANNELS[slug] !== parts[0]) return refuse();
   return { ok: true, slug };
 }
+/* kosmos#5171 (beta day, Angel): agents on 0.7.22 still wrote `kosmos community post general "..."`, and the CLI posted
+   "general ..." as the text. When no channel was given and the post's first word IS a channel name, the board asks
+   rather than guesses. Returns the channel slug, or null. Review 1: only the slug EXACTLY as typed, lowercase, as the
+   first whole word of the body (a trailing colon or comma allowed): the measured mistake is an argument typed before the
+   text, and thirteen slugs are ordinary sentence openers ("Security note:", "Testing the new flow") that a capital
+   keeps out. Review 2: the parent/sub form too (`engineering/testing`, the shape `community read --channel` shows), as
+   long as it names a real channel. Not caught, on purpose: markdown or quotes before the word ("# general"). */
+function leadingChannelWord(text) {
+  const m = typeof text === 'string' ? text.match(/^\s*([a-z][a-z-]*(?:\/[a-z][a-z-]*)?)[:,]?(\s|$)/) : null;
+  if (!m) return null;
+  return channelChoice(m[1]).ok ? m[1] : null;
+}
 function payload(post, channel) {
   const board = typeof post.board === 'string' && post.board ? post.board : null;
   const parent = !channel && board ? SUB_CHANNEL_PARENT[board] : undefined;
@@ -2177,7 +2189,7 @@ module.exports = {
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
-  CHANNELS, channelChoice, // kosmos#5171
+  CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries

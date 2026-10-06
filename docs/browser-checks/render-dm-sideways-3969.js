@@ -1,4 +1,4 @@
-// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-nav dhead dav-wrap d-talk-caprow panel-detail
+// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-nav dhead dav-wrap d-talk-caprow panel-detail d-linklost-msg
 'use strict';
 
 /**
@@ -85,6 +85,10 @@ function measure() {
     back: !!(R('#panel-detail > .back') || {}).shown, search: !!(R('#d-talk-search-wrap') || {}).shown, avatar: !!(R('.dhead .dav-wrap') || {}).shown,
     // The conversation's heading stays in the tree for screen readers (visually hidden on a phone), whatever the search box does.
     heading: (() => { const e = document.getElementById('d-talk-label'); return !!e && getComputedStyle(e).display !== 'none' && getComputedStyle(e.parentElement).display !== 'none'; })(),
+    /* kosmos#5388: the empty lost-link follow-up line is in the accessibility tree (not display:none) and OUT of the
+       flow (not a flex item, so its parent's gap is not charged for it). */
+    linkMsg: (() => { const e = document.getElementById('d-linklost-msg'); if (!e) return null; const cs = getComputedStyle(e);
+      return { empty: e.textContent === '', display: cs.display, position: cs.position }; })(),
   };
 }
 
@@ -98,6 +102,8 @@ function measure() {
         const m = await page.evaluate(measure);
         chk(m.docH <= m.vis + 1 && m.docW <= m.vw, `${t} the page does not scroll, down or sideways`, JSON.stringify({ docH: m.docH, vis: m.vis, docW: m.docW, vw: m.vw }));
         chk(m.shownThread >= MIN_THREAD_PX, `${t} at least ${MIN_THREAD_PX}px of the conversation is on screen`, `shown=${m.shownThread}`);
+        chk(!!m.linkMsg && m.linkMsg.empty && m.linkMsg.display !== 'none' && m.linkMsg.position === 'absolute',
+          `${t} #5388 the empty lost-link line is not display:none (kept for screen readers) and is out of the flow (no gap charged)`, JSON.stringify(m.linkMsg));
         chk(m.composer, `${t} the message box and Post are on screen`, JSON.stringify(m));
         chk(m.profile && m.profile.onScreen && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and a ${MIN_TAP_PX}px target`, JSON.stringify(m.profile));
         chk(!m.search && m.heading, `${t} an empty search box steps aside, and the conversation keeps its heading for screen readers`, JSON.stringify({ search: m.search, heading: m.heading }));
@@ -130,6 +136,8 @@ function measure() {
         const m = await page.evaluate(measure);
         chk(m.docH <= m.vis + 1 && m.docW <= m.vw, `${t} the page does not scroll, down or sideways`, JSON.stringify({ docH: m.docH, vis: m.vis, docW: m.docW, vw: m.vw }));
         chk(m.shownThread >= MIN_THREAD_PX, `${t} at least ${MIN_THREAD_PX}px of the conversation is on screen`, `shown=${m.shownThread}`);
+        chk(!!m.linkMsg && m.linkMsg.empty && m.linkMsg.display !== 'none' && m.linkMsg.position === 'absolute',
+          `${t} #5388 the empty lost-link line is not display:none (kept for screen readers) and is out of the flow (no gap charged)`, JSON.stringify(m.linkMsg));
         chk(m.composer, `${t} the message box and Post are on screen`, JSON.stringify(m));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await ctx.close();
@@ -154,7 +162,7 @@ function measure() {
       await browser.close();
     }
   }
-  const EXPECTED_PER_ENGINE = 73;   // 8 sideways runs x 7, 2 of them (640x360) +1 active search, 1 (640x360 light) +1 signed-out swarm, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
+  const EXPECTED_PER_ENGINE = 83;   // 8 sideways runs x 8, 2 of them (640x360) +1 active search, 1 (640x360 light) +1 signed-out swarm, 2 wide-sideways runs x 5, 2 portrait x 2, 2 mouse (#5388: +1 per sideways and wide run)
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);
