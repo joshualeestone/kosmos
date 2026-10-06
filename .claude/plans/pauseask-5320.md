@@ -8,20 +8,22 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
 (rejected: a new interaction surface and an authority path triggered by agent-written content); it is one instruction.
 
 ## Change (engine/projects.js blockRules().member)
-- Right after the pause line: "If you cannot tell whether they mean the whole project, ask them in the same place they
-  asked, and pause it if they say yes. Tell them they can also press Pause beside the project's name themselves."
-  (review 1: not "in the room", since the request can come directly; placed after the pause line so "they" is the pause
-  request. Review 2: "where they asked" read as "ask where"; and it now says what to do on a yes)
-- The resume pointer names the button: "tell them to press Resume beside the project's name, at the top of its page"
-  (was "tell them it is on the project's page").
+- The pause line and its consequence stay together ("the room is told you paused it" is true of the agent's pause,
+  not of a press on the screen: review 3). The resume pointer names the button: "tell them to press Resume beside the
+  project's name, at the top of its page" (was "tell them it is on the project's page").
+- Then: "If you cannot tell whether your person means the whole project, ask them in the same place they asked (they can
+  also press Pause beside the project's name, at the top of its page), and pause it if they say yes. If they mean only
+  some tasks, put those on hold: `kosmos task hold <project-id> <task-number>`."
+  Review 1: not "in the room" (the request can come directly). Review 2: say what to do on a yes. Review 3: the Pause
+  pointer is given while asking (afterwards the button reads Resume), "your person" not "they", and a no has a verb.
 - Delivery: part 1 (#5409, merged) owes a running member a re-read when its block is next rewritten (a task or
   membership change) and the rule is new there. Until then it keeps the old pointer ("it is on the project's page"),
   which is still true.
 
 ## Ordering
 Do NOT merge before #5395: the line names a button that only exists once it lands. ENFORCED by a test (review 1): it
-reads web/index.html for id="pj-head-pause" and checks paintHeadPause (which labels it) names it with 'Pause' and
-'Resume' (review 2: not one pinned source line), so it is red on main until #5395 lands and
+reads web/index.html for id="pj-head-pause" within 600 bytes after id="pj-one-name" (beside the name), and checks
+paintHeadPause alone (to its closing brace; review 3) names it with 'Pause' and 'Resume' (review 2: not one pinned line), so it is red on main until #5395 lands and
 red again if the button is ever removed or renamed.
 
 ## Tests

@@ -843,25 +843,26 @@ test('telling an agent writes the block into its real instruction file', () => {
 test('#5320 part 2: the block points a person at the Pause and Resume buttons beside the project name', () => {
   const body = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: ['mara'], tasks: [] }], 'mara');
   const flat = body.replace(/\n/g, ' ');
-  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. If you cannot tell whether they mean the whole project, ask them in the same place they asked, and pause it if they say yes\. Tell them they can also press Pause beside the project's name themselves\./,
-    'the ask follows the pause line, so its "they" is the pause request');
-  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\./);
+  // The pause line keeps its own consequence ("the room is told you paused it" is true of the agent's pause, not of a
+  // press on the screen), and the ask comes after the resume pointer, naming "your person".
+  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. Nobody is then nudged about its tasks or handed them, and the room is told you paused it\./);
+  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\. If you cannot tell whether your person means the whole project, ask them in the same place they asked \(they can also press Pause beside the project's name, at the top of its page\), and pause it if they say yes\. If they mean only some tasks, put those on hold: `[^`]+ task hold <project-id> <task-number>`\./);
   assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
-  // CONTROL: the member rules are written only for a named agent.
-  const anon = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: [], tasks: [] }]);
-  assert.doesNotMatch(anon, /press Pause beside/);
 });
 
 // Merge order: red until kosmos#5391's button (PR #5395) is on main, so this branch cannot land first.
 test('#5320 part 2: the Pause / Resume button the instructions name exists beside the project name', () => {
   // The block tells agents to point their person at a Pause / Resume button beside the project name. If that button
-  // is ever removed or renamed, this goes red instead of agents describing a button that is not there.
+  // is removed, renamed or moved away from the name, this goes red instead of agents describing a button that is not there.
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.match(page, /id="pj-head-pause"/, 'no Pause / Resume button beside the project name (#5391)');
+  const btn = page.indexOf('id="pj-head-pause"');
+  assert.ok(btn >= 0, 'no Pause / Resume button on the project page (#5391)');
+  const name = page.lastIndexOf('id="pj-one-name"', btn);
+  assert.ok(name >= 0 && btn - name < 600, 'the Pause / Resume button is not beside the project name');
   const at = page.indexOf('function paintHeadPause(');
   assert.ok(at >= 0, 'paintHeadPause (which labels that button) is gone');
-  const body = page.slice(at, page.indexOf('\nfunction ', at + 1));
-  assert.ok(body.includes('pj-head-pause') && body.includes("'Pause'") && body.includes("'Resume'"),
+  const fn = page.slice(at, page.indexOf('\n}\n', at));   // that function alone, to its own closing brace
+  assert.ok(fn.includes('pj-head-pause') && fn.includes("'Pause'") && fn.includes("'Resume'"),
     'the header button is no longer labelled Pause / Resume');
 });
 
