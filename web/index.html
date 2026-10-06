@@ -46107,6 +46107,8 @@ function copyTextViaExec(text, back) {
    take its refusal back. Call it before any await in the press handler. */
 /* #5275 review 1: whether focus is still where the press left it (the button, or nowhere), so a refusal that comes 3 s
    later does not pull the caret out of a field the person has moved on to. */
+/* #5275 review 2: an earlier press's held write landed after the screen moved on to a newer code. */
+const COPY_LATE_OLDER = 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.';
 function copyFocusStillOn(btn) {
   const a = document.activeElement;
   return !a || a === btn || a === document.body;
@@ -60529,10 +60531,10 @@ document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 /* kosmos#4649: the "add your other computer" code for the project open in settings. On the other
    computer it goes into Join a project, which shows it as shared by "your other computer". */
 const PJS_OWN = { projectId: null };
-let PJS_OWN_COPY_BUSY = false;   // kosmos#5275: a Copy press is still asking the clipboard
+let PJS_OWN_COPY_BUSY = '';   // kosmos#5275: the code a Copy press is still asking the clipboard about ('' when none)
 function pjsOwnReset(projectId) {
   PJS_OWN.projectId = projectId || null;
-  PJS_OWN_COPY_BUSY = false;   // #5275 review 1: a held copy for the old project must not eat the next code's press (its answer is dropped by the code check)
+  PJS_OWN_COPY_BUSY = '';   // #5275 review 1: a held copy for the old project must not eat the next code's press (its answer is dropped by the code check)
   document.getElementById('pjs-own-row').hidden = true;
   document.getElementById('pjs-own-code').value = '';
   document.getElementById('pjs-own-msg').textContent = '';
@@ -60570,12 +60572,12 @@ async function pjsOwnCopy() {
   const msg = document.getElementById('pjs-own-msg');
   const btn = document.getElementById('pjs-own-copy');
   const text = code.value;
-  if (!text || PJS_OWN_COPY_BUSY) return;   // one press at a time (#5275)
-  PJS_OWN_COPY_BUSY = true;
+  if (!text || PJS_OWN_COPY_BUSY === text) return;   // one press at a time per code (#5275 review 2, see pjCopyInvite)
+  PJS_OWN_COPY_BUSY = text;
   let ok = false;
   // kosmos#5275: the invite sheet's order (copyTextOrdered); a late write takes the refusal back while the same code shows.
-  try { ok = await copyTextOrdered(text, btn, () => { if (code.value === text) msg.textContent = 'Code copied.'; }); }
-  finally { PJS_OWN_COPY_BUSY = false; }
+  try { ok = await copyTextOrdered(text, btn, () => { if (code.value === text) msg.textContent = 'Code copied.'; else if (code.value) msg.textContent = COPY_LATE_OLDER; }); }   // see pjCopyInvite
+  finally { if (PJS_OWN_COPY_BUSY === text) PJS_OWN_COPY_BUSY = ''; }
   if (code.value !== text) return;   // a new code arrived meanwhile
   if (!ok) { try { if (copyFocusStillOn(btn)) code.focus(); code.select(); } catch { /* the field is the fallback */ } }   // #5275 review 1: see pjCopyInvite
   msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
@@ -68235,7 +68237,7 @@ document.getElementById('pj-add-pick').addEventListener('change', () => {
    drive your computer -- no copy here may imply otherwise. */
 let PJ_JOIN_VERIFIED = null;   // the verify() snapshot {edge_id, project_name, project_desc, owner_handle}
 let PJ_JOIN_ADD_AGENTS = [];   // the receiver's OWN agents to bring onto the joined project
-let PJ_COPY_BUSY = false;      // kosmos#5275: a copy press is still asking the clipboard
+let PJ_COPY_BUSY = '';         // kosmos#5275: the code a copy press is still asking the clipboard about ('' when none)
 let PJ_COPY_TIMER = null;      // the "Copied" -> "Copy" revert timer, cleared on reset so a reopen mid-window cannot clobber new state
 // A stable local project ref for a create-with-invite, minted once per Add-Project open and reused
 // by every invite on this form so several invites on one not-yet-created project agree on one ref.
@@ -68277,7 +68279,7 @@ function pjSetAddMode(mode) {
 
 // Reset the whole federation surface to a clean create-mode state (called from openAddProject).
 function pjResetFederation() {
-  PJ_COPY_BUSY = false;   // #5275 review 1: a held copy from before the reset must not eat the next code's press (its answer is dropped by the code check)
+  PJ_COPY_BUSY = '';   // #5275 review 1: a held copy from before the reset must not eat the next code's press (its answer is dropped by the code check)
   PJ_FEDERATION_REF = null;
   PJ_FEDERATION_MINTED = false;
   PJ_JOIN_VERIFIED = null;
@@ -68399,7 +68401,9 @@ async function pjCopyInvite() {
   const btn = document.getElementById('pj-invite-copy');
   const status = document.getElementById('pj-invite-status');
   const text = codeEl ? codeEl.value : '';
-  if (!text || PJ_COPY_BUSY) return;   // one press at a time (#5275), as the Plus address copy does
+  // One press at a time per code (#5275 review 2): keyed on the text, so a held press for an old code neither blocks
+  // a new code's press nor, when it settles, clears that newer press's flag.
+  if (!text || PJ_COPY_BUSY === text) return;
   // The answer, on the button and in the aria-live status (a button text swap is not announced to a screen reader
   // unless it is focused there). ONE cancellable timer reverts both, cleared on reset so a reopen within the 2s
   // window cannot fire onto a different project's fresh state. A late write comes back through here too, so its
@@ -68414,12 +68418,22 @@ async function pjCopyInvite() {
       if (status) status.textContent = 'Share this code with the person or agent you are inviting.';
     }, 2000);
   };
-  PJ_COPY_BUSY = true;
+  PJ_COPY_BUSY = text;
   let ok = false;
   // kosmos#5275: the invite sheet's order (copyTextOrdered). A write that lands after the 3 s limit takes the refusal
   // back, but only while this screen still shows the code it copied.
-  try { ok = await copyTextOrdered(text, btn, () => { if (codeEl.value === text) say(true); }); }
-  finally { PJ_COPY_BUSY = false; }
+  // A late write for a code this screen no longer shows has just replaced whatever was copied since, so the line says
+  // what the clipboard now holds rather than leaving a newer "Code copied." standing (the sheet's rule, fedCopyText).
+  try {
+    ok = await copyTextOrdered(text, btn, () => {
+      if (codeEl.value === text) { say(true); return; }
+      if (!codeEl.value) return;   // no code on screen (reset): nothing to correct
+      if (PJ_COPY_TIMER) { clearTimeout(PJ_COPY_TIMER); PJ_COPY_TIMER = null; }
+      btn.textContent = 'Copy';
+      if (status) status.textContent = COPY_LATE_OLDER;
+    });
+  }
+  finally { if (PJ_COPY_BUSY === text) PJ_COPY_BUSY = ''; }
   if (codeEl.value !== text) return;   // a new code arrived meanwhile: this press's answer is about the old one
   // The fallback: the code selected, so the copy keys the line names copy it. Focus moves to it only if it is still on
   // the button (or nowhere): after a 3 s wait the person may be typing elsewhere (#5275 review 1).
