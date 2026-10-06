@@ -1,6 +1,6 @@
 # realroot-5418: a test process is refused this machine's real data root
 
-Card: kosmos#5418 (found by Renet on a fleet Mac, 2026-10-06). Owner: April. Claimed 2026-10-06 15:1x CDT (claim log).
+Card: kosmos#5418 (found by Renet on a fleet Mac, 2026-10-06). Owner: April. Claimed 2026-10-06 15:10 CDT (claim log, 20:10:48Z).
 
 ## Mechanism (measured)
 About forty engine modules freeze `store.ROOT` at require time (`const DIR = path.join(store.ROOT, ...)`;
