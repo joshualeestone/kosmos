@@ -1,4 +1,4 @@
-// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-nav dhead dav-wrap d-talk-caprow panel-detail
+// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-nav dhead dav-wrap d-talk-caprow panel-detail d-linklost-msg
 'use strict';
 
 /**
