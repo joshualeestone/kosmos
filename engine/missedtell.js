@@ -79,7 +79,7 @@ function markTold(item, outcome) {
     tasks: (p.tasks || []).map((x) => (x && x.number === item.n ? { ...x, missToldAt: new Date(item.slot).toISOString() } : x)),
   }));
   taskchat.record(item.projectId, item.n, {
-    kind: 'missed', slot: new Date(item.slot).toISOString(), count: item.count,   // review 1: taskchat stamps its own `at`
+    kind: 'missed', slot: new Date(item.slot).toISOString(), count: item.count, ...(item.more ? { more: true } : {}),   // review 1: taskchat stamps its own `at`
     ...(item.person ? { person: true } : { told: item.reviewer, reached: outcome === 'reached' }),
   });
 }

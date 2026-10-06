@@ -254,3 +254,17 @@ test('#4787 slice 3 review 4: a process stopping a task whose reviewer the perso
   assert.equal(r.status, 403);
   assert.match(r.json.error, /only they can stop it repeating/);
 });
+
+test('#4787 slice 3 review 6: a process cannot close a task whose reviewer the person chose (it would drop the choice)', async () => {
+  const n = newTask('Close guard');
+  const mona = sendertoken.mint('mona');
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, { 'x-kosmos-agent-token': mona.token });
+  let r = await post(`/api/project/${projectId}/task/${n}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200, 'CONTROL: an agent may close a task whose rule it set and whose reviewer nobody chose: ' + JSON.stringify(r.json));
+  const m = newTask('Close guard 2');
+  await post(`/api/project/${projectId}/task/${m}/repeat`, { every: 'daily', at: '09:00' }, { 'x-kosmos-agent-token': mona.token });
+  await post(`/api/project/${projectId}/task/${m}/repeat`, { reviewer: 'fixture' }, screen);
+  r = await post(`/api/project/${projectId}/task/${m}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(stored(m).repeatReviewer, 'fixture');
+});
