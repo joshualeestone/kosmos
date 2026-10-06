@@ -105,6 +105,16 @@ test('📌 linux is KNOWINGLY unhandled, and this records it rather than hiding 
     'linux now has its own branch, which is good: replace this test with one asserting XDG');
 });
 
+/* #5418: a test process is never given the real data root unless it says so. These controls read
+   the real root's PATH on purpose (nothing is written; the legacy migration is off for the read). */
+function withRealRootAllowed(fn) {
+  const saved = { KOSMOS_ALLOW_REAL_ROOT: process.env.KOSMOS_ALLOW_REAL_ROOT, KOSMOS_NO_LEGACY_MIGRATION: process.env.KOSMOS_NO_LEGACY_MIGRATION };
+  process.env.KOSMOS_ALLOW_REAL_ROOT = '1';
+  process.env.KOSMOS_NO_LEGACY_MIGRATION = '1';
+  try { return fn(); }
+  finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+}
+
 test('CONTROL: the live ROOT is built by the same function', () => {
   /* Without this, dataRootFor could be a correct function nothing calls, which
      is a defect I shipped twice this week. */
@@ -115,6 +125,6 @@ test('CONTROL: the live ROOT is built by the same function', () => {
      about the derivation. The control is unweakened: it still asserts ROOT comes
      out of dataRootFor and not from some other rule, which is the whole point. */
   const productHome = process.env.AGENT_WORKFORCE_HOME || require('node:os').homedir();
-  assert.equal(store.ROOT, store.dataRootFor(process.platform, productHome, process.env),
+  assert.equal(withRealRootAllowed(() => store.ROOT), store.dataRootFor(process.platform, productHome, process.env),
     'ROOT is derived some other way, so every assertion above is about a function the product does not use');
 });

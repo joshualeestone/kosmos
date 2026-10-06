@@ -16,31 +16,29 @@ const { spawnSync } = require('node:child_process');
 const STORE = path.join(__dirname, 'store.js');
 const SANDBOX_VARS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT'];
 
-function rootIn(extra) {
-  const env = Object.assign({}, process.env);
-  for (const k of SANDBOX_VARS) delete env[k];
-  env.HOME = os.userInfo().homedir;   // the real home, unless an arm points it elsewhere
-  env.KOSMOS_NO_LEGACY_MIGRATION = '1';
-  Object.assign(env, extra);
-  const r = spawnSync(process.execPath, ['-e', 'try { process.stdout.write("ROOT=" + require(' + JSON.stringify(STORE) + ').ROOT) } catch (e) { process.stdout.write("THREW=" + e.message) }'], { env, encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  return r.stdout;
-}
-const realRoot = () => require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA });
-
+/* A child's env: no sandbox and no test marker unless the arm adds them, the real HOME, and no
+   legacy migration, so a child only ever READS a path. */
 function childEnv(extra) {
   const env = Object.assign({}, process.env);
   for (const k of SANDBOX_VARS) delete env[k];
   Object.assign(env, { HOME: os.userInfo().homedir, KOSMOS_NO_LEGACY_MIGRATION: '1' }, extra);
   return env;
 }
+function rootIn(extra) {
+  const r = spawnSync(process.execPath, ['-e', 'try { process.stdout.write("ROOT=" + require(' + JSON.stringify(STORE) + ').ROOT) } catch (e) { process.stdout.write("THREW=" + e.message) }'], { env: childEnv(extra), encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout;
+}
+const realRoot = () => require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA });
+
 function runJs(src, extra) {
   const r = spawnSync(process.execPath, ['-e', 'const s = require(' + JSON.stringify(STORE) + '); ' + src], { env: childEnv(extra), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stderr, /MaxListenersExceeded/, r.stderr);
   return JSON.parse(r.stdout);
 }
-const underTmp = (p) => p.startsWith(os.tmpdir()) || p.startsWith(fs.realpathSync(os.tmpdir()));
+const within = (p, dir) => { const rel = path.relative(dir, p); return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel); };
+const underTmp = (p) => within(p, os.tmpdir()) || within(p, fs.realpathSync(os.tmpdir()));
 
 for (const [label, marker] of [['node --test (NODE_TEST_CONTEXT)', { NODE_TEST_CONTEXT: 'child-v8' }], ['tools/run-tests.sh (KOSMOS_TEST_RUN=1)', { KOSMOS_TEST_RUN: '1' }]]) {
   test('#5418: a ' + label + ' process with no sandbox gets a throwaway store root, never the real one, and no variable is set', () => {
@@ -67,6 +65,20 @@ test('#5418: a test that sets HOME AFTER its first store read is honoured from t
     assert.ok(first.includes(require('./store').TEST_HOME_PREFIX), first);
     assert.ok(later === path.join(tmp, 'Library', 'Application Support', require('./store').APP) || later === path.join(fs.realpathSync(tmp), 'Library', 'Application Support', require('./store').APP), later);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('#5418: every caller that derives the root agrees: store.ROOT, create.supportDir and worlds.baseRoot answer the same throwaway', () => {
+  const dir = path.dirname(STORE);
+  const got = runJs('const create = require(' + JSON.stringify(path.join(dir, 'create.js')) + '); const worlds = require(' + JSON.stringify(path.join(dir, 'worlds.js')) + ');'
+    + ' process.stdout.write(JSON.stringify({ root: s.ROOT, support: create.supportDir(), base: worlds.baseRoot() }))', { NODE_TEST_CONTEXT: 'child-v8' });
+  assert.ok(got.root.includes(require('./store').TEST_HOME_PREFIX), got.root);
+  assert.equal(got.support, got.root);
+  assert.equal(got.base, got.root);
+});
+
+test('#5418: a sandbox variable aimed INSIDE the real root (a named world under it) is refused', () => {
+  const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_DATA: path.join(realRoot(), 'worlds', 'w5418') });
+  assert.match(out, /^THREW=store: a test process resolved this machine's REAL data root/, out);
 });
 
 test('#5418: a sandbox variable that still points at the real store is refused by name', () => {
