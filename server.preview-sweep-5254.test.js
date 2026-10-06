@@ -213,6 +213,19 @@ test('#5254 review 2: a render folder left by a crash (dead or old) is removed w
   fs.utimesSync(path.join(stuck, 'r-' + process.pid + '-bbbbbbbbbbbb'), longAgo, longAgo);
   filepreview.sweep({ removal: NOBODY_REMOVED, now: later, kill: alive });
   assert.equal(fs.existsSync(path.join(stuck, 'r-' + process.pid + '-bbbbbbbbbbbb')), false, 'an old render folder of a live process stayed');
+  // Review 3: another process that is alive (or answers EPERM: alive, not ours to signal) and young protects too.
+  const eperm = () => { const e = new Error('not permitted'); e.code = 'EPERM'; throw e; };
+  for (const [tag, kill] of [['alive', alive], ['eperm', eperm]]) {
+    const other = path.join(filepreview.CACHE, (tag === 'alive' ? '7' : '8').repeat(32));
+    fs.mkdirSync(path.join(other, 'r-999998-dddddddddddd'), { recursive: true });
+    filepreview.sweep({ removal: NOBODY_REMOVED, kill });
+    assert.equal(fs.existsSync(path.join(other, 'r-999998-dddddddddddd')), true, `a young render of another live process (${tag}) was taken`);
+    // A reused pid: alive but old by the real clock, so not a render in progress; removed.
+    fs.utimesSync(path.join(other, 'r-999998-dddddddddddd'), longAgo, longAgo);
+    filepreview.sweep({ removal: NOBODY_REMOVED, kill });
+    assert.equal(fs.existsSync(path.join(other, 'r-999998-dddddddddddd')), false, `an old render of another live process (${tag}) stayed`);
+    fs.rmSync(other, { recursive: true, force: true });
+  }
   // CONTROL: a live and young render folder still protects its folder (the round-1 race).
   const live = path.join(filepreview.CACHE, '9'.repeat(32));
   fs.mkdirSync(path.join(live, 'r-' + process.pid + '-cccccccccccc'), { recursive: true });

@@ -37,7 +37,8 @@ related tests + guards 1092/1092.
 ## 10-06: rebased onto main after #5119 merged; review 2 (second reviewer)
 - Rebased with --onto past the merged #5119 commits; one conflict in server.js start(): #5247's snapshotWorlds() and
   this card's sweep both open start(); kept both, snapshot first.
-- Review 2 WARNINGs, all fixed with tests and controls (each new arm fails on the previous filepreview.js):
+- Review 2 WARNINGs, all fixed with tests (arms 1 and 2 fail on the previous filepreview.js; arm 3 is coverage of
+  behaviour the code already had, so it passes there too):
   1. A symlinked cache folder: the sweep would remove old record-less folders wherever it pointed. Now sweep() runs only
      when the cache folder itself is a real folder (lstat).
   2. A render folder left by a crash shielded its cache folder, and its full copy of the PDF, forever. Now a render
@@ -49,3 +50,7 @@ related tests + guards 1092/1092.
   a removed agent whose folder remains gets a "could not draw" message for a page swept right after drawing (deleting
   is right; the wording is a follow-up, not this card).
 - Verified: 55 files (every board-booting test, the preview, download and gate tests, the guards) 1257 pass, 0 fail.
+- Review 3: a render folder whose removal fails no longer shields its cache folder (it is judged and removed whole);
+  tests now cover another live process (alive and EPERM) protecting while young and being removed once old (pid reuse).
+  NIT kept: after a crashed render folder is removed, its empty parent may survive one more sweep (its mtime moved);
+  the PDF copy itself is already gone.
