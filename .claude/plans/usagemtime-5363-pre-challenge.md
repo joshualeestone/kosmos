@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: usagemtime-5363
-diff_hash: c050eac474f1614d82c160f313816e67bbbccbd64671d16d2d00c1fa6d0b9987
-validation: pending (focused at 3ad1a3036: 128 related and audit test files, 3737 tests, 0 fail; the full suite and the equivalence run against a full read run after the 03:00 cut, per Splinter's queue call)
+diff_hash: 63f55b75e5d842d196fbb4ecba6c825f6f6de11e1f1639cab74071921fcab598
+validation: pending the full suite (focused: 128 related and audit test files, 3737 tests, 0 fail; the equivalence merge gate PASSED on real data 2026-10-06 03:06: yesterday exactly equal, 5,638,236,935 tokens and 19 folders; today sandwiched)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-06T03:41:17Z
+timestamp: 2026-10-06T08:07:08Z
 iterations: 4
 converged: true
 ---
