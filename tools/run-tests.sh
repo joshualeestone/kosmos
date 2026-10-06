@@ -195,10 +195,10 @@ kosmos_test_locale_pin
 # migration to relocate a legacy seed.
 export KOSMOS_NO_LEGACY_MIGRATION=1
 # #5418: marks every process this run starts (node and shell tests alike) as a test, so
-# engine/store.js never hands any of them this machine's REAL data root: a test with no
-# sandbox gets a throwaway store root instead, and one whose sandbox variable still points at
-# the real store is refused by name. (node --test marks its own files with NODE_TEST_CONTEXT;
-# this covers the shell tests and anything they start.)
+# engine/store.js never hands any of them this machine's REAL data root (a throwaway store
+# root instead). A step that must read the real store says KOSMOS_ALLOW_REAL_ROOT=1. (node
+# --test marks its own files with NODE_TEST_CONTEXT; this covers the shell tests and anything
+# they start.)
 export KOSMOS_TEST_RUN=1
 # A throwaway is removed when its process exits; one that was killed leaves it in tmp. This
 # runs before TMPDIR is re-pointed below, so it reaches the leftovers of direct `node --test`
