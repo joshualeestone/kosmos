@@ -25,8 +25,8 @@ Baseline before A merged (run 37001432347, 10-02): 146 fail of 14,207.
 - report-hook-killguard-4671 kept at main's bounds (widening hid #5420).
 - The tmux test's skip reason replaced by the measured one, and limited to Linux.
 - The skips this takeover added use `process.platform === 'linux'`, so Windows coverage is unchanged (create.test.js
-  runs on the Windows job). Two kept from the PR use `!== 'darwin'` (codexsession, projects.open-why-1199); neither
-  file runs on the Windows job.
+  runs on the Windows job). One kept from the PR uses `!== 'darwin'` (projects.open-why-1199, not on the Windows job). The
+  codexsession skip is keyed on its premise instead (os.tmpdir() not reached through a symlink), review 4.
 - Review 1: the leftoverJob test now skips only its temp-folder arm on Linux; the preview test runs everywhere and
   asserts the answer the disk gives (adopt on a case-insensitive disk, make on a case-sensitive one).
 - install/kosmos lsof lookup: the two absolute paths only (no PATH fallback: it added trust and no coverage).
