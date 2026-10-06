@@ -1448,6 +1448,7 @@ const closeAll = (page) => page.evaluate(() => {
     // #5373: wait until the answer is in and handled (FED_BUSY, see B10b), not a fixed 250 ms.
     await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const mNo = await modal(page);
+    const cAsked = (await gets(page)) - c0;   // read before B18h, whose own loads would make it pass anyway
     f = await readFed(page, '#pj-fed-outside');
     // B18h: the same refusal when the list asked again says this board is not the owner: no section, but the
     // sentence still shows, alone (it does not vanish with the section).
@@ -1461,7 +1462,7 @@ const closeAll = (page) => page.evaluate(() => {
     check('B18h a not-owner refusal whose reload hides the section still shows its sentence, alone (control: no heading, no rows)',
       fh.heads.length === 0 && fh.rows.length === 0 && fh.msgs.includes('Only the owner of this project can change who is in it.'), JSON.stringify(fh));
     check('B18c Remove not-owner: the dialog closes, the owner-list sentence beside the list, the list asked again',
-      !mNo.open && f.msgs.includes('Only the owner of this project can change who is in it.') && (await gets(page)) > c0, JSON.stringify({ open: mNo.open, msgs: f.msgs }));
+      !mNo.open && f.msgs.includes('Only the owner of this project can change who is in it.') && cAsked >= 1, JSON.stringify({ open: mNo.open, msgs: f.msgs, cAsked }));
     await page.evaluate(() => { window.__withdraw = 'throw'; });
     await act(page, 'i:inv-lee');
     // #5373: wait until the dropped Withdraw is handled (FED_BUSY, see B10b), not a fixed 200 ms.
