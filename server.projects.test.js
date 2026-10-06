@@ -1825,7 +1825,7 @@ test('a project reusing an earlier name says its OWN conversation is empty, not 
     });
 });
 
-test('the folder-preview ROUTE answers the case-corrected path, not the raw derivation', { skip: !caseInsensitiveFS() && 'case correction requires case-insensitive filesystem' }, async () => {
+test('the folder-preview ROUTE answers the case-corrected path, not the raw derivation', async () => {
   // ⚠️ The route's docblock is where "the path shown is the path the act
   // produces" is promised, and swapping folderPathPreview back to
   // folderPathFor there failed nothing (round 13) -- the engine function was
