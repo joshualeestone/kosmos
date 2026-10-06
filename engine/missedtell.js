@@ -16,6 +16,10 @@
 const taskrepeat = require('./taskrepeat');
 
 const MAX_TRIES = 3;
+/* Review 10: a reviewer is typed into only after it has been seen idle for a minute (two passes in a row), as the nudge and
+   the reply nudge wait for an idle that has lasted, so a line never lands the instant it finishes answering the person. */
+const SETTLED_MS = 50 * 1000;
+const SEEN_GAP_MS = 90 * 1000;   // a sighting older than this is not "the previous pass": the reviewer may have worked since
 const HOUR_MS = 60 * 60 * 1000;
 
 /* One line of plain words, as the nudge writes them (agentnudge.plainWords: control characters and quotes out, so the
@@ -104,6 +108,17 @@ function sweep(o) {
     for (const k of [...book.keys()]) { const slot = Number(String(k).split('@').pop()); if (Number.isFinite(slot) && now - slot > 7 * 24 * HOUR_MS) book.delete(k); }
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
     const cards = new Map((Array.isArray(o.roster) ? o.roster : []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
+    /* Review 10: when each card was first seen idle in an unbroken run of passes (`o.idleSeen`, kept across passes). */
+    const seen = o.idleSeen instanceof Map ? o.idleSeen : new Map();
+    const nudgeable = require('./agentnudge').nudgeableCard;
+    for (const [sn, c] of cards) {
+      if (!nudgeable(c)) { seen.delete(sn); continue; }
+      const e = seen.get(sn);
+      seen.set(sn, e && now - e.at <= SEEN_GAP_MS ? { since: e.since, at: now } : { since: now, at: now });
+    }
+    /* Review 10: one line per reviewer per pass. The roster is read once, so a second line would see the reviewer idle
+       although the first may have raised a prompt its Enter could answer. */
+    const typedTo = new Set();
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
     for (const item of owed(o.projects, now)) {
       try {
@@ -120,8 +135,12 @@ function sweep(o) {
         /* Review 9: the nudge's card rule WHOLE (agentnudge.nudgeableCard): ours, not a switched-off swarm, and IDLE. Typed
            into a pane stopped on a permission prompt, "...and Enter" can answer it; a rate-limited or signed-out session
            cannot take it either. Held with no try spent; it goes on a later minute, once the reviewer is idle. */
-        if (!require('./agentnudge').nudgeableCard(card)) { results.push({ ...item, act: 'held', because: 'the reviewer is not idle, or cannot be typed into' }); continue; }
+        if (!nudgeable(card)) { results.push({ ...item, act: 'held', because: 'the reviewer is not idle, or cannot be typed into' }); continue; }
+        if (typedTo.has(item.reviewer)) { results.push({ ...item, act: 'held', because: 'one line to a reviewer per minute' }); continue; }
+        const idle = seen.get(item.reviewer);
+        if (!idle || now - idle.since < SETTLED_MS) { results.push({ ...item, act: 'held', because: 'the reviewer has only just gone idle' }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
+        typedTo.add(item.reviewer);
         let state = null;
         let wait = false;
         try { const r = o.deliver(item.reviewer, tellText(item, o.nameOf), o.roster); state = r && r.state; wait = Boolean(r && (r.held === true || r.busy === true)); }

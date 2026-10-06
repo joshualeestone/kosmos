@@ -20974,6 +20974,7 @@ function start(port = PORT) {
       const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
       const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
       const MISSED_TELL_BOOK = new Map();   // kosmos#4787 slice 3: tries per (task, missed slot) for an agent reviewer
+      const MISSED_TELL_IDLE = new Map();   // slice 3 review 10: when each reviewer was first seen idle, across passes
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -21053,7 +21054,7 @@ function start(port = PORT) {
             projects: projs, roster: r, now: Date.now(),
             allowed,
             limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
-            sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK,
+            sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK, idleSeen: MISSED_TELL_IDLE,
             deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
