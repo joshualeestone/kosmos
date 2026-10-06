@@ -59990,14 +59990,17 @@ function tkPaintRepeat(p, t) {
   const msg = document.getElementById('tk-repeat-msg');
   const key = p.id + '#' + t.number;
   if (msg && msg.dataset.task !== key) msg.textContent = '';
-  if (done) return;
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
   document.getElementById('tk-repeat-row').hidden = false;
   const every = document.getElementById('tk-repeat-every');
   const stored = JSON.stringify(tkRepeatStoredChoice(t));
   const newTask = every.dataset.task !== key;
-  // Review 1: never under a person mid-choice (a control has focus), the same guard the due date uses; another task always.
-  const choosing = ['tk-repeat-every', 'tk-repeat-day', 'tk-repeat-at', 'tk-repeat-save'].includes(document.activeElement && document.activeElement.id);
-  if (newTask || (every.dataset.stored !== stored && !choosing)) {
+  /* Review 2: the controls follow the stored rule unless the person has an unsaved choice (what they show differs from
+     what was last painted as stored); another task always repaints. Judged by the choice, not by focus, which can sit on
+     a control long after the person has finished. */
+  const edited = JSON.stringify(tkRepeatChoice()) !== every.dataset.stored;
+  if (newTask || (every.dataset.stored !== stored && !edited)) {
+    if (!newTask && msg && msg.dataset.task === key) msg.textContent = '';   // review 2: a rule changed elsewhere retires the Saved line
     const c = tkRepeatStoredChoice(t);
     every.value = c.clear ? '' : c.every;
     // Review 1: a task with no time or day of its own starts from Monday 9am, never the last task's unsaved choice.
@@ -60036,14 +60039,17 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
   const msg = document.getElementById('tk-repeat-msg');
   btn.disabled = true;
   if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }
+  const sent = tkRepeatChoice();
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(tkRepeatChoice()),
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sent),
     });
     const out = await res.json().catch(() => null);
     // Review 1: an answer belongs to its own task; a person who moved on sees nothing of it.
     const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
     if (!res.ok) { if (still()) { if (msg) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); } return; }
+    // Review 2: what was saved is now what is stored, so the repaint below follows it rather than reading it as unsaved.
+    if (still()) document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
     await pjReload();
     paintTaskActivity(TK_OPEN);
     if (still()) {

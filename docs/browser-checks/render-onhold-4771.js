@@ -153,19 +153,20 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => !document.getElementById('tk-repeat-line').hidden, null, { timeout: 5000 }).catch(() => {});
       chk(/^Repeats every Tuesday at 10:30am\. No run reported yet\. Next /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save'),
         `${tag} #4787 Save sets the rule: the board's sentence shows and Save goes off again`, await text(page, '#tk-repeat-line'));
-      // Review 1: a person mid-choice keeps it through a refresh; a rule changed elsewhere reaches the controls once they are not choosing.
+      /* Review 2: an unsaved choice survives a refresh EVEN WHEN the stored rule changes under it (the rule moves to hourly
+         elsewhere while the person has Every day chosen); once their choice matches what was stored, the controls follow. */
+      const setRule = (body) => page.evaluate(([id, b]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.status), [winter.id, body]);
       await page.selectOption('#tk-repeat-every', 'day');
+      chk(await setRule({ every: 'hour' }) === 200, `${tag} #4787 the rule changes elsewhere (setup)`);
       await page.evaluate(async () => { await pjReload(); });
-      chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.isEnabled('#tk-repeat-save'),
-        `${tag} #4787 an unsaved choice survives the board's refresh`, await page.inputValue('#tk-repeat-every'));
-      await page.evaluate(() => document.activeElement && document.activeElement.blur());
-      await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'hour' }) }), winter.id);
+      chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.isEnabled('#tk-repeat-save') && /^Repeats every hour/.test(await text(page, '#tk-repeat-line') || ''),
+        `${tag} #4787 an unsaved choice survives a refresh that changed the stored rule; the line says the stored rule`, await page.inputValue('#tk-repeat-every'));
+      await page.selectOption('#tk-repeat-every', 'week');   // back to what was last painted as stored (the Tuesday rule): no unsaved choice
+      chk(await setRule({ every: 'day', at: '07:45' }) === 200, `${tag} #4787 the rule changes again (setup)`);
       await page.evaluate(async () => { await pjReload(); });
-      await page.waitForFunction(() => document.getElementById('tk-repeat-every').value === 'hour', null, { timeout: 5000 }).catch(() => {});
-      chk(await page.inputValue('#tk-repeat-every') === 'hour' && /^Repeats every hour/.test(await text(page, '#tk-repeat-line') || ''),
-        `${tag} #4787 a rule changed elsewhere reaches the controls and the line (control for the arm above)`, await text(page, '#tk-repeat-line'));
-      await page.fill('#tk-repeat-at', '');
-      await page.selectOption('#tk-repeat-every', 'day');
+      await page.waitForFunction(() => document.getElementById('tk-repeat-every').value === 'day', null, { timeout: 5000 }).catch(() => {});
+      chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.inputValue('#tk-repeat-at') === '07:45' && await page.isDisabled('#tk-repeat-save'),
+        `${tag} #4787 with no unsaved choice the controls follow a rule changed elsewhere (control for the arm above)`, await page.inputValue('#tk-repeat-at'));
       await page.fill('#tk-repeat-at', '');
       chk(await page.isDisabled('#tk-repeat-save') && /Choose a time/.test(await text(page, '#tk-repeat-msg') || ''),
         `${tag} #4787 an empty time is no choice: Save stays off and the page asks for a time`, await text(page, '#tk-repeat-msg'));
