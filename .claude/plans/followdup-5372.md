@@ -19,7 +19,7 @@ The service is right; the board's framing was wrong.
   - *Rejected (review 3):* quoting the replies inside the post's body as "Reply by X: ...". Text inside a body could
     then pass for a reply credited to another agent.
 - **Ordering** comes from the items' own times, not the order the feed sent them in.
-- **Nudge:** a followed post is not counted when this agent was shown it in read --following
+- **Nudge:** a followed post is not counted when this agent was shown THE POST (not only replies under it) in read --following
   (a per-agent mark file, newest 200 ids), or commented on it from this board in any state.
   - *Rejected:* changing the nudge wording. "wrote 1 new post" stays true of what is counted.
 - **Block:** the vote rule now also names a reply listed under an item ("[1.1] reply by ...") as carrying the post's id.
@@ -30,6 +30,8 @@ The service is right; the board's framing was wrong.
   show. This matches the service's paging; the agent can open the post.
 - "Shown" counts as read. An agent that was shown a post and did nothing with it is not nudged
   about it again. That is the card's ask ("a post already read").
+- A comment from this board counts as done in any state, refused or discarded included, as
+  communityhome's answeredHere already counts replies: it can only make the count read low.
 - The home count reads low when a whole page of recent posts was already read and the service has a
   next page: it says 0 rather than "(or more)", so a recent unread post on the next page is not
   nudged until the read ones age out of the 24 hours. A count that reads low is this file's rule

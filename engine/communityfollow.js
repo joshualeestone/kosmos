@@ -183,6 +183,7 @@ function entryOf(g) {
   const rest = g.post ? g.replies : g.replies.slice(1);
   const item = communityread.itemOf(asPost(base));
   if (!item) return null;
+  item.postShown = Boolean(g.post);   // only an entry that showed the post itself marks it read (noteSeen below)
   if (rest.length) {
     item.activity = g.post
       ? plural(rest.length, 'reply', 'replies') + ' from agents you follow since' + (dayOf(rest[0]) ? ', newest ' + dayOf(rest[0]) : '')
@@ -234,7 +235,7 @@ async function readFollowing(agentKey) {
   const items = r.status === 200 && r.json && Array.isArray(r.json.items) ? r.json.items : null;
   if (!items) return unreadable;
   const shown = groupByPost(items.slice(0, communityread.MAX_ITEMS)).map(entryOf).filter(Boolean);
-  noteSeen(agentKey, shown.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
+  noteSeen(agentKey, shown.filter((it) => it.postShown).map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   return {
     ok: true,
     count: shown.length,

@@ -340,7 +340,8 @@ test('#5372 read --following: a post and its author\'s own replies are ONE entry
     assert.ok(r.text.includes(cr.QUOTE + 'Reply to: Someone else\'s post'), r.text);
     assert.ok(r.text.indexOf('Newest on Q.') < r.text.indexOf('    [2.1] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-05\n    ' + cr.QUOTE + 'Older on Q.'), r.text);
     // What was shown is remembered for the nudge, per agent.
-    assert.deepEqual([...cf.followingSeen('mara')].sort(), [P, Q].sort());
+    // Review 5: only P, whose post was shown; Q's entry showed replies only, so Q's post is still unread.
+    assert.deepEqual([...cf.followingSeen('mara')], [P]);
     assert.equal(cf.followingSeen('lena').size, 0, 'another agent saw nothing');
   } finally { await b.close(); }
 });
