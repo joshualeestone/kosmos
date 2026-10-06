@@ -803,10 +803,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   border: 1px solid var(--gold-bright); min-height: 32px; }
 .acct-box.acct-land { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright) 75%, transparent); }
 @media (prefers-reduced-motion: no-preference) { .acct-box.acct-land { transition: box-shadow .3s ease; } }
-/* #5407: on Settings > AI Models the login notices step aside. Every row they are about says the same thing there, in
-   place, with its own Sign in again; floating over the list they covered the very row Refresh login lands on. They
-   come back on every other screen. */
-body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv-slot { display: none; }
+/* #5407: on Settings > AI Models a login notice steps aside when ITS row there says the same thing (marked
+   adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row Refresh login lands on.
+   Review 2: only then. A notice whose row is missing or not warned (a symlinked folder, a date read still on its
+   way) stays, so an expiring login is never left with no warning on screen. Every other screen shows them all. */
+body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv-slot .login-adv.adv-covered { display: none; }
 /* #2264: the per-connection actions on ONE bar-separated row instead of stacked
    single links. Each action after the first carries a left bar (--k-rule, the
    same hairline as the box), so an OpenAI two-action row and a Claude
@@ -21821,7 +21822,7 @@ function paintLoginAdvisories(advs) {
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
     // role=status on the words, not the notice, so the close button is not read out with every announcement.
-    return '<div class="utoast login-adv ' + sev + '">'
+    return '<div class="utoast login-adv ' + sev + '" data-adv-dir="' + esc(a.dir || '') + '">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
       /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
@@ -21830,6 +21831,7 @@ function paintLoginAdvisories(advs) {
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
+  loginAdvSyncCovered();
   slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'))));
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
@@ -21865,6 +21867,15 @@ function loginAdvGo(dir) {
      in it (settingsOpen), and acctLand moves it on to the row's Sign in again once the row paints; with no row for that
      folder it stays in the section (render-refreshlogin-5407 C2). */
   acctLand();
+}
+/* Review 2: mark each login notice whose account's row in AI Models carries the warning; only those step aside there.
+   Called after either side paints. */
+function loginAdvSyncCovered() {
+  const warned = new Set([...document.querySelectorAll('#set-accounts .acct-box.acct-expiring[data-acct-dir]')].map((r) => r.getAttribute('data-acct-dir')));
+  document.querySelectorAll('#login-adv-slot .login-adv').forEach((n) => {
+    const d = n.getAttribute('data-adv-dir');
+    n.classList.toggle('adv-covered', !!d && warned.has(d));
+  });
 }
 /* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
 function acctLanded(dir) { return !!dir && dir === ACCT_LAND_DIR && Date.now() < ACCT_LAND_UNTIL; }
@@ -26199,7 +26210,7 @@ async function paintAccounts(opts) {
       const when = loginAdvWhen(stopsAt);
       connBadge = '<span class="acct-unverified acct-stopsat" title="' + esc('This account\'s sign-in has run out. Its agents keep working on the access they already hold until ' + when.replace(/^at /, '') + ', then stop. Sign in again before then to keep them running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · stops working ' + esc(when) + '</span>';
     } else if (loginEnded) {
-      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('This account\'s sign-in has run out, and its agents have stopped. Sign in again to bring them back.') + '"><span class="dot" aria-hidden="true"></span>Login expired</span>';
+      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('This account\'s sign-in has run out. Sign in again to bring its agents back.') + '"><span class="dot" aria-hidden="true"></span>Login expired</span>';
     } else if (expiresIn !== null) {
       connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + (expiresDate || 'soon') + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · login ' + esc(expiresWords) + '</span>';
     } else if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
@@ -26262,7 +26273,7 @@ async function paintAccounts(opts) {
     const signInFirst = claudeSignIn && (!!stopsAt || loginEnded || expiresIn !== null);
     const soonLine = !claudeSignIn ? ''
       : stopsAt ? 'Its login has ended, and its agents stop working ' + loginAdvWhen(stopsAt) + '. Sign in again to keep them running.'
-      : loginEnded ? 'Its login has ended, and its agents have stopped. Sign in again to bring them back.'
+      : loginEnded ? 'Its login has ended. Sign in again to bring its agents back.'   // review 2: no claim the cache cannot prove
       : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + ': sign in again to keep its agents running.'
       : '';
     const soonId = soonLine ? 'acct-soon-' + (++ACCT_SOON_SEQ) : '';   // review 1: the line describes the main button
@@ -26473,6 +26484,7 @@ async function paintAccounts(opts) {
   const fEl = followUp && box.contains(document.activeElement) ? document.activeElement : null;
   const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  loginAdvSyncCovered();   // #5407: a notice whose row now says the same thing steps aside here
   acctLand();   // #5407: arriving from the login notice
   if (fAttr) {
     const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);

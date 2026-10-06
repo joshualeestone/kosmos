@@ -19,7 +19,8 @@
  *   K1  the one-screen layout (Settings last on another section): opens AI Models, rings the row, focuses Sign in
  *       again, the notices step aside; CONTROL: leaving brings them back
  *   T1  the ring goes when its time is up, with no repaint
- *   N2  on AI Models the login notices step aside; CONTROL: back on the board they show again
+ *   N2  on AI Models a notice steps aside when its row carries the warning; CONTROL: back on the board they show again
+ *   N3  a notice with no warned row on AI Models (a folder with no row) stays
  *   P1  on a phone (touch), Refresh login and the main Sign in again are at least 44px tall
  * Light and dark.
  *
@@ -172,7 +173,7 @@ function readRows(page) {
     chk(soon.mainGold === gold, theme + ' R1: it is the gold primary', soon.mainGold + ' vs ' + gold);
     chk(soon.describedBy, theme + ' R1: the line describes the main Sign in again (screen readers)');
     const gone = rows['gone@example.com'] || {};
-    chk(gone.line === 'Its login has ended, and its agents have stopped. Sign in again to bring them back.', theme + ' R3: the ended-and-stopped row says so', JSON.stringify(gone.line));
+    chk(gone.line === 'Its login has ended. Sign in again to bring its agents back.', theme + ' R3: the ended row says so', JSON.stringify(gone.line));
     chk(/Login expired/.test(gone.badge || '') && gone.firstIsReauth && /acct-expiring/.test(gone.cls || ''), theme + ' R3: its badge, and Sign in again is its main action', JSON.stringify(gone));
 
     const ended = rows['ended@example.com'] || {};
@@ -202,9 +203,11 @@ function readRows(page) {
       ringed: document.querySelectorAll('#set-accounts .acct-box.acct-land').length,
       rows: document.querySelectorAll('#set-accounts .acct-box[data-acct-dir]').length,
       focusInSection: document.getElementById('s-sec-accounts').contains(document.activeElement),
+      noticeStays: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length,
     }));
     chk(c2.open && c2.rows === 4 && c2.ringed === 0, theme + ' C2 CONTROL: no row for that folder: AI Models opens, nothing ringed', JSON.stringify(c2));
     chk(c2.focusInSection, theme + ' C2: focus stays in AI Models, not lost to the page', JSON.stringify(c2));
+    chk(c2.noticeStays === 1, theme + ' N3 (review 2): a notice with no warned row on screen stays, so the login is never left unwarned', JSON.stringify(c2));
     await p2.close();
   }
 
