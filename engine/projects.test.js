@@ -845,8 +845,8 @@ test('#5320 part 2: the block points a person at the Pause and Resume buttons be
   const flat = body.replace(/\n/g, ' ');
   // The pause line keeps its own consequence ("the room is told you paused it" is true of the agent's pause, not of a
   // press on the screen), and the ask comes after the resume pointer, naming "your person".
-  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. Nobody is then nudged about its tasks or handed them, and the room is told you paused it\./);
-  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\. If you cannot tell whether your person means the whole project, ask them in the same place they asked \(they can also press Pause beside the project's name, at the top of its page; if they do, nothing more is needed\), and pause it if they say yes\. If they mean only some tasks, put those on hold: `[^`]+ task hold <project-id> <task-number>`\. If they say no, leave it as it is\./);
+  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. Nobody is then nudged about its tasks or handed them, and the room is told you paused it \(unless it already was\)\./);
+  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\. If you cannot tell whether your person means the whole project, ask them in the same place they asked, and tell them they can also press Pause beside the project's name, at the top of its page \(if they do, nothing more is needed\)\. If they say yes, pause it; if they want nothing paused, leave it as it is; if they mean only some tasks, put those on hold: `[^`]+ task hold <project-id> <task-number>`\./);
   assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
 });
 
@@ -861,7 +861,9 @@ test('#5320 part 2: the Pause / Resume button the instructions name exists besid
   assert.ok(name >= 0 && btn - name < 600, 'the Pause / Resume button is not beside the project name');
   const at = page.indexOf('function paintHeadPause(');
   assert.ok(at >= 0, 'paintHeadPause (which labels that button) is gone');
-  const fn = page.slice(at, page.indexOf('\n}\n', at));   // that function alone, to its own closing brace
+  const end = page.indexOf('\n}\n', at);
+  assert.ok(end > at, 'paintHeadPause has no closing brace at column 0');
+  const fn = page.slice(at, end);   // that function alone, to its own closing brace
   assert.ok(fn.includes('pj-head-pause') && fn.includes("'Pause'") && fn.includes("'Resume'"),
     'the header button is no longer labelled Pause / Resume');
 });
