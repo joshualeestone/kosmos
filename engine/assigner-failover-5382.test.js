@@ -150,19 +150,20 @@ test('waits out a limit whose known reset is within RESET_SOON_MS, and moves whe
   } finally { w.restore(); }
 });
 
-test('never moves a part on hold, of a built task, or that is finished', () => {
+test('never moves a part on hold, in a paused project, of a built or webhook task, or that is finished', () => {
   const w = world([{ name: 'hldlim', paneState: 'rate_limited' }, { name: 'hldgem', runner: 'gemini' }]);
   try {
     const h = heldTask(w.pid, w.key.hldlim, 'write the deploy notes');
     assert.equal(later(w).toAssign.length, 1, 'control: the open part moves');
-    const t = projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === h.n);
     const recs = (mut) => projects.readAll().map((p) => (p.id !== w.pid ? p
       : { ...p, tasks: p.tasks.map((x) => (x.number === h.n ? mut(x) : x)) }));
+    assert.equal(later(w, { records: recs((x) => ({ ...x, onHold: true })) }).toAssign.length, 0, 'moved a task on hold');
     assert.equal(later(w, { records: recs((x) => ({ ...x, builtAt: '2026-10-06T00:00:00Z' })) }).toAssign.length, 0, 'moved a built task');
     assert.equal(later(w, { records: recs((x) => ({ ...x, addedVia: 'webhook' })) }).toAssign.length, 0, 'moved a webhook task');
     const closed = (x) => ({ ...x, parts: tasks.progressOf(x).parts.map((q) => ({ ...q, closedAt: '2026-10-06T00:00:00Z' })) });
     assert.equal(later(w, { records: recs(closed) }).toAssign.length, 0, 'moved a finished part');
-    assert.ok(t, 'fixture: task not found');
+    const paused = projects.readAll().map((p) => (p.id === w.pid ? { ...p, paused: true } : p));
+    assert.equal(later(w, { records: paused }).toAssign.length, 0, 'moved a part in a paused project');
   } finally { w.restore(); }
 });
 
@@ -176,6 +177,18 @@ test('assignPart failover move: refused unless the part is still on the limited 
     assert.equal(tasks.assignPart(w.pid, h.n, h.partId, w.key.apgem, { via: 'assigner', onlyIfWho: w.key.aplim, failover: true }).ok, false,
       'moved a finished part');
     tasks.setPartClosed(w.pid, h.n, h.partId, null);
+    // Each of the other write-time refusals, set and cleared through the real APIs.
+    const madeOk = { via: 'assigner', onlyIfWho: w.key.aplim, failover: true };
+    const arms = [
+      ['built', () => tasks.setBuilt(w.pid, h.n, { person: true }), () => tasks.clearBuilt(w.pid, h.n)],
+      ['on hold', () => tasks.setOnHold(w.pid, h.n, true, { viaScreen: true }), () => tasks.setOnHold(w.pid, h.n, false, { viaScreen: true })],
+      ['paused', () => projects.mutate(w.pid, (p) => ({ ...p, paused: true })), () => projects.mutate(w.pid, (p) => ({ ...p, paused: false }))],
+    ];
+    for (const [what, set, clear] of arms) {
+      set();
+      assert.equal(tasks.assignPart(w.pid, h.n, h.partId, w.key.apgem, { ...madeOk }).ok, false, 'moved a part of a task ' + what);
+      clear();
+    }
     const ok = tasks.assignPart(w.pid, h.n, h.partId, w.key.apgem, { via: 'assigner', onlyIfWho: w.key.aplim, failover: true });
     assert.equal(ok.ok, true, JSON.stringify(ok));
     const part = tasks.progressOf(ok.task).parts.find((q) => Number(q.id) === Number(h.partId));
