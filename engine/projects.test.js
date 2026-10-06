@@ -846,7 +846,7 @@ test('#5320 part 2: the block points a person at the Pause and Resume buttons be
   // The pause line keeps its own consequence ("the room is told you paused it" is true of the agent's pause, not of a
   // press on the screen), and the ask comes after the resume pointer, naming "your person".
   assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. Nobody is then nudged about its tasks or handed them, and the room is told you paused it \(unless it already was\)\./);
-  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\. If you cannot tell whether your person means the whole project, ask them in the same place they asked, and tell them they can also press Pause beside the project's name, at the top of its page \(if they do, nothing more is needed\)\. If they say yes, pause it; if they want nothing paused, leave it as it is; if they mean only some tasks, put those on hold: `[^`]+ task hold <project-id> <task-number>`\./);
+  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\. If you cannot tell whether your person means the whole project, ask them in the same place they asked, and tell them they can also press Pause beside the project's name, at the top of its page\. When they answer: if they pressed it, nothing more is needed; if they say yes, pause it; if they want nothing paused, leave it as it is; if they mean only some tasks, put those on hold: `[^`]+ task hold <project-id> <task-number>`\./);
   assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
 });
 
