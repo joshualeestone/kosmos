@@ -462,3 +462,15 @@ test('#5358 review 13: a Gemini key the environment carried in another spelling 
     assert.equal(env.NO_BROWSER, 'true', spelled + ': a keyed Gemini agent would wait on a browser login');
   }
 });
+
+test('#5358 review 14: an inherited key in another spelling, with no account key or door, is still read as the key', () => {
+  const root = path.join(SANDBOX, 'genv-5358b');
+  fs.mkdirSync(root, { recursive: true });
+  const mod = fakeAccounts(root, {});
+  const env = keyed.turnEnv('gemini', { gemini_api_key: 'AMBIENT' }, null, { geminiAccounts: mod, doorDir: null, keyHome: null });
+  assert.deepEqual(Object.keys(env).filter((k) => k.toUpperCase() === 'GEMINI_API_KEY'), ['GEMINI_API_KEY']);
+  assert.equal(env.GEMINI_API_KEY, 'AMBIENT');
+  assert.equal(env.NO_BROWSER, 'true', 'a keyed Gemini agent would wait on a browser login');
+  const none = keyed.turnEnv('gemini', {}, null, { geminiAccounts: mod, doorDir: null, keyHome: null });
+  assert.equal('GEMINI_API_KEY' in none, false, 'control: nothing inherited, nothing set');
+});

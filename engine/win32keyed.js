@@ -53,7 +53,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const runners = require('./runners');
-const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
+const { envDelete, envSet, envCanon } = require('./win32env');   // #5358: one key per name, whatever its case
 
 const KEYED_RUNNERS = Object.freeze(['gemini', 'grok']);
 const DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.6' });
@@ -309,6 +309,8 @@ function pinKeyAuth(home, bridge) {
 function turnEnv(runner, base, configDir, deps) {
   const d = deps || {};
   const env = Object.assign({}, base || {});
+  // #5358: names this function reads back by their usual spelling, moved to it from any inherited spelling first.
+  for (const n of ['GEMINI_API_KEY', 'GEMINI_CLI_HOME', 'XAI_API_KEY', 'GROK_HOME']) envCanon(env, n);
   /* childEnv writes CLAUDE_CONFIG_DIR for any named account, a Claude variable a Gemini or
      Grok agent has no use for (and Grok's claude-compat layer reads), in any spelling (#5358). */
   envDelete(env, 'CLAUDE_CONFIG_DIR');
