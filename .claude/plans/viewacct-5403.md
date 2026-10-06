@@ -1,6 +1,6 @@
 # viewacct-5403: View account opens login.kosmosplus.com/account
 
-Card: kosmos#5403 (follow-up to #5397). Owner: April. Started 2026-10-06 11:0x CDT.
+Card: kosmos#5403 (follow-up to #5397). Owner: April. Started 2026-10-06 10:57 CDT.
 
 ## Why
 Sign out everywhere and Delete account move off the Kosmos+ sign-in home to a new
@@ -26,7 +26,7 @@ which would have made Copy hand out the account view and the buy fallback
   its Copy expectation (the home) is unchanged and acts as the control.
 
 ## Merge gate
-Do NOT merge until the account view is live. At 11:0x `/account` returned 404, the same as a
+Do NOT merge until the account view is live. At 10:57 `/account` returned 404, the same as a
 made-up path, so shipping first would send View account to a 404.
 
 The PR opens as a DRAFT with HOLD in its title, so an agent following the merge-when-green
