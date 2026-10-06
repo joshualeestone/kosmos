@@ -63,8 +63,8 @@ test('unitFor generates valid systemd unit with all parameters', () => {
   assert.match(content, /^\[Service\]/m);
   assert.match(content, /^ExecStart="\/bin\/bash" .* "subzero" .* "\/usr\/bin\/claude" "\/usr\/bin\/tmux" .* "claude-3-5-sonnet-20241022"/m);
   assert.match(content, /^Restart=always/m);
-  assert.match(content, /^RestartSec=5$/m, 'a session that ends comes back quickly (#4918 review 11)');
-  assert.match(content, /^RestartMaxDelaySec=30$/m, 'repeated failures back off to 30 s');
+  assert.match(content, /^RestartSec=10$/m, 'a constant delay (#4918 review 13)');
+  assert.doesNotMatch(content, /^RestartSteps=|^RestartMaxDelaySec=/m, 'no growing delay: its counter only clears on an explicit start');
   assert.match(content, /^SuccessExitStatus=129 130 143$/m, 'the supervisor\'s TERM exit (143) is a clean stop, not a failure');
   assert.match(content, /^Environment="CLAUDE_CONFIG_DIR=\/home\/user\/\.claude-custom"/m);
   assert.match(content, /^Environment="LANG=C\.UTF-8"/m);
