@@ -441,7 +441,9 @@ function del(name, opts) {
     const what = 'its startup job';
     let out;
     try {
-      out = require('./linuxjob').remove(p.name);   // { ok } only when the unit file is gone (#4918 review 1)
+      // { ok } only when the unit file is gone (#4918 review 1); through this module's run() seam (review 7).
+      const lj = require('./linuxjob');
+      out = lj.runWith((file, args) => run(file, args), () => lj.remove(p.name));
     } catch (err) {
       out = { ok: false, because: String((err && err.message) || err) };
     }

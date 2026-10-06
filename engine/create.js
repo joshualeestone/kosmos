@@ -363,6 +363,18 @@ let runner = null;
  * cross-branch reference that put a call to a nonexistent function in this
  * file's own route once already.)
  */
+/* #4918 review 7: every systemctl/loginctl create issues on Linux goes through THIS module's run() (setRunner, dry
+   run), as launchctl does on the Mac. run() throws on a non-zero exit, and systemctl answers non-zero for ordinary
+   states ("inactive" is exit 3), so the throw becomes a result here: { ok:false, code, stdout, stderr }. */
+function linuxRun(body) {
+  const lj = require('./linuxjob');
+  return lj.runWith((file, args) => {
+    try { return run(file, args); } catch (err) {
+      return { ok: false, code: err && err.status != null ? err.status : 1, stdout: String((err && err.stdout) || ''), stderr: String((err && err.stderr) || ''), because: (err && err.message) || String(err) };
+    }
+  }, body);
+}
+
 function setRunner(fn) {
   runner = fn || null;
   if (!runner) DRY_RUN = true;
@@ -1254,7 +1266,7 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
       // #4918 review 2: unitFor refuses an unsafe value by throwing, so it sits inside the try with the write.
       const unit = lj.unitFor(clean, runnerBin, tmuxBin, f.model, f.configDir, f.runner);
       lj.writeUnitFile(lj.unitPath(clean), unit);
-      const reload = lj.daemonReload();
+      const reload = linuxRun(() => lj.daemonReload());
       if (!reload || !reload.ok) throw new Error('systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim());
     } catch (e) {
       return {
@@ -3721,8 +3733,8 @@ function installJob(name, opts) {
       started = true;   // #4918 review 1: a dry run starts nothing, as the creation path's Linux arm does
     } else {
       try {
-        lingering = lj.enableLinger().lingering;
-        const r = lj.start(clean);
+        lingering = linuxRun(() => lj.enableLinger()).lingering;
+        const r = linuxRun(() => lj.start(clean));
         started = Boolean(r && r.ok === true);
       } catch { started = false; }
     }
@@ -4693,7 +4705,7 @@ function createAgentInner(opts) {
   if (jobPlatform === 'linux') {
     const lj = require('./linuxjob');
     // #4918 review 6: through create's own run seam, as the launchctl print below is (dry run asks nothing).
-    loaded = lj.runWith((file, args) => run(file, args), () => lj.loaded(name));
+    loaded = linuxRun(() => lj.loaded(name));
   } else if (jobPlatform !== 'win32') {
     try {
       const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
@@ -4752,6 +4764,20 @@ function createAgentInner(opts) {
         field: 'name',
         steps,
       };
+    }
+    /* #4918 review 7: on Linux a unit can stay loaded in systemd after its file is gone (a removal while the user bus
+       was down, or a hand rm without daemon-reload). delete-leftover finds nothing to delete then, so the usual
+       advice is a dead end; the one thing that frees the name is stopping the loaded unit. */
+    if (jobPlatform === 'linux') {
+      const lj = require('./linuxjob');
+      if (!fs.existsSync(lj.unitPath(name))) {
+        return {
+          outcome: OUTCOME.REFUSED,
+          because: `systemd is still running something called ${shown}, though its startup file is gone. Pick another name, or stop it with: systemctl --user stop ${lj.unitName(name)}`,
+          field: 'name',
+          steps,
+        };
+      }
     }
     return {
       outcome: OUTCOME.REFUSED,
@@ -5073,14 +5099,14 @@ function createAgentInner(opts) {
     if (jobPlatform === 'linux') {
       const lj = require('./linuxjob');
       if (unload) {
-        try { lj.stop(name); } catch { /* it may never have started */ }
-        try { lj.disable(name); } catch { /* it may never have been enabled */ }
+        try { linuxRun(() => lj.stop(name)); } catch { /* it may never have started */ }
+        try { linuxRun(() => lj.disable(name)); } catch { /* it may never have been enabled */ }
       }
       try {
         const u = lj.unitPath(name);
         if (fs.existsSync(u)) {
           fs.unlinkSync(u);
-          lj.daemonReload();
+          linuxRun(() => lj.daemonReload());
         }
       } catch { /* best effort */ }
       try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
@@ -5770,8 +5796,8 @@ function createAgentInner(opts) {
     if (jobPlatform === 'linux') {
       if (DRY_RUN) return true;
       const lj = require('./linuxjob');
-      linuxLingering = lj.enableLinger().lingering;
-      const r = lj.start(name);
+      linuxLingering = linuxRun(() => lj.enableLinger()).lingering;
+      const r = linuxRun(() => lj.start(name));
       return Boolean(r && r.ok === true);
     }
     /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`

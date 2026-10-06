@@ -142,7 +142,7 @@ echo "Killing tmux session $AGENT_NAME..."
 "$TMUX_BIN" kill-session -t "$AGENT_NAME" 2>/dev/null || true
 
 revived=0
-for i in $(seq 1 20); do
+for i in $(seq 1 40); do   # RestartSec=10 plus the supervisor's own start
   if "$TMUX_BIN" has-session -t "$AGENT_NAME" 2>/dev/null; then
     revived=1
     ok "agent session revived by systemd after ${i}s"
@@ -152,7 +152,7 @@ for i in $(seq 1 20); do
 done
 
 if [ "$revived" = 0 ]; then
-  bad "agent session was NOT revived within 20s"
+  bad "agent session was NOT revived within 40s"
   journalctl --user -u "kosmos-agent-$AGENT_NAME.service" --no-pager | tail -25 || true
 fi
 
@@ -165,13 +165,8 @@ if "$TMUX_BIN" has-session -t "$AGENT_NAME" 2>/dev/null; then
 else
   bad "stopping the agent's unit killed its tmux session (the shared tmux server would die with it)"
 fi
-# And a deliberate stop stays stopped: Restart=always does not revive a unit that was stopped on purpose.
-sleep 10
-if systemctl --user is-active "kosmos-agent-$AGENT_NAME.service" >/dev/null 2>&1; then
-  bad "the agent unit came back after a deliberate stop"
-else
-  ok "a deliberately stopped agent unit stays stopped (12s)"
-fi
+# (No "stays stopped" check here: systemd never auto-restarts a unit stopped with systemctl stop, whatever
+#  Restart= says, so such a check could not fail. #4918 review 7.)
 "$TMUX_BIN" kill-session -t "$AGENT_NAME" 2>/dev/null || true
 
 # Stop and remove agent unit using engine/linuxjob.js
@@ -204,7 +199,14 @@ if KOSMOS_WORLD=w4918 node -e '
 else
   bad "the named world's agent did not start (unit $WORLD_UNIT)"
 fi
-KOSMOS_WORLD=w4918 node -e 'require("./engine/linuxjob").remove(process.argv[1])' "$AGENT_NAME" || true
+if KOSMOS_WORLD=w4918 node -e '
+  const r = require("./engine/linuxjob").remove(process.argv[1]);
+  if (!r || r.ok !== true) { console.error("named-world remove:", JSON.stringify(r)); process.exit(3); }
+' "$AGENT_NAME" && [ ! -f "$HOME/.config/systemd/user/$WORLD_UNIT" ]; then
+  ok "the named world's escaped unit is removed cleanly"
+else
+  bad "the named world's escaped unit was not removed ($WORLD_UNIT)"
+fi
 "$TMUX_BIN" kill-server 2>/dev/null || true
 
 sleep 1
