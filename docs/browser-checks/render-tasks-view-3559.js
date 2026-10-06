@@ -636,7 +636,7 @@ function chk(ok, label, extra) {
         const missed = await red();
         chk(!before.missed && before.color !== before.danger
           && missed.missed && missed.color === missed.danger
-          && /^Missed (the run due|\d+ runs, the latest due) (today|yesterday|\w+day|\w{3} \d+) at 9am\. Repeats every day at 9am\. Last run .+ by Rex: two bounced, both removed\. Next (today|tomorrow) at 9am\.$/.test(missed.line || ''),
+          && /^Missed (the run due|\d+ runs, the latest due) (today|yesterday|last \w+day|\w{3} \d+) at 9am\. Repeats every day at 9am\. Last run .+ by Rex: two bounced, both removed\. Next (today|tomorrow) at 9am\.$/.test(missed.line || ''),
           `${tag} #4787 slice 2 a missed run leads the repeat line, in the error red (control: the same row before it was missed)`, JSON.stringify({ before, missed }));
         tasks.setRepeat(news.id, 1, null);
         await page.evaluate(() => tskLoad());

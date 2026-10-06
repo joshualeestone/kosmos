@@ -58634,7 +58634,20 @@ function tskRosterChanged() {
      closing tasks or not yet read is still a change on the next tick (review round 5). */
   if (TSK.needs === null) TSK.needs = needs;
   else if (needs !== TSK.needs && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  /* kosmos#4787 slice 2 (review 5): a repeat line is time state too, so it is read again while the view is open once a
+     slot it shows passes its miss grace (the board's repeatMissAfter), and every few minutes while a row is red, so a
+     reported run clears it. */
+  if (shown && TSK.data && !TSK.busy && tskRepeatStale(TSK.data, TSK.readAt, Date.now())) { tskLoad(); return; }
   if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+const TSK_MISSED_REREAD_MS = 5 * 60 * 1000;
+function tskRepeatStale(rows, readAt, now) {
+  /* At most one read per 30 seconds: repeatMissAfter is the board's time, and a browser clock ahead of it would
+     otherwise read on every poll until the board caught up. */
+  if (now - readAt < 30 * 1000) return false;
+  return (rows || []).some((t) => t && t.repeat && t.state !== 'closed'
+    && ((Number.isFinite(t.repeatMissAfter) && now >= t.repeatMissAfter)
+      || (Number(t.repeatMissed) >= 1 && !(now - readAt < TSK_MISSED_REREAD_MS))));
 }
 /* The agents needing the person by the board's own rule, with the project a question names: the part of the
    roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
@@ -58725,6 +58738,7 @@ async function tskLoad(arrival) {
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
       TSK.data = body.tasks;
+      TSK.readAt = Date.now();   // kosmos#4787 slice 2: when the repeat lines were last read (tskRepeatStale)
       TSK.rosterUnknown = body.rosterUnreadable === true;
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
