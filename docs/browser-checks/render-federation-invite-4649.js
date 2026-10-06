@@ -1366,7 +1366,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
     await page.click('#mem-go');
     await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => window.__removes.length > 0   // #5373: wait for the row to go, not 300 ms
+      && !document.querySelector('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"]'), null, { timeout: 4000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__removes.slice());
     const rf = await readFed(page, '#alist-fed-outside');
     check('B15g rail: Remove asks the board for Dana\'s connection and her row goes (control: B11a\'s rail Withdraw)',
@@ -1518,6 +1519,15 @@ const closeAll = (page) => page.evaluate(() => {
       await fedMembersLoad('k');
       return { you: YOU_NAME, ownerName: (FED_MEMBERS && FED_MEMBERS.body && FED_MEMBERS.body.owner_name) || '' };
     }, { name, ownerName });
+    // #5373: wait for the state an arm reads instead of a fixed sleep, which a slow CI runner outran. The assertion
+    // after the wait is unchanged, so a wrong state still fails (after the limit instead of at once).
+    const untilStatus = (page, want, ms = 4000) => page.waitForFunction((w) => {
+      const s = document.getElementById('fedinv-status').textContent;
+      return w.prefix ? s.startsWith(w.text) : s === w.text;
+    }, want, { timeout: ms }).catch(() => {});
+    // A held write is past the 3 s limit: the refusal is up and the busy flag is free.
+    const untilRefused = (page) => page.waitForFunction(() => !FEDINV_COPY_BUSY
+      && document.getElementById('fedinv-status').textContent.startsWith('Kosmos could not copy'), null, { timeout: 8000 }).catch(() => {});
     const step = (page) => page.evaluate(() => {
       const all = document.getElementById('fedinv-copy-all');
       const acts = all ? [...all.parentElement.querySelectorAll('button')].map((b) => b.id) : [];
@@ -1651,6 +1661,7 @@ const closeAll = (page) => page.evaluate(() => {
     // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
     await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
     await copyAll(page);
+    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
     st = await step(page);
     const exec = await page.evaluate(() => ({ texts: window.__execTexts.slice(), focus: document.activeElement && document.activeElement.id }));
     check('C4b select-and-copy (tried first) copies the exact invitation, says Copied, and focus is back on the button (control: C4, failing)',
@@ -1766,13 +1777,13 @@ const closeAll = (page) => page.evaluate(() => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (txt) => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
       });
       await p7.page.click('#fedinv-copy-all');
-      await p7.page.waitForTimeout(3600);   // ~600 ms past the limit: the refusal is up and the busy flag is free
+      await untilRefused(p7.page);   // past the limit: the refusal is up and the busy flag is free
       await p7.page.evaluate(() => { window.__execOk = true; });
       await p7.page.click('#fedinv-copy');
-      await p7.page.waitForTimeout(100);
+      await untilStatus(p7.page, { text: 'Code copied.' });
       const newer = await step(p7.page);
       await p7.page.evaluate(() => window.__releaseClip());
-      await p7.page.waitForTimeout(150);
+      await untilStatus(p7.page, { text: 'An earlier copy finished late, so the clipboard now holds the invitation. Press Copy to copy the code alone.' });
       const after = await step(p7.page);
       check('C7 a held write that lands after a newer copy says the clipboard now holds the invitation (control: C6 without a newer press)',
         newer.status === 'Code copied.'
@@ -1786,11 +1797,11 @@ const closeAll = (page) => page.evaluate(() => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__holds.push(ok); }) } });
       });
       await p7.page.click('#fedinv-copy-all');
-      await p7.page.waitForTimeout(3600);
+      await untilRefused(p7.page);
       await p7.page.click('#fedinv-copy-all');
-      await p7.page.waitForTimeout(100);
+      await p7.page.waitForFunction(() => window.__holds.length === 2, null, { timeout: 4000 }).catch(() => {});
       await p7.page.evaluate(() => window.__holds[1]());   // the newer press lands first
-      await p7.page.waitForTimeout(150);
+      await untilStatus(p7.page, { text: 'Invitation copied.' });
       await p7.page.evaluate(() => window.__holds[0]());   // then the stale one, same text
       await p7.page.waitForTimeout(150);
       const same = await step(p7.page);
@@ -1800,12 +1811,13 @@ const closeAll = (page) => page.evaluate(() => {
       // the invitation, so the refusal gives way to "Invitation copied." (control: C7b, where the newer press said so).
       await p7.page.evaluate(() => { window.__holds = []; FEDINV_CLIP_HOLDS = ''; });   // no copy on record: both presses refused
       await p7.page.click('#fedinv-copy-all');
-      await p7.page.waitForTimeout(3600);
+      await untilRefused(p7.page);
       await p7.page.click('#fedinv-copy-all');
-      await p7.page.waitForTimeout(3600);
+      await p7.page.waitForFunction(() => FEDINV_COPY_BUSY, null, { timeout: 4000 }).catch(() => {});   // its own write is in flight
+      await untilRefused(p7.page);
       const refused = await step(p7.page);
       await p7.page.evaluate(() => window.__holds[0]());   // the stale write, same text, lands
-      await p7.page.waitForTimeout(150);
+      await untilStatus(p7.page, { text: 'Invitation copied.' });
       const landed = await step(p7.page);
       check('C7c a stale same-text write after a refused newer press says "Invitation copied."',
         refused.status.startsWith('Kosmos could not copy the invitation.') && landed.status === 'Invitation copied.',
@@ -1825,13 +1837,13 @@ const closeAll = (page) => page.evaluate(() => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
       });
       await p7d.page.click('#fedinv-copy');
-      await p7d.page.waitForTimeout(3600);
+      await untilRefused(p7d.page);
       await p7d.page.evaluate(() => { window.__execOk = true; });
       await p7d.page.click('#fedinv-copy-all');
-      await p7d.page.waitForTimeout(100);
+      await untilStatus(p7d.page, { text: 'Invitation copied.' });
       const newer = await step(p7d.page);
       await p7d.page.evaluate(() => window.__releaseClip());
-      await p7d.page.waitForTimeout(150);
+      await untilStatus(p7d.page, { text: 'An earlier copy finished late, so the clipboard now holds the code alone. Press Copy the invitation to copy the invitation.' });
       const after = await step(p7d.page);
       check('C7d a held code write that lands after a newer invitation copy says the clipboard now holds the code alone (control: C7)',
         newer.status === 'Invitation copied.'
@@ -1872,7 +1884,17 @@ const closeAll = (page) => page.evaluate(() => {
         const w = m === 'ok' ? async () => {} : m === 'no' ? async () => { throw new Error('denied'); } : () => new Promise((ok) => { window.__releaseClip = ok; });
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: w } });
       }, mode);
-      const press = async (page) => { await page.click('#fedinv-copy-all'); await page.waitForTimeout(120); return (await step(page)).status; };
+      // #5373: wait for the press's own answer (the line changed and no write is in flight), not a fixed 120 ms, which a
+      // slow CI runner outran. These clipboards settle at once, so an answer is always coming; the 3 s limit is a ceiling.
+      const press = async (page) => {
+        const before = (await step(page)).status;
+        await page.click('#fedinv-copy-all');
+        await page.waitForFunction((b) => {
+          const s = document.getElementById('fedinv-status').textContent;
+          return s !== '' && s !== b && !FEDINV_COPY_BUSY;
+        }, before, { timeout: 3000 }).catch(() => {});
+        return (await step(page)).status;
+      };
       const run = async (between) => {
         await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
         await setClip(p9.page, 'ok');
