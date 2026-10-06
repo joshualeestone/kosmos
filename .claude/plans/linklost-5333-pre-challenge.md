@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linklost-5333
-diff_hash: 484ed3a2fcc0688d0c6f1c3f52bf730f766c06af9a89fea8ccd8df6d4c6bc9af
+diff_hash: c5e4521c75feaf8a9dd7a8826d2aed505b1286e0f7042af7231723f38ad26b42
 validation: not run locally (the machine's suite queue was deep all day; earlier runs gave up at 2700s). Run instead on head 326f660b8: every engine test that touches sendertoken 652/652 (incl. win32launch, win32roster, supervisor, status.linklost-5333 6/6); each round 8 and 9 fix has a test that FAILS on the old code (controls run). Page tests 2454/2454 and render-agent-pill-3958 all passed on 047029d; the round 9 page change (d-linklost-msg) was syntax-checked and its new browser-check arm was NOT run locally (the box was held by another agent's full browser-check run until 16:30). CI runs the node, shell, windows and browser-check suites on the PR head.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-05T21:04:59Z
@@ -34,3 +34,6 @@ iteration N" (a0da6fa36, c00f7035c, 3a098387d, 76c1f051c, 8e8f577ca, 047029dd9; 
 
 #### After convergence: CI fix (not a review finding)
 - CI suite (node) on 437bce764 redded two #2519 arms in render-talk-goldencard-2519.test.js: the recorded agent card had no `linkLost`, which status.snapshot() now emits. Re-captured with tools/capture-agent-card.js (the file's own instruction; it also recorded state working instead of idle, which the arm's comment already expects), and added `linkLost` to the arm's structural-boolean list. Every test that reads the fixture: 78/78. No product code changed.
+
+#### Rebase onto main (20:35 CDT)
+- Rebased over #5336 (slice 1, merged 3e5063709). One conflict: sendertoken.js's export list, resolved to keep both instanceState (this slice) and NO_MATCH (slice 1). After: sendertoken-touching engine tests, cli.token-refused-5333, golden card, fixture-discipline and no-name-refs 732/732; status + win32roster 256/256; page script parses. No logic changed.
