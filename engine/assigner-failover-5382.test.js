@@ -498,3 +498,13 @@ test('review 8: the sweep sends at most MAX_PER_PASS lines a pass', () => {
     assert.equal(sent.length, ft.MAX_PER_PASS);
   } finally { w.restore(); }
 });
+
+test('review 8: the defensive arms, on hand-built input: a held verdict never counts as reached; the holder is never owed', () => {
+  const D = require('./chat').DELIVERY;
+  assert.equal(ft.reached({ state: D.UNCONFIRMED, held: true }, D), false, 'a held verdict counted as reached');
+  assert.equal(ft.reached({ state: D.UNCONFIRMED }, D), true, 'control: an unconfirmed one may have reached the pane');
+  assert.equal(ft.reached({ state: D.COULD_NOT }, D), false);
+  const rec = [{ id: 'p1', name: 'P', tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'ann', owedTell: ['ann', 'bob'] }] }] }];
+  assert.deepEqual(ft.owedFor('ann', rec), [], 'the agent holding the part is told it was given away');
+  assert.equal(ft.owedFor('bob', rec).length, 1, 'control: the other source is owed');
+});
