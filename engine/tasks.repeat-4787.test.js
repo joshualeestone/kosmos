@@ -248,3 +248,42 @@ test('#4787 slice 2 review 2: a second runner reporting the same late run in the
   assert.equal(stored(id, n).lastRunBy, 'bob', 'precondition: the second runner\'s run was recorded');
   assert.equal(stored(id, n).lastRunLate, true, 'the same moment off the schedule is late for both');
 });
+
+test('#4787 slice 3: setReviewer names the person, an agent on the project, or nobody; the history records each change', () => {
+  const p = projects.create({ name: 'Rev ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['ada', 'bob'] }));
+  const n = tasks.create(p.id, { sentence: 'Morning report' }).number;
+  assert.throws(() => tasks.setReviewer(p.id, n, 'ada'), /does not repeat/, 'a one-off task has no runs to review');
+  tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });
+  tasks.setReviewer(p.id, n, 'ada');
+  assert.equal(stored(p.id, n).repeatReviewer, 'ada');
+  assert.ok(stored(p.id, n).repeatReviewerSetAt, 'when it was named, so earlier misses are not told');
+  assert.throws(() => tasks.setReviewer(p.id, n, 'zed'), /not on this project/);
+  assert.throws(() => tasks.setReviewer(p.id, n, 'me'), /only the person/, 'an agent cannot name the person');
+  tasks.setReviewer(p.id, n, 'me', { person: true });
+  assert.equal(stored(p.id, n).repeatReviewerPerson, true);
+  assert.equal(stored(p.id, n).repeatReviewer, undefined);
+  assert.throws(() => tasks.setReviewer(p.id, n, 'bob'), /person chose/, 'the person\'s choice is theirs');
+  tasks.setReviewer(p.id, n, 'bob', { person: true });
+  assert.equal(stored(p.id, n).repeatReviewer, 'bob');
+  tasks.setReviewer(p.id, n, 'none', { person: true });
+  assert.equal(stored(p.id, n).repeatReviewer, undefined);
+  assert.equal(stored(p.id, n).repeatReviewerPerson, undefined);
+  const kinds = taskchat.read(p.id, n).filter((e) => /^reviewer-/.test(e.kind)).map((e) => e.kind + ':' + (e.who || (e.person ? 'person' : '')));
+  assert.deepEqual(kinds, ['reviewer-set:ada', 'reviewer-set:person', 'reviewer-set:bob', 'reviewer-cleared:person']);
+  // Setting what it already is records nothing.
+  tasks.setReviewer(p.id, n, 'none', { person: true });
+  assert.equal(taskchat.read(p.id, n).filter((e) => /^reviewer-/.test(e.kind)).length, 4);
+});
+
+test('#4787 slice 3: stopping the repeat takes the reviewer and the told mark with it', () => {
+  const p = projects.create({ name: 'Rev2 ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['ada'] }));
+  const n = tasks.create(p.id, { sentence: 'Hourly check' }).number;
+  tasks.setRepeat(p.id, n, { every: 'hour' });
+  tasks.setReviewer(p.id, n, 'ada');
+  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, missToldAt: new Date().toISOString() } : t)) }));
+  tasks.setRepeat(p.id, n, null);
+  const t = stored(p.id, n);
+  for (const f of ['repeatReviewer', 'repeatReviewerPerson', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt']) assert.equal(t[f], undefined, f);
+});

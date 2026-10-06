@@ -1063,6 +1063,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 });
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
+const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
@@ -16967,7 +16968,8 @@ const server = http.createServer(async (req, res) => {
       }
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
       /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId));
+      /* kosmos#4787 slice 3: a repeating task the PERSON reviews waits on them while a run is missed (they asked to be told). */
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId)) || missedtell.personReviewMissed(t);
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
@@ -19084,11 +19086,15 @@ const server = http.createServer(async (req, res) => {
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
-          task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          /* slice 3: `reviewer` ('me', an agent's session name, or 'none') rides the same request; a rule being set
+             (not cleared) is in place first, so the reviewer is checked against it. Omitted: the reviewer is unchanged. */
+          if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          if (rule !== null && body.reviewer !== undefined) task = tasks.setReviewer(id, taskRepeat[2], body.reviewer, { person: viaScreen });
+          if (!task) throw new Error('say how often it repeats, or who reviews it');
         }
       } catch (err) {
         const msg = String((err && err.message) || 'we could not change that task');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat)/.test(msg) ? 403 : 400, { error: msg });
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
       sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
@@ -20956,6 +20962,7 @@ function start(port = PORT) {
       let heartbeatPrev = new Map();
       const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
       const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
+      const MISSED_TELL_BOOK = new Map();   // kosmos#4787 slice 3: tries per (task, missed slot) for an agent reviewer
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -21003,6 +21010,27 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
           });
+        } catch { /* best-effort, like the nudge sweep */ }
+        /* kosmos#4787 slice 3: a repeating task's named reviewer is told once when a run is missed (engine/missedtell.js,
+           which holds the rules and is tested there). Runs whether or not the Prompter is on: the reviewer asked to be
+           told. The roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read. */
+        try {
+          const projs = projects.readAll();
+          const owed = missedtell.owed(projs);
+          if (owed.length) {
+            const agentOwed = owed.some((x) => !x.person);
+            const r = agentOwed ? safeRoster() : null;
+            missedtell.sweep({
+              projects: projs, roster: r, now: Date.now(),
+              allowed: agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+              limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+              sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK,
+              deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+              DELIVERY: chat.DELIVERY,
+              nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
+              log: (x) => process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+            });
+          }
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);

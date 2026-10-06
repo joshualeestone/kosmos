@@ -16670,6 +16670,12 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
         <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
+        <!-- kosmos#4787 slice 3: who is told when a run is missed (once per missed run): nobody, the person (the task then
+             waits in Needs Your Decision), or an agent on the project (one line in its session). Saved on change. -->
+        <div class="tmeta" id="tk-review-row" hidden><span>If missed, tell</span>
+          <select id="tk-review-who" class="tsk-sel" aria-label="Who is told if a run is missed"></select>
+        </div>
+        <p class="fmsg" id="tk-review-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -58976,7 +58982,7 @@ const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
        status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
-    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore. Also a repeating task you review that missed a run.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -60588,7 +60594,65 @@ function tkPaintRepeat(p, t) {
   if (line.textContent !== said) line.textContent = said;
   line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
   line.hidden = !said;
+  tkPaintReviewer(p, t);
 }
+/* kosmos#4787 slice 3: the reviewer choice, shown only for a task that repeats (stored, not merely chosen). The options
+   are Nobody, Me and the project's agents; a stored reviewer who has left the project stays listed, so the select never
+   shows a choice that is not stored. Not repainted while a save is in flight, nor under the person's own focus. */
+function tkReviewerOf(t) { return t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none'; }
+function tkPaintReviewer(p, t, force) {
+  const row = document.getElementById('tk-review-row');
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  if (!row || !sel) return;
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  row.hidden = !t.repeat || TK_ACT === 'reopen';
+  if (row.hidden) return;
+  const stored = tkReviewerOf(t);
+  const agents = (Array.isArray(p.agents) ? p.agents : []).slice();
+  if (stored !== 'none' && stored !== 'me' && !agents.includes(stored)) agents.push(stored);
+  const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a)]));
+  const sig = key + '|' + JSON.stringify(opts) + '|' + stored;
+  if (sel.dataset.busy === '1' || (!force && document.activeElement === sel && sel.dataset.task === key)) return;
+  if (sel.dataset.sig === sig) return;
+  sel.textContent = '';
+  for (const [v, l] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o); }
+  sel.value = stored;
+  sel.dataset.sig = sig;
+  sel.dataset.task = key;
+}
+document.getElementById('tk-review-who').addEventListener('change', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  const key = p.id + '#' + t.number;
+  const want = sel.value;
+  const before = tkReviewerOf(t);
+  if (want === before) return;
+  sel.dataset.busy = '1';
+  sel.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+  let said = '';
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reviewer: want }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) said = (out && out.error) || 'we could not change who is told';
+    else { await pjReload(); paintTaskActivity(TK_OPEN); said = 'Saved.'; }
+  } catch { said = 'we could not reach Kosmos to change who is told'; }
+  delete sel.dataset.busy;
+  sel.disabled = false;
+  delete sel.dataset.sig;   // repaint from what is stored now (a refusal puts the stored choice back)
+  if (still()) {
+    if (msg) msg.textContent = said;
+    const [p2, t2] = tkOpenTask();
+    if (p2 && t2) tkPaintReviewer(p2, t2, true);   // its own answer: repaint under the person's focus too
+  }
+});
 function tkOpenTask() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return [null, null];
