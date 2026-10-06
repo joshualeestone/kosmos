@@ -45,7 +45,7 @@ function projectWithFile(dirName, fileName) {
   return dir;
 }
 
-test('a file kind nothing on this computer opens says so, and says the file is fine', { skip: process.platform !== 'darwin' && 'openFile runs macOS /usr/bin/open on every non-Windows host; Linux has no opener wired (a product gap the Linux port has not taken on)' }, () => {
+test('a file kind nothing on this computer opens says so, and says the file is fine', { skip: process.platform !== 'darwin' && 'openFile runs macOS /usr/bin/open on every non-Windows host; Linux has no opener wired. Not carded on its own: the Linux port (#4916) is a headless server, which has nothing to open a file with' }, () => {
   // ⚠️ NO INJECTED RUNNER. The real `open` exits 1 on an extension no
   // application claims, with its reason on stderr, and no window appears.
   // Measured on this Mac: rc=1 in 0.02s, "No application knows how to open

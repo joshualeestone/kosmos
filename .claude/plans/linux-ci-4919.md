@@ -8,7 +8,8 @@ re-run, merge.
 branches). Every Linux failure left on current main is either fixed, marked Mac-only with a one-line reason
 that is true on Linux, or carried by a named card. No test is skipped to make the count green.
 
-## Measured: run 37523489451 (ubuntu-latest, main with piece A merged): 126 fail of 16,012
+## Measured: run 37523489451 (ubuntu-latest; this branch at 3f7a687ff, i.e. main with piece A merged plus the PR's
+## portability fixes, before the Linux-only skips): 126 fail of 16,012
 
 | group | tests | cause | where it goes |
 |---|---|---|---|
