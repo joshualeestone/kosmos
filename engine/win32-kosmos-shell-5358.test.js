@@ -117,7 +117,7 @@ function stageZip() {
    PSModulePath: the CI step runs under PowerShell 7, whose module path, inherited, stops Windows PowerShell 5.1 loading
    Microsoft.PowerShell.Security (measured on the runner 10-06: Set-ExecutionPolicy "could not be loaded"). With none,
    5.1 uses its own default, which is what a board started by Explorer or its logon task passes on. NOT MODELLED: a
-   board started from a PowerShell 7 terminal, which would pass pwsh 7's path to its agents. */
+   board started from a PowerShell 7 terminal, which would pass pwsh 7's path to its agents (#5385). */
 function baseEnv() {
   const env = { ...process.env };
   for (const k of [...keysOf(env, 'PSExecutionPolicyPreference'), ...keysOf(env, 'PSModulePath')]) delete env[k];
