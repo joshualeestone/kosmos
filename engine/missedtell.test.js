@@ -14,6 +14,11 @@ const path = require('node:path');
 
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mt-data-'));
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mt-proj-'));
+// The board's cards come from test-support/fleet (fixture-discipline: no hand-built cards), so its roots are sandboxed too.
+const FLEET_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mt-fleet-'));
+process.env.AGENT_WORKFORCE_WORKERS = path.join(FLEET_ROOT, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(FLEET_ROOT, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(FLEET_ROOT, 'launch');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,6 +26,14 @@ const projects = require('../engine/projects');
 const tasks = require('../engine/tasks');
 const taskchat = require('../engine/taskchat');
 const mt = require('../engine/missedtell');
+const fleet = require('../test-support/fleet');
+test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(FLEET_ROOT, { recursive: true, force: true }); });
+/* Real board cards for the named agents (idle unless a state is given), from fleet. */
+const cardsOf = (specs) => fleet.install(specs.map((s) => fleet.agent(s.name, { state: s.state || 'idle' }))).agents;
+const BASE = cardsOf([{ name: 'ada' }, { name: 'rex' }]);
+const sessionOf = (name) => (BASE.find((c) => (c.sessionName || '').startsWith(name)) || {}).sessionName;
+const ADA = sessionOf('ada');
+const REX = sessionOf('rex');
 
 const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
 const NOW = at(2026, 10, 6, 10, 0);   // the 9am slot is missed (grace 15 minutes)
@@ -32,9 +45,9 @@ function fixture(reviewer, extra = {}) {
   const n = tasks.create(p.id, { sentence: 'Morning report' }).number;
   const ago = new Date(NOW - 2 * 86400000).toISOString();
   projects.mutate(p.id, (x) => ({
-    ...x, agents: ['ada', 'rex'],
+    ...x, agents: [ADA, REX],
     tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeat: { every: 'day', at: '09:00' }, repeatSetAt: ago, lastRunAt: ago,
-      parts: [{ n: 1, sentence: 'Morning report', who: 'rex', createdAt: ago }],
+      parts: [{ n: 1, sentence: 'Morning report', who: REX, createdAt: ago }],
       ...(reviewer === 'me' ? { repeatReviewerPerson: true } : reviewer ? { repeatReviewer: reviewer } : {}),
       ...(reviewer ? { repeatReviewerSetAt: ago } : {}), ...extra } : t)),
   }));
@@ -43,27 +56,27 @@ function fixture(reviewer, extra = {}) {
 const stored = (id, n) => tasks.byNumber(projects.readAll().find((x) => x.id === id), n);
 const only = (id) => projects.readAll().filter((x) => x.id === id);
 /* Review 10: reviewers seen idle for two minutes, so a tell is not held for a fresh idle. */
-const settled = () => new Map([['ada', { since: NOW - 120000, at: NOW - 60000 }], ['rex', { since: NOW - 120000, at: NOW - 60000 }]]);
-const roster = [{ sessionName: 'ada', name: 'Ada', isNamedOurs: true, state: 'idle' }, { sessionName: 'rex', name: 'Rex', isNamedOurs: true, state: 'idle' }];
+const settled = () => new Map([[ADA, { since: NOW - 120000, at: NOW - 60000 }], [REX, { since: NOW - 120000, at: NOW - 60000 }]]);
+const roster = BASE;
 
 test('#4787 slice 3: an agent reviewer is told once per missed slot, with the task, the run and its owner', () => {
-  const { id, n } = fixture('ada');
+  const { id, n } = fixture(ADA);
   const sent = [];
   const deliver = (s, text) => { sent.push({ s, text }); return { state: 'placed' }; };
-  const o = () => ({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), deliver, DELIVERY, idleSeen: settled(), nameOf: (s) => (s === 'rex' ? 'Rex' : s) });
+  const o = () => ({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), deliver, DELIVERY, idleSeen: settled(), nameOf: (s) => (s === REX ? 'Rex' : s) });
   mt.sweep(o());
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].s, 'ada');
+  assert.equal(sent[0].s, ADA);
   assert.match(sent[0].text, /task #\d+ in Watch \w+, "Morning report", missed .*today at 9am\. You review its results; Rex runs it\./);
   assert.ok(stored(id, n).missToldAt, 'the told slot is stored');
   mt.sweep(o());
   assert.equal(sent.length, 1, 'the same slot is never told twice');
   const ev = taskchat.read(id, n).filter((e) => e.kind === 'missed');
   assert.equal(ev.length, 1);
-  assert.equal(ev[0].told, 'ada');
+  assert.equal(ev[0].told, ADA);
   assert.equal(ev[0].reached, true);
   // The next day's slot, missed too, is told once more.
-  mt.sweep({ ...o(), projects: only(id), now: NOW + 86400000, idleSeen: new Map([['ada', { since: NOW + 86400000 - 120000, at: NOW + 86400000 - 60000 }]]) });
+  mt.sweep({ ...o(), projects: only(id), now: NOW + 86400000, idleSeen: new Map([[ADA, { since: NOW + 86400000 - 120000, at: NOW + 86400000 - 60000 }]]) });
   assert.equal(sent.length, 2, 'a newer missed slot is told');
 });
 
@@ -78,25 +91,25 @@ test('#4787 slice 3: the person as reviewer is told by the task itself (history;
   const ranYesterday = { ...stored(id, n), lastRunAt: new Date(at(2026, 10, 5, 9, 0)).toISOString() };
   assert.equal(mt.personReviewMissed(ranYesterday, at(2026, 10, 6, 9, 10)), false, 'ran yesterday, today\'s slot inside its grace: not yet');
   assert.equal(mt.personReviewMissed(ranYesterday, at(2026, 10, 6, 9, 15)), true, 'and at the grace, it is');
-  const agentTask = fixture('ada');
+  const agentTask = fixture(ADA);
   assert.equal(mt.personReviewMissed(stored(agentTask.id, agentTask.n), NOW), false, 'CONTROL: an agent reviewer never puts it on the person');
 });
 
 test('#4787 slice 3: nobody is told without a reviewer, before the reviewer was named, in a paused project or on a held task', () => {
   assert.equal(mt.owed(only(fixture(null).id), NOW).length, 0, 'no reviewer');
-  const late = fixture('ada', { repeatReviewerSetAt: new Date(at(2026, 10, 6, 9, 30)).toISOString() });
+  const late = fixture(ADA, { repeatReviewerSetAt: new Date(at(2026, 10, 6, 9, 30)).toISOString() });
   assert.equal(mt.owed(only(late.id), NOW).length, 0, 'the 9am slot passed before the reviewer was named');
-  const paused = fixture('ada');
+  const paused = fixture(ADA);
   projects.mutate(paused.id, (x) => ({ ...x, paused: true }));
   assert.equal(mt.owed(only(paused.id), NOW).length, 0, 'paused project');
-  const held = fixture('ada', { onHold: true });
+  const held = fixture(ADA, { onHold: true });
   assert.equal(tasks.isOnHold(stored(held.id, held.n)), true, 'precondition: the fixture is held the way tasks.isOnHold reads it');
   assert.equal(mt.owed(only(held.id), NOW).length, 0, 'held task');
-  assert.equal(mt.owed(only(fixture('ada').id), NOW).length, 1, 'CONTROL: the same task otherwise is owed');
+  assert.equal(mt.owed(only(fixture(ADA).id), NOW).length, 1, 'CONTROL: the same task otherwise is owed');
 });
 
 test('#4787 slice 3: a line that reaches nothing is tried again, then recorded as not reached after MAX_TRIES', () => {
-  const { id, n } = fixture('ada');
+  const { id, n } = fixture(ADA);
   const book = new Map();
   let calls = 0;
   const deliver = () => { calls += 1; return { state: 'not-found' }; };
@@ -110,14 +123,13 @@ test('#4787 slice 3: a line that reaches nothing is tried again, then recorded a
 });
 
 test('#4787 slice 3: held, not spent, while Kosmos cannot type, the reviewer is not running, or the hour\'s limit is reached', () => {
-  const { id, n } = fixture('ada');
+  const { id, n } = fixture(ADA);
   const deliver = () => { throw new Error('must not be called'); };
   const base = { projects: only(id), now: NOW, limit: { on: false }, book: new Map(), deliver, DELIVERY, idleSeen: settled() };
   assert.equal(mt.sweep({ ...base, roster, allowed: false, sent: [] }).results[0].act, 'held');
-  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'rex' }], allowed: true, sent: [] }).results[0].act, 'held');
+  assert.equal(mt.sweep({ ...base, roster: cardsOf([{ name: 'rex' }]), allowed: true, sent: [] }).results[0].act, 'held');
   assert.equal(mt.sweep({ ...base, roster, allowed: true, limit: { on: true, perHour: 1 }, sent: [NOW - 1000] }).results[0].act, 'held');
-  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: false }], allowed: true, sent: [] }).results[0].act, 'held', 'not ours');
-  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle', swarm: { active: false } }], allowed: true, sent: [] }).results[0].act, 'held', 'a switched-off swarm');
+  // Not ours / a switched-off swarm card: agentnudge.nudgeableCard's own tests (the sweep takes that rule whole).
   assert.equal(stored(id, n).missToldAt, undefined, 'nothing is marked told while held');
   // CONTROL: the same task, allowed and running, is told.
   const r = mt.sweep({ ...base, roster, allowed: true, sent: [], idleSeen: settled(), deliver: () => ({ state: 'placed' }) });   // a fresh record: the holds above rightly cleared the shared one
@@ -141,7 +153,7 @@ test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside t
 });
 
 test('#4787 slice 3 review 1: a quota hold or a busy pane spends no try; the slot is told once the reviewer can take it', () => {
-  const { id, n } = fixture('ada');
+  const { id, n } = fixture(ADA);
   const book = new Map();
   let calls = 0;
   const run = (verdict) => mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY, idleSeen: settled(),
@@ -156,7 +168,7 @@ test('#4787 slice 3 review 1: a quota hold or a busy pane spends no try; the slo
 });
 
 test('#4787 slice 3 review 1: a line placed but whose told mark cannot be saved is not typed again in this process', () => {
-  const { id } = fixture('ada');
+  const { id } = fixture(ADA);
   const book = new Map();
   let calls = 0;
   const real = projects.mutate;
@@ -168,8 +180,8 @@ test('#4787 slice 3 review 1: a line placed but whose told mark cannot be saved 
 });
 
 test('#4787 slice 3 review 1: a reviewer taken off the project is not typed into; a held task or paused project is never on the person', () => {
-  const gone = fixture('ada');
-  projects.mutate(gone.id, (x) => ({ ...x, agents: ['rex'] }));
+  const gone = fixture(ADA);
+  projects.mutate(gone.id, (x) => ({ ...x, agents: [REX] }));
   const r = mt.sweep({ projects: only(gone.id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
   assert.equal(r.results[0].act, 'unreachable');
   assert.match(r.results[0].because, /no longer on the project/);
@@ -192,7 +204,7 @@ test('#4787 slice 3 review 1: the history entry names the slot that was missed',
 });
 
 test('#4787 slice 3 review 5: a reviewer who also runs the task IS told (the nudge needs the Prompter on and the agent idle), in its own words', () => {
-  const { id, n } = fixture('rex');   // rex holds the open part and reviews it
+  const { id, n } = fixture(REX);   // rex holds the open part and reviews it
   let text = null;
   const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: (s, x) => { text = x; return { state: 'placed' }; } });
   assert.equal(r.results[0].act, 'tell');
@@ -202,13 +214,13 @@ test('#4787 slice 3 review 5: a reviewer who also runs the task IS told (the nud
 });
 
 test('#4787 slice 3 review 4: an agent whose part is done is not its owner, so as reviewer it is told', () => {
-  const { id, n } = fixture('rex');
+  const { id, n } = fixture(REX);
   const done = new Date(NOW - 86400000 * 3).toISOString();
-  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, parts: [{ n: 1, sentence: 'Morning report', who: 'rex', createdAt: done, closedAt: done }, { n: 2, sentence: 'Morning report', who: 'ada', createdAt: done }] } : t)) }));
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, parts: [{ n: 1, sentence: 'Morning report', who: REX, createdAt: done, closedAt: done }, { n: 2, sentence: 'Morning report', who: ADA, createdAt: done }] } : t)) }));
   let typed = null;
   const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: (s) => { typed = s; return { state: 'placed' }; } });
   assert.equal(r.results[0].act, 'tell');
-  assert.equal(typed, 'rex');
+  assert.equal(typed, REX);
 });
 
 test('#4787 slice 3 review 6: a capped count is recorded as more, so the history matches the line', () => {
@@ -221,9 +233,9 @@ test('#4787 slice 3 review 6: a capped count is recorded as more, so the history
 });
 
 test('#4787 slice 3 review 8: a reviewer switched off in this project is held; a miss before the person asked is not put on them', () => {
-  const off = fixture('ada');
-  projects.mutate(off.id, (x) => ({ ...x, swarmOff: ['ada'] }));
-  assert.equal(projects.isSwarmOff(projects.readAll().find((x) => x.id === off.id), 'ada'), true, 'precondition: the fixture switches ada off the way projects reads it');
+  const off = fixture(ADA);
+  projects.mutate(off.id, (x) => ({ ...x, swarmOff: [ADA] }));
+  assert.equal(projects.isSwarmOff(projects.readAll().find((x) => x.id === off.id), ADA), true, 'precondition: the fixture switches ada off the way projects reads it');
   const r = mt.sweep({ projects: only(off.id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
   assert.equal(r.results[0].act, 'unreachable');
   assert.match(r.results[0].because, /switched off/);
@@ -234,10 +246,10 @@ test('#4787 slice 3 review 8: a reviewer switched off in this project is held; a
 });
 
 test('#4787 slice 3 review 9: never typed into a reviewer that is not idle (a permission prompt could take the Enter), with no try spent', () => {
-  const { id, n } = fixture('ada');
+  const { id, n } = fixture(ADA);
   const book = new Map();
-  for (const state of ['needs_you', 'working', 'rate_limited', 'auth_failed', 'blocked']) {
-    const r = mt.sweep({ projects: only(id), roster: [{ sessionName: 'ada', isNamedOurs: true, state }], now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed into ' + state); } });
+  for (const state of ['needs_you', 'working', 'rate_limited', 'auth_failed']) {   // states fleet can arrange from a pane
+    const r = mt.sweep({ projects: only(id), roster: cardsOf([{ name: 'ada', state }]), now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed into ' + state); } });
     assert.equal(r.results[0].act, 'held', state);
   }
   assert.equal(book.size, 0, 'no try spent');
@@ -247,7 +259,7 @@ test('#4787 slice 3 review 9: never typed into a reviewer that is not idle (a pe
 });
 
 test('#4787 slice 3 review 9: a sentence with control characters or quotes still makes a line the board will type', () => {
-  const text = mt.tellText({ n: 4, project: 'Watch', sentence: 'Pull\u0007 "the" feed\u0000 now', count: 1, words: 'today at 9am', owners: [], reviewer: 'ada' });
+  const text = mt.tellText({ n: 4, project: 'Watch', sentence: 'Pull\u0007 "the" feed\u0000 now', count: 1, words: 'today at 9am', owners: [], reviewer: ADA });
   assert.doesNotMatch(text, /[\u0000-\u001f\u007f]/);
   assert.match(text, /"Pull the feed now"/);
   const chat = require('../engine/chat');
@@ -256,7 +268,7 @@ test('#4787 slice 3 review 9: a sentence with control characters or quotes still
 });
 
 test('#4787 slice 3 review 10: one line to a reviewer per pass, the rest held with no try spent', () => {
-  const a = fixture('ada'); const b = fixture('ada'); const c = fixture('ada');
+  const a = fixture(ADA); const b = fixture(ADA); const c = fixture(ADA);
   const projs = projects.readAll().filter((x) => [a.id, b.id, c.id].includes(x.id));
   const book = new Map(); const seen = settled();
   let typed = 0;
@@ -270,24 +282,24 @@ test('#4787 slice 3 review 10: one line to a reviewer per pass, the rest held wi
 });
 
 test('#4787 slice 3 review 10: a reviewer that has only just gone idle is held until it has been idle on a previous pass', () => {
-  const { id } = fixture('ada');
+  const { id } = fixture(ADA);
   const seen = new Map();
   let typed = 0;
-  const pass = (now, state = 'idle') => mt.sweep({ projects: only(id), roster: [{ sessionName: 'ada', isNamedOurs: true, state }], now, allowed: true, limit: { on: false }, sent: [], book: new Map(), idleSeen: seen, DELIVERY, deliver: () => { typed += 1; return { state: 'placed' }; } });
+  const pass = (now, state = 'idle') => mt.sweep({ projects: only(id), roster: cardsOf([{ name: 'ada', state }]), now, allowed: true, limit: { on: false }, sent: [], book: new Map(), idleSeen: seen, DELIVERY, deliver: () => { typed += 1; return { state: 'placed' }; } });
   assert.equal(pass(NOW).results[0].because, 'the reviewer has only just gone idle');
   assert.equal(typed, 0);
   pass(NOW + 60000);
   assert.equal(typed, 1, 'idle on two passes a minute apart: told');
   // A gap breaks the run: seen idle, unseen for ten minutes (it may have worked), idle again: fresh.
-  const other = fixture('ada'); const s2 = new Map();
-  const p2 = (now) => mt.sweep({ projects: only(other.id), roster: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle' }], now, allowed: true, limit: { on: false }, sent: [], book: new Map(), idleSeen: s2, DELIVERY, deliver: () => { typed += 1; return { state: 'placed' }; } });
+  const other = fixture(ADA); const s2 = new Map();
+  const p2 = (now) => mt.sweep({ projects: only(other.id), roster: cardsOf([{ name: 'ada' }]), now, allowed: true, limit: { on: false }, sent: [], book: new Map(), idleSeen: s2, DELIVERY, deliver: () => { typed += 1; return { state: 'placed' }; } });
   p2(NOW); const before = typed;
   assert.equal(p2(NOW + 10 * 60000).results[0].because, 'the reviewer has only just gone idle');
   assert.equal(typed, before);
 });
 
 test('#4787 slice 3 review 11: the reviewer\'s own idle report decides "just went idle", and sees a turn the two passes missed', () => {
-  const { id } = fixture('ada');
+  const { id } = fixture(ADA);
   let typed = 0;
   const pass = (since, seen) => mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), idleSeen: seen, DELIVERY,
     idleSince: () => since, deliver: () => { typed += 1; return { state: 'placed' }; } });
@@ -298,7 +310,7 @@ test('#4787 slice 3 review 11: the reviewer\'s own idle report decides "just wen
 });
 
 test('#4787 slice 3 review 13: a typing path that throws may have typed, so the line is never typed again', () => {
-  const { id, n } = fixture('ada');
+  const { id, n } = fixture(ADA);
   const book = new Map();
   let calls = 0;
   for (let m = 0; m < 4; m += 1) {
