@@ -2568,6 +2568,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 @media (prefers-reduced-motion: reduce) { .act i { animation: work-fade 1.6s ease-in-out infinite; } }
 .rest { width: 10px; height: 2.5px; border-radius: 2px; background: #b8bcc2; flex: 0 0 10px; }
 .pause { display: inline-flex; gap: 2.5px; }
+.linkish.pj-head-pause { display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 28px; padding: 0 10px; border-radius: 8px;   /* kosmos#5391 */
+                 font: 600 .8125rem var(--font-ui); color: var(--k-ink-2); border: 1px solid var(--k-rule); background: transparent; }
+.linkish.pj-head-pause:hover { color: var(--k-ink); background: var(--k-sunk); }
+.pj-head-pause .pause i { background: currentColor; }
+.pj-head-pause.on .pause { display: none; }
+.pj-head-pause.on::before { content: ""; width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
+@media (hover: none) { .linkish.pj-head-pause { min-height: 36px; } }   /* a touch target, as the cog beside it */
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
 .stop { width: 9px; height: 9px; border-radius: 2px; background: var(--k-ink-2); flex: 0 0 9px; }
 .qmark { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px;
@@ -16025,12 +16033,18 @@ window.kosmosMeasureScrollbarWidth();
                idiom as every other inline icon here. -->
           <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
           <h2 class="dname" id="pj-one-name"></h2>
+          <!-- kosmos#5391 (Josh, 2026-10-06 08:11: "a pause project button on the actual project"): one click beside the
+               title, the same pause as Settings' #pj-one-pause (#4771, PUT /api/project/<id> {paused}). -->
+          <button class="linkish pj-head-pause" id="pj-head-pause" type="button" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><span class="pj-head-pause-t">Pause</span></button>
         </div>
         <!-- Who asked for this project (#327): shown only when it was NOT the
              person, because "made by you" under everything you made is
              furniture, and an agent-made project is the one a person needs to
              be able to tell apart at a glance. -->
         <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
+        <!-- kosmos#5391: a paused project says so where its name is, not only in Settings. -->
+        <p class="dhint pj-paused-line" id="pj-one-paused" role="status" hidden></p>
+        <p class="fmsg" id="pj-head-pause-msg" aria-live="polite"></p>
         <!-- kosmos#5287: a project joined from another account says who shared it and what THEY wrote about it, as
              theirs. Their words are never this project's own description (the brief its agents get), so they live here. -->
         <div id="pj-one-shared" style="margin:6px 0 0;" hidden>
@@ -57747,6 +57761,9 @@ function pjPillOf(p, unreadable) {
   /* #2019: a project whose only active agent is mid-restart keeps a Restarting badge (it is running);
      it ranks below Working. It reads summary.restarting; the K matches the card's mark. */
   if (!unreadable && s.restarting) return { cls: '', glyph: GLYPH.restarting, label: 'Restarting' };
+  /* kosmos#5391 option B (for Josh to choose; it bends #4730's "only a badge if something is running"): a paused project
+     says Paused on its card, ranked below any running state. */
+  if (p.paused === true && !p.archived) return { cls: 'paused', glyph: GLYPH.paused || '', label: 'Paused' };
   /* #4730 (Josh, 2026-09-30 09:06): "if there's nothing running or we can't tell, let's just not
      display a badge here. Let's only display a badge if something is actually running." So
      "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
@@ -61487,6 +61504,7 @@ function paintOneProject() {
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */
+  paintHeadPause(p);   // kosmos#5391
   const madeLine = document.getElementById('pj-one-made');
   if (p.made && p.made.via === 'process') {
     madeLine.textContent = 'Made by ' + (p.made.by ? (pjNameOf(p, p.made.by) || p.made.by) : 'an agent or another program on this computer')
@@ -69588,12 +69606,32 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
   }
 });
 
-/* #4771: pause or resume the open project, from its state as last read. */
-document.getElementById('pj-one-pause').addEventListener('click', async () => {
+/* kosmos#5391: the project page's own Pause / Resume, beside the title, and the line under it that says it is paused.
+   Painted with the page from the same state Settings reads (p.paused, p.pausedByPerson). */
+function paintHeadPause(p) {
+  const btn = document.getElementById('pj-head-pause');
+  const line = document.getElementById('pj-one-paused');
+  const msg = document.getElementById('pj-head-pause-msg');
+  if (!btn || !line) return;
+  const paused = !!(p && p.paused === true);
+  const live = !!(p && !p.archived);
+  btn.hidden = !live;
+  btn.querySelector('.pj-head-pause-t').textContent = paused ? 'Resume' : 'Pause';
+  btn.classList.toggle('on', paused);
+  btn.setAttribute('aria-label', (paused ? 'Resume ' : 'Pause ') + (p && p.name ? p.name : 'this project'));
+  btn.title = paused ? 'Resume: Kosmos nudges agents about its tasks and hands them out again'
+    : 'Pause: Kosmos stops nudging agents about its tasks and stops handing them out';
+  line.hidden = !(paused && live);
+  line.textContent = paused && live
+    ? (p.pausedByPerson === true ? '' : 'An agent paused it. ') + 'Paused: Kosmos is not nudging anyone about its tasks or handing them out.'
+    : '';
+  if (msg && msg.dataset.project !== (p && p.id)) msg.textContent = '';
+}
+/* #4771 / kosmos#5391: pause or resume the open project, from its state as last read. One function for the header
+   button and Settings' button, so the two cannot drift; each says a failure on its own line. */
+async function pjTogglePause(btn, msg) {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
-  const btn = document.getElementById('pj-one-pause');
-  const msg = document.getElementById('pj-one-pause-msg');
   msg.textContent = '';
   msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
   btn.disabled = true;
@@ -69610,7 +69648,9 @@ document.getElementById('pj-one-pause').addEventListener('click', async () => {
   } finally {
     btn.disabled = false;
   }
-});
+}
+document.getElementById('pj-one-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-one-pause'), document.getElementById('pj-one-pause-msg')));
+document.getElementById('pj-head-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-head-pause'), document.getElementById('pj-head-pause-msg')));
 
 // Archiving from the detail view. No confirmation on purpose: unlike removal
 // (which drops the membership list and cannot be undone by re-adding the
