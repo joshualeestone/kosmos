@@ -73,6 +73,28 @@ remaining path is switching the agent's provider, which this PR does not do.
   assigner-failover-5382, tasks, tasks.built-3951, onhold-4771, agentnudge, agyhold-4588 (engine and server),
   server.assigner-give-3595, server.assigner-failover-5382, server.recommender-assigner-2619, web.settings-nav: green.
 
+- Review 6 pins (e2d28e6da), each with an arm that must fire and a control, each red under its mutation:
+  - movedFrom recorded by a failover move (mutation: never recorded, red); an ordinary move clears it (mutation: not
+    cleared, red); control: an ordinary move never records it.
+  - Bug found by that test: assignPart stored movedFrom but tasks.partsOf rebuilt parts without it, so every reader
+    (server movedAwayFrom, the agyquota carry-on line) saw nothing and the next write erased it. partsOf now carries it;
+    a later addPart keeps it (mutation: partsOf drops it, red).
+  - A task closed as a whole with its part open refuses a failover move; control: reopened, it moves (mutation: the
+    t.closedAt check removed, red).
+  - nudgeText: none, empty and throwing movedAway give exactly NUDGE_TEXT; one item is named with "leave it to them",
+    asked about the right agent and window (mutations: empty list not plain, throw not caught, one item says "those":
+    each red).
+  - sweepOnce passes o.movedAway into the delivered line; control: without it the plain line (mutation: NUDGE_TEXT
+    delivered directly, red).
+  - setFailover on a corrupt file is ok:false and leaves the bytes untouched; control: a good file is written (mutation:
+    read().ok guard removed, red).
+  - PUT /api/assigner-setting with both on and failover is 400 "change one setting at a time" and stores neither;
+    control: failover alone is 200 (mutation: guard disabled, red).
+  - The receiver's pane line for a failover give says "It was moved to you from <from>"; control: an ordinary Assigner
+    give's line does not (mutations: note never sent, note on every give: both red).
+  - movedAwayFrom (server.js) is not exported and is wired only inside start(), so it has no direct test; its input
+    (movedFrom read through progressOf) is pinned above.
+
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
 - `limitedSince` is not saved across a board restart, so a restart restarts the 15 minutes (the waiting direction).
