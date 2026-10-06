@@ -195,12 +195,14 @@ _qh_take() {
 # 2026-10-02: first in line, then 21 ahead, its clock restarted). Since #5332 the wait keeps the marker through the take
 # (KOSMOS_WAIT_KEEP_MARK), so a lost take still holds it. The re-mark below only restores the join time for a run that
 # had no marker (it cleared on its first pass, or a lib older than #5332 unmarked it): it cannot stop a later joiner
-# passing in the gap before it (perturbed: without the kept marker the #5064 arm goes red even with the re-mark).
+# passing in the gap before it (perturbed with the kept marker removed and the re-mark left in: the #5064 arm went red
+# in one of two runs, a race, which is why the kept marker exists and why no arm can pin that variant).
 QH_JOINED="$(date +%s)"
 export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait: a side wait returns before it.
 until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; }; _qh_take; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') did not get the turn (another run took it, or is ahead in the queue); waiting again: $WHAT"
-  if [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
+  # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
+  if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
     kosmos_mark_suite_waiting "$QH_JOINED"
     # Said as an attempt: an unwritable marker dir, or a cut-guard lib older than #4911, keeps no place (review 1).
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') re-marked its place in the queue (joined $(date -r "$QH_JOINED" '+%H:%M:%S')) (#5064): $WHAT"

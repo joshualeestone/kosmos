@@ -220,7 +220,7 @@ run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two command
 }
 o=$(run5064 "$REAL_QH" $S/m5064)
 ok "#5064: the lost take was really lost (the test seam fired), so the order below means something" '[[ "$o" == *"did not get the turn"* ]]'
-ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* && "$o" == *"re-marked its place in the queue"* ]]'
+ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* ]]'
 # #5332: a won take gives the place up. While A's command runs only B is queued, so one waiting marker, not two (A's
 # own left behind would read as a waiter ahead of everyone who joins after).
 ok "#5332: once A's take is won its own queue marker is gone while its command runs (B's alone is left)" '[ "$(cat $S/m5064.amarks 2>/dev/null)" = 1 ]'
