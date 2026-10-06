@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox tsk-repeat tskRepeatSentence
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox tsk-repeat tskRepeatSentence tskRepeatMissed
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
@@ -620,6 +620,24 @@ function chk(ok, label, extra) {
           && /^Repeats every day at 9am\. Last run (just now|\d+ seconds ago) by Rex: two bounced, both removed\. Next (today|tomorrow) at 9am\.$/.test(withRule.line)
           && withRule.state === 'assigned',
           `${tag} #4787 a repeating task's row says its rule, its last run and its next run, and stays Assigned (control: no line before the rule)`, JSON.stringify({ noRule, withRule }));
+        /* kosmos#4787 slice 2: a run missed. The rule and its last run are moved three days back in the store (the only
+           way to make a slot pass in a check), so the 9am slots since are missed: the line leads with them, in the
+           error red, and the run that last came in says nothing about being late. Control: withRule above was not red. */
+        const red = () => page.evaluate(() => { const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.querySelector('.tl').textContent === 'Clean up bounced addresses');
+          const l = r && r.querySelector('.tsk-repeat');
+          const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.body.appendChild(probe);
+          const danger = getComputedStyle(probe).color; probe.remove();
+          return { line: l ? l.textContent : null, missed: !!(l && l.classList.contains('missed')), color: l ? getComputedStyle(l).color : null, danger }; });
+        const before = await red();
+        const back = new Date(Date.now() - 3 * 86400000).toISOString();
+        projects.mutate(news.id, (p) => ({ ...p, tasks: (p.tasks || []).map((t) => (t.number === 1 ? { ...t, repeatSetAt: back, lastRunAt: back } : t)) }));
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const missed = await red();
+        chk(!before.missed && before.color !== before.danger
+          && missed.missed && missed.color === missed.danger
+          && /^Missed (the run due|\d+ runs, the latest due) (today|yesterday|\w+day|\w{3} \d+) at 9am\. Repeats every day at 9am\. Last run .+ by Rex: two bounced, both removed\. Next (today|tomorrow) at 9am\.$/.test(missed.line || ''),
+          `${tag} #4787 slice 2 a missed run leads the repeat line, in the error red (control: the same row before it was missed)`, JSON.stringify({ before, missed }));
         tasks.setRepeat(news.id, 1, null);
         await page.evaluate(() => tskLoad());
         await page.waitForTimeout(300);

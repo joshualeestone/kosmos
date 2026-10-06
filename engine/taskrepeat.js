@@ -125,6 +125,9 @@ function whenWords(ms, now = Date.now()) {
   if (days === 0) return 'today at ' + time;
   if (days === 1) return 'tomorrow at ' + time;
   if (days > 1 && days < 7) return DAY_NAMES[d.getDay()] + ' at ' + time;
+  /* slice 2: a missed slot is in the past: "yesterday at 9am", or its weekday within the last week. */
+  if (days === -1) return 'yesterday at ' + time;
+  if (days < -1 && days > -7) return DAY_NAMES[d.getDay()] + ' at ' + time;
   return MONTHS[d.getMonth()] + ' ' + d.getDate() + ' at ' + time;
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

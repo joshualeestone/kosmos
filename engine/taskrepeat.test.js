@@ -177,3 +177,13 @@ test('#4787 slice 2: waitingForNextRun is unchanged by sharing dueSlot (the nudg
   assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 9, 0)), false, 'due at the slot itself, before any miss grace');
   assert.equal(r.waitingForNextRun({ repeat: { every: 'day', at: '09:00' } }, at(2026, 10, 6, 9, 0)), false, 'no stamp: shown as work');
 });
+
+test('#4787 slice 2: whenWords says a past slot as yesterday or its weekday, and a date beyond a week (control: the future is unchanged)', () => {
+  const now = at(2026, 10, 6, 12, 0);   // a Tuesday
+  assert.equal(r.whenWords(at(2026, 10, 6, 9, 0), now), 'today at 9am');
+  assert.equal(r.whenWords(at(2026, 10, 5, 9, 0), now), 'yesterday at 9am');
+  assert.equal(r.whenWords(at(2026, 10, 3, 9, 30), now), 'Saturday at 9:30am');
+  assert.equal(r.whenWords(at(2026, 9, 29, 9, 0), now), 'Sep 29 at 9am', 'a week back is a date, never an ambiguous weekday');
+  assert.equal(r.whenWords(at(2026, 10, 7, 9, 0), now), 'tomorrow at 9am');
+  assert.equal(r.whenWords(at(2026, 10, 9, 9, 0), now), 'Friday at 9am');
+});
