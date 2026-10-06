@@ -543,7 +543,8 @@ kosmos_refuse_if_suite_live() {
 # Before #4574 every waiter gave up at 20 minutes. Accepted: a hung suite is rare, and the jam this card measured was
 # not one (the live-count side is #4609: see _kosmos_drop_suite_waiters).
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
-# pass explicitly), plus #5332's KOSMOS_WAIT_KEEP_MARK, which is queued-heavy's alone and listed so no child inherits it. run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
+# pass explicitly), plus #5332's KOSMOS_WAIT_KEEP_MARK, which is queued-heavy's alone and listed so no child
+# inherits it. run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
 KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS KOSMOS_WAIT_KEEP_MARK"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }

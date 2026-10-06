@@ -198,13 +198,14 @@ _qh_take() {
 # passing in the gap before it (perturbed with the kept marker removed and the re-mark left in: the #5064 arm went red
 # in one of two runs, a race, which is why the kept marker exists and why no arm can pin that variant).
 QH_JOINED="$(date +%s)"
-export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait: a side wait returns before it.
+export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait (a side wait returns first; the renewer never waits).
 until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; }; _qh_take; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') did not get the turn (another run took it, or is ahead in the queue); waiting again: $WHAT"
   # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
     kosmos_mark_suite_waiting "$QH_JOINED"
-    # Said as an attempt: an unwritable marker dir, or a cut-guard lib older than #4911, keeps no place (review 1).
+    # Said as an attempt: an unwritable marker dir keeps no place (review 1). A lib without the marker functions is
+    # refused at load (_qh_need), so it never gets here.
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') re-marked its place in the queue (joined $(date -r "$QH_JOINED" '+%H:%M:%S')) (#5064): $WHAT"
   fi
   # Test seam (#5332): QH_TEST_LOST_PAUSE_S pauses each main-lane lost take here, after any re-mark, so a later joiner's
