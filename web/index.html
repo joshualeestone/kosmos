@@ -9897,7 +9897,10 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedinv-code .tk-inp { flex: 1 1 auto; min-width: 0; margin-top: 0; font-family: ui-monospace, Menlo, monospace;
                        font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fedinv-code .btn { flex: none; }
-@media (hover: none) { #fedinv-modal input:not([type=radio]) { font-size: 16px; } }   /* #718: iOS zooms into a field under 16px */
+.fedinv-whole { display: block; width: 100%; box-sizing: border-box; margin: var(--space-6) 0 0; resize: vertical;   /* #5275 slice 2 */
+                font-size: .8125rem; line-height: 1.5; }
+.fedinv-whole[hidden] { display: none; }
+@media (hover: none) { #fedinv-modal input:not([type=radio]), #fedinv-modal textarea { font-size: 16px; } }   /* #718: iOS zooms into a field under 16px */
 /* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
    the click can open showPlusGate("connect"). Visual gray only -- no pointer-events:none. */
 html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent { opacity: .55; }
@@ -17127,6 +17130,10 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#4649 slice C (shot 03, Mona's design review item 1): the main way to send it is the whole
          invitation (shot 04's text, built by fedInviteText); the bare-code Copy above stays as the secondary. -->
     <div class="fedinv-can" id="fedinv-easier"></div>
+    <!-- kosmos#5275 slice 2 (Pete's design call): when Copy the invitation cannot copy either way, the whole
+         invitation shows here, selected, so the copy keys the line names copy all of it (the steps and the name line
+         included), not the code alone. Hidden again by the next copy, and when the sheet opens. -->
+    <textarea class="tk-inp fedinv-whole" id="fedinv-whole" readonly hidden rows="7" spellcheck="false" aria-label="The whole invitation, selected so you can copy it"></textarea>
     <p class="fmsg" id="fedinv-status" aria-live="polite"></p>
     <div class="rm-acts">
       <button class="btn" id="fedinv-ok" type="button">Done</button>
@@ -69573,6 +69580,7 @@ function fedInviteOpen(opener, prefill) {
   document.getElementById('fedinv-kind-person').checked = true;
   document.getElementById('fedinv-make').disabled = false;
   document.getElementById('fedinv-code').value = '';
+  { const whole = document.getElementById('fedinv-whole'); if (whole) { whole.hidden = true; whole.value = ''; } }   // #5275 slice 2
   document.getElementById('fedinv-until').textContent = '';
   document.getElementById('fedinv-status').textContent = '';
   document.getElementById('fedinv-copy').textContent = 'Copy';
@@ -69797,6 +69805,8 @@ function fedInviteSay(sentence) {
 // saying "Copied" over a newer result.
 function fedInviteCopyReset() {
   FEDINV_SAY++;
+  const whole = document.getElementById('fedinv-whole');   // #5275 slice 2: shown only while its refusal is the line
+  if (whole) { whole.hidden = true; whole.value = ''; }
   if (FEDINV_COPY_TIMER) clearTimeout(FEDINV_COPY_TIMER);
   FEDINV_COPY_TIMER = null;
   document.getElementById('fedinv-copy').textContent = 'Copy';
@@ -69852,9 +69862,14 @@ async function fedInviteCopyAll() {
   if (ok === null) return;   // the sheet was closed or reopened while the clipboard answered
   if (ok) { said(); return; }
   fedInviteCopyReset();
-  // The code is selected so the line is true as read; kept on screen (no revert timer) so it cannot be missed.
-  try { document.getElementById('fedinv-code').select(); } catch { /* the line still says what to do */ }
-  fedInviteSay('Kosmos could not copy the invitation. Select the code above and press ' + copyKeysWord() + ' to copy the code alone, then paste it into your message.');
+  // kosmos#5275 slice 2: the whole invitation shows, selected, so the keys copy all of it rather than the code alone;
+  // the line is true as read and stays (no revert timer). Focus moves to it only if it is still on the button, as on
+  // the other copy screens (copyFocusStillOn).
+  const whole = document.getElementById('fedinv-whole');
+  whole.value = fedInviteText(made);
+  whole.hidden = false;
+  try { if (copyFocusStillOn(btn)) whole.focus(); whole.select(); } catch { /* the line still says what to do */ }
+  fedInviteSay('Kosmos could not copy the invitation, so it is selected below. Press ' + copyKeysWord() + ', then paste it into your message.');
 }
 document.getElementById('fedinv-make').addEventListener('click', fedInviteMake);
 // Enter is a second Make button, so it obeys the same guard (a request in flight disables Make) and does not fire
