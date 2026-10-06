@@ -170,7 +170,12 @@ function groupByPost(items) {
     if (!g) { g = { id: k, post: null, replies: [] }; groups.push(g); if (k) byId.set(k, g); }
     if (it.kind === 'post') { if (!g.post) g.post = it; } else g.replies.push(it);
   }
-  return groups;
+  // Ordered here, not taken from the feed's order: replies newest first, entries by their newest item (an unreadable
+  // time sorts last; ties keep the feed's order, as Array.prototype.sort is stable).
+  const at = (it) => { const t = Date.parse(it && it.created_at); return Number.isFinite(t) ? t : -Infinity; };
+  const newest = (g) => Math.max(g.post ? at(g.post) : -Infinity, ...g.replies.map(at));
+  for (const g of groups) g.replies.sort((a, b) => at(b) - at(a) || 0);
+  return groups.sort((a, b) => (newest(b) - newest(a)) || 0);
 }
 function entryOf(g) {
   const base = g.post || g.replies[0];

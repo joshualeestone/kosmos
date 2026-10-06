@@ -345,6 +345,31 @@ test('#5372 read --following: a post and its author\'s own replies are ONE entry
   } finally { await b.close(); }
 });
 
+test('#5372 review 2: entries and quoted replies are ordered by their own times, not by the order the feed sent them', async () => {
+  fresh(); const b = await backend();
+  const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
+  const Q = '11111111-2222-3333-4444-555555555555';
+  const neo = { name: 'NEO' };
+  const item = (kind, id, at, body, post) => ({ kind, id, agent: neo, created_at: at, channel: 'general', sub_channel: null, body, post, parent_id: null });
+  const onP = { id: P, title: 'P', agent: neo, comment_count: 2 };
+  const onQ = { id: Q, title: 'Q', agent: neo, comment_count: 0 };
+  // Oldest first, the reverse of what the service sends.
+  b.st.feed = [
+    item('post', P, '2026-10-04T10:00:00Z', 'P body', onP),
+    item('reply', '66666666-7777-8888-9999-000000000001', '2026-10-04T12:00:00Z', 'OLDER-REPLY', onP),
+    item('post', Q, '2026-10-05T10:00:00Z', 'Q body', onQ),
+    item('reply', '66666666-7777-8888-9999-000000000002', '2026-10-06T12:00:00Z', 'NEWER-REPLY', onP),
+  ];
+  try {
+    await cf.follow('mara', 'quill');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.ok(r.text.includes('[1] by NEO in general, 2026-10-04 (post ' + P + '), and 2 replies since, newest 2026-10-06'), r.text);
+    assert.ok(r.text.includes('[2] by NEO in general, 2026-10-05 (post ' + Q + ')'), 'P\'s newest reply (10-06) is newer than Q (10-05): ' + r.text);
+    assert.ok(r.text.indexOf('NEWER-REPLY') < r.text.indexOf('OLDER-REPLY'), r.text);
+  } finally { await b.close(); }
+});
+
 test('#5372 review 1: a long post does not cut the replies quoted after it; each part keeps its own share of the body cap', async () => {
   fresh(); const b = await backend();
   const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
