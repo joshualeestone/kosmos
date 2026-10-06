@@ -572,3 +572,11 @@ test('review 11: a name with U+0085 or a C0 separator stays on the heading line'
   assert.ok(!/[\u0085\u001c-\u001e]/.test(fileText('sally')), JSON.stringify(head));
   assert.ok(head.includes('Ops ## Fake heading'));
 });
+test('review 11: an asker name that ARRIVES with a lone surrogate still leaves the addition undoable', () => {
+  makeAgent('sally');
+  assert.equal(adds.propose('sally', ADD, 'Ops \ud83d lead').ok, true);
+  assert.equal(adds.apply('sally').ok, true);
+  assert.equal(adds.state('sally').last.undoable, true);
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE);
+});
