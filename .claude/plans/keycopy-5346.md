@@ -20,6 +20,14 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - "Claude reads a picture or PDF" rather than "needs Claude": the next sentence names other readers.
 - CLAUDE.md's routing row names the ChatGPT reader.
 
+## Review rounds 2-3 (calls)
+- A person whose own ChatGPT account cannot be used (any reason, Windows included) is told that reason and then the
+  Claude-first sentence without ChatGPT (`noModelFor(platform, { chatgpt: false })`), so every no-reader answer names
+  what does read. With no ChatGPT account, a switched-off key provider's reason (Gemini's) as before. This replaces
+  round 1's either-or and round 2's WHY_WINDOWS string comparison.
+- A ChatGPT account with no Codex the board can run now has a reason (`WHY_NO_CODEX`), so the no-reader sentence
+  never says ChatGPT reads to someone whose ChatGPT cannot.
+
 ## Tests
 - server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
 - engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes

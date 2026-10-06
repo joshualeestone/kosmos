@@ -210,6 +210,7 @@ function managedConfig() {
 const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has Codex settings an administrator manages, which Kosmos cannot switch off. A CSV or Excel export works with any provider, and so does typing the list.';
 /* Windows: the flags, the catalog and the capture were measured on a Mac only, and no administrator-managed layer is
    known there to check. Off until measured, as an unknown is everywhere else in this file. */
+const WHY_NO_CODEX = 'ChatGPT reads org charts through Codex, and Kosmos cannot find a Codex it can run on this computer. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up its model list for this account. Start an OpenAI agent once, then try again. A CSV or Excel export works with any provider, and so does typing the list.';
 const WHY_CATALOG_VERSION = 'ChatGPT does not read org charts with this account: its model list was written by a Codex other than the version Kosmos has checked. A CSV or Excel export works with any provider, and so does typing the list.';
@@ -220,7 +221,6 @@ const whyVersion = (have, want) => 'ChatGPT does not read org charts with the Co
 /* The reader and, when a ChatGPT account is here but cannot be used, why, from one look. */
 function pickWithWhy() {
   const bin = binFn();
-  if (!bin) return { reader: null, offWhy: null };
   let rows = [];
   try { rows = accountsFn() || []; } catch { rows = []; }
   // Only the default ChatGPT account (else the first) is considered: the one an agent on this computer uses. A second
@@ -229,6 +229,8 @@ function pickWithWhy() {
     .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
   const r = subs[0];
   if (!r) return { reader: null, offWhy: null };
+  // #5346 step 2: a ChatGPT account with no Codex to run is a reason, not silence (the no-reader sentence says ChatGPT reads).
+  if (!bin) return { reader: null, offWhy: WHY_NO_CODEX };
   if (process.platform === 'win32') return { reader: null, offWhy: WHY_WINDOWS };
   const want = pinnedVersion();
   const have = versionFn(bin);
@@ -446,4 +448,4 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
   });
 }
 
-module.exports = { MAX_CATALOG_BYTES, KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { WHY_NO_CODEX, MAX_CATALOG_BYTES, KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };

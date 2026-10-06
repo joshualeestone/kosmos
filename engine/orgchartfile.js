@@ -445,13 +445,15 @@ const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). #5346: Claude
    first, then what else reads, and never "you need an API key". ChatGPT only where it reads (not on Windows yet:
    orgchartcodex WHY_WINDOWS). */
-function noModelFor(platform) {
+function noModelFor(platform, opts) {
+  const chatgpt = opts && opts.chatgpt !== undefined ? opts.chatgpt === true : platform !== 'win32';
   return 'Claude reads a picture or PDF, connected in Settings, AI Models. '
-    + (platform === 'win32' ? 'OpenAI or Grok connected with a key can read a PNG or JPG picture too'
+    + (!chatgpt ? 'OpenAI or Grok connected with a key can read a PNG or JPG picture too'
       : 'ChatGPT also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too')
     + ' (OpenAI reads a PDF as well). A CSV or Excel export works with any provider, and so does typing the list.';
 }
 const NO_MODEL = noModelFor(process.platform);
+const ANY_PROVIDER_TAIL = / A CSV or Excel export works with any provider, and so does typing the list\.$/;
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
@@ -630,10 +632,9 @@ function currentReader(name) {
   if (!got.reader && sub.reader) return sub.reader;
   // No reader: the reason (a switched-off provider, or a ChatGPT account that cannot be used) travels on a
   // null-shaped answer the caller can read, from the same look at the accounts (see whyNoReader).
-  // #5346 review 1: a person whose own ChatGPT account was refused hears why first; it is the reason they can act on.
-  // Not "ChatGPT does not read on Windows yet" over a key provider's reason, which names what does read (review 2).
-  const codexWhyWindows = (() => { try { return require('./orgchartcodex').WHY_WINDOWS; } catch { return null; } })();
-  lastWhy = sub.offWhy && sub.offWhy !== codexWhyWindows ? sub.offWhy : (got.offWhy || sub.offWhy);
+  // #5346 step 2: a person whose own ChatGPT account cannot be used hears why, then what does read (Claude first, and
+  // not ChatGPT again); with no ChatGPT account, a switched-off key provider's reason.
+  lastWhy = sub.offWhy ? sub.offWhy.replace(ANY_PROVIDER_TAIL, '') + ' ' + noModelFor(process.platform, { chatgpt: false }) : got.offWhy;
   return got.reader ? { kind: 'key', ...got.reader } : null;
 }
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */

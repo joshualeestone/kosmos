@@ -88,6 +88,9 @@ c.setSystemConfigPaths(() => []);
 keys.setAccounts(() => []);
 test.after(() => { c.setBin(null); c.setVersion(null); c.setSystemConfigPaths(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
 
+/* #5346 step 2: what a person whose ChatGPT cannot be used is told: that reason, then what does read (Claude first). */
+const combined = (why, platform = process.platform) => why.replace(/ A CSV or Excel export works with any provider, and so does typing the list\.$/, '') + ' ' + o.noModelFor(platform, { chatgpt: false });
+
 test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', () => {
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey', isDefault: true }, { dir: '/b', authMode: 'chatgpt', email: 'b@x.test' }, { ...SUB, isDefault: true }]);
   assert.deepEqual(c.pick(), { kind: 'codex', provider: 'openai', dir: acct, account: 'ceo@example.test' });
@@ -96,6 +99,10 @@ test('pick: a ChatGPT-subscription account reads, default first; key accounts an
   c.setAccounts(() => [SUB]);
   c.setBin(() => null);
   assert.equal(c.pick(), null, 'no Codex this board can run: no reader');
+  assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'review 3: a ChatGPT account with no Codex is told why, not left with a sentence saying ChatGPT reads');
+  c.setAccounts(() => [{ dir: '/k', authMode: 'apikey' }]);
+  assert.equal(c.pickWithWhy().offWhy, null, 'control: no ChatGPT account, no Codex: nothing to say about ChatGPT');
+  c.setAccounts(() => [SUB]);
   c.setBin(() => fake);
 });
 
@@ -246,7 +253,7 @@ test('an account with its own instructions file (AGENTS.md or AGENTS.override.md
     fs.writeFileSync(path.join(acct, f), 'private instructions');
     try {
       assert.equal(o.currentReader(), null, f);
-      assert.equal(o.whyNoReader(), c.WHY_INSTRUCTIONS, f);
+      assert.equal(o.whyNoReader(), combined(c.WHY_INSTRUCTIONS), f);
     } finally { fs.rmSync(path.join(acct, f)); }
   }
   assert.equal(o.currentReader().kind, 'codex', 'CONTROL: without the file it reads');
@@ -269,6 +276,8 @@ test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s 
   try {
     assert.equal(o.currentReader(), null);
     assert.match(o.whyNoReader(), /Kosmos has checked only version/, 'the Gemini reason (which says ChatGPT reads) hid why their ChatGPT did not');
+    assert.match(o.whyNoReader(), /Claude reads a picture or PDF, connected in Settings, AI Models/, 'review 3: it named nothing that does read');
+    assert.doesNotMatch(o.whyNoReader(), /ChatGPT also reads/);
     c.setVersion(() => PINNED);
     c.setAccounts(() => []);
     assert.equal(o.currentReader(), null);
@@ -284,11 +293,11 @@ test('a catalog with a field this Codex does not know, or written by another Cod
     const got = await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null);
     assert.equal(got.because, c.WHY_CATALOG_UNKNOWN);
     assert.equal(o.currentReader(), null, 'and the reader is not offered: the reason shows before the consent box');
-    assert.equal(o.whyNoReader(), c.WHY_CATALOG_UNKNOWN);
+    assert.equal(o.whyNoReader(), combined(c.WHY_CATALOG_UNKNOWN));
     write({ ...CACHE, client_version: '9.9.9' });
     assert.equal(c.deriveCatalog(acct), null);
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), c.WHY_CATALOG_VERSION);
+    assert.equal(o.whyNoReader(), combined(c.WHY_CATALOG_VERSION));
     write(CACHE);
     assert.ok(c.deriveCatalog(acct), 'CONTROL: the known catalog is used');
   } finally { write(CACHE); }
@@ -300,7 +309,7 @@ test('a computer with Codex settings an administrator manages is not used', asyn
   c.setSystemConfigPaths(() => [managed]);
   try {
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), c.WHY_MANAGED);
+    assert.equal(o.whyNoReader(), combined(c.WHY_MANAGED));
     fs.rmSync(record, { force: true });
     assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: c.WHY_MANAGED });
     assert.equal(fs.existsSync(record), false, 'Codex never started');
@@ -333,7 +342,7 @@ test('Windows: ChatGPT is not used to read org charts, and the person is told wh
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), c.WHY_WINDOWS);
+    assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32'));
     fs.rmSync(record, { force: true });
     assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: c.WHY_WINDOWS });
     assert.equal(fs.existsSync(record), false);
@@ -457,15 +466,17 @@ test('#5346 step 2: both no-reader sentences lead with Claude, name ChatGPT only
   assert.equal(keys.OFF_WHY.google, keys.googleOffWhyFor(process.platform));
 });
 
-test('#5346 step 2 review 2: on Windows, "ChatGPT does not read here yet" does not hide a key provider\'s reason', () => {
+test('#5346 step 2 review 2/3: on Windows, a ChatGPT account hears why it does not read here, then Claude first', () => {
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
   try {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), keys.OFF_WHY.google, 'the Gemini reason (which names Claude) was hidden by WHY_WINDOWS');
+    assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32'), 'the Windows ChatGPT reason, then Claude first');
+    assert.match(o.whyNoReader(), /Claude reads a picture or PDF/);
+    assert.doesNotMatch(o.whyNoReader(), /ChatGPT also reads/, 'it said ChatGPT reads right after saying it does not here');
     keys.setAccounts(() => []);
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), c.WHY_WINDOWS, 'CONTROL: alone, the Windows ChatGPT reason is shown');
+    assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32'), 'CONTROL: the same with no key provider');
   } finally { Object.defineProperty(process, 'platform', real); keys.setAccounts(() => []); }
 });
