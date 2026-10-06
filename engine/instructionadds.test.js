@@ -601,10 +601,10 @@ test('review 12: a proposal holding a line in Kosmos\'s own heading format is re
   assert.equal(adds.propose('sally', 'We added on a new rule.', 'Ops lead').ok, true, 'CONTROL: the words in a sentence are fine');
 });
 test('review 12: a long run of whitespace in the text or file is handled in linear time', () => {
-  makeAgent('sally', BASE + '\n'.repeat(20000) + 'end\n');
+  makeAgent('sally', BASE + '\n'.repeat(120000) + 'end\n');   // a quadratic trim takes seconds here (measured: 80000 took ~2 s)
   const t0 = Date.now();
   assert.equal(adds.propose('sally', ' '.repeat(8000) + 'x' + ' '.repeat(8000), 'Ops lead').ok, true);
   assert.equal(adds.apply('sally').ok, true);
   assert.equal(adds.undo('sally').ok, true);
-  assert.ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms');
+  assert.ok(Date.now() - t0 < 1000, 'took ' + (Date.now() - t0) + ' ms');
 });
