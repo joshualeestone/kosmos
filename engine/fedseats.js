@@ -68,9 +68,9 @@ const SENT_LOG_MAX = 64;
 const SENT_LOG_MS = 10 * 60 * 1000;
 const REVOKE_SENT_SKEW_MS = 5 * 1000;
 function noteSentAfterRevoke(projectId, s, revokedAtSec) {
+  if (!Number.isFinite(revokedAtSec) || revokedAtSec <= 0) return;   // nothing says when, so no claim (the log stays)
   const log = s.sentLog || [];
   s.sentLog = [];
-  if (!Number.isFinite(revokedAtSec) || revokedAtSec <= 0) return;   // nothing says when, so no claim
   const since = revokedAtSec * 1000 - REVOKE_SENT_SKEW_MS;
   const n = log.filter((t) => t >= since).length;
   if (!n) return;

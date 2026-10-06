@@ -524,6 +524,23 @@ test('#5404: when the connector\'s refusal comes first (the check answered from 
   assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193, GAP_ONE_5404], JSON.stringify(h.notes));
 });
 
+test('#5404: refusal first, then a fresh answer that failed or does not say revoked: nothing is claimed', async () => {
+  for (const [tag, edges] of [['failed', null], ['active', 'active']]) {
+    const id = 'proj-5404-connfirst-' + tag;
+    const h = await memberRoom(id);
+    h.memberEdges = [{ id: 'edge-' + id, status: 'active' }];
+    assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'went out' }), true);
+    await settle();
+    // The fresh answer: a failed ask (no edges at all) or one that still lists the edge as active.
+    h.memberEdges = edges ? [{ id: 'edge-' + id, status: edges, revoked_at: nowSec5404() - 3 }] : null;
+    const asked = h.asked;
+    say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
+    await settle();
+    assert.ok(h.asked > asked, tag + ': no fresh edges answer was asked for');
+    assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193], tag + ': ' + JSON.stringify(h.notes));
+  }
+});
+
 test('#5404: with no revoked_at in the answer, nothing is claimed about the posts', async () => {
   const id = 'proj-5404-nostamp';
   const h = await memberRoom(id);
