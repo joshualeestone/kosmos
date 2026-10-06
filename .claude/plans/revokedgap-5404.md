@@ -1,6 +1,6 @@
 # revokedgap-5404: name the posts a removed member sent before it knew
 
-Card: kosmos#5404 (found in the 0.7.25 two-account test). Owner: April. Started 2026-10-06 11:46 CDT.
+Card: kosmos#5404 (found in the 0.7.25 two-account test). Owner: April. Started 2026-10-06 11:44 CDT (claim log).
 
 ## What happens
 A member (B) learns it was removed only when its edge check (or later the connector) says so. Every
