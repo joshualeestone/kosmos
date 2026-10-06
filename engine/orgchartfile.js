@@ -443,7 +443,7 @@ const MODEL_TYPES = {
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
-const NO_MODEL = 'Reading a picture or PDF needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture), connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
+const NO_MODEL = 'Reading a picture or PDF needs Claude, connected in Settings, AI Models. ChatGPT also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too (OpenAI reads a PDF as well). A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).

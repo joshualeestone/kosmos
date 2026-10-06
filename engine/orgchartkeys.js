@@ -178,7 +178,7 @@ let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
 function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
 const OFF_WHY = {
-  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude or an OpenAI key can read a picture or PDF (a Grok key reads a PNG or JPG picture); a CSV or Excel export works with any provider, and so does typing the list.',
+  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude can read a picture or PDF, and ChatGPT a PNG or JPG picture (so can OpenAI or Grok connected with a key, and OpenAI a PDF as well); a CSV or Excel export works with any provider, and so does typing the list.',
 };
 
 /* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the

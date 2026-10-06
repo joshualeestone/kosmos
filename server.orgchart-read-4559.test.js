@@ -193,7 +193,9 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1' });
   assert.equal(r.json.unavailable, true);
   assert.equal(r.json.problems[0], orgchartfile.NO_MODEL);
-  assert.match(r.json.problems[0], /Claude or an OpenAI key \(a Grok key reads a PNG or JPG picture\).*A CSV or Excel export works with any provider/);
+  // #5346: leads with Claude, names ChatGPT for a picture, and never tells the person they need an API key.
+  assert.match(r.json.problems[0], /^Reading a picture or PDF needs Claude, .*ChatGPT also reads a PNG or JPG picture.*A CSV or Excel export works with any provider/);
+  assert.doesNotMatch(r.json.problems[0], /API key/i);
   assert.equal(sent.length, 0);
 });
 
