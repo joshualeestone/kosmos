@@ -465,7 +465,7 @@ async function run() {
     } else check('LEAVE: the panel offers a file', false);
     await pl.close();
 
-    // NO READER (no Claude and no key-connected provider)
+    // NO READER (no Claude, no usable ChatGPT and no key-connected provider)
     const p4 = await page();
     const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy
     await p4.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { unavailable: true, problems: [NO_MODEL] } }));

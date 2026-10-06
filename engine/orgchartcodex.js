@@ -231,9 +231,9 @@ function pickWithWhy() {
     .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
   const r = subs[0];
   if (!r) return { reader: null, offWhy: null };
+  if (process.platform === 'win32') return { reader: null, offWhy: WHY_WINDOWS };
   // #5346 step 2: a ChatGPT account with no Codex to run is a reason, not silence (the no-reader sentence says ChatGPT reads).
   if (!bin) return { reader: null, offWhy: WHY_NO_CODEX };
-  if (process.platform === 'win32') return { reader: null, offWhy: WHY_WINDOWS };
   const want = pinnedVersion();
   const have = versionFn(bin);
   if (!want || have !== want) return { reader: null, offWhy: whyVersion(have, want || 'unknown') };

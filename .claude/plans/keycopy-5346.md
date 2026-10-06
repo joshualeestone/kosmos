@@ -35,6 +35,14 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - The closing sentence every Codex refusal ends with is one constant (`orgchartcodex.ANY_PROVIDER`), taken off by
   value rather than by a pattern.
 
+## Review round 5 (calls)
+- On Windows a ChatGPT account hears "not on Windows yet" even with no Codex (the platform reason comes first: fixing
+  Codex would not help there).
+- The Gemini sentence uses "ChatGPT, connected the same way" too; its short form keeps "Kosmos cannot tell a free key
+  from a paid one".
+- After a consented ChatGPT read could not run, the server answers `noModelAfter(reader)`, which does not offer ChatGPT.
+- One combination's whole sentence is written out in a test, so the composition is not only checked against itself.
+
 ## Tests
 - server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
 - engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes

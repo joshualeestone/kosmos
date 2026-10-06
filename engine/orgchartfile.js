@@ -445,6 +445,7 @@ const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). #5346: Claude
    first, then what else reads, and never "you need an API key". ChatGPT only where it reads (not on Windows yet:
    orgchartcodex WHY_WINDOWS). */
+/* opts.chatgpt: true or false only (anything else is false); left out, ChatGPT is named where it reads. */
 function noModelFor(platform, opts) {
   const chatgpt = opts && opts.chatgpt !== undefined ? opts.chatgpt === true : platform !== 'win32';
   return 'Claude reads a picture or PDF, connected in Settings, AI Models. '
@@ -453,6 +454,8 @@ function noModelFor(platform, opts) {
     + ' (OpenAI reads a PDF as well). A CSV or Excel export works with any provider, and so does typing the list.';
 }
 const NO_MODEL = noModelFor(process.platform);
+/* The no-reader sentence after a read by `reader` could not run: not offering ChatGPT again after a ChatGPT read. */
+const noModelAfter = (reader) => (reader && reader.kind === 'codex' ? noModelFor(process.platform, { chatgpt: false }) : NO_MODEL);
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
@@ -753,4 +756,4 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = { MODEL_TIMEOUT_MS,
-  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, noModelFor, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, noModelFor, noModelAfter, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

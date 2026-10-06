@@ -483,3 +483,30 @@ test('#5346 step 2 review 2/3: on Windows, a ChatGPT account hears why it does n
     assert.equal(o.whyNoReader(), combined(c.WHY_WINDOWS, 'win32'), 'CONTROL: the same with no key provider');
   } finally { Object.defineProperty(process, 'platform', real); keys.setAccounts(() => []); }
 });
+
+test('#5346 step 2 review 5: Windows with no Codex says Windows, not "install Codex"; after a failed ChatGPT read ChatGPT is not offered again', () => {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  c.setBin(() => null);
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    assert.equal(c.pickWithWhy().offWhy, c.WHY_WINDOWS);
+    Object.defineProperty(process, 'platform', real);
+    assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
+  } finally { Object.defineProperty(process, 'platform', real); c.setBin(() => fake); }
+  assert.ok(noChatgptAfterClaude(o.noModelAfter({ kind: 'codex', dir: acct })), o.noModelAfter({ kind: 'codex', dir: acct }));
+  assert.equal(o.noModelAfter({ kind: 'claude' }), o.NO_MODEL, 'control: after any other reader, the usual sentence');
+});
+
+test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex version mismatch, and a Gemini key)', () => {
+  keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
+  c.setVersion(() => '9.9.9');
+  try {
+    assert.equal(o.currentReader(), null);
+    if (process.platform !== 'win32') {
+      assert.equal(o.whyNoReader(), 'ChatGPT does not read org charts with the Codex on this computer (version 9.9.9): Kosmos has checked only version ' + PINNED + '.'
+        + ' Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
+        + ' Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can read a PNG or JPG picture too (OpenAI reads a PDF as well).'
+        + ' A CSV or Excel export works with any provider, and so does typing the list.');
+    }
+  } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); }
+});

@@ -7355,7 +7355,8 @@ const server = http.createServer(async (req, res) => {
         const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal, reader });
         if (stop.signal.aborted) return;
         if (got.unavailable) {
-          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          // #5346: after a ChatGPT read could not run, the sentence does not offer ChatGPT again.
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.noModelAfter(reader)] });
           return;
         }
         sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(reader), rows: got.rows, problems: got.problems });
