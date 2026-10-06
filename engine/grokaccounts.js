@@ -827,8 +827,10 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
   // Held for the life of the sign-in, so forget/remove and a second sign-in again refuse it.
   if (reauth) activeGrokDirs.add(reauth.dir);
   /* XAI_API_KEY REMOVED, not blanked: an empty value still reads as set to grok. */
-  const env = { ...process.env, GROK_HOME: spot.dir };
-  delete env.XAI_API_KEY;
+  const env = { ...process.env };
+  // #5386: one GROK_HOME and no XAI_API_KEY, whatever spelling the board's environment carries them in.
+  require('./win32env').envSet(env, 'GROK_HOME', spot.dir);
+  require('./win32env').envDelete(env, 'XAI_API_KEY');
   /* The leader socket: grok's default is ~/.grok/leader.sock, the machine's own. A
      path inside the account dir can pass macOS's 104-byte socket-path limit for a long
      name, so it goes in the temp dir under a short per-sign-in name instead. */

@@ -566,7 +566,8 @@ function defaultModelRunner(line, signal) {
        (engine/create.js: configDir = isDefault ? null : dir): the board's own account as the board has it, else
        the default account with it unset. */
     const own = process.env.CLAUDE_CONFIG_DIR;
-    if (own) env.CLAUDE_CONFIG_DIR = own; else delete env.CLAUDE_CONFIG_DIR;
+    // #5386: every spelling (a copy of process.env keeps names as spelled).
+    if (own) require('./win32env').envSet(env, 'CLAUDE_CONFIG_DIR', own); else require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
     // `signal`: the person stopped the read or left the page, so the child is killed and stops using their plan.
     /* maxBuffer: well past the largest request (a 10 MB PDF is about 13.3 MB as base64), in case this output format
        ever echoes the request back; not measured against a real multi-MB PDF (a fake binary cannot say what claude

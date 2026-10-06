@@ -334,8 +334,9 @@ async function checkLive(opts) {
   // never CLAUDE_CONFIG_DIR); checkLive() matches that guarantee by
   // deleting the key rather than trusting it to be unset.
   const env = { ...process.env };
-  if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
-  else delete env.CLAUDE_CONFIG_DIR;
+  // #5386: every spelling (a copy of process.env keeps names as spelled; on Windows any one of them is the variable).
+  if (configDir) require('./win32env').envSet(env, 'CLAUDE_CONFIG_DIR', configDir);
+  else require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
   let result;
   try {
     result = await runAuthStatus(env);

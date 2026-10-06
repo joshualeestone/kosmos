@@ -120,7 +120,7 @@ function defaultRunner(dir) {
   const env = { ...process.env };
   // A null/empty dir means the default codex home; leave CODEX_HOME as the process inherits
   // it (codex resolves its own default) rather than forcing an empty value.
-  if (dir) env.CODEX_HOME = String(dir);
+  if (dir) require('./win32env').envSet(env, 'CODEX_HOME', String(dir));   // #5386: one key, whatever spelling was inherited
   return new Promise((resolve) => {
     execFile(bin, ['doctor', '--json'], { env, timeout: TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout) => {

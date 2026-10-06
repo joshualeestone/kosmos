@@ -3991,7 +3991,8 @@ function defaultClaudeProbe(configDir) {
     let bin; try { bin = runners.resolveBin('claude').bin; } catch { bin = null; }
     if (!bin) { resolve({ exitCode: null, out: '' }); return; }
     const env = { ...process.env };
-    if (configDir) env.CLAUDE_CONFIG_DIR = configDir; else delete env.CLAUDE_CONFIG_DIR;
+    // #5386: every spelling (a copy of process.env keeps names as spelled).
+    if (configDir) require('./win32env').envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
     // Overridable only so a test can drive the timeout/partial-output path
     // quickly; unset in production, where 15s is the wait before a hung probe is
     // killed and its partial output classified.
