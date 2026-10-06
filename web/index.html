@@ -2577,7 +2577,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .pj-head-pause .pause { gap: 2px; }
 .pj-head-pause .pause i { background: currentColor; width: 2px; height: 8px; }
 .pj-head-pause.on .pause { display: none; }
-.pj-head-pause.on::before { content: ""; width: 0; height: 0; border-left: 6px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+/* The play mark, drawn with a clip-path, never a border: the #3692 guard reads any border-left as a left bar. */
+.pj-head-pause.on::before { content: ""; width: 6px; height: 8px; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
 .pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
 #pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
 /* On touch it still LOOKS 22px, as Josh asked, but takes a 36px-tall tap, as the cog beside it does (an invisible ring). */
@@ -58179,9 +58180,9 @@ async function loadProjects() {
     BOARD_SIGNED_OUT = gotSignedOut;
     BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
     PJ_READ_FAILED = true;
+    paintPjNone();
     // kosmos#5391 review 2: the header Pause / Resume goes inert while the projects cannot be read (it repaints on recovery).
     try { if (PJ_CURRENT) paintHeadPause(pjById(PJ_CURRENT)); } catch { /* a paint never breaks the failure path */ }
-    paintPjNone();
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
     // add-member and remove-member paths call this from the one-project view,
     // where `#pj-list` is hidden -- so a failed refresh left the member list
