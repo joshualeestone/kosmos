@@ -157,7 +157,40 @@ function utcDay(isoTimestamp) {
  * the roots list travels with the result so a caller can say "N of N
  * config roots read" rather than imply completeness it cannot back up.
  */
+/* #5363: the first cwd a transcript records, read line by line and stopping at the first one, for a transcript
+   whose rows are skipped (it was last written before the window) but a subagent of which is read, and takes its
+   launch folder.
+   The same rule as the full read below: the first line that names a cwd and parses with a non-empty one. */
+async function firstCwd(file) {
+  let stream;
+  try {
+    stream = fs.createReadStream(file, { encoding: 'utf8' });
+    const lines = require('node:readline').createInterface({ input: stream, crlfDelay: Infinity });
+    for await (const line of lines) {
+      if (!line.includes('"cwd"')) continue;
+      let r;
+      try { r = JSON.parse(line); } catch { continue; }
+      if (r && typeof r.cwd === 'string' && r.cwd) { lines.close(); return r.cwd; }
+    }
+  } catch { /* unreadable: no launch folder, as the full read would give */ } finally {
+    if (stream) stream.destroy();
+  }
+  return '';
+}
+
+/* #5363: a row is appended when it is written, so a transcript last written before the window can hold no row in
+   it. Both a row's timestamp and a file's mtime are absolute times (no time zone in either), so the cut needs only a
+   margin for clock drift: one hour before the window's first day. Measured on the fleet Mac, 2026-10-05: 85,008
+   transcript files (14.8 GB); a one-DAY margin still read 3,143 of them (4.4 GB), most of the remaining time. */
+const MTIME_MARGIN_MS = 60 * 60 * 1000;
+function windowCutMs(sinceDay) {
+  if (typeof sinceDay !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(sinceDay)) return null;
+  const t = Date.parse(sinceDay + 'T00:00:00Z');
+  return Number.isFinite(t) ? t - MTIME_MARGIN_MS : null;
+}
+
 async function scanUsage({ sinceDay, untilDay }) {
+  const cutMs = windowCutMs(sinceDay);
   /* Scan-wide, not per file: a message id identifies one assistant message
      across the whole read, and the same message can appear in more than one
      file (a session transcript and a resumed copy of it). Per-file dedup would
@@ -173,6 +206,19 @@ async function scanUsage({ sinceDay, untilDay }) {
        different folders (a resumed session), the same file wins the dedup on
        every scan and the per-agent split does not depend on readdir order. */
     for (const file of (await walkTranscriptsUnder(root)).sort()) {
+      const isSub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length) !== -1;
+      /* #5363: a file last written before the window holds no row in it, so it is not read. A top-level one still
+         gives its first cwd (a head read), because a subagent written today takes its launch folder from it. */
+      if (cutMs !== null) {
+        let st;
+        try { st = await fsp.stat(file); } catch { continue; }
+        if (st.mtimeMs < cutMs) {
+          // Its first cwd is read only if a subagent of it is read (below): most skipped sessions have none in the
+          // window, and a head read of each was 14,196 file opens on the fleet Mac.
+          if (!isSub) launchOf.set(file, { skipped: true });
+          continue;
+        }
+      }
       let text;
       try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
       /* #2617: a transcript is keyed by the FIRST cwd it records, the folder
@@ -199,7 +245,12 @@ async function scanUsage({ sinceDay, untilDay }) {
          as one. */
       const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
       if (sub !== -1) {
-        const parent = launchOf.get(file.slice(0, sub) + '.jsonl');
+        const parentFile = file.slice(0, sub) + '.jsonl';
+        let parent = launchOf.get(parentFile);
+        if (parent && typeof parent === 'object') {   // #5363: a skipped parent, head-read now that it is needed
+          parent = await firstCwd(parentFile);
+          launchOf.set(parentFile, parent);
+        }
         if (parent) launch = parent;
       } else {
         launchOf.set(file, launch);
@@ -313,6 +364,9 @@ function todayUtc() {
  * config root on every call that has ANY missing day (today always
  * qualifies, since it's never frozen). The freeze only saves the
  * ACCUMULATION work for days already on disk; it does not save the I/O.
+ * #5363: since then, a transcript last written more than an hour before the first missing day is not read at all (a
+ * row is appended when it is written, so it holds none in the window); a skipped top-level one is head-read for its
+ * first cwd only when a subagent of it is read. With every past day frozen that is today's files, not all of history.
  * A stats page polling this on a live schedule will still cost real time
  * and real disk I/O on this machine's volumes (hundreds of transcripts,
  * individual files into the tens of MB) on every call. What this DOES
@@ -373,9 +427,9 @@ async function dailyUsageByModel(days = 7) {
     // Narrowed to the MISSING days' own span, not the full requested
     // window -- if only today is missing (the common case once a window
     // has been scanned once), this is a one-day range, not `wanted`'s
-    // full length. Real transcript files still get read in full either
-    // way (see the function doc above); this at least keeps the
-    // accumulation and per-day freeze work scoped to what's actually new.
+    // full length. Since #5363 the narrow range also narrows the READ: a file
+    // last written before it is not read (see scanUsage); the accumulation and
+    // per-day freeze work stay scoped to what is actually new.
     const missingSorted = [...missing].sort();
     const sinceDay = missingSorted[0];
     const untilDay = missingSorted[missingSorted.length - 1];
