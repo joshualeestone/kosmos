@@ -183,7 +183,7 @@ function googleOffWhyFor(platform) {
     + (platform === 'win32' ? ', and so can OpenAI or Grok connected with a key (Grok a PNG or JPG picture only)'
       : '. ChatGPT, connected the same way, also reads a PNG or JPG picture, and so can OpenAI or Grok connected with a key (an OpenAI key also reads a PDF)')
     + '. Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
-    + ' A CSV or Excel export works with any provider, and so does typing the list.';
+    + ' ' + require('./orgchartcodex').ANY_PROVIDER;
 }
 /* #5346: the same, in one sentence, for when another reason comes first (orgchartfile currentReader). */
 const OFF_SHORT = {

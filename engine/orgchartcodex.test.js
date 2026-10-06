@@ -496,6 +496,7 @@ test('#5346 step 2 review 5: Windows with no Codex says Windows, not "install Co
     assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
   } finally { Object.defineProperty(process, 'platform', real); c.setBin(() => fake); }
   assert.ok(noChatgptAfterClaude(o.noModelAfter({ kind: 'codex', dir: acct })), o.noModelAfter({ kind: 'codex', dir: acct }));
+  assert.ok(o.noModelAfter({ kind: 'codex', dir: acct }).includes(c.WHY_NO_CODEX.slice(0, -tail.length)), 'the reason itself is said');
 });
 
 test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex version mismatch, and a Gemini key)', () => {

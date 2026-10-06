@@ -402,3 +402,18 @@ test('#4560 END TO END: the route, the reader it pinned, and the provider call, 
     orgchartfile.setReaderForTest(() => ({ kind: 'claude' }));
   }
 });
+
+test('#5346 step 2: a consented ChatGPT read whose Codex is gone answers why, Claude first, and does not offer ChatGPT again', async () => {
+  const codex = require('./engine/orgchartcodex');
+  const pinned = { kind: 'codex', provider: 'openai', dir: '/x', account: 'a@x.test' };
+  orgchartfile.setReaderForTest(() => pinned);
+  codex.setBin(() => null);
+  try {
+    const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + encodeURIComponent(orgchartfile.readerId(pinned)) });
+    assert.equal(r.json.unavailable, true, JSON.stringify(r.json));
+    assert.equal(r.json.problems[0], orgchartfile.noModelAfter({ kind: 'codex' }));
+    assert.ok(r.json.problems[0].includes(codex.WHY_NO_CODEX.slice(0, -(' ' + codex.ANY_PROVIDER).length)), r.json.problems[0]);
+    assert.match(r.json.problems[0], /^Claude reads a picture or PDF/);
+    assert.notEqual(r.json.problems[0], orgchartfile.NO_MODEL, 'control: not the sentence that offers ChatGPT');
+  } finally { codex.setBin(null); orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
+});
