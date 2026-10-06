@@ -7,7 +7,7 @@
  *
  * Each agent runs bin/agent-supervisor.sh under a user unit:
  *   ~/.config/systemd/user/kosmos-agent-<session>.service
- * with Restart=always and RestartSec=30 (the Mac plist's ThrottleInterval), and KillMode=process.
+ * with Restart=always, RestartSec=5 backing off to 30 s on repeated failures, and KillMode=process.
  *
  * Systemd user units run without sudo/root privileges via systemctl --user,
  * and survive disconnect/logout via loginctl enable-linger.
@@ -22,14 +22,17 @@ const accountenv = require('./accountenv');
 
 const DEFAULT_BOARD_PORT = 16180;
 
-let systemdDirFn = () => {
+/* The real unit folder, ONE definition (#4918 review 11: it was pasted four times across two files). linuxboard.js
+   uses it too. A sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its units in
+   the sandbox, where systemd never reads them (review 5). */
+function defaultSystemdDir() {
   if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
-    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
-    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
-    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
+  if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
   const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
   return path.join(configHome, 'systemd', 'user');
-};
+}
+
+let systemdDirFn = defaultSystemdDir;
 
 function systemdDir() {
   return systemdDirFn();
@@ -38,26 +41,16 @@ function systemdDir() {
 let systemdDirOverridden = false;
 function setSystemdDirForTests(fn) {
   systemdDirOverridden = typeof fn === 'function';
-  systemdDirFn = typeof fn === 'function' ? fn : () => {
-    if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
-    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
-    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
-    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
-    const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-    return path.join(configHome, 'systemd', 'user');
-  };
+  systemdDirFn = typeof fn === 'function' ? fn : defaultSystemdDir;
 }
 
-let runnerFn = (cmd, args) => {
-  /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
-     test half only; production is unchanged). */
+/* The real systemctl/loginctl runner, ONE definition, shared with linuxboard.js. A test that forgot its seam never
+   reaches the host's systemd (live-execution #1598, test half; production unchanged; review 1). 30 s: a stop waits
+   on the supervisor's sleep (up to 10 s; review 6). */
+function realRunner(cmd, args) {
   if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
   try {
-    const stdout = execFileSync(cmd, args, {
-      encoding: 'utf8',
-      timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const stdout = execFileSync(cmd, args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
     return { ok: true, stdout };
   } catch (err) {
     return {
@@ -68,7 +61,9 @@ let runnerFn = (cmd, args) => {
       because: (err && err.message) || String(err),
     };
   }
-};
+}
+
+let runnerFn = realRunner;
 
 /* #4918 review 6: a caller with its own command seam (remove.js's run: setRunner, dry run, the live gate) runs
    these ops through it, so a dry-run or sandboxed board never reaches the real user manager by unit name. */
@@ -83,27 +78,7 @@ function runWith(fn, body) {
 }
 
 function setRunnerForTests(fn) {
-  runnerFn = typeof fn === 'function' ? fn : (cmd, args) => {
-    /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
-       test half only; production is unchanged). */
-    if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
-    try {
-      const stdout = execFileSync(cmd, args, {
-        encoding: 'utf8',
-        timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      return { ok: true, stdout };
-    } catch (err) {
-      return {
-        ok: false,
-        code: err && err.status != null ? err.status : 1,
-        stderr: (err && err.stderr) ? String(err.stderr) : '',
-        stdout: (err && err.stdout) ? String(err.stdout) : '',
-        because: (err && err.message) || String(err),
-      };
-    }
-  };
+  runnerFn = typeof fn === 'function' ? fn : realRunner;
 }
 
 /* systemd accepts only letters, digits and ":_.-" in a unit name (and "\\" from its own escaping). A named world's launch key
@@ -233,9 +208,15 @@ StandardError=append:${unitSafe(log, 'the log path')}
 # from this unit's cgroup; the default KillMode (control-group) would take every agent's session down with it.
 KillMode=process
 Restart=always
-# 30 s, the Kosmos agent plist's ThrottleInterval on the Mac (create.js plistFor): a supervisor that exits at once on
-# a lasting fault (a missing runner) restarts at the Mac's pace, not every 5 s into start.log forever (#4918 review 7, 9).
-RestartSec=30
+# The Mac's ThrottleInterval 30 is a minimum gap between spawns, not a delay after every exit, so a long-running agent
+# whose session ends comes straight back there. The nearest systemd shape: 5 s, backing off to 30 s across repeated
+# failures (RestartSteps / RestartMaxDelaySec, systemd 254+; an older systemd ignores the two and keeps 5 s), so a
+# lasting fault (a missing runner) does not fill start.log every 5 s (#4918 review 7, 9, 11).
+RestartSec=5
+RestartSteps=3
+RestartMaxDelaySec=30
+# The supervisor traps TERM and exits 143 (bin/agent-supervisor.sh); a deliberate stop is not a failure.
+SuccessExitStatus=129 130 143
 
 [Install]
 WantedBy=default.target
@@ -442,4 +423,6 @@ module.exports = {
   runner,
   runWith,
   setRunnerForTests,
+  defaultSystemdDir,
+  realRunner,
 };

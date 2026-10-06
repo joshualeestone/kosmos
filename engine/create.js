@@ -1267,9 +1267,10 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
     try {
       // #4918 review 2: unitFor refuses an unsafe value by throwing, so it sits inside the try with the write.
       const unit = lj.unitFor(clean, runnerBin, tmuxBin, f.model, f.configDir, f.runner);
+      /* #4918 review 11: write the file only, as the Mac arm does (a plist takes effect at the next bootstrap). The
+         restart that applies a change reloads systemd first (linuxjob.startOnly), so a reload here could only fail
+         AFTER the new file was in place and report as refused a change that the next restart applies anyway. */
       lj.writeUnitFile(lj.unitPath(clean), unit);
-      const reload = linuxRun(() => lj.daemonReload());
-      if (!reload || !reload.ok) throw new Error('systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim());
     } catch (e) {
       return {
         outcome: OUTCOME.REFUSED,

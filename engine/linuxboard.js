@@ -10,7 +10,6 @@
  *   - engine/boardrestart.js: self-restart on world switch / user restart
  */
 
-const { execFileSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -18,14 +17,9 @@ const path = require('node:path');
 
 const DEFAULT_BOARD_PORT = 16180;
 
-let systemdDirFn = () => {
-  if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
-    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
-    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
-    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
-  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-  return path.join(configHome, 'systemd', 'user');
-};
+/* The unit folder and the real runner are linuxjob.js's own (one definition each; #4918 review 11). This module keeps
+   its own test seams, so a board test can point them elsewhere without touching the agent ones. */
+let systemdDirFn = () => require('./linuxjob').defaultSystemdDir();
 
 function systemdDir() {
   return systemdDirFn();
@@ -34,64 +28,17 @@ function systemdDir() {
 let systemdDirOverridden = false;
 function setSystemdDirForTests(fn) {
   systemdDirOverridden = typeof fn === 'function';
-  systemdDirFn = typeof fn === 'function' ? fn : () => {
-    if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
-    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
-    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
-    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
-    const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-    return path.join(configHome, 'systemd', 'user');
-  };
+  systemdDirFn = typeof fn === 'function' ? fn : () => require('./linuxjob').defaultSystemdDir();
 }
 
-let runnerFn = (cmd, args) => {
-  /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
-     test half only; production is unchanged). */
-  if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxboard.js', cmd, args);
-  try {
-    const stdout = execFileSync(cmd, args, {
-      encoding: 'utf8',
-      timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return { ok: true, stdout };
-  } catch (err) {
-    return {
-      ok: false,
-      code: err && err.status != null ? err.status : 1,
-      stderr: (err && err.stderr) ? String(err.stderr) : '',
-      stdout: (err && err.stdout) ? String(err.stdout) : '',
-      because: (err && err.message) || String(err),
-    };
-  }
-};
+let runnerFn = (cmd, args) => require('./linuxjob').realRunner(cmd, args);
 
 function runner(cmd, args) {
   return runnerFn(cmd, args);
 }
 
 function setRunnerForTests(fn) {
-  runnerFn = typeof fn === 'function' ? fn : (cmd, args) => {
-    /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
-       test half only; production is unchanged). */
-    if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxboard.js', cmd, args);
-    try {
-      const stdout = execFileSync(cmd, args, {
-        encoding: 'utf8',
-        timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      return { ok: true, stdout };
-    } catch (err) {
-      return {
-        ok: false,
-        code: err && err.status != null ? err.status : 1,
-        stderr: (err && err.stderr) ? String(err.stderr) : '',
-        stdout: (err && err.stdout) ? String(err.stdout) : '',
-        because: (err && err.message) || String(err),
-      };
-    }
-  };
+  runnerFn = typeof fn === 'function' ? fn : (cmd, args) => require('./linuxjob').realRunner(cmd, args);
 }
 
 function defaultKosmosHome() {
