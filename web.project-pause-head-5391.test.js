@@ -24,7 +24,7 @@ function headRig() {
     classList: { toggle(c, on) { if (on) els[id]._cls.add(c); else els[id]._cls.delete(c); } },
     setAttribute(k, v) { this._attr[k] = String(v); },
     querySelector() { return el(id + ':t'); } });
-  const paint = new Function('document', 'PJ_READ_FAILED', page.liftAll(SCRIPT, ['paintHeadPause']) + '\nreturn paintHeadPause;')({ getElementById: el }, false);
+  const paint = new Function('document', 'PJ_READ_FAILED', 'PJ_PAUSE_BUSY', page.liftAll(SCRIPT, ['paintHeadPause']) + '\nreturn paintHeadPause;')({ getElementById: el }, false, false);
   return { paint, el };
 }
 
@@ -53,14 +53,14 @@ test('#5391 review 2: the button is inert while projects cannot be read, comes b
   const el = (id) => els[id] || (els[id] = { id, hidden: false, textContent: '', dataset: {}, title: '', disabled: false, _attr: {},
     classList: { toggle() {} }, setAttribute(k, v) { this._attr[k] = String(v); }, querySelector() { return el(id + ':t'); } });
   const src = page.liftAll(SCRIPT, ['paintHeadPause']) + '\nreturn paintHeadPause;';
-  const failed = new Function('document', 'PJ_READ_FAILED', src)({ getElementById: el }, true);
-  const ok = new Function('document', 'PJ_READ_FAILED', src)({ getElementById: el }, false);
+  const failed = new Function('document', 'PJ_READ_FAILED', 'PJ_PAUSE_BUSY', src)({ getElementById: el }, true, false);
+  const ok = new Function('document', 'PJ_READ_FAILED', 'PJ_PAUSE_BUSY', src)({ getElementById: el }, false, false);
+  const busy = new Function('document', 'PJ_READ_FAILED', 'PJ_PAUSE_BUSY', src)({ getElementById: el }, false, true);
   const p = { id: 'p1', name: 'Launch', paused: false };
   failed(p);
   assert.equal(el('pj-head-pause').disabled, true, 'a failed read: inert');
   ok(p);
   assert.equal(el('pj-head-pause').disabled, false, 'recovered: usable again');
-  el('pj-head-pause').dataset.busy = '1';
-  ok(p);
+  busy(p);
   assert.equal(el('pj-head-pause').disabled, true, 'a repaint under a press still waiting does not re-enable it');
 });

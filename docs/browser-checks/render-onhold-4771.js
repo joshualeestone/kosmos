@@ -145,7 +145,8 @@ function chk(ok, label, extra) {
         `${tag} #5391 pressing it pauses the project: it reads Resume and the Paused line shows`, await text(page, '#pj-one-paused'));
       // Review 1: Settings repaints only while it is open, so it is opened to read its agreement, then left.
       await openSettings(page, winter.id);
-      chk(await text(page, '#pj-one-pause') === 'Resume it', `${tag} #5391 Settings agrees: Resume it`, await text(page, '#pj-one-pause'));
+      chk(await text(page, '#pj-one-pause') === 'Resume it' && await page.isEnabled('#pj-one-pause'),
+        `${tag} #5391 Settings agrees: Resume it, and its button is usable (review 3: it never sticks disabled)`, await text(page, '#pj-one-pause'));
       await page.evaluate((pid) => tskGoToProject(pid), winter.id);
       await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 5000 });
       await page.click('#pj-head-pause');
