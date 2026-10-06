@@ -38,6 +38,8 @@ card's two-account run); with members left, the owner's 90 s grace after its rot
 ## Known gap
 With no `revoked_at` (the coordinator cannot be asked, or its answer lacks the field), nothing is said
 about the posts: no claim without a time.
+The log lives only in the seat's memory: a board restart, or the seat being replaced, between a gap post
+and the revoke being found loses it, and that post is not named (the old behaviour).
 A post the connector also refused (its "A message was not sent" line) can be named again by the gap
 line. Both are true; it is a repeat, not a contradiction.
 
