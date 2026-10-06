@@ -175,8 +175,10 @@ function apply(agent, now) {
      it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail.
      Rebase review: ANYWHERE in the file, not only at the end: since #5297 a board start can append Kosmos's community
      block after it, and a second press must still find it (the block carries this proposal's own id line). */
-  const already = curText.includes(block);
-  const before = already ? curText.replace(block, '') + '\n' : curText;
+  /* Review 7: matched without its leading blank lines (spanAt), which taking Kosmos's block out also takes. */
+  const already = curText.includes(coreOf(block));
+  const cutNow = already ? withoutSpan(curText, { block }) : null;
+  const before = cutNow !== null ? cutNow : curText;
   let version = cur.version;
   if (!already) {
     const after = curText.replace(/\s*$/, '') + block;
@@ -208,17 +210,29 @@ function apply(agent, now) {
  *  undo failed), and each reason Undo is not offered is told apart, so the page never says "edited" when nobody did. */
 /* Rebase review: where the applied span sits in the current text, once and exactly; -1 when it is not there exactly
    once (taken out, edited, or duplicated by hand). Records from before `block` was kept have none: -1. */
+/* Review 7: the span is matched from its heading line on, WITHOUT the blank lines Apply wrote in front of it. When the
+   addition sits right after Kosmos's community block, projects.removeBlock (the community switch turned off, or a
+   restart while not taking part) takes the blank lines on both sides of the block, so a match that needed them read
+   as "edited" though nobody edited. Records written before this keep their `block`; only its leading newlines go. */
+function coreOf(block) { return typeof block === 'string' ? block.replace(/^\n+/, '') : ''; }
 function spanAt(text, last) {
-  if (!last || typeof last.block !== 'string' || !last.block || typeof text !== 'string') return -1;
-  const at = text.indexOf(last.block);
-  return at !== -1 && text.indexOf(last.block, at + 1) === -1 ? at : -1;
+  const core = coreOf(last && last.block);
+  if (!core || typeof text !== 'string') return -1;
+  const at = text.indexOf(core);
+  if (at === -1 || text.indexOf(core, at + 1) !== -1) return -1;
+  return at === 0 || text[at - 1] === '\n' ? at : -1;
 }
-/* The text with the applied span taken out, as it was before Apply (Apply trimmed the end before appending). */
+/* The text with the applied span taken out: the blank lines before it go with it. At the end of the file the end is
+   trimmed to one newline (Apply trimmed the end before appending); in the middle, the gap that was in front of the
+   addition now joins what was before it to what follows it. */
 function withoutSpan(text, last) {
   const at = spanAt(text, last);
   if (at === -1) return null;
-  const out = text.slice(0, at) + text.slice(at + last.block.length);
-  return at + last.block.length === text.length ? out.replace(/\s*$/, '') + '\n' : out;
+  const head = text.slice(0, at).replace(/\n+$/, '');
+  const tail = text.slice(at + coreOf(last.block).length);
+  if (!tail.trim()) return head.replace(/\s*$/, '') + '\n';
+  if (!head) return tail.replace(/^\n+/, '');
+  return head + text.slice(head.length, at) + tail.replace(/^\n+/, '');
 }
 function publicLast(agent, last) {
   if (!last) return null;
@@ -226,10 +240,13 @@ function publicLast(agent, last) {
   try { cur = instructions.read(agent); } catch { cur = null; }
   const backToBefore = Boolean(cur && cur.exists && typeof last.before === 'string' && cur.text === last.before);
   const undone = Boolean(last.undoneAt) || backToBefore;
-  const spanHere = Boolean(cur && cur.exists && withoutSpan(String(cur.text), last) !== null);
+  const cut = cur && cur.exists ? withoutSpan(String(cur.text), last) : null;
+  const spanHere = cut !== null;
+  /* Review 7: "short" is judged on the text Undo would actually write: the cut when the span is here. */
+  const writes = spanHere ? cut : last.before;
   let blocked = null;
   if (!undone) {
-    if (typeof last.before !== 'string' || last.before.trim().length < instructions.MIN_CHARS) blocked = 'short';
+    if (typeof writes !== 'string' || writes.trim().length < instructions.MIN_CHARS) blocked = 'short';
     else if (spanHere) blocked = null;   // the addition is still there as written: Undo takes out just that
     else if (!last.version || !cur || !cur.exists) blocked = 'unknown';
     else if (cur.version !== last.version) blocked = 'edited';

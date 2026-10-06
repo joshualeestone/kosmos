@@ -320,3 +320,50 @@ test('review 5: an addition holding an HTML comment (Kosmos\'s own markers) is r
   assert.equal(adds.pending('sally'), null);
   assert.equal(adds.propose('sally', 'Plain text with a dash - and arrows -> are fine.', 'Ops lead').ok, true, 'CONTROL: ordinary text refused');
 });
+
+/* Review 7: the real community block, through projects.spliceBlock and projects.removeBlock (the code the board-start
+   refresh and the community switch run), not a made-up marker. removeBlock takes the blank lines on both sides of the
+   block, which are the addition's own leading blank lines when the addition sits right after it. */
+const projects = require('./projects');
+function kosmosWrites(name, text) {
+  instructions.write(name, text, instructions.read(name).version, undefined, { who: 'kosmos', because: 'community refresh' });
+}
+test('review 7: the community block put in before Apply and taken out after it neither blocks Undo nor adds the addition twice', () => {
+  makeAgent('sally');
+  kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
+  const withBlock = fileText('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  assert.equal(adds.apply('sally').ok, true);
+  kosmosWrites('sally', projects.removeBlock(fileText('sally'), projects.COMMUNITY_START, projects.COMMUNITY_END));
+  assert.ok(!fileText('sally').includes(projects.COMMUNITY_START), 'fixture: the block was not taken out');
+  const last = adds.state('sally').last;
+  assert.equal(last.blocked, null, 'Kosmos taking its own block out made the addition read as edited: ' + JSON.stringify(last));
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE, 'Undo did not leave the text as it is without the block or the addition');
+  assert.notEqual(withBlock, BASE, 'fixture: spliceBlock added nothing');
+});
+test('review 7: an unrecorded apply, then the community block taken out, then Apply again: added once, not twice', () => {
+  makeAgent('sally');
+  kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
+  adds.propose('sally', ADD, 'Ops lead');
+  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  let r;
+  try { r = adds.apply('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(r.code, 'unrecorded', 'fixture: the record did not fail');
+  kosmosWrites('sally', projects.removeBlock(fileText('sally'), projects.COMMUNITY_START, projects.COMMUNITY_END));
+  assert.equal(adds.apply('sally').ok, true);
+  assert.equal((fileText('sally').match(/## Added on/g) || []).length, 1, 'the addition went in twice');
+});
+test('review 7: the addition there TWICE (copied by hand) is not taken out by Undo; the person\'s copy survives', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  const once = fileText('sally');
+  const twice = once + once.slice(BASE.trimEnd().length);
+  instructions.write('sally', twice, instructions.read('sally').version, undefined, { who: 'person', because: 'copied by hand' });
+  assert.equal((fileText('sally').match(/## Added on/g) || []).length, 2, 'fixture: the copy is not there');
+  assert.equal(adds.state('sally').last.blocked, 'edited');
+  const u = adds.undo('sally');
+  assert.equal(u.ok, false); assert.equal(u.code, 'edited');
+  assert.equal(fileText('sally'), twice, 'Undo changed a file holding the addition twice');
+});
