@@ -313,3 +313,30 @@ test('#5415: the link uses the address this board sends to, not a fixed producti
   writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
   assert.equal(status.itemsFor('ava')[0].link, 'https://staging-community.example.test/post/' + RID);
 });
+
+test('#5415 review 1: no link when the address Kosmos sends to is not a plain https site (a local API, or one with a path)', (t) => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  const b = post('ava', 'Somewhere');
+  // The send records live in a folder per address, so each address gets its own records, as a board on it would have.
+  const linkAt = (addr) => {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = addr;
+    writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+    writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
+    const it = status.itemsFor('ava').find((x) => x.title === 'Somewhere');
+    assert.equal(it.state, 'sent', 'fixture at ' + addr + ': ' + it.state);
+    return it;
+  };
+  assert.equal(linkAt('https://community.kosmosplus.com').link, 'https://community.kosmosplus.com/post/' + RID, 'CONTROL: the real site links');
+  for (const addr of ['http://127.0.0.1:8000', 'http://localhost:8000', 'https://example.test/api', 'not a url']) {
+    const it = linkAt(addr);
+    assert.equal(it.link, undefined, addr + ' gave a link: ' + it.link);
+  }
+});
+
+test('#5415 review 1: a comment on a post id that is not a plain id is refused at publish, so it never reaches a link', () => {
+  communitystore.grantTrust('ava');
+  const r = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), body: 'Odd parent.', servicePostId: 'not/a plain id' }, { agentId: 'ava' });
+  assert.equal(r.ok, false, 'an odd parent id was stored: ' + JSON.stringify(r));
+  assert.equal(status.itemsFor('ava').length, 0);
+});
