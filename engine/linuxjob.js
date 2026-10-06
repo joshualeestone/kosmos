@@ -49,8 +49,15 @@ function setSystemdDirForTests(fn) {
    on the supervisor's sleep (up to 10 s; review 6). */
 function realRunner(cmd, args) {
   if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
+  /* #4918 review 12: systemctl --user finds the user manager through XDG_RUNTIME_DIR, which a board started from cron
+     or after its login session ended does not have. The standard place is /run/user/<uid>; use it when it exists. */
+  let env = process.env;
+  if (!env.XDG_RUNTIME_DIR && typeof process.getuid === 'function') {
+    const rd = '/run/user/' + process.getuid();
+    try { if (fs.statSync(rd).isDirectory()) env = { ...process.env, XDG_RUNTIME_DIR: rd }; } catch { /* none: as before */ }
+  }
   try {
-    const stdout = execFileSync(cmd, args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdout = execFileSync(cmd, args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], env });
     return { ok: true, stdout };
   } catch (err) {
     return {
@@ -209,9 +216,10 @@ StandardError=append:${unitSafe(log, 'the log path')}
 KillMode=process
 Restart=always
 # The Mac's ThrottleInterval 30 is a minimum gap between spawns, not a delay after every exit, so a long-running agent
-# whose session ends comes straight back there. The nearest systemd shape: 5 s, backing off to 30 s across repeated
-# failures (RestartSteps / RestartMaxDelaySec, systemd 254+; an older systemd ignores the two and keeps 5 s), so a
-# lasting fault (a missing runner) does not fill start.log every 5 s (#4918 review 7, 9, 11).
+# whose session ends comes straight back there. The nearest systemd shape: 5 s, with RestartSteps / RestartMaxDelaySec
+# (systemd 254+; an older systemd ignores the two and keeps 5 s) letting the delay grow toward 30 s across repeated
+# automatic restarts, so a lasting fault does not fill start.log every 5 s. The live check measures the 5 s revival,
+# not the growth (#4918 review 7, 9, 11, 12).
 RestartSec=5
 RestartSteps=3
 RestartMaxDelaySec=30

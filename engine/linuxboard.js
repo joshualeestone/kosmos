@@ -119,7 +119,12 @@ function installBoard(kosmosHome, port) {
   const unit = boardUnitName(kosmosHome);
   const en = runner('systemctl', ['--user', 'enable', unit]);
   if (!en || !en.ok) return { ok: false, because: 'systemd did not enable the board: ' + ((en && (en.stderr || en.because)) || '').trim() };
-  return { ok: true };
+  /* #4918 review 12: without linger the board stops at logout and does not start at boot, the property this unit
+     exists for. Read back, as for agents; the caller (piece D's installer) says so when it is off. */
+  let lingering = false;
+  const lj = require('./linuxjob');
+  try { lingering = lj.runWith((c, a) => runner(c, a), () => lj.enableLinger()).lingering; } catch { lingering = false; }
+  return { ok: true, lingering };
 }
 
 /* Stops, disables and deletes the board's unit. { ok } is true only when every step held (#4918 review 3), so the
