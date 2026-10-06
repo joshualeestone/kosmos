@@ -57,3 +57,17 @@ Controls go red with:
 - the lazy read returning nothing.
 
 engine/usage.test.js still passes (29/29 across both files).
+
+## Review round 1 (opus)
+- [W] TAKEN AS A MERGE GATE: the equivalence check (today's totals and per-folder split, this code against a full
+  read of all history on the fleet Mac) runs after the 03:00 cut, and is recorded here BEFORE merge. Every test so
+  far uses fixtures, and this changes the per-agent attribution behind a dollar figure.
+- [W] RECORDED (weakest premise, second route): a row's timestamp is the writer's clock and the mtime is the
+  filesystem's. On a network volume whose server clock runs more than an hour behind, a file written today could
+  show an mtime before the cut, and its rows would be missed silently. All 7 config roots on the fleet Mac are local
+  home folders. Not changed: a per-volume margin is extra machinery for a case not present here.
+- [N] FIXED: firstCwd and windowCutMs moved above scanUsage's JSDoc, which now names the cut; the subagent check is
+  computed once; the test header says an hour.
+- [N] FIXED: a test with two subagents and a depth-2 subagent under one skipped parent (all keyed to the parent; the
+  head read is cached).
+- FOLLOW-UP FILED: #5367 (the other providers' scans still read full history; same check, per provider).

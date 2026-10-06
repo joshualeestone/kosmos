@@ -2,7 +2,7 @@
 
 /**
  * #5363: Token Usage read every transcript ever written on every open (6.9 minutes on the fleet Mac, 14.8 GB), while
- * only the files written since the window began can hold its rows. A transcript last written more than a day before
+ * only the files written since the window began can hold its rows. A transcript last written more than an hour before
  * the window's first day is now not read; a top-level one still gives its first cwd, because a subagent written today
  * takes its launch folder from it (the trap the card names).
  */
@@ -64,6 +64,18 @@ test('#5363 (the trap): a subagent written today takes the launch folder of a pa
   const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
   assert.equal(days[DAY].m.output_tokens, 11, 'the subagent\'s row is counted');
   assert.deepEqual(Object.keys(folders[DAY]), ['/w/agent'], 'its tokens go to the parent\'s launch folder (a head read of the skipped parent), not the subagent\'s own first cwd');
+});
+
+test('#5363: two subagents and a nested one under one skipped parent all take its launch folder (read once, cached)', async () => {
+  reset();
+  write('p/s2.jsonl', [cwdLine('/w/two')], DAY_START - 48 * H);
+  write('p/s2/subagents/agent-a.jsonl', [cwdLine('/w/wt-a'), row('a-1', 1, '/w/wt-a')]);
+  write('p/s2/subagents/agent-b.jsonl', [cwdLine('/w/wt-b'), row('b-1', 2, '/w/wt-b')]);
+  write('p/s2/subagents/agent-a/subagents/deep.jsonl', [cwdLine('/w/wt-deep'), row('d-1', 4, '/w/wt-deep')]);
+  const { days, folders } = await usage.scanUsage({ sinceDay: DAY, untilDay: DAY });
+  assert.equal(days[DAY].m.output_tokens, 7);
+  assert.deepEqual(Object.keys(folders[DAY]), ['/w/two'], 'every subagent, at any depth, is keyed to the skipped parent');
+  assert.equal(folders[DAY]['/w/two'].output_tokens, 7);
 });
 
 test('#5363: a skipped parent with no cwd leaves the subagent its own, as a full read would (the lazy head read)', async () => {

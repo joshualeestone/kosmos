@@ -143,20 +143,6 @@ function utcDay(isoTimestamp) {
   return typeof isoTimestamp === 'string' && isoTimestamp.length >= 10 ? isoTimestamp.slice(0, 10) : null;
 }
 
-/**
- * Scan every transcript across every config root for rows whose UTC day is
- * within [sinceDay, untilDay] (both YYYY-MM-DD, inclusive), and accumulate
- * the four token buckets per (day, model).
- *
- * ⚠️ MALFORMED LINES ARE SKIPPED, NOT FATAL. A transcript can be mid-write
- * (the agent that owns it may be running right now); a truncated last line
- * must not lose every other line in the file.
- *
- * Returns `{ days: { [date]: { [model]: bucketed } },
- * folders: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
- * the roots list travels with the result so a caller can say "N of N
- * config roots read" rather than imply completeness it cannot back up.
- */
 /* #5363: the first cwd a transcript records, read line by line and stopping at the first one, for a transcript
    whose rows are skipped (it was last written before the window) but a subagent of which is read, and takes its
    launch folder.
@@ -189,6 +175,21 @@ function windowCutMs(sinceDay) {
   return Number.isFinite(t) ? t - MTIME_MARGIN_MS : null;
 }
 
+/**
+ * Scan every transcript across every config root for rows whose UTC day is
+ * within [sinceDay, untilDay] (both YYYY-MM-DD, inclusive), and accumulate
+ * the four token buckets per (day, model).
+ *
+ * ⚠️ MALFORMED LINES ARE SKIPPED, NOT FATAL. A transcript can be mid-write
+ * (the agent that owns it may be running right now); a truncated last line
+ * must not lose every other line in the file.
+ *
+ * Returns `{ days: { [date]: { [model]: bucketed } },
+ * folders: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
+ * the roots list travels with the result so a caller can say "N of N
+ * config roots read" rather than imply completeness it cannot back up.
+ * #5363: a transcript last written before windowCutMs(sinceDay) is not read (see windowCutMs, firstCwd).
+ */
 async function scanUsage({ sinceDay, untilDay }) {
   const cutMs = windowCutMs(sinceDay);
   /* Scan-wide, not per file: a message id identifies one assistant message
@@ -206,7 +207,8 @@ async function scanUsage({ sinceDay, untilDay }) {
        different folders (a resumed session), the same file wins the dedup on
        every scan and the per-agent split does not depend on readdir order. */
     for (const file of (await walkTranscriptsUnder(root)).sort()) {
-      const isSub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length) !== -1;
+      const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
+      const isSub = sub !== -1;
       /* #5363: a file last written before the window holds no row in it, so it is not read. A top-level one still
          gives its first cwd (a head read), because a subagent written today takes its launch folder from it. */
       if (cutMs !== null) {
@@ -243,8 +245,7 @@ async function scanUsage({ sinceDay, untilDay }) {
          or that transcript records no cwd. Searched below the config root only,
          so a root that itself sits under a folder named subagents is not read
          as one. */
-      const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
-      if (sub !== -1) {
+      if (isSub) {
         const parentFile = file.slice(0, sub) + '.jsonl';
         let parent = launchOf.get(parentFile);
         if (parent && typeof parent === 'object') {   // #5363: a skipped parent, head-read now that it is needed
