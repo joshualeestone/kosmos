@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recurring-4787
-diff_hash: f536ebef0f1a1b98f629fc2dc566a8c95b1f5fc0f6a7d2425dbd90e15754d82b
+diff_hash: 03898e57ce467289d7dc9adb11c6fa98632f28eaa92252a81e6f3ea0840a8120
 validation: not run locally (suite queue). Run instead after every round: every task-related test (36 files) plus taskrepeat, tasks.repeat-4787, server.task-repeat-4787, web.task-repeat-4787, agentnudge, assigner, the CLI parity/flag/token tests and the two lints: 562/562 at the last round; the page script parses; surface gate rc=0. render-tasks-view-3559's new repeat arm is queued in the light lane (7 ahead at 06:02); CI's browser-checks runs it on the PR.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-06T11:01:45Z
@@ -39,3 +39,4 @@ converged: true
 
 #### After convergence: CI's node suite
 - Two pins I had not run: server.agent-token-sender-570 (AGENT_TOKEN_ROUTE_PATTERNS now names repeat|ran; the handler check is written in the test's comment) and tools.windows-kosmos-cli-570 (the unknown task verb lists ten). Updated deliberately; 52/52 locally.
+- CI's node suite then failed its #4273 leak check: engine/tasks.repeat-4787.test.js left its two temp dirs. tmpscope added; a local run leaves none.
