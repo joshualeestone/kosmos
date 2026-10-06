@@ -367,3 +367,24 @@ test('review 7: the addition there TWICE (copied by hand) is not taken out by Un
   assert.equal(u.ok, false); assert.equal(u.code, 'edited');
   assert.equal(fileText('sally'), twice, 'Undo changed a file holding the addition twice');
 });
+test('review 7: text typed onto the start of the addition\'s heading line is an edit INSIDE it: Undo refuses', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  const glued = fileText('sally').replace('\n## Added on', '\nNOTE ## Added on');
+  assert.notEqual(glued, fileText('sally'), 'fixture: the heading line was not found');
+  instructions.write('sally', glued, instructions.read('sally').version, undefined, { who: 'person', because: 'typed by hand' });
+  assert.equal(adds.state('sally').last.blocked, 'edited');
+  assert.equal(adds.undo('sally').ok, false);
+  assert.equal(fileText('sally'), glued, 'Undo changed a file whose addition was edited');
+});
+test('review 7: "short" is judged on what Undo would write: a short file that has since gained Kosmos\'s block can be undone', () => {
+  makeAgent('tiny3', 'Be brief.\n');
+  adds.propose('tiny3', ADD, 'Ops lead');
+  adds.apply('tiny3');
+  assert.equal(adds.state('tiny3').last.blocked, 'short', 'fixture: the earlier text was not short');
+  kosmosWrites('tiny3', projects.spliceBlock(fileText('tiny3'), 'Community rules here, long enough to be kept.', projects.COMMUNITY_START, projects.COMMUNITY_END));
+  assert.equal(adds.state('tiny3').last.blocked, null, 'Undo hidden as "short" though it would write the block too');
+  assert.equal(adds.undo('tiny3').ok, true);
+  assert.ok(!fileText('tiny3').includes('## Added on') && fileText('tiny3').includes(projects.COMMUNITY_START), 'Undo did not take out just the addition');
+});
