@@ -2661,8 +2661,12 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   const repo = nodePath.resolve(__dirname, '..');
   assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
     'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
+  /* Raised from / 5 to / 4 on 2026-10-05 (#5309): a pm boot file measured 53,566 bytes of text, past the / 5 line
+     (52,428). #5309's new provider-block section (where a plugin the person installed may be, and how to tell) is 3,357
+     of them, all intended new instructions; main without it is about 50,200. / 4 is 65,536, still 4x under the real
+     cap (262,144), so the fits-check stays unreachable. The third raise in ten days: the growth is kosmos#4021's. */
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 5,
+  assert.ok(measured < instructions.MAX_BYTES / 4,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
