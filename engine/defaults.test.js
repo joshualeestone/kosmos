@@ -600,3 +600,16 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
   assert.deepEqual(defaults.missingFrom(defaults.block().replace(sec.text, '')).map((x) => x.heading), ['### Put the work on a task first'],
     'an agent holding every other section would not be offered this one');
 });
+
+/* kosmos#4787 slice 1b (doctrine v25): the repeating-work paragraph says what the CLIs accept and what Kosmos does not
+   do. Asserted on the text, so removing the paragraph and re-pinning the fingerprint above cannot pass unseen. */
+test('#4787: the block teaches a repeating task: the exact repeat and ran commands, that Kosmos does not start a run, and never built', () => {
+  const b = defaults.block();
+  assert.match(b, /`kosmos task repeat <project-id> <task-number> daily --at 09:00`/);
+  assert.match(b, /`weekly --on mon --at 09:00`/);
+  assert.match(b, /`kosmos task ran <project-id> <task-number> "what this run found"`/);
+  assert.match(b, /it does not start the run for you/);
+  assert.match(b, /A repeating task is never marked built/);
+  const sec = b.slice(b.indexOf('### Put the work on a task first'));
+  assert.ok(sec.indexOf('task repeat') > 0 && sec.indexOf('task repeat') < sec.indexOf('###', 5), 'under its own heading, not another');
+});
