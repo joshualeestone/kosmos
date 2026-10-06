@@ -11,6 +11,8 @@ Built:
 - server.js runs the sweep on its own minute timer (not the Prompter tick, which types only through prompterTick, pinned by engine/agentnudge.test.js).
 - The repeat route takes `reviewer` (with or without a rule; omitted, unchanged). `kosmos task repeat <p> <n> --reviewer <agent|none>` on the Mac and Windows CLIs. The task page has an "If missed, tell" choice (Nobody, Me, the project's agents) under Repeats, saved on change, shown only for a task that repeats.
 
+Review 1 (fixed): a quota-held or busy delivery spends no try (as the nudge and the reply nudge); a line placed in this process is never typed again even when its told mark cannot be saved (the book keeps 'told', pruned after a week); a reviewer taken off the project is held, not typed into (#5034's boundary); a held task or a paused project is never put on the person; a reviewer sent with a rule is checked before the rule is stored (tasks.reviewerProblem), so nothing is half-applied; the person's choice is theirs including Nobody, and choosing what an agent named makes it theirs; the history names the missed slot; focus returns to the choice after a save, and the task the person moved to is repainted; the CLI line names the reviewer beside the rule.
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.
