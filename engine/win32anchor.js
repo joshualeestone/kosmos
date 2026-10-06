@@ -142,12 +142,10 @@ function anchorDir(platform, home, env) {
     base = store.resolveDataRoot(platform, home, e);
   } else if (e.AGENT_WORKFORCE_DATA) {
     base = p.join(e.AGENT_WORKFORCE_DATA, APP);
-  } else if (platform === 'win32') {
+  } else {
     base = e.AGENT_WORKFORCE_HOME
       ? p.join(home, 'AppData', 'Local', APP)
       : p.join(e.LOCALAPPDATA || p.join(home, 'AppData', 'Local'), APP);
-  } else {
-    base = p.join(home, 'Library', 'Application Support', APP);
   }
   const dir = p.join(base, 'runtime');
   /* store.js's #1820 guard, for store.js's reason: a relative answer resolves

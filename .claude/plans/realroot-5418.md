@@ -121,8 +121,14 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   sharing one tmp, one uid AND one host name could still see each other's live throwaway as dead.
 - test-support/data-root-sandbox.js compares with an uncached realpath; the store's own check caches per
   spelling (a link made later under a cached spelling is not seen there).
-- A sandbox variable aimed at the real LEGACY folder resolves to a current-leaf folder inside it, which is
-  not redirected (only the asked leaf's real root is protected).
+- Both leaves of the real root are protected (current and legacy), whichever leaf a caller asks about, so a
+  sandbox variable aimed into the real legacy folder gets the throwaway too (review 13).
+- The rule applies only to this machine's own platform; asking what another platform would use (a Mac
+  computing a Windows path) is never redirected and never throws.
+- KOSMOS_TEST_RUN is tools/run-tests.sh's own temp folder, exported once TMPDIR is that folder, and it marks
+  a test process only when that process's temp folder is it or inside it. The same variable left in a shell
+  (any other value) makes nothing a test, so a real board started there is never handed a throwaway
+  (review 13; control tested).
 - setup-assistant's guideLegacyRoots stays on dataRootFor while its worlds base goes through the rule, so
   in a test process the deny rules name a throwaway current root beside the real legacy one (named only).
 - The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
