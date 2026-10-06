@@ -171,8 +171,13 @@ test('#4787 slice 3 review 1: a reviewer taken off the project is not typed into
   const gone = fixture('ada');
   projects.mutate(gone.id, (x) => ({ ...x, agents: ['rex'] }));
   const r = mt.sweep({ projects: only(gone.id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
-  assert.equal(r.results[0].act, 'held');
+  assert.equal(r.results[0].act, 'unreachable');
   assert.match(r.results[0].because, /no longer on the project/);
+  // Review 12: recorded once as not reached, never typed, and not again for the same slot.
+  const ev = taskchat.read(gone.id, gone.n).filter((e) => e.kind === 'missed');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].reached, false);
+  assert.equal(mt.owed(only(gone.id), NOW).length, 0);
   const me = fixture('me');
   assert.equal(mt.personReviewMissed(stored(me.id, me.n), NOW), true, 'precondition: missed and the person reviews it');
   assert.equal(mt.personReviewMissed({ ...stored(me.id, me.n), onHold: true }, NOW), false, 'held');
@@ -220,8 +225,9 @@ test('#4787 slice 3 review 8: a reviewer switched off in this project is held; a
   projects.mutate(off.id, (x) => ({ ...x, swarmOff: ['ada'] }));
   assert.equal(projects.isSwarmOff(projects.readAll().find((x) => x.id === off.id), 'ada'), true, 'precondition: the fixture switches ada off the way projects reads it');
   const r = mt.sweep({ projects: only(off.id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
-  assert.equal(r.results[0].act, 'held');
+  assert.equal(r.results[0].act, 'unreachable');
   assert.match(r.results[0].because, /switched off/);
+  assert.equal(taskchat.read(off.id, off.n).filter((e) => e.kind === 'missed' && e.reached === false).length, 1, 'review 12: recorded once');
   const me = fixture('me', { repeatReviewerSetAt: new Date(at(2026, 10, 6, 9, 30)).toISOString() });
   assert.equal(mt.personReviewMissed(stored(me.id, me.n), NOW), false, 'the 9am miss came before "Me" was chosen at 9:30');
   assert.equal(mt.personReviewMissed(stored(me.id, me.n), at(2026, 10, 7, 10, 0)), true, 'CONTROL: the next day\'s miss is theirs');

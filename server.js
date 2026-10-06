@@ -18635,7 +18635,7 @@ const server = http.createServer(async (req, res) => {
       try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
       // slice 3 review 6: a reviewer the person chose is theirs too, and closing would drop it with the rule.
       if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true)) {
-        sendJson(res, 409, { error: 'the person set how this task repeats, so only they can close it; record each run with kosmos task ran' });
+        sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so only they can close it; record each run with kosmos task ran' });
         return;
       }
     }
@@ -19426,7 +19426,7 @@ const server = http.createServer(async (req, res) => {
           // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
           const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
           if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true) && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1; slice 3 review 6: the person's reviewer too
-            sendJson(res, 409, { error: 'the person set how this task repeats, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
+            sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
             return;
           }
         }

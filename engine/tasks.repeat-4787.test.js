@@ -344,6 +344,10 @@ test('#4787 slice 3 review 4: "nobody" means no reviewer, as task assign reads i
   tasks.setReviewer(p.id, n, 'ada');
   tasks.setReviewer(p.id, n, 'Nobody');
   assert.equal(stored(p.id, n).repeatReviewer, undefined);
+  tasks.setReviewer(p.id, n, 'ada');
+  tasks.setReviewer(p.id, n, 'NONE');
+  assert.equal(stored(p.id, n).repeatReviewer, undefined, 'review 12: none in any case');
+  assert.throws(() => tasks.setReviewer(p.id, n, 'Me'), /only the person/, '"Me" in any case is the person');
 });
 
 test('#4787 slice 3 review 5: Kosmos\'s own "missed" note is not activity (a dead job does not sort as fresh)', () => {

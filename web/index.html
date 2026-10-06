@@ -60331,7 +60331,9 @@ function tkPaintReviewer(p, t, force) {
   const stored = tkReviewerOf(t);
   const agents = (Array.isArray(p.agents) ? p.agents : []).slice();
   if (stored !== 'none' && stored !== 'me' && !agents.includes(stored)) agents.push(stored);
-  const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a)]));
+  /* Review 12: a reviewer no longer on the project stays listed (so the select shows what is stored) and says so. */
+  const onProject = new Set(Array.isArray(p.agents) ? p.agents : []);
+  const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a) + (onProject.has(a) ? '' : ' (left the project)')]));
   const sig = key + '|' + JSON.stringify(opts) + '|' + stored;
   if (sel.dataset.busy === '1' || (!force && document.activeElement === sel && sel.dataset.task === key)) return;
   if (sel.dataset.sig === sig) return;
