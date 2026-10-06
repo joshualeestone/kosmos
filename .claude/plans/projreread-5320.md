@@ -33,10 +33,19 @@ name (Mona's #5391, PR #5395). Built after that merges, so the line never names 
 - The rules embed the CLI command as this machine shows it (kosmosCliShown). If that spelling changes, every member is
   owed one re-read at its next block rewrite: the command it would copy changed, so that is wanted.
 
+## Review 3: a screen pause
+A pause or hold set or lifted on the screen marks the agent's open task lines (`[on hold: ...]`) and posts no room note,
+so a running agent never learned it. A changed hold marker on a task both blocks list now owes the re-read (holdsOf).
+It lands when the agent is next idle, so an agent mid-task finishes that turn first. An agent that paused the project
+itself with `kosmos project pause` is also owed one line about its own pause: rare, and accepted.
+
 ## Known limit
 No board-start sweep: an agent whose FILE already got the pause rule before this ships, while its session predates it,
 is not owed a re-read; it learns at its next start. A sweep cannot tell what a session read. Its next rules change,
 or a restart, reaches it.
+Not covered: the commands taught on each project's own lines (post, its tasks, --parent, --who me) carry the
+project's id and are not compared, so a change to them owes nothing. Task lines in a spelling before #779 (`task <n> of`)
+are not read as tasks, so a tasks-rules change in such a block is missed (it fails toward silence, not noise).
 Also one-shot: if the debt cannot be recorded (logged to stderr), the next sync sees no change and does not retry.
 
 ## Weakest premise
