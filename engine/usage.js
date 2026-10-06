@@ -621,4 +621,5 @@ module.exports = {
   USAGE_DIR,
   mergeProviders,
   frozenProvidersPath,
+  windowCutMs,   // kosmos#5367: the one cut, shared with the other providers' scans (engine/usageproviders.js)
 };
