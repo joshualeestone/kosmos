@@ -175,10 +175,15 @@ function apply(agent, now) {
      it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail.
      Rebase review: ANYWHERE in the file, not only at the end: since #5297 a board start can append Kosmos's community
      block after it, and a second press must still find it (the block carries this proposal's own id line). */
-  /* Review 7: matched without its leading blank lines (spanAt), which taking Kosmos's block out also takes. */
-  const already = curText.includes(coreOf(block));
-  const cutNow = already ? withoutSpan(curText, { block }) : null;
-  const before = cutNow !== null ? cutNow : curText;
+  /* Review 7: matched without its leading blank lines (spanAt), which taking Kosmos's block out also takes.
+     Review 8: if the addition is there but not exactly once as written (copied, or typed onto), it is neither added
+     again nor recorded: recording the file as "before" would make the page say undone while the addition is there. */
+  const cutNow = withoutSpan(curText, { block });
+  const already = cutNow !== null;
+  if (!already && curText.includes(coreOf(block))) {
+    return { ok: false, code: 'edited', because: 'this addition is already in the instructions but was changed or copied there, so Kosmos will not add it again. Remove it by hand if you want it gone, or Dismiss it' };
+  }
+  const before = already ? cutNow : curText;
   let version = cur.version;
   if (!already) {
     const after = curText.replace(/\s*$/, '') + block;

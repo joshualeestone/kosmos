@@ -388,3 +388,43 @@ test('review 7: "short" is judged on what Undo would write: a short file that ha
   assert.equal(adds.undo('tiny3').ok, true);
   assert.ok(!fileText('tiny3').includes('## Added on') && fileText('tiny3').includes(projects.COMMUNITY_START), 'Undo did not take out just the addition');
 });
+
+/* Review 8 (sonnet, blind). */
+function unrecordedApply(name) {
+  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  let r;
+  try { r = adds.apply(name); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(r.code, 'unrecorded', 'fixture: the record did not fail');
+}
+test('review 8: an unrecorded apply, then the addition typed onto by hand, then Apply again: refused, nothing added or recorded', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  unrecordedApply('sally');
+  const glued = fileText('sally').replace('\n## Added on', '\nNOTE ## Added on');
+  instructions.write('sally', glued, instructions.read('sally').version, undefined, { who: 'person', because: 'typed by hand' });
+  const r = adds.apply('sally');
+  assert.equal(r.ok, false); assert.equal(r.code, 'edited');
+  assert.equal(fileText('sally'), glued, 'Apply changed the file');
+  assert.equal(adds.state('sally').last, null, 'a record was written, so the page could call it undone');
+  assert.equal(adds.pending('sally').text, ADD, 'the waiting addition was lost');
+});
+test('review 8: Undo with the community block AFTER the addition gives exactly the text with the block and without the addition', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
+  // What the file would be had the addition never been applied: the block put into the original text.
+  const expected = projects.spliceBlock(BASE, 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END);
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), expected);
+});
+test('review 8: Undo with nothing left above the addition (deleted by hand) and the block after it gives exactly the block', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
+  const noHead = fileText('sally').slice(fileText('sally').indexOf('## Added on'));
+  instructions.write('sally', noHead, instructions.read('sally').version, undefined, { who: 'person', because: 'deleted the top' });
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), projects.COMMUNITY_START + '\nCommunity rules here.\n' + projects.COMMUNITY_END + '\n');
+});
