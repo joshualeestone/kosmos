@@ -137,9 +137,12 @@ test('does not move before FAILOVER_MS of reading rate_limited, and a card that 
     assert.equal(s1.toAssign.length, 0, 'moved the moment the card read rate_limited');
     const early = a.step({ prev: s1.next, ...base, now: L0 + a.FAILOVER_MS - 1 });
     assert.equal(early.toAssign.length, 0, 'moved before the failover period');
-    // The limited card reads idle for one tick: its clock is dropped, so the period starts over.
-    const gap = a.step({ prev: early.next, ...base, roster: cleared, now: L0 + a.FAILOVER_MS - 1 });
-    assert.equal(gap.next.limitedSince.has(w.key.earlim), false);
+    // Review 15: ONE tick that does not read the limit keeps the clock; a second in a row clears it, and the period
+    // starts over.
+    const miss1 = a.step({ prev: early.next, ...base, roster: cleared, now: L0 + a.FAILOVER_MS - 2 });
+    assert.equal(miss1.next.limitedSince.get(w.key.earlim), L0, 'one missed reading restarted the clock');
+    const gap = a.step({ prev: miss1.next, ...base, roster: cleared, now: L0 + a.FAILOVER_MS - 1 });
+    assert.equal(gap.next.limitedSince.has(w.key.earlim), false, 'two missed readings kept the clock');
     const again = a.step({ prev: gap.next, ...base, now: L0 + a.FAILOVER_MS });
     assert.equal(again.toAssign.length, 0, 'the clock did not restart after the card stopped reading rate_limited');
     const ripe = a.step({ prev: again.next, ...base, now: L0 + 2 * a.FAILOVER_MS });
@@ -630,5 +633,29 @@ test('review 14: a task a person CREATED for the agent during its limit stays; o
       'fixture: the created task is not on the agent');
     assert.equal(later(w, { records: withCreated(new Date(T0 + 60 * 1000).toISOString()) }).toAssign.length, 0, 'moved a task a person created for it during its limit');
     assert.equal(later(w, { records: withCreated(new Date(T0 - 60 * 1000).toISOString()) }).toAssign.length, 1, 'control: one created before the limit moves');
+  } finally { w.restore(); }
+});
+
+test('review 15: the limit clock survives a restart (saved with the Assigner memory), so a person\'s queued work still stays', () => {
+  const w = world([{ name: 'rslim', paneState: 'rate_limited' }, { name: 'rsgem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.rslim, 'after your reset, write the notes');
+    const at = T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS);
+    const given = (via) => projects.readAll().map((p) => (p.id !== w.pid ? p : { ...p, tasks: p.tasks.map((x) => (x.number !== h.n ? x
+      : { ...x, parts: tasks.progressOf(x).parts.map((q) => ({ ...q, movedVia: via, movedAt: new Date(T0 + 5 * 60000).toISOString() })) })) }));
+    const base = { roster: w.cards, setting: ON, commitments: w.states() };
+    // The limit begins at T0; a person gives the part at T0+5m; the board restarts at T0+10m.
+    const s0 = a.step({ prev: undefined, ...base, records: given('screen'), now: T0 });
+    const restored = a.restoredMemory(JSON.parse(JSON.stringify(a.savedForm(s0.next))), T0 + 10 * 60000);
+    assert.equal(restored.limitedSince.get(w.key.rslim), T0, 'the limit start was not saved and restored');
+    const s1 = a.step({ prev: restored, ...base, records: given('screen'), now: T0 + 10 * 60000 });
+    assert.equal(a.step({ prev: s1.next, ...base, records: given('screen'), now: at + 10 * 60000 }).toAssign.length, 0,
+      'after a restart, a part a person gave during the limit moved');
+    // CONTROL: the same part last moved by the Assigner moves after the restart.
+    const c1 = a.step({ prev: restored, ...base, records: given('assigner'), now: T0 + 10 * 60000 });
+    assert.equal(a.step({ prev: c1.next, ...base, records: given('assigner'), now: at + 10 * 60000 }).toAssign.length, 1, 'control did not move');
+    // A saved start in the future, or older than LIMIT_KEEP_MS, is not restored.
+    const bad = a.restoredMemory({ v: 1, limitedSince: [['x', T0 + 1000], ['y', T0 - a.LIMIT_KEEP_MS - 1], ['z', T0 - 1000]] }, T0);
+    assert.deepEqual([...bad.limitedSince.keys()], ['z']);
   } finally { w.restore(); }
 });

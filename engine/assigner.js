@@ -59,6 +59,8 @@ const FAILOVER_MS = 15 * 60 * 1000;
 /* A limit whose reset Kosmos knows (Antigravity's quotaUntil, or the shared pool's poolUntil) and that resets within
    this long is waited out: the agent holding the work will be back before a new one has read the task. */
 const RESET_SOON_MS = 10 * 60 * 1000;
+/* A saved limit start older than this is not restored (review 15): longer than any provider limit Kosmos reads. */
+const LIMIT_KEEP_MS = 8 * 24 * 60 * 60 * 1000;
 /* #4552: does this agent's commitments record leave it free for new work? Stated clear, yes. Also,
    with nothing stated: an agent that never reported a list, or whose last list was empty and has only
    aged. Nothing shipped writes the record (only an agent's own PUT does), so requiring `clear` meant
@@ -202,7 +204,7 @@ function pick(session, projects, taken) {
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
   return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map(),
-    limitedSince: new Map() };
+    limitedSince: new Map(), limitedMiss: new Map() };
 }
 
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
@@ -234,7 +236,9 @@ const MEMORY_CAP = 2000;   // project ids; far above any real board, so a corrup
 function savedForm(mem) {
   const asked = mem && mem.asked instanceof Map ? [...mem.asked].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)) : [];
   const sig = mem && mem.askedSig instanceof Map ? [...mem.askedSig].filter(([k, v]) => typeof k === 'string' && typeof v === 'string') : [];
-  return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP) };
+  // #5382 review 15: each limit's start, so a restart does not move a person's queued work (stalledParts).
+  const lim = mem && mem.limitedSince instanceof Map ? [...mem.limitedSince].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)) : [];
+  return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP), limitedSince: lim.slice(-MEMORY_CAP) };
 }
 
 /* Read back what savedForm wrote, into a fresh memory. Anything unreadable or malformed is dropped, never trusted:
@@ -248,6 +252,11 @@ function restoredMemory(obj, now) {
   }
   for (const e of (Array.isArray(obj.askedSig) ? obj.askedSig : []).slice(-MEMORY_CAP)) {
     if (Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string' && /^[0-9a-f]{16}$/.test(e[1])) mem.askedSig.set(e[0], e[1]);
+  }
+  /* #5382 review 15: a limit start in the future, or older than LIMIT_KEEP_MS (no provider limit lasts that long), is
+     dropped: the clock then starts again, toward waiting. A card no longer limited clears its entry within two ticks. */
+  for (const e of (Array.isArray(obj.limitedSince) ? obj.limitedSince : []).slice(-MEMORY_CAP)) {
+    if (Array.isArray(e) && typeof e[0] === 'string' && Number.isFinite(e[1]) && e[1] <= now && now - e[1] <= LIMIT_KEEP_MS) mem.limitedSince.set(e[0], e[1]);
   }
   return mem;
 }
@@ -408,9 +417,21 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
   const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
   /* `runners` (session -> runner or null) is the board's own derivation, passed in by tick (review 6: a card's runner of
      'claude' can be a default, not a fact). Without it, the card's own field. */
+  /* Review 15: one tick that does not read the limit (a scrape that lost the dated row) keeps the clock; only a second
+     in a row clears it. The clock is also saved with the Assigner's memory (savedForm), so a restart keeps it: both
+     matter for the person-give exemption below, where a clock that restarts late would let a person's queued work move. */
+  const limitedMiss = new Map();
+  const baseMiss = base.limitedMiss instanceof Map ? base.limitedMiss : new Map();
   for (const a of Array.isArray(roster) ? roster : []) {
     if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(runners instanceof Map ? runners.get(a.sessionName) : a.runner));
-    if (!limitedCard(a, now)) continue;
+    if (!a || !a.sessionName) continue;
+    if (!limitedCard(a, now)) {
+      if (baseLimited.has(a.sessionName) && !baseMiss.has(a.sessionName)) {
+        limitedSince.set(a.sessionName, baseLimited.get(a.sessionName));
+        limitedMiss.set(a.sessionName, 1);
+      }
+      continue;
+    }
     const since = baseLimited.has(a.sessionName) ? baseLimited.get(a.sessionName) : now;
     limitedSince.set(a.sessionName, since);
     if (now - since >= FAILOVER_MS) ripe.add(a.sessionName);
@@ -460,7 +481,7 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince } };
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, limitedMiss } };
 }
 
 /**
@@ -577,4 +598,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };

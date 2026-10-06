@@ -490,8 +490,11 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     /* #5382: a failover move says where the part came from, so the new agent looks before starting over (review 6). */
-    const note = failoverFrom ? 'It was moved to you from ' + failoverFrom + ', which hit its provider\'s usage limit and may'
-      + ' already have started it: read the task\'s room and ' + failoverFrom + '\'s work on it before you begin.' : '';
+    // Review 15: the source by the name the person sees, not its session key.
+    const fromCard = failoverFrom && Array.isArray(r) ? r.find((c) => c && c.sessionName === failoverFrom) : null;
+    const fromName = (fromCard && fromCard.name) || failoverFrom;   // a card's `name` is the one the page shows
+    const note = failoverFrom ? 'It was moved to you from ' + fromName + ', which hit its provider\'s usage limit and may'
+      + ' already have started it: read the task\'s room and ' + fromName + '\'s work on it before you begin.' : '';
     heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
@@ -20628,7 +20631,7 @@ function start(port = PORT) {
               isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
               /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
                  same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
-              skip: (c) => c.runner === 'antigravity' && agyQuota.resumePending(c.sessionName,
+              skip: (c) => failoverRunnerOf(c) === 'antigravity' && agyQuota.resumePending(c.sessionName,
                 { now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed(), book: AGY_QUOTA_BOOK }),
               deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
             for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
