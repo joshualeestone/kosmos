@@ -79,6 +79,11 @@ function due({ projects, mtimeOf, now, acted, ready }) {
 function sweepOnce({ projects, mtimeOf, now, acted, ready, retell, log }) {
   const done = [];
   for (const d of due({ projects, mtimeOf, now, acted, ready })) {
+    /* #4588 ask 3 review 5: due() asked ready() for every member before any retell went out, so a retell sent earlier in
+       this same pass (which reserves a Gemini cap slot) could make a later member not ready. Asked again here; a member
+       that is no longer ready is skipped WITHOUT being marked acted, so its one retell for this change is kept. */
+    // due()'s own rule: anything but false is ready.
+    if (typeof ready === 'function') { let ok = false; try { ok = ready(d.name) !== false; } catch { ok = false; } if (!ok) continue; }
     if (acted) acted.set(d.name, d.mtime);
     let told = null;
     let because = null;

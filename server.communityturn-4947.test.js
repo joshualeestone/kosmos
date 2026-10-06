@@ -47,7 +47,8 @@ test('review 1: it shares the board-wide hour log and Agent Communication\'s lim
   assert.match(w, /readLimit:\s*\(\)\s*=>\s*limits\.read\(\)/);
   assert.match(w, /readProjects:\s*\(\)\s*=>\s*projects\.readAll\(\)/);
   assert.match(w, /idleSince:\s*\(session\)\s*=>\s*\{ const r = selfreport\.read\(session\)/);
-  assert.match(w, /quotaHeld:\s*\(session, roster\)\s*=>\s*require\('\.\/engine\/agyquota'\)\.heldForQuota\(session, roster, Date\.now\(\)\) !== null/);
+  // #4588 ask 3 review 15: heldForAgy (the quota AND the Gemini cap), or capped agents fill every slot each pass.
+  assert.match(w, /quotaHeld:\s*\(session, roster\)\s*=>\s*require\('\.\/engine\/agyquota'\)\.heldForAgy\(session, roster, Date\.now\(\)\) !== null/);
 });
 
 test('review 6: the tries book is read at boot and written after every pass', () => {
