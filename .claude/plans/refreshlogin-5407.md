@@ -39,7 +39,14 @@ Not taken: the badge's right alignment on a phone, which every row shares (#2649
 - Review 2 (sonnet, blind): WARNING hiding every notice on AI Models could leave a login unwarned. Fixed (per row).
 - Review 3 (opus, blind): two WARNINGs, rules the check claimed but did not pin (the other paint order; the ring
   across a follow-up repaint). Pinned, each red when removed.
-- Review 4: see the proof.
+- Review 4 (sonnet, blind): two WARNINGs, check gaps: the scroll into view (a phone with a long list now) and the
+  page alone keeping "ended" off a still-working row (the server now never sends both; a both-flags row pinned). Also
+  pinned: a repaint neither refocuses nor scrolls back. The main Sign in again's redundant 44px rule dropped.
+- Review 5 (opus, blind): WARNING an explicit CLAUDE_CONFIG_DIR=~/.claude, or a trailing slash, reads a different
+  keychain login from the row of that folder; matching by folder could hide an expired notice behind a row with days
+  left. Now matched by the login each side reads; otherwise no row is named and the notice stays.
+- Review 6 (sonnet, blind): CONVERGED, no BLOCKER or WARNING. NITs accepted: a row that is not connected gets no
+  window fields (its plain Sign in again is already there); the line ids grow per paint (replaced in the same write).
 
 ## Weakest premise
 That the account row's folder and the advisory's folder are spelled the same. They are for the default and for every
