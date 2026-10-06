@@ -1422,7 +1422,8 @@ html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overf
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
    margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; in consolidated
-   that padding is 0 and the bar pads itself by the scrollbar width instead, #5379). The bar's fills
+   that padding is 0 and the bar pads itself by the scrollbar width instead, and on a whole-page tab with consolidated
+   chosen kplusBarFit pads it to match the header, #5379). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
 .kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
@@ -3362,9 +3363,9 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   /* #5379: the tab view reserves the scrollbar gutter on <html> and consolidated does not (its panes scroll inside),
-     so on a platform whose scrollbars take width (Windows, Linux, a Mac set to show them; 0 with overlay scrollbars) the header's right controls sat 15px
-     further right in consolidated and the centred tabs 7.5px: the header jumped on every view flip (CI:
-     render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. The
+     so on a platform whose scrollbars take width (Windows, Linux, a Mac set to show them; 0 with overlay scrollbars)
+     the header's right controls sat 15px further right in consolidated and the centred tabs 7.5px: the header jumped
+     on every view flip (CI: render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. The
      padding is on the inner header, not .apphead, because the inner header carries consolidated's background and
      bottom rule, which then still reach the window edge. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
@@ -19336,6 +19337,14 @@ function kplusBarFit() {
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
+  /* #5379: with consolidated chosen, a whole-page tab (body not .consolidated) reserves no gutter, so the header's right
+     padding there also holds the scrollbar width, and the bar ends Log out on the same x by padding as much. Wide only:
+     the phone bar keeps its own padding. Elsewhere the stylesheet's padding stands (consolidated pads by CSS). */
+  const doc = document.documentElement;
+  const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
+    && window.matchMedia('(min-width: 56.01rem)').matches;
+  const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
+  if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
