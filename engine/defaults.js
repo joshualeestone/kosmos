@@ -914,7 +914,15 @@ function block() {
  *  25. kosmos#4787 slice 1b: under `### Put the work on a task first`, a paragraph for work that comes back on a
  *     schedule: one task that repeats (`kosmos task repeat`, slice 1, #5389), a `kosmos task ran` after each run, and
  *     never marked built (the board refuses that for a repeating task). SAME HEADING, so it reaches existing agents
- *     through doctrine-past's earlier-version match, as v23 set up. MEASUREMENT: see below.
+ *     through doctrine-past's earlier-version match, as v23 set up. MEASURED before merge with claude -p on throwaway
+ *     agents built from this block and a real Your projects section, a stand-in kosmos logging every call (every CLI
+ *     path rewritten to it, so no run could reach a board): recurring requests (every morning at 8, hourly, every
+ *     Monday at 9) 7/7 filed a task and set the repeat in the exact form (daily --at 08:00, hourly, weekly --on mon
+ *     --at 09:00), 0/7 marked it built; a one-off blurb 0/2 and small talk 0/1 set anything. The v24 block (control)
+ *     on the same recurring requests: 4/4 filed a task, 0/4 set a repeat the CLI accepts (3 guessed forms it refuses:
+ *     "every 1h", "daily 08:00 America/Chicago", "every Monday 09:00 America/Chicago"; 1 set none). Claude only.
+ *     WEAKEST PREMISE, NAMED: the test agents also read this Mac's own global instructions (both arms alike), and
+ *     Codex and Gemini agents were not measured.
  */
 const DOCTRINE_VERSION = 25;
 
