@@ -82,7 +82,9 @@ test('#4918 with linger off, create says the agent stops at logout (a visible st
 test('#4918 a start systemd refuses is not reported as created', () => {
   systemd = (cmd, args) => (args[1] === 'enable' ? { ok: false, stderr: 'Unit file is not valid' } : lingerIs(true)(cmd, args));
   const r = create.createAgent({ ...BINS, name: 'linbot3', role: 'pm', platform: 'linux' });
-  assert.notEqual(r.outcome, create.OUTCOME.CREATED, 'a refused start reads as created: ' + JSON.stringify(r));
+  assert.equal(r.outcome, create.OUTCOME.PARTIAL, 'a refused start reads as something other than taken back: ' + JSON.stringify(r));
+  assert.match(r.because, /did not enable the agent/, 'systemd\'s reason is not shown (#4918 review 8)');
+  assert.equal(fs.existsSync(linuxjob.unitPath('linbot3')), false, 'the unit was left behind after the roll back');
 });
 
 test('#4918 review 7: a name systemd still runs with no unit file left gets the command that frees it', () => {

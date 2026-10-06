@@ -3720,8 +3720,10 @@ function installJob(name, opts) {
       if (!DRY_RUN) {
         lj.writeUnitFile(lj.unitPath(clean), lj.unitFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner));
       }
-    } catch {
-      return { ok: false, because: 'we could not write the job file' };
+    } catch (e) {
+      // #4918 review 8: unitSafe's refusal is a sentence the person can act on (a path with $ or %); keep it.
+      const why = /cannot go into a systemd unit|model name/.test(String((e && e.message) || '')) ? ` (${e.message})` : '';
+      return { ok: false, because: 'we could not write the job file' + why };
     }
     if (runner === 'codex') {
       try { trustCodexFolder(workerDir(clean), configDir, !configDir); } catch { /* not worth failing the adoption */ }
@@ -5038,6 +5040,7 @@ function createAgentInner(opts) {
      started. Null on darwin and until the start step runs. */
   let win32Launched = null;
   let linuxLingering = null;   // #4918 review 2: whether systemd keeps the agent running with nobody logged in
+  let linuxStartWhy = '';      // #4918 review 8: systemd's own reason when the start failed
 
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
@@ -5798,6 +5801,7 @@ function createAgentInner(opts) {
       const lj = require('./linuxjob');
       linuxLingering = linuxRun(() => lj.enableLinger()).lingering;
       const r = linuxRun(() => lj.start(name));
+      if (!(r && r.ok === true)) linuxStartWhy = String((r && (r.because || r.stderr)) || '').trim().split('\n')[0].slice(0, 200);
       return Boolean(r && r.ok === true);
     }
     /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`
@@ -5900,7 +5904,9 @@ function createAgentInner(opts) {
     rollBack({ unload: true });
     return {
       outcome: OUTCOME.PARTIAL,
-      because: 'we set it up but could not start it, so we have taken it back off your computer rather than leave something half installed. You can try that name again.',
+      because: 'we set it up but could not start it'
+        + (linuxStartWhy ? ` (${linuxStartWhy})` : '')
+        + ', so we have taken it back off your computer rather than leave something half installed. You can try that name again.',
       steps,
     };
   }
