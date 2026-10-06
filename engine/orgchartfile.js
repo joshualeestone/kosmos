@@ -579,6 +579,7 @@ function readAccount() {
 function providerLabel(reader) {
   const r = reader === undefined ? currentReader() : reader;
   if (r && r.kind === 'key') return require('./orgchartkeys').label(r) || PROVIDER;
+  if (r && r.kind === 'codex') return require('./orgchartcodex').label(r);
   let acct = null;
   try { acct = readAccount(); } catch { acct = null; }
   return acct && acct.email ? 'Anthropic (Claude, ' + acct.email + ')' : PROVIDER;
@@ -590,13 +591,17 @@ function providerLabel(reader) {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
-/* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); otherwise the first
-   KEY-connected OpenAI, Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+/* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); then a ChatGPT
+   subscription through Codex (#5346, engine/orgchartcodex.js; pictures only); otherwise the first KEY-connected OpenAI,
+   Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
 let lastWhy = null;   // set by currentReader (see whyNoReader)
 let readerOverride = null;
-/** Tests only: the reader to use ({kind:'claude'} or {kind:'key', provider, dir, account}); null restores the real one. */
+/** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
+    null restores the real one. */
 function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
-function currentReader() {
+/* `name`, when known, is the file about to be read: ChatGPT, which takes only PNG and JPEG, is passed over for that
+   kind when a key account is connected (#5346 review). The key account is chosen as before, by Settings order. */
+function currentReader(name) {
   lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from
   if (readerOverride) return readerOverride();
   if (claudeHere()) {
@@ -605,19 +610,27 @@ function currentReader() {
     try { acct = readAccount(); } catch { acct = null; }
     return { kind: 'claude', dir: acct ? acct.dir : null };
   }
+  /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
+     because a key read is billed per call and the subscription is already paid for. */
+  let sub = { reader: null, offWhy: null };
+  try { sub = require('./orgchartcodex').pickWithWhy(); } catch { sub = { reader: null, offWhy: null }; }
+  const codexTakes = !name || !forModel(name) || !require('./orgchartcodex').cannotRead(MODEL_TYPES[extOf(name)].media);
+  if (sub.reader && codexTakes) return sub.reader;
   let got = { reader: null, offWhy: null };
   try { got = require('./orgchartkeys').pick(); } catch { got = { reader: null, offWhy: null }; }
-  // No reader: the reason (a switched-off provider) travels on a null-shaped answer the caller can read, from the
-  // same look at the accounts (see whyNoReader).
-  lastWhy = got.offWhy;
+  // No key either: ChatGPT is still the reader, and readerProblem then says it cannot take this kind of file.
+  if (!got.reader && sub.reader) return sub.reader;
+  // No reader: the reason (a switched-off provider, or a ChatGPT account that cannot be used) travels on a
+  // null-shaped answer the caller can read, from the same look at the accounts (see whyNoReader).
+  lastWhy = got.offWhy || sub.offWhy;
   return got.reader ? { kind: 'key', ...got.reader } : null;
 }
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */
 function whyNoReader() { return lastWhy; }
 /* The reader and, when there is none, why, as ONE value from one look (what the route uses, so no state is shared
    between two calls). */
-function readerAndWhy() {
-  const reader = currentReader();
+function readerAndWhy(name) {
+  const reader = currentReader(name);
   return { reader, why: reader ? null : lastWhy };
 }
 const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);
@@ -629,6 +642,8 @@ function readerId(r) {
   const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
   // Claude with its account folder hashed, like a key account's: another default account is another reader.
   if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
+  // The account too, so another ChatGPT sign-in in the same folder while the box is open is another reader.
+  if (r.kind === 'codex') return 'codex:' + hash(String(r.dir || '') + '\u0000' + String(r.account || ''));
   // The key's last four characters too (already on the account row), so a key replaced in the same account folder
   // while the consent box is open is another reader, not the one the person agreed to. The id IDENTIFIES the reader;
   // it is not a secret (its inputs are guessable and the key's last four are shown on the account row anyway).
@@ -637,7 +652,8 @@ function readerId(r) {
 /* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
 function consentFor(r) {
   const keys = require('./orgchartkeys');
-  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
+  // A ChatGPT read is on the person's plan, like Claude's (#5346); only a key read is billed per call.
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : null };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
@@ -647,14 +663,17 @@ function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : 
    so the person is not asked to send a file that could only be refused. */
 function readerProblem(name, reader) {
   const r = reader === undefined ? currentReader() : reader;
-  if (!r || r.kind !== 'key' || !forModel(name)) return null;
+  if (!r || !forModel(name)) return null;
+  if (r.kind === 'codex') return require('./orgchartcodex').cannotRead(MODEL_TYPES[extOf(name)].media);
+  if (r.kind !== 'key') return null;
   return require('./orgchartkeys').cannotRead(r.provider, MODEL_TYPES[extOf(name)].media);
 }
-/* The runner: a key reader calls its provider's API directly; otherwise the Claude read (#4559). A test runner
-   set with setModelRunner gets (line, signal, file) and replaces both. */
+/* The runner: a key reader calls its provider's API directly; a ChatGPT reader runs Codex (#5346); otherwise the
+   Claude read (#4559). A test runner set with setModelRunner gets (line, signal, file) and replaces all three. */
 function dispatchRunner(line, signal, file) {
   const r = file.reader || currentReader();   // the reader the person agreed to, when the route passes it
   if (r && r.kind === 'key') return require('./orgchartkeys').read(r, PROMPT, file.name, file.media, file.buf, signal);
+  if (r && r.kind === 'codex') return require('./orgchartcodex').read(r, PROMPT, file.media, file.buf, signal);
   return defaultModelRunner(line || requestLine(file.name, file.buf), signal);
 }
 let modelRunner = dispatchRunner;

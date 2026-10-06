@@ -7288,9 +7288,10 @@ const server = http.createServer(async (req, res) => {
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
      rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
-     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js) or, with no
-     Claude, by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools (engine/orgchartkeys.js,
-     #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js); with no Claude, a
+     picture by their ChatGPT subscription through Codex, offered only two tools that cannot act (engine/orgchartcodex.js,
+     #5346); otherwise by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools
+     (engine/orgchartkeys.js, #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
      `{ needsConsent, provider, reader, uses, keeps }`, so the page can say who reads it, and what that provider
      keeps, before anything leaves the Mac (Liu Kang's condition 1), and the send goes only to that reader. Nothing
      is stored. Board-token gated like every /api route, and the consent send also wants the screen
@@ -7314,7 +7315,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         // #4560: who reads it is worked out ONCE for this request, and every answer below is about that reader.
-        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy();
+        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy(name);
         if (!orgchartfile.modelAvailable(reader)) {
           // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
           sendJson(res, 200, { unavailable: true, problems: [noReaderWhy || orgchartfile.NO_MODEL] });
@@ -7336,8 +7337,8 @@ const server = http.createServer(async (req, res) => {
            id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
         const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' ? orgchartfile.readerId(reader) : null);
         if (!reader || handed !== orgchartfile.readerId(reader)) {
-          // An old page (no reader id) meeting a key reader: nothing changed, the page is simply older than the board.
-          const oldPage = !q.has('reader') && reader && reader.kind === 'key';
+          // An old page (no reader id) meeting any reader but Claude: nothing changed, the page is simply older than the board.
+          const oldPage = !q.has('reader') && reader && reader.kind !== 'claude';
           sendJson(res, 409, { error: oldPage
             ? 'This page is older than Kosmos. Reload the New Agent screen and choose the file again.'
             : 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
@@ -7346,8 +7347,8 @@ const server = http.createServer(async (req, res) => {
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
         /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
-           (Claude's run is killed; a key provider's HTTP request is dropped, so Kosmos stops waiting, though a provider
-           may finish work it had already started). */
+           (Claude's run is killed; Codex's whole process group is killed; a key provider's HTTP request is dropped, so
+           Kosmos stops waiting, though a provider may finish work it had already started). */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
         if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
