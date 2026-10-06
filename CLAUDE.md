@@ -232,7 +232,8 @@ from a night in this codebase, kosmos#2616.)
    `engine/store.js`, kosmos#1848/#1856). Set the `AGENT_WORKFORCE_*` root env before the first
    `require` of a store-using module, or the module captures the wrong root. Since #5418 a test
    process (`node --test`, or `tools/run-tests.sh`) that reaches this machine's real root is given a
-   throwaway store root instead, so a missing sandbox no longer writes to a person's store, but it
+   throwaway data root instead, so a missing sandbox no longer writes to a person's data root (the
+   workers, projects and per-account roots are not covered), but it
    also no longer reads your fixtures: sandbox first. `KOSMOS_ALLOW_REAL_ROOT=1` lets a test read
    the real root on purpose (`test-support/real-root-allowed.js`). `engine/worldenv.js`'s
    header enumerates the ~26 frozen modules across both capture shapes (`const BASE =
