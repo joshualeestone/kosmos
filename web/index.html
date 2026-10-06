@@ -3367,13 +3367,15 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      the header's right controls sat 15px further right in consolidated and the centred tabs 7.5px: the header jumped
      on every view flip (CI: render-tophead-stable-2624). Consolidated pads its header by the same width instead of
      adding an empty strip. The padding is on the inner header, not .apphead, because the inner header carries
-     consolidated's background and bottom rule, which then still reach the window edge. */
+     consolidated's background and bottom rule, which then still reach the window edge. Less what the page really
+     gives up (100vw - 100%: .apphead has no padding or margin here), as the tab view's rule does: a window too short
+     for the grid scrolls the page, and its real scrollbar already holds the width. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
-    padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
+    padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* The Kosmos+ bar above it likewise: in the tab view kplusBarFit ends it at the reserved gutter, so Log out sat
      15px further right in consolidated. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
-    padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
+    padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
      no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,

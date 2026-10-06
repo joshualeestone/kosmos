@@ -17,6 +17,11 @@
  * x in both views. The consolidated header used flex space-between, so the tabs sat after the switcher and moved 90.5px
  * when the view flipped (1440px, a 220px switcher); it now shares the tab view's 1fr auto 1fr grid.
  *
+ * Since #5379 it also pins the scrollbar width: the header (and the Kosmos+ bar above it) sits on the same pixels in
+ * both views on a platform whose scrollbars take width, through a width set by hand (0px, then 15px) so an
+ * overlay-scrollbar Mac can see it, on Agents and Projects in consolidated and on a whole-page tab with consolidated
+ * chosen; and the measurer runs in consolidated.
+ *
  * Measured on the served 0.6.95 build before the fix: the controls sat 33px lower in
  * the tab view at 1440px and 92px lower at 1100px, and a notice moved them in EITHER
  * view. This reds on that CSS (origin/main before kosmos#2624).
