@@ -580,3 +580,31 @@ test('review 11: an asker name that ARRIVES with a lone surrogate still leaves t
   assert.equal(adds.undo('sally').ok, true);
   assert.equal(fileText('sally'), BASE);
 });
+
+/* Review 12 (opus, blind). */
+test('review 12: Dismiss while the instructions cannot be read is refused (nobody can tell whether Apply already added it)', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  unrecordedApply('sally');
+  const f = path.join(ROOT, 'sally', 'CLAUDE.md');
+  fs.chmodSync(f, 0o000);
+  let d;
+  try { d = adds.dismiss('sally'); } finally { fs.chmodSync(f, 0o644); }
+  assert.equal(d.ok, false, 'Dismiss went through on an unreadable file');
+  assert.equal(adds.pending('sally').text, ADD);
+});
+test('review 12: a proposal holding a line in Kosmos\'s own heading format is refused', () => {
+  makeAgent('sally');
+  const r = adds.propose('sally', 'Line one.\n## Added on 2026-10-06, asked by Angel\nMore.', 'Ops lead');
+  assert.equal(r.ok, false); assert.equal(r.code, 'bad');
+  assert.equal(adds.pending('sally'), null);
+  assert.equal(adds.propose('sally', 'We added on a new rule.', 'Ops lead').ok, true, 'CONTROL: the words in a sentence are fine');
+});
+test('review 12: a long run of whitespace in the text or file is handled in linear time', () => {
+  makeAgent('sally', BASE + '\n'.repeat(20000) + 'end\n');
+  const t0 = Date.now();
+  assert.equal(adds.propose('sally', ' '.repeat(8000) + 'x' + ' '.repeat(8000), 'Ops lead').ok, true);
+  assert.equal(adds.apply('sally').ok, true);
+  assert.equal(adds.undo('sally').ok, true);
+  assert.ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms');
+});

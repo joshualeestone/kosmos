@@ -102,7 +102,7 @@ function askerWords(askedBy) {
 }
 /** The exact text Apply writes for a pending addition (the leading blank lines included). */
 function blockOf(p) {
-  return '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + String(p.text).replace(/\s*$/, '') + '\n';
+  return '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + String(p.text).trimEnd() + '\n';
 }
 
 /** The pending addition for this agent, or null. */
@@ -128,6 +128,10 @@ function propose(agent, text, askedBy, now) {
      engine/catalogue.js refuses a role text with a comment, for the same reason. */
   if (body.includes('<!--') || body.includes('-->')) {
     return { ok: false, code: 'bad', because: 'the addition holds an HTML comment (<!-- or -->), which Kosmos uses for its own markers in instructions; take it out and propose again' };
+  }
+  /* Review 12: a line in Kosmos's own heading format would name an asker who asked for nothing. */
+  if (/^##\s*Added on /m.test(body)) {
+    return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
   }
   if (Buffer.byteLength(body, 'utf8') > MAX_TEXT_BYTES) {
     return { ok: false, code: 'bad', because: `the addition is too long (at most ${MAX_TEXT_BYTES / 1024} KB)` };
@@ -156,7 +160,10 @@ function dismiss(agent) {
   /* Review 10: an Apply that wrote the file but could not record it leaves the addition both waiting and in the file.
      Dismissing then would leave it there with nothing on the page that says so or can take it out. */
   const { text } = readText(agent);
-  if (whereIs(text, { block: blockOf(rec.pending) }) === 'here') {
+  /* Review 12: and while the file cannot be read, since then nobody can tell (Undo refuses the same way). */
+  const w = whereIs(text, { block: blockOf(rec.pending) });
+  if (w === 'unread') return { ok: false, because: 'these instructions could not be read just now, so Kosmos cannot tell whether an earlier Apply already added this. Try again' };
+  if (w === 'here') {
     return { ok: false, code: 'applied', because: 'this addition is already in the instructions (an earlier Apply wrote it but could not record it). Press Apply to finish; Undo can then take it out' };
   }
   delete rec.pending;
@@ -202,7 +209,7 @@ function apply(agent, now) {
   }
   if (w !== 'here') {
     try {
-      instructions.write(agent, curText.replace(/\s*$/, '') + block, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
+      instructions.write(agent, curText.trimEnd() + block, cur.version, undefined, { who: 'person', because: `You added a section ${p.askedBy} asked for` });
     } catch (e) {
       return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
     }
@@ -242,9 +249,11 @@ function spanAt(text, last) {
 function withoutSpan(text, last) {
   const at = spanAt(text, last);
   if (at === -1) return null;
-  const head = text.slice(0, at).replace(/\n+$/, '');
+  let cut = at;   // review 12: a loop, not /\n+$/ (quadratic on a long run of newlines followed by text)
+  while (cut > 0 && text[cut - 1] === '\n') cut -= 1;
+  const head = text.slice(0, cut);
   const tail = text.slice(at + coreOf(last.block).length);
-  if (!tail.trim()) return head.replace(/\s*$/, '') + '\n';
+  if (!tail.trim()) return head.trimEnd() + '\n';
   return head + text.slice(head.length, at) + tail.replace(/^\n+/, '');
 }
 /* Review 9: where the applied addition stands, read from the file alone (never from the record, which can lag the file:
