@@ -18633,8 +18633,9 @@ const server = http.createServer(async (req, res) => {
     if (taskAct[3] === 'close' && !isViaScreen(req, {})) {
       let held = null;
       try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
-      if (held && held.repeat && held.repeatByPerson === true) {
-        sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+      // slice 3 review 6: a reviewer the person chose is theirs too, and closing would drop it with the rule.
+      if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true)) {
+        sendJson(res, 409, { error: 'the person set how this task repeats, so only they can close it; record each run with kosmos task ran' });
         return;
       }
     }
@@ -19424,8 +19425,8 @@ const server = http.createServer(async (req, res) => {
           try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
           // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
           const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
-          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1
-            sendJson(res, 409, { error: 'the person set this task to repeat, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
+          if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true) && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1; slice 3 review 6: the person's reviewer too
+            sendJson(res, 409, { error: 'the person set how this task repeats, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
             return;
           }
         }
@@ -20984,10 +20985,12 @@ function start(port = PORT) {
           const projs = projects.readAll();
           const owed = missedtell.owed(projs);
           if (!owed.length) return;
-          const r = owed.some((x) => !x.person) ? safeRoster() : null;
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          // Review 6: the roster only when an agent can actually be typed into (the sweep holds those lines otherwise).
+          const r = allowed && owed.some((x) => !x.person) ? safeRoster() : null;
           missedtell.sweep({
             projects: projs, roster: r, now: Date.now(),
-            allowed: agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+            allowed,
             limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
             sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK,
             deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),

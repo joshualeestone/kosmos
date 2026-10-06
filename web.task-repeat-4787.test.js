@@ -136,3 +136,17 @@ test('#4787 slice 3 review 5: the task history says the reviewer and a missed ru
   assert.equal(phrase({ kind: 'missed', count: 3, told: 'ada', reached: false }, p), '3 runs missed; Kosmos could not reach Ada');
   assert.equal(phrase({ kind: 'missed', count: 1, person: true }, p), 'A run was missed; you review it');
 });
+
+test('#4787 slice 3 review 6: a capped miss reads "More than 99"; a finished task hides the reviewer row', () => {
+  const phrase = new Function('tkMemberName', page.liftAll(SCRIPT, ['tkActPhrase']) + '\nreturn tkActPhrase;')((p, sn) => sn);
+  assert.equal(phrase({ kind: 'missed', count: 99, more: true, person: true }, { id: 'p1' }), 'More than 99 runs missed; you review it');
+  const el = (id) => ({ id, hidden: false, textContent: '', value: '', dataset: {}, children: [], appendChild(o) { this.children.push(o); } });
+  const els = { 'tk-review-row': el('tk-review-row'), 'tk-review-who': el('tk-review-who'), 'tk-review-msg': el('tk-review-msg') };
+  const doc = { activeElement: null, getElementById: (id) => els[id] || null, createElement: () => ({ value: '', textContent: '' }) };
+  const paint = new Function('document', 'TK_ACT', 'tskAgentName', page.liftAll(SCRIPT, ['tkReviewerOf', 'tkPaintReviewer']) + '\nreturn tkPaintReviewer;')(doc, 'reopen', (s) => s);
+  paint({ id: 'p1', agents: ['ada'] }, { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'ada' });
+  assert.equal(els['tk-review-row'].hidden, true, 'a finished task (TK_ACT reopen) shows no reviewer row');
+  // And tkPaintRepeat's early return for a finished task still reaches it.
+  const src = page.liftAll(SCRIPT, ['tkPaintRepeat']);
+  assert.match(src, /if \(done\) \{[^\n]*tkPaintReviewer\(p, t\); return; \}/);
+});

@@ -21,6 +21,8 @@ Review 4 (fixed): "runs it" means holds an OPEN part (as the nudge's openParts),
 
 Review 5 (fixed): the task history says the reviewer and a missed run in words (tkActPhrase), never the raw kind; Kosmos's own "missed" note is not activity, so a dead job does not sort as fresh; a reviewer who also runs the task IS told (round 3 had skipped it, trusting slice 1's nudge, which needs the Prompter on and the agent idle), in its own words ("You run it and review its results").
 
+Review 6 (fixed): a finished task hides the reviewer row (tkPaintRepeat's early return paints it); a process cannot close a task, or its last part, when the person chose its reviewer (closing drops the choice with the rule), as it already could not when the person set the rule; a capped count is recorded as more ("More than 99 runs missed"); the roster is read only when an agent can be typed into.
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.

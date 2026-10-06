@@ -59752,7 +59752,7 @@ function tkActPhrase(ev, p) {
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
     case 'missed': {
-      const runs = Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
+      const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
       if (ev.person) return runs + '; you review it';
       const who = nameOf(ev.told) || 'its reviewer';
       return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
@@ -60285,7 +60285,7 @@ function tkPaintRepeat(p, t) {
   const msg = document.getElementById('tk-repeat-msg');
   const key = p.id + '#' + t.number;
   if (msg && msg.dataset.task !== key) msg.textContent = '';
-  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } tkPaintReviewer(p, t); return; }   // review 2: nothing sticks on a finished task (slice 3 review 6: the reviewer row hides too)
   document.getElementById('tk-repeat-row').hidden = false;
   const every = document.getElementById('tk-repeat-every');
   const stored = JSON.stringify(tkRepeatStoredChoice(t));

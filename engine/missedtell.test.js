@@ -130,7 +130,9 @@ test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside t
   const body = src.slice(i, src.indexOf('}, 60000);', i));
   assert.match(body, /missedtell\.sweep\(/);
   assert.match(body, /deliver: \(session, text, ro\) => chat\.deliverAutomatic\(/);
-  assert.match(body, /allowed: agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'the nudge\'s gate: live execution and the brake');
+  assert.match(body, /const allowed = agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\);/, 'the nudge\'s gate: live execution and the brake');
+  assert.match(body, /missedtell\.sweep\(\{[\s\S]*\ballowed,/, 'and it is what the sweep is given');
+  assert.match(body, /const r = allowed && owed\.some\(/, 'review 6: no roster read while nothing can be typed');
   assert.equal((src.match(/missedtell\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });
 
@@ -198,4 +200,13 @@ test('#4787 slice 3 review 4: an agent whose part is done is not its owner, so a
   const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: (s) => { typed = s; return { state: 'placed' }; } });
   assert.equal(r.results[0].act, 'tell');
   assert.equal(typed, 'rex');
+});
+
+test('#4787 slice 3 review 6: a capped count is recorded as more, so the history matches the line', () => {
+  const { id, n } = fixture('me', { repeat: { every: 'hour', minute: 0 } });
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeatSetAt: new Date(NOW - 10 * 86400000).toISOString(), lastRunAt: new Date(NOW - 10 * 86400000).toISOString() } : t)) }));
+  mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: () => ({ state: 'placed' }) });
+  const ev = taskchat.read(id, n).find((e) => e.kind === 'missed');
+  assert.equal(ev.count, 99);
+  assert.equal(ev.more, true);
 });
