@@ -1,9 +1,32 @@
-name: linux-systemd-4918
+name: linux-systemd
 
+# #4918: the live systemd keep-alive check on ubuntu-latest. Runs on main and on PRs that touch what it tests.
 on:
   push:
-    branches: ["linux-systemd-4918"]
+    branches: ["main"]
+    paths:
+      - "engine/linux*.js"
+      - "engine/boardrestart.js"
+      - "engine/create.js"
+      - "engine/remove.js"
+      - "engine/delete-leftover.js"
+      - "install/kosmos"
+      - "bin/agent-supervisor.sh"
+      - "tools/test-linux-systemd-live-4918.sh"
+      - "tools/test-board-supervised-linux-4918.sh"
+      - ".github/workflows/linux-systemd.yml"
   pull_request:
+    paths:
+      - "engine/linux*.js"
+      - "engine/boardrestart.js"
+      - "engine/create.js"
+      - "engine/remove.js"
+      - "engine/delete-leftover.js"
+      - "install/kosmos"
+      - "bin/agent-supervisor.sh"
+      - "tools/test-linux-systemd-live-4918.sh"
+      - "tools/test-board-supervised-linux-4918.sh"
+      - ".github/workflows/linux-systemd.yml"
 
 permissions:
   contents: read

@@ -41,6 +41,9 @@ function setSystemdDirForTests(fn) {
 }
 
 let runnerFn = (cmd, args) => {
+  /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
+     test half only; production is unchanged). */
+  if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
   try {
     const stdout = execFileSync(cmd, args, {
       encoding: 'utf8',
@@ -65,6 +68,9 @@ function runner(cmd, args) {
 
 function setRunnerForTests(fn) {
   runnerFn = typeof fn === 'function' ? fn : (cmd, args) => {
+    /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
+       test half only; production is unchanged). */
+    if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
     try {
       const stdout = execFileSync(cmd, args, {
         encoding: 'utf8',
@@ -84,29 +90,45 @@ function setRunnerForTests(fn) {
   };
 }
 
+/* systemd accepts only letters, digits and ":_.-" in a unit name (and "\\" from its own escaping). A named world's launch key
+   carries "+" (launchidentity.WORLD_SEPARATOR), so every other character is written the way systemd-escape writes it,
+   "\\xHH". The tmux session name is the launch key itself; only the unit name is escaped. */
+function escapeUnitNamePart(s) {
+  return String(s).replace(/[^A-Za-z0-9:_.-]/g, (c) => Buffer.from(c, 'utf8').toString('hex').replace(/../g, (h) => `\\x${h}`));
+}
+
 function unitName(name, worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   const session = launchidentity.launchKey(name, world);
-  return `kosmos-agent-${session}.service`;
+  return `kosmos-agent-${escapeUnitNamePart(session)}.service`;
 }
 
 function unitPath(name, worldId) {
   return path.join(systemdDir(), unitName(name, worldId));
 }
 
+/* Linger keeps user units running with nobody logged in; without it an agent stops at logout and does not start at
+   boot. Returns whether linger is ON afterwards (read back, not assumed from the enable call). */
 function enableLinger() {
-  try {
-    const u = process.env.USER || (typeof process.getuid === 'function' ? String(process.getuid()) : '');
-    const args = u ? ['enable-linger', u] : ['enable-linger'];
-    runner('loginctl', args);
-  } catch {
-    // Best-effort; lingering may already be enabled or restricted
-  }
+  const u = process.env.USER || (typeof process.getuid === 'function' ? String(process.getuid()) : '');
+  try { runner('loginctl', u ? ['enable-linger', u] : ['enable-linger']); } catch { /* read back below */ }
+  let r = null;
+  try { r = runner('loginctl', u ? ['show-user', u, '-p', 'Linger'] : ['show-user', '-p', 'Linger']); } catch { r = null; }
+  return { lingering: Boolean(r && r.ok && /^Linger=yes\s*$/m.test(String(r.stdout || ''))) };
 }
 
-function escapeUnitValue(val) {
-  return String(val == null ? '' : val).replace(/"/g, '\\"');
+/* A value written into a unit file. systemd expands "%" specifiers in most directives and "$" in ExecStart, unescapes
+   "\\" inside quotes, and a newline starts a new directive. Rather than escape each rule per directive, a value carrying
+   any of them is refused: Kosmos's own paths never do, and a refusal is a sentence, where an escaping slip is a
+   command in the person's user unit. */
+const UNIT_UNSAFE = /[\x00-\x1f\x7f"\\$%]/;
+function unitSafe(val, what) {
+  const s = String(val == null ? '' : val);
+  if (UNIT_UNSAFE.test(s)) throw new Error(`${what || 'a value'} cannot go into a systemd unit (it contains a quote, backslash, $, % or a control character)`);
+  return s;
 }
+function escapeUnitValue(val) { return unitSafe(val); }
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 
 /**
  * Generates systemd user unit content for an agent.
@@ -121,6 +143,7 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
   const port = Number(process.env.PORT) || DEFAULT_BOARD_PORT;
   const nonClaude = create.isNonClaudeRunner(runnerName);
 
+  if (modelArg && !MODEL_ID.test(String(modelArg))) throw new Error('the model name is not one Kosmos can write into a systemd unit');
   const modelVal = (modelArg || nonClaude) ? (modelArg || '') : '';
   const runnerVal = nonClaude ? runnerName : '';
 
@@ -140,7 +163,7 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
     execArgs.push(runnerVal);
   }
 
-  const execLine = execArgs.map((arg) => (!arg || /[ \t"]/.test(arg) ? `"${escapeUnitValue(arg)}"` : arg)).join(' ');
+  const execLine = execArgs.map((arg) => `"${unitSafe(arg, 'a path in the agent command')}"`).join(' ');
 
   const home = os.homedir();
   const binDir = path.dirname(runnerBin);
@@ -177,10 +200,13 @@ After=network.target
 
 [Service]
 ExecStart=${execLine}
-WorkingDirectory=${workdir}
+WorkingDirectory=${unitSafe(workdir, 'the agent folder')}
 ${envLines.join('\n')}
-StandardOutput=append:${log}
-StandardError=append:${log}
+StandardOutput=append:${unitSafe(log, 'the log path')}
+StandardError=append:${unitSafe(log, 'the log path')}
+# Stopping this agent stops its supervisor only. The tmux server is shared by every agent and may have been started
+# from this unit's cgroup; the default KillMode (control-group) would take every agent's session down with it.
+KillMode=process
 Restart=always
 RestartSec=5
 
@@ -271,8 +297,10 @@ function start(name, worldId) {
     const workdir = create.workerDir(name);
     fs.mkdirSync(workdir, { recursive: true });
   } catch {}
-  daemonReload();
-  enable(name, worldId);
+  const reload = daemonReload();
+  if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
+  const en = enable(name, worldId);
+  if (!en || !en.ok) return { ok: false, because: 'systemd did not enable the agent: ' + ((en && (en.stderr || en.because)) || '').trim() };
   const u = unitName(name, worldId);
   return runner('systemctl', ['--user', 'start', u]);
 }
@@ -302,16 +330,18 @@ function presence(name, worldId) {
   return fs.existsSync(unitPath(name, worldId));
 }
 
+/* Stops, disables and deletes the unit. { ok: true } only when the unit file is gone afterwards. */
 function remove(name, worldId) {
   stop(name, worldId);
   disable(name, worldId);
   const file = unitPath(name, worldId);
   try {
-    if (fs.existsSync(file)) {
-      fs.unlinkSync(file);
-      daemonReload();
-    }
-  } catch {}
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch (err) {
+    return { ok: false, because: 'the unit file could not be deleted: ' + ((err && err.message) || String(err)) };
+  }
+  daemonReload();
+  return fs.existsSync(file) ? { ok: false, because: 'the unit file is still there' } : { ok: true };
 }
 
 module.exports = {
@@ -332,6 +362,8 @@ module.exports = {
   presence,
   remove,
   enableLinger,
+  unitSafe,
+  escapeUnitNamePart,
   runner,
   setRunnerForTests,
 };

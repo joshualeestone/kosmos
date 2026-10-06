@@ -37,6 +37,9 @@ function setSystemdDirForTests(fn) {
 }
 
 let runnerFn = (cmd, args) => {
+  /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
+     test half only; production is unchanged). */
+  if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxboard.js', cmd, args);
   try {
     const stdout = execFileSync(cmd, args, {
       encoding: 'utf8',
@@ -61,6 +64,9 @@ function runner(cmd, args) {
 
 function setRunnerForTests(fn) {
   runnerFn = typeof fn === 'function' ? fn : (cmd, args) => {
+    /* #4918 review 1: a test that forgot setRunnerForTests must not reach the host's real systemd (live-execution #1598,
+       test half only; production is unchanged). */
+    if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxboard.js', cmd, args);
     try {
       const stdout = execFileSync(cmd, args, {
         encoding: 'utf8',
@@ -107,6 +113,8 @@ function boardUnitFor(kosmosHome, port) {
   const stopMarker = path.join(home, 'board.stopped');
   const tmuxBinDir = path.join(home, 'tmux', 'bin');
   const pathVal = `${tmuxBinDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
+  const { unitSafe } = require('./linuxjob');
+  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder']]) unitSafe(v, what);
 
   return `[Unit]
 Description=Kosmos Board
@@ -122,6 +130,8 @@ Environment="PATH=${pathVal}"
 Environment="LANG=C.UTF-8"
 Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
+# Stopping the board stops the board only, never a tmux server it may have started (see linuxjob.js).
+KillMode=process
 Restart=always
 RestartSec=5
 
@@ -130,14 +140,18 @@ WantedBy=default.target
 `;
 }
 
+/* Writes and enables the board's unit. { ok: false, because } when systemd refused either step. */
 function installBoard(kosmosHome, port) {
   const content = boardUnitFor(kosmosHome, port);
   const target = boardUnitPath(kosmosHome);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content, 'utf8');
-  runner('systemctl', ['--user', 'daemon-reload']);
+  const reload = runner('systemctl', ['--user', 'daemon-reload']);
+  if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
   const unit = boardUnitName(kosmosHome);
-  runner('systemctl', ['--user', 'enable', unit]);
+  const en = runner('systemctl', ['--user', 'enable', unit]);
+  if (!en || !en.ok) return { ok: false, because: 'systemd did not enable the board: ' + ((en && (en.stderr || en.because)) || '').trim() };
+  return { ok: true };
 }
 
 function removeBoard(kosmosHome) {
