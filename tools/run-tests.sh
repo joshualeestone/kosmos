@@ -202,16 +202,8 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 export KOSMOS_TEST_RUN=1
 # A throwaway is removed when its process exits; one that was killed leaves it in tmp. This
 # runs before TMPDIR is re-pointed below, so it reaches the leftovers of direct `node --test`
-# runs (this run's own land in its private TMPDIR, removed by its EXIT trap). Each name carries
-# its process id (kosmos-test-home-<pid>-XXXXXX), and only one whose process this user cannot
-# signal (gone, or another user's, whose folder rm cannot remove anyway) is removed: another
-# agent's live run on this Mac keeps its throwaway, however old.
-for d in "${TMPDIR:-/tmp}"/kosmos-test-home-*; do
-  [ -d "$d" ] || continue
-  pid="${d##*/kosmos-test-home-}"; pid="${pid%%-*}"
-  case "$pid" in ''|*[!0-9]*) continue ;; esac
-  kill -0 "$pid" 2>/dev/null || rm -rf "$d" 2>/dev/null || true
-done
+# runs (this run's own land in its private TMPDIR, removed by its EXIT trap).
+bash "$REPO/tools/sweep-test-homes.sh"
 
 # #4253: no board a test boots may phone home. A sandboxed board mints a fresh install id,
 # so each boot sent installkosmos.com a new install (count 0, darwin) and inflated the

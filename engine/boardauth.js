@@ -152,7 +152,7 @@ function generateToken() {
 function legacyTokenPath() {
   try {
     const home = process.env.AGENT_WORKFORCE_HOME || os.homedir();
-    const legacyRoot = store.dataRootFor(process.platform, home, process.env, store.LEGACY_APP);
+    const legacyRoot = store.resolveDataRoot(process.platform, home, process.env, store.LEGACY_APP);   // #5418: never a real token under a test
     if (!legacyRoot || legacyRoot === store.ROOT) return null;   // no distinct legacy leaf
     return path.join(legacyRoot, TOKEN_FILE);
   } catch {

@@ -12,8 +12,10 @@ module for the rest of the process, and every write lands in the operator's stor
 Refuse at the derivation, `store.resolveDataRoot()` (review 3 found `store.root()` was not the only one:
 `create.supportDir()`, `worlds.baseRoot()` and `tools/selfreport-silence-monitor.js` called
 `store.dataRootFor` directly; all four now go through `resolveDataRoot`, so one process always agrees on
-one root). Left on `dataRootFor` on purpose: `boardauth` and `setup-assistant` read the LEGACY root,
-`win32uninstall` targets win32 explicitly with its own home. The rule:
+one root). Review 5: `boardauth`'s legacy-token read goes through it too (`resolveDataRoot` takes the
+leaf), so a test can never load a real legacy token. Left on `dataRootFor` on purpose:
+`setup-assistant`'s deny-rule paths (named, never read), `win32uninstall` (its own explicit home),
+`install/setup.sh`'s consult (an installer). The rule:
 - A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
@@ -26,7 +28,10 @@ one root). Left on `dataRootFor` on purpose: `boardauth` and `setup-assistant` r
     also read, and which overrode a HOME set later; review 2 caught it). A child process is a test
     process too and gets its own. The legacy migration is skipped for it, since its target would be
     the real store;
-  - with a sandbox variable set that still resolves to the real root, it throws a named error.
+  - with a sandbox variable set that still resolves to the real root or inside it, the same
+    throwaway (review 5: it used to throw, but an agent in a named world inherits a world's DATA,
+    which is inside the real root, and cannot be told from a test's own variable, so a throw would
+    fail every unsandboxed test that agent runs).
 - "Real" is derived from `os.userInfo().homedir` (the account's home in the user database), NOT
   `os.homedir()`, which follows $HOME: a test that sandboxes by pointing HOME elsewhere must not be
   refused. On Windows the real root is that home's AppData\Roaming, not the APPDATA variable (a test
@@ -71,9 +76,11 @@ so the read cannot run the legacy rename) for that read only. The #2039 source p
 `store.resolveDataRoot(` and pins that `resolveDataRoot` delegates to `dataRootFor`.
 
 ## The harness sweep
-Throwaway names carry their pid (`kosmos-test-home-<pid>-XXXXXX`); tools/run-tests.sh removes one only
-when that process is gone (tested: dead pid removed; live pid, malformed name and other dirs kept). It
-runs before run-tests.sh re-points TMPDIR, so it reaches leftovers of direct `node --test` runs.
+Throwaway names carry their pid (`kosmos-test-home-<pid>-XXXXXX`). `tools/sweep-test-homes.sh` removes one
+only when that pid cannot be signalled; `tools/sweep-test-homes.test.js` pins the four arms (dead pid
+removed; live pid, malformed name and other folders kept), that its prefix equals store.TEST_HOME_PREFIX,
+and that run-tests.sh runs it (before TMPDIR is re-pointed, so it reaches direct `node --test` leftovers).
+The four controls that read the real root's path share `test-support/real-root-allowed.js`.
 
 ## Second redesign (review 2): store-only, no environment
 Exporting the throwaway as AGENT_WORKFORCE_HOME changed every seam that reads that variable, depending
@@ -88,8 +95,9 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
 - Not protected: a store some OTHER root names, when a shell exports a non-default AGENT_WORKFORCE_DATA or
   AGENT_WORKFORCE_HOME pointing at a live board and a test inherits it. Telling an inherited value from
   a test's own sandbox is not possible from inside the process.
-- A sandbox variable aimed at the real root itself throws (deliberate; a pane exporting
-  AGENT_WORKFORCE_HOME=$HOME would make every test that loads the store fail loudly).
+- A sandbox variable aimed at the real root (inherited from a named world, or a test's mistake) gets
+  the throwaway; such a test is redirected, not told.
+- With no user-database home (os.userInfo throws, some containers) the rule is off.
 - The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
 - A plain `node file.test.js` (no `--test`, no run-tests.sh) sets no marker and is not guarded.
 

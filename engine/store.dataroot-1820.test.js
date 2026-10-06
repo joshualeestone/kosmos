@@ -109,15 +109,7 @@ test('CONTROL: the normal Mac and win32 answers are unchanged', () => {
     'the win32 answer moved');
 });
 
-/* #5418: a test process is never given the real data root unless it says so. These controls read
-   the real root's PATH on purpose (nothing is written; the legacy migration is off for the read). */
-function withRealRootAllowed(fn) {
-  const saved = { KOSMOS_ALLOW_REAL_ROOT: process.env.KOSMOS_ALLOW_REAL_ROOT, KOSMOS_NO_LEGACY_MIGRATION: process.env.KOSMOS_NO_LEGACY_MIGRATION };
-  process.env.KOSMOS_ALLOW_REAL_ROOT = '1';
-  process.env.KOSMOS_NO_LEGACY_MIGRATION = '1';
-  try { return fn(); }
-  finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
-}
+const { withRealRootAllowed } = require('../test-support/real-root-allowed');   // #5418
 
 test('CONTROL: the live ROOT is built by the guarded function and does not throw', () => {
   /* Proves the guard is inside the function the product actually calls (ROOT is
