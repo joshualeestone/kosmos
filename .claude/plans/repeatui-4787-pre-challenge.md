@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: repeatui-4787
-diff_hash: b9e4dcb83c15bdee9da0cc6e35ea8cef1f3bc6c7218f030d8ab62ab60e19ea77
+diff_hash: 5e77c8cad15a9058513e9c68b75f8e565d4067c154d7927843cc6a2aef905c74
 validation: focused, not the full local suite (light-lane queue). After every round: engine/taskrepeat, server.task-repeat-4787 (its new projects-list test proven to fail without the engine line), web.task-repeat-4787, web.task-page: 38/38; at round 1 also the 226 tests that read project task lists and every web.task* file (160/160); the page script parses; node --check on both browser-check files. Shots: mobile-shots exit 0, 8 shots, 0 errors, 0 overflow, looked at (a first set showed the dropdowns broken; fixed with the Tasks view's .tsk-sel). render-onhold-4771's new arms are first run by CI's browser-checks on the PR.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-06T13:57:46Z
@@ -38,3 +38,9 @@ converged: true
 - [LOW-MEDIUM] choosing the rule stored now still counted as unsaved --> FIXED; the arm tests exactly that
 
 #### Iteration 4 (sonnet): NO NEW ISSUES
+
+#### After convergence: CI round on 0ef3b1709
+- [REAL] render-onhold-4771: the controls did not follow a rule changed elsewhere when the person had just chosen the stored rule and no paint ran between --> FIXED (the change handler says it at once)
+- [REAL] render-fields: the two dropdowns wore the column's own white (WebKit light) --> FIXED (the field fill; pixel-checked in the dark shot: both (12,13,15) on a (23,25,28) column)
+- [REAL] web.file-pickers: a fourth visible Save --> FIXED (named "Save how this task repeats", counted and asserted)
+- [FLAKE] tools/test-queued-heavy-4977.sh #5064 CONTROL (#5332), on a CI Mac at load 44; not this change
