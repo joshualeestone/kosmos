@@ -15,7 +15,8 @@ Apply the rule at the derivation, `store.resolveDataRoot()` (review 3 found `sto
 one root). Review 5: `boardauth`'s legacy-token read goes through it too (`resolveDataRoot` takes the
 leaf), so a test can never load a real legacy token. Left on `dataRootFor` on purpose:
 `setup-assistant`'s deny-rule paths (named, never read), `win32uninstall` (its own explicit home),
-`install/setup.sh`'s consult (an installer). The rule:
+`install/setup.sh`'s consult (an installer), `win32anchor`'s runtime anchor (LOCALAPPDATA's runtime folder,
+not the store). The rule:
 - A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
@@ -104,6 +105,12 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
 - A sandbox variable aimed at the real root (inherited from a named world, or a test's mistake) gets
   the throwaway; such a test is redirected, not told.
 - With no user-database home (os.userInfo throws, some containers) the rule is off.
+- On Windows the real root is the account home's AppData\Roaming; a machine whose AppData is redirected
+  elsewhere is not recognised, by the store or by test-support/data-root-sandbox.js (one definition now,
+  so one known limit rather than two different ones).
+- KOSMOS_ALLOW_REAL_ROOT=1 in a test process allows READING the real root and never runs the legacy
+  migration on it (review 8; pinned in source).
+- The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file.
 - The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
 - A plain `node file.test.js` (no `--test`, no run-tests.sh) sets no marker and is not guarded.
 

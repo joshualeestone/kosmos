@@ -29,7 +29,7 @@ function rootIn(extra) {
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
-const realRoot = () => require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA });
+const realRoot = () => require('./store').realDefaultRoot(process.platform);   // the product's own definition
 
 function runJs(src, extra) {
   const r = spawnSync(process.execPath, ['-e', 'const s = require(' + JSON.stringify(STORE) + '); ' + src], { env: childEnv(extra), encoding: 'utf8' });
@@ -93,7 +93,7 @@ test('#5418: a sandbox variable that still points at the real store gets the thr
 
 test('#5418: the LEGACY leaf (boardauth\'s old token) is never the real one in a test process', () => {
   const got = runJs('process.stdout.write(JSON.stringify({ legacy: s.resolveDataRoot(process.platform, require("node:os").homedir(), process.env, s.LEGACY_APP) }))', { NODE_TEST_CONTEXT: 'child-v8' });
-  const realLegacy = require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA }, require('./store').LEGACY_APP);
+  const realLegacy = require('./store').realDefaultRoot(process.platform, require('./store').LEGACY_APP);
   assert.notEqual(got.legacy, realLegacy);
   assert.ok(got.legacy.includes(require('./store').TEST_HOME_PREFIX), got.legacy);
   assert.equal(path.basename(got.legacy), require('./store').LEGACY_APP, 'the throwaway is not the legacy leaf: ' + got.legacy);
@@ -154,12 +154,20 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweep5418-'));
   try {
     const dead = path.join(tmp, store.TEST_HOME_PREFIX + deadPid() + '-AAAAAA');
-    const live = path.join(tmp, store.TEST_HOME_PREFIX + process.ppid + '-BBBBBB');
+    // A live process this test started itself, signalled successfully (so the arm proves "live", not EPERM).
+    const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'ignore' });
+    process.kill(child.pid, 0);
+    const live = path.join(tmp, store.TEST_HOME_PREFIX + child.pid + '-BBBBBB');
+    const link = path.join(tmp, store.TEST_HOME_PREFIX + deadPid() + '-LLLLLL');
+    const target = path.join(tmp, 'link-target'); fs.mkdirSync(path.join(target, 'keep'), { recursive: true });
+    fs.symlinkSync(target, link);   // a link with a dead pid's name, to a scratch folder: never followed, never removed
     const junk = path.join(tmp, store.TEST_HOME_PREFIX + 'notapid');
     const other = path.join(tmp, 'other-folder');
     for (const d of [dead, live, junk, other]) fs.mkdirSync(path.join(d, 'Library'), { recursive: true });
-    store.sweepDeadTestHomes(tmp);
+    try { store.sweepDeadTestHomes(tmp); } finally { child.kill(); }
     assert.equal(fs.existsSync(dead), false, 'the dead process\'s throwaway was kept');
+    assert.ok(fs.lstatSync(link).isSymbolicLink(), 'a link was removed');
+    assert.ok(fs.existsSync(path.join(target, 'keep')), 'the sweep followed a link into its target');
     assert.equal(fs.existsSync(live), true, 'a live process\'s throwaway was removed');
     assert.equal(fs.existsSync(junk), true, 'a name with no pid was removed');
     assert.equal(fs.existsSync(other), true, 'a folder outside the prefix was removed');
@@ -169,3 +177,14 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
 test('#5418: test-support/data-root-sandbox.js and the store agree on what the real root is', () => {
   assert.equal(require('../test-support/data-root-sandbox').realDataRoot(), require('./store').realDefaultRoot(process.platform));
 });
+
+test('#5418: a test process that allows the real root to READ it never runs the legacy migration on it', () => {
+  /* Pinned in source: proving it by behaviour would mean running the migration against the real store. */
+  const src = fs.readFileSync(STORE, 'utf8');
+  const at = src.indexOf('function root() {');
+  const body = src.slice(at, src.indexOf('\n}', at) + 2);
+  const skip = body.indexOf("if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1') return resolved;");
+  const migrate = body.indexOf('maybeMigrateLegacyStore();');
+  assert.ok(skip > -1 && migrate > -1 && skip < migrate, 'root() can migrate the real store for a test that only allowed reading it');
+});
+
