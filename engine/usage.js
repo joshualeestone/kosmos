@@ -172,7 +172,9 @@ const MTIME_MARGIN_MS = 60 * 60 * 1000;
 function windowCutMs(sinceDay) {
   if (typeof sinceDay !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(sinceDay)) return null;
   const t = Date.parse(sinceDay + 'T00:00:00Z');
-  return Number.isFinite(t) ? t - MTIME_MARGIN_MS : null;
+  // Not a real date (2026-02-31 would roll over to March): no cut, a full read.
+  if (!Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== sinceDay) return null;
+  return t - MTIME_MARGIN_MS;
 }
 
 /**
@@ -188,10 +190,17 @@ function windowCutMs(sinceDay) {
  * folders: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
  * the roots list travels with the result so a caller can say "N of N
  * config roots read" rather than imply completeness it cannot back up.
- * #5363: a transcript last written before windowCutMs(sinceDay) is not read (see windowCutMs, firstCwd).
+ * #5363: with mtimeCut, a transcript last written before windowCutMs(sinceDay) is not read (see windowCutMs,
+ * firstCwd); dailyUsageByModel asks for it.
  */
-async function scanUsage({ sinceDay, untilDay }) {
-  const cutMs = windowCutMs(sinceDay);
+async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
+  /* #5363: the cut is OPT-IN (dailyUsageByModel asks for it). A past day this scan derives is FROZEN for good, so the
+     premise matters: a file's mtime is the time of its last write, never earlier than its newest row. Copies that
+     preserve mtimes (cp -p, rsync -t, a backup restore) keep it, since they keep that original time. What breaks it
+     is a clock moved back by more than the one-hour margin between writing a row and stamping the file. Review 2
+     proposed cutting only when today is the one missing day; rejected, because at every UTC midnight yesterday becomes
+     a missing past day and the first open of each day would pay the full read again (6.9 minutes on the fleet Mac). */
+  const cutMs = mtimeCut ? windowCutMs(sinceDay) : null;
   /* Scan-wide, not per file: a message id identifies one assistant message
      across the whole read, and the same message can appear in more than one
      file (a session transcript and a resumed copy of it). Per-file dedup would
@@ -359,15 +368,16 @@ function todayUtc() {
  * frozen to disk, so a repeat request for that SAME day never re-sums it.
  *
  * ⚠️ THIS IS NOT A FULL-CORPUS CACHE, AND SAYING SO WOULD BE DISHONEST.
- * Transcripts are not date-partitioned -- there is no way to know a file
- * holds nothing for "today" without reading it -- so `scanUsage` still
- * reads and JSON.parses every line of every transcript across every
- * config root on every call that has ANY missing day (today always
- * qualifies, since it's never frozen). The freeze only saves the
+ * Transcripts are not date-partitioned, so before #5363 `scanUsage`
+ * read and JSON.parsed every line of every transcript across every
+ * config root on every call that had ANY missing day (today always
+ * qualifies, since it's never frozen). #5363 (below) bounds the usual
+ * case: a file's mtime does say it holds nothing for today. The freeze only saves the
  * ACCUMULATION work for days already on disk; it does not save the I/O.
  * #5363: since then, a transcript last written more than an hour before the first missing day is not read at all (a
- * row is appended when it is written, so it holds none in the window); a skipped top-level one is head-read for its
- * first cwd only when a subagent of it is read. With every past day frozen that is today's files, not all of history.
+ * row is appended when it is written, so it holds none in the missing days); a skipped top-level one is head-read for
+ * its first cwd only when a subagent of it is read. With every past day frozen (the usual open) that is today's files;
+ * just after UTC midnight, yesterday's and today's.
  * A stats page polling this on a live schedule will still cost real time
  * and real disk I/O on this machine's volumes (hundreds of transcripts,
  * individual files into the tens of MB) on every call. What this DOES
@@ -428,13 +438,13 @@ async function dailyUsageByModel(days = 7) {
     // Narrowed to the MISSING days' own span, not the full requested
     // window -- if only today is missing (the common case once a window
     // has been scanned once), this is a one-day range, not `wanted`'s
-    // full length. Since #5363 the narrow range also narrows the READ: a file
-    // last written before it is not read (see scanUsage); the accumulation and
-    // per-day freeze work stay scoped to what is actually new.
+    // full length. Since #5363 the READ is narrowed too: a file last written
+    // before the first missing day (less an hour) is not read (see scanUsage).
     const missingSorted = [...missing].sort();
     const sinceDay = missingSorted[0];
     const untilDay = missingSorted[missingSorted.length - 1];
-    const scanResult = await scanUsage({ sinceDay, untilDay });
+    // #5363: files last written before the first missing day (less an hour) are not read (see scanUsage).
+    const scanResult = await scanUsage({ sinceDay, untilDay, mtimeCut: true });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving

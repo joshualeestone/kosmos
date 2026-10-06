@@ -71,3 +71,24 @@ engine/usage.test.js still passes (29/29 across both files).
 - [N] FIXED: a test with two subagents and a depth-2 subagent under one skipped parent (all keyed to the parent; the
   head read is cached).
 - FOLLOW-UP FILED: #5367 (the other providers' scans still read full history; same check, per provider).
+
+## Review round 2 (sonnet)
+- [W] The freeze makes a miss permanent for a PAST day (dailyUsageByModel freezes what a scan derives).
+  - I first gated the cut to "today is the only missing day". I REVERSED that, because at every UTC midnight yesterday
+    becomes a missing past day, and the first open of each day would pay the full 6.9-minute read again.
+  - The review's scenario does not break the premise: cp -p, rsync -t and backup restores preserve the ORIGINAL mtime,
+    which is the last write, never before the newest row. What breaks it is a clock moved back by more than the
+    one-hour margin.
+  - So the cut applies to every bounded scan from dailyUsageByModel. `scanUsage` keeps it OPT-IN (mtimeCut), and the
+    default for other callers is the full read.
+  - Recorded in the scanUsage comment and here.
+  - Measured, rollover (yesterday's frozen files removed from the copied cache): 16,003 ms on the first open of the
+    day, 6,352 ms on the next. The usual open is 4.1 to 6.0 s.
+- [N] FIXED: an impossible date (2026-02-31) gives no cut, a full read.
+- [N] FIXED: a test for a stale subagent file under a fresh parent: not read.
+- [N] FIXED: dailyUsageByModel's docblock opening says what is true now.
+- Tests:
+  - the cut is opt-in;
+  - a cold cache (seven missing days) cuts at the first missing day and still counts, and freezes, a past row from a
+    file written inside the window;
+  - a file from before the window is not read.
