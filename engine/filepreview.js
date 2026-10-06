@@ -166,7 +166,7 @@ function sweep(deps = {}) {
     removedAgents = got && got.ok ? new Set(got.names) : null;
   } catch { removedAgents = null; }
   // Review 1 (BLOCKER): a FIRST render works inside its folder (r-<pid>-...) before the record exists, so a sweep
-  // during it must not take the folder. A folder with a LIVE render in it is skipped (review 2: see below), and one with no record is left
+  // during it must not take the folder. A folder with a LIVE render in it is skipped (review 2), and one with no record is left
   // until it is YOUNG_MS old (a render's own timeout is far shorter).
   const now = deps.now || Date.now();
   // Review 1: removed-agent names are stored cleaned (create.cleanName), so the owner is compared the same way.
@@ -193,7 +193,8 @@ function sweep(deps = {}) {
       // Real time, not deps.now: whether a render is still running is a fact about this moment.
       try { young = Date.now() - fs.statSync(path.join(d, n)).mtimeMs < YOUNG_MS; } catch { young = false; }
       if (alive && young) { rendering = true; continue; }
-      try { fs.rmSync(path.join(d, n), { recursive: true, force: true }); } catch { rendering = true; }
+      // Review 3: a removal that fails does not shield the folder; it is judged below, which tries to remove it whole.
+      try { fs.rmSync(path.join(d, n), { recursive: true, force: true }); } catch { /* judged below */ }
     }
     if (rendering) continue;   // a render is in progress here
     let rec = null;
