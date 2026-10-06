@@ -64,3 +64,8 @@ test('#5391 review 2: the button is inert while projects cannot be read, comes b
   busy(p);
   assert.equal(el('pj-head-pause').disabled, true, 'a repaint under a press still waiting does not re-enable it');
 });
+
+test('#5391 review 4: the page itself declares the shared busy flag the tests pass in (a rename would otherwise stay green)', () => {
+  assert.match(SCRIPT, /\nlet PJ_PAUSE_BUSY = false;/);
+  assert.match(SCRIPT, /PJ_PAUSE_BUSY === true\) return;/, 'a second press while one is answered does nothing');
+});
