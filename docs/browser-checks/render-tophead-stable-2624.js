@@ -267,10 +267,15 @@ async function measure(page, view, notice, name) {
     // has no reserved gutter either; its header must end where the tab view's does at the same width (still 15px).
     // Simulated on the Agents page by the attribute and class alone (no Settings content is moved in), so it pins the
     // selector, not a real Settings page.
+    // The root is held unscrollable while reading: on a classic-scrollbar runner a page that scrolls there takes a real
+    // 15px scrollbar, and the tab view's rule would then land the header right without this selector.
     const settings = await page.evaluate(() => {
-      document.documentElement.setAttribute('data-layout', 'consolidated');
+      const root = document.documentElement, prev = root.style.overflow;
+      root.setAttribute('data-layout', 'consolidated');
       document.body.classList.remove('consolidated');
+      root.style.overflow = 'hidden';
       const el = document.querySelector('.apphead header .headright'); const r = el && el.getBoundingClientRect();
+      root.style.overflow = prev;
       return r && r.width > 0 ? Math.round(r.left * 10) / 10 : null;
     });
     if (settings !== at['15px'].tabs.youX) problems.push(`1440px with a 15px scrollbar width: on a whole-page tab with consolidated chosen the right controls sit at ${settings}, the tab view's at ${at['15px'].tabs.youX}`);
@@ -288,7 +293,10 @@ async function measure(page, view, notice, name) {
     for (const state of ['consolidated', 'whole-page tab']) {
       await measure(page, 'consolidated', false);
       bars[state] = await page.evaluate((state) => {
-        if (state !== 'consolidated') document.body.classList.remove('consolidated');
+        // A whole-page tab is read with the root held unscrollable, as in the header arm above, so a real scrollbar on a
+        // classic-scrollbar runner cannot line the bar up without the fix.
+        const root = document.documentElement, prev = root.style.overflow;
+        if (state !== 'consolidated') { document.body.classList.remove('consolidated'); root.style.overflow = 'hidden'; }
         let b = document.getElementById('kplus-bar');
         if (!b) {
           b = document.createElement('div'); b.id = 'kplus-bar'; b.className = 'kplus-bar';
@@ -298,7 +306,9 @@ async function measure(page, view, notice, name) {
         }
         kplusBarFit();
         const right = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 ? Math.round(r.right * 10) / 10 : null; };
-        return { out: right(b.querySelector('.kplus-bar-out')), head: right(document.querySelector('.apphead header .headright')) };
+        const got = { out: right(b.querySelector('.kplus-bar-out')), head: right(document.querySelector('.apphead header .headright')) };
+        root.style.overflow = prev;
+        return got;
       }, state);
       const bar = bars[state];
       if (bar.out === null || bar.head === null) problems.push(`CONTROL failed: 1440px ${state}: ${bar.out === null ? "the Kosmos+ bar's Log out" : 'the header right controls'} did not render`);

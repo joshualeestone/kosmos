@@ -3365,9 +3365,9 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
   /* #5379: the tab view reserves the scrollbar gutter on <html> and consolidated does not (its panes scroll inside),
      so on a platform whose scrollbars take width (Windows, Linux, a Mac set to show them; 0 with overlay scrollbars)
      the header's right controls sat 15px further right in consolidated and the centred tabs 7.5px: the header jumped
-     on every view flip (CI: render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. The
-     padding is on the inner header, not .apphead, because the inner header carries consolidated's background and
-     bottom rule, which then still reach the window edge. */
+     on every view flip (CI: render-tophead-stable-2624). Consolidated pads its header by the same width instead of
+     adding an empty strip. The padding is on the inner header, not .apphead, because the inner header carries
+     consolidated's background and bottom rule, which then still reach the window edge. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
     padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
   /* The Kosmos+ bar above it likewise: in the tab view kplusBarFit ends it at the reserved gutter, so Log out sat
@@ -19343,6 +19343,7 @@ function kplusBarFit() {
   const doc = document.documentElement;
   const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
     && window.matchMedia('(min-width: 56.01rem)').matches;
+  /* At least the bar's own side padding (its left one), so a header padded by less never pulls Log out to the edge. */
   const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
   if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
