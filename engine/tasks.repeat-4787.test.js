@@ -335,3 +335,13 @@ test('#4787 slice 3 review 3: closing a repeating task drops its reviewer with i
   tasks.setReviewer(p.id, n, 'bob');
   assert.equal(stored(p.id, n).repeatReviewer, 'bob', 'no old lock came back');
 });
+
+test('#4787 slice 3 review 4: "nobody" means no reviewer, as task assign reads it', () => {
+  const p = projects.create({ name: 'Rev6 ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['ada'] }));
+  const n = tasks.create(p.id, { sentence: 'Report' }).number;
+  tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });
+  tasks.setReviewer(p.id, n, 'ada');
+  tasks.setReviewer(p.id, n, 'Nobody');
+  assert.equal(stored(p.id, n).repeatReviewer, undefined);
+});

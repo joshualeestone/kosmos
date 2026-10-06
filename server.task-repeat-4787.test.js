@@ -244,3 +244,13 @@ test('#4787 slice 3 review 3: a time or day sent without a frequency is refused,
   assert.match(r.json.error, /goes with how often/);
   assert.equal(stored(n).repeatReviewer, undefined, 'nothing applied');
 });
+
+test('#4787 slice 3 review 4: a process stopping a task whose reviewer the person chose is refused with 403', async () => {
+  const n = newTask('Person-reviewed');
+  const mona = sendertoken.mint('mona');
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, { 'x-kosmos-agent-token': mona.token });
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'me' }, screen);
+  const r = await post(`/api/project/${projectId}/task/${n}/repeat`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 403);
+  assert.match(r.json.error, /only they can stop it repeating/);
+});

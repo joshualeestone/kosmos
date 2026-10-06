@@ -189,3 +189,13 @@ test('#4787 slice 3 review 3: a reviewer who also runs the task is not typed int
   assert.equal(ev[0].owner, 'rex');
   assert.equal(mt.owed(only(id), NOW).length, 0, 'once');
 });
+
+test('#4787 slice 3 review 4: an agent whose part is done is not its owner, so as reviewer it is told', () => {
+  const { id, n } = fixture('rex');
+  const done = new Date(NOW - 86400000 * 3).toISOString();
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, parts: [{ n: 1, sentence: 'Morning report', who: 'rex', createdAt: done, closedAt: done }, { n: 2, sentence: 'Morning report', who: 'ada', createdAt: done }] } : t)) }));
+  let typed = null;
+  const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: (s) => { typed = s; return { state: 'placed' }; } });
+  assert.equal(r.results[0].act, 'tell');
+  assert.equal(typed, 'rex');
+});

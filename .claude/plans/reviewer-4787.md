@@ -17,6 +17,8 @@ Review 2 (fixed): a process cannot stop a task whose reviewer the person chose (
 
 Review 3 (fixed): closing a repeating task drops its reviewer with its rule (dropReviewer, every place the rule is dropped), so a reopened task never brings back an old reviewer still marked as the person's; a reviewer who also runs the task is not typed into (slice 1's nudge already asks the owner), the miss is recorded with `owner`; the route refuses a time or day sent with no frequency, as both CLIs do.
 
+Review 4 (fixed): "runs it" means holds an OPEN part (as the nudge's openParts), so an agent whose part is done is told as reviewer; "nobody" means no reviewer, as task assign reads it; a process stopping a task whose reviewer the person chose gets 403. Left: --reviewer takes the agent's session name only, not the spelling variants task assign accepts.
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.
