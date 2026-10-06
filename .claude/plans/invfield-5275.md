@@ -9,3 +9,5 @@
 **Rejected:** placing the field above the line (the line points at it, so it reads below); both-edges anything; a select-all key in the static copy-keys test (C5 checks it per platform instead).
 
 **Weakest premise:** that a person with focus elsewhere reads the line; the field and the line are the only signal, as on every other copy screen.
+
+**Surface gate:** render-unread-edge-3743 and render-agentdm-3414 match only the bare token 'msg' (pjsOwnCopy's local); trailers on the commit.
