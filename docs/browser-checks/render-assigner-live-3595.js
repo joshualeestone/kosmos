@@ -115,6 +115,8 @@ const readRow = () => {
       const fo1 = await page.evaluate(foRow);
       chk(foOn.failover === true && foOn.on === true && fo1.checked === 'true', `[${theme}] failover: clicking stores it on and leaves the Assigner on`, JSON.stringify({ foOn, fo1 }));
       await Promise.all([putDone(), page.click('#asg-toggle')]);
+      // Wait for the repaint the PUT's answer triggers, so the read cannot race it (a slow repaint would red, never pass).
+      await page.waitForFunction(() => document.getElementById('asg-fo-row').hidden, null, { timeout: 5000 }).catch(() => {});
       const fo2 = await page.evaluate(foRow);
       const kept = await (await page.request.get(URL + '/api/assigner-setting')).json();
       chk(!fo2.rowVisible && kept.on === false && kept.failover === true,
@@ -128,6 +130,8 @@ const readRow = () => {
       await bad.waitForTimeout(800);
       const failed = await bad.evaluate(readRow);
       chk(!failed.toggleVisible && /could not read this setting/.test(failed.msg), `[${theme}] a failed read hides the toggle and says so`, JSON.stringify(failed));
+      const foFailed = await bad.evaluate(foRow);
+      chk(!foFailed.rowVisible && foFailed.checked === null, `[${theme}] failover: a failed read hides its row too (never a confident Off)`, JSON.stringify(foFailed));
       await bad.close();
     }
   } finally {
