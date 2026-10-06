@@ -3354,7 +3354,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      scrollbars. It is dropped here, and the header padding below keeps the header from moving when an
      agent opens or closes, which is the shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
-     nothing to drop here (consolidated's header gets its own padding, the #5379 rule below). Both rules wait for
+     nothing to drop here (#5379: the header there is padded by the rules below, Agents and Projects' inner header by
+     one and every other page's, an agent's included, by the tab view's). Both rules wait for
      data-scrollbar-measured, so if the width cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
@@ -11694,7 +11695,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    pointer press (at most once a second), focus and return to the tab: a Mac set to "Automatic"
    switches scrollbars when a mouse is plugged in, which fires no resize, and the press that opens an
    agent then measures first. In consolidated (#5379) a resize measures once the drag settles, and a
-   press, a focus and a return to the tab do not, since a measurement there reflows the page. */
+   press, a focus and a return to the tab only when a small scroller's scrollbar changed width, since a
+   measurement there reflows the page. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
   /* #5379: measured in the consolidated layout too, so the width its header is padded by (the #5379 rule) follows a
@@ -11775,18 +11777,31 @@ window.kosmosMeasureScrollbarWidth();
        second width, and leaving Talk (or a resize) re-measures anyway (A1p). */
     if (window.matchMedia('(min-width: 56.01rem)').matches
       && document.querySelector('body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])')) return;
-    /* #5379: nor in consolidated, for the same reason: its rails and panes would reflow at a second width on every
-       press. Load, a settled resize and a flip still measure there. */
-    if (document.documentElement.getAttribute('data-layout') === 'consolidated') return;
     lastPress = now;
-    window.kosmosMeasureScrollbarWidth();
+    remeasureUnlessConsolidatedUnchanged();
   }, { capture: true, passive: true });
-  /* #5379: a focus or a return to the tab does not measure in consolidated: there every measurement reflows the page,
-     and these fire on every switch back to Kosmos. Load, a settled resize and a flip measure there. */
-  function remeasureOnReturn() {
-    if (document.documentElement.getAttribute('data-layout') === 'consolidated') return;
+  /* #5379: in consolidated a full measurement reflows the whole page, and a press, a focus and a return to the tab are
+     frequent. So there they first ask a small off-screen scroller how wide a scrollbar is (it lays out only itself) and
+     measure only when that answer changed: a Mac on "Automatic" switching mode when a mouse comes or goes. A runner
+     that hides scrollbars reads 0 from it, which only skips a re-measure; it never sets the width. */
+  var probedThickness = null;
+  function scrollbarThickness() {
+    var el = document.createElement('div');
+    el.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:50px;overflow:scroll';
+    document.documentElement.appendChild(el);
+    var w = el.offsetWidth - el.clientWidth;
+    el.remove();
+    return w;
+  }
+  function remeasureUnlessConsolidatedUnchanged() {
+    var t = scrollbarThickness();
+    var same = t === probedThickness;
+    probedThickness = t;
+    if (same && document.documentElement.getAttribute('data-layout') === 'consolidated') return;
     window.kosmosMeasureScrollbarWidth();
   }
+  probedThickness = scrollbarThickness();
+  function remeasureOnReturn() { remeasureUnlessConsolidatedUnchanged(); }
   window.addEventListener('focus', remeasureOnReturn);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) remeasureOnReturn(); });
 })();
