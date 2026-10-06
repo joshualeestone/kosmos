@@ -208,7 +208,7 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
   }
 
   return `[Unit]
-Description=Kosmos agent ${session}
+Description=Kosmos agent ${unitSafe(session, 'the agent name')}
 After=network.target
 
 [Service]
@@ -226,7 +226,8 @@ Restart=always
 # (RestartSteps) keys on a restart counter that only an explicit start clears, so it could leave a long-lived agent at
 # its maximum for good. 10 s revives quickly and keeps a lasting fault (a missing runner) off a 5 s loop.
 RestartSec=10
-# The supervisor traps TERM and exits 143 (bin/agent-supervisor.sh); a deliberate stop is not a failure.
+# The supervisor traps TERM and exits 143 (bin/agent-supervisor.sh): reported as a clean stop, not 'failed'. This
+# changes reporting only: under Restart=always it is systemctl stop itself that keeps a deliberate stop stopped.
 SuccessExitStatus=129 130 143
 
 [Install]
@@ -386,6 +387,11 @@ function presence(name, worldId) {
 // systemd's own wording for a unit it does not have. Not "no such file": that is also the bus failure
 // ("Failed to connect to bus: No such file or directory"), which must stay a failure (#4918 review 3).
 const NOT_LOADED = /Unit (file )?\S+ (not loaded|does not exist|not found)/i;   // incl. disable's "Unit file X.service does not exist"
+/* A stop result that leaves the unit not running: ok, or systemd saying it never had it (review 14). */
+function stoppedOrNotLoaded(r) {
+  return Boolean(r && (r.ok || NOT_LOADED.test(String(r.stderr || r.because || ''))));
+}
+
 function remove(name, worldId) {
   const st = stop(name, worldId);
   const stopFailed = st && st.ok === false && !NOT_LOADED.test(String(st.stderr || st.because || ''));
@@ -427,6 +433,7 @@ module.exports = {
   enableLinger,
   enabledState,
   worldFromUnitName,
+  stoppedOrNotLoaded,
   unitSafe,
   escapeUnitNamePart,
   refuseRealUnitDirInTests,

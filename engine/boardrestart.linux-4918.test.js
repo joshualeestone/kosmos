@@ -27,7 +27,7 @@ const linuxboard = require('./linuxboard');
 test.afterEach(() => {
   linuxboard.setRunnerForTests(null);
   linuxboard.setSystemdDirForTests(null);
-  board.setInstalledCli(null);
+  board.setInstalledCli(() => null);
 });
 
 test('canSelfRestart(linux) TRUE when running as systemd user service', () => {
@@ -72,7 +72,7 @@ test('canSelfRestart(linux) falls back to kosmos restart when installed CLI is p
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-cli-fallback-'));
   try {
     linuxboard.setSystemdDirForTests(() => tmp);
-    board.setInstalledCli('/usr/local/bin/kosmos');
+    board.setInstalledCli(() => '/usr/local/bin/kosmos');
 
     const r = board.canSelfRestart('linux');
     assert.equal(r.canRestart, true);
