@@ -18202,6 +18202,13 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has not told Kosmos it is still holding work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first. If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a few toward it.</p></div>
         <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" hidden><i></i></button>
       </div>
+      <!-- #5382: failover, OFF by default (a moved task bills the other provider's account). A setting OF the Assigner
+           (engine/assigner.js runs it only while the Assigner is on), so the row shows only while the Assigner reads on. -->
+      <div class="setrow" id="asg-fo-row" style="margin-top:14px;" hidden>
+        <div><b>Move work when a provider hits its limit</b>
+          <p class="dhint" style="margin:2px 0 0;">When an agent has been paused by its provider's usage limit for 15 minutes, Kosmos gives its unfinished tasks to an idle teammate on the same project that uses a different provider. That teammate's work is billed to its own provider's account. Off by default.</p></div>
+        <button class="toggle" id="asg-fo-toggle" role="switch" aria-label="Move work when a provider hits its limit" hidden><i></i></button>
+      </div>
       <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
   </section>
@@ -25382,14 +25389,24 @@ async function paintAssigner(keepMsg) {
     const r = await res.json();
     if (mine !== ASG_EPOCH) return;
     paintSwitch('asg-toggle', r.on === true);
+    paintFailover(r);
     if (msg && !keepMsg) msg.textContent = ''; // a repaint after a failed save keeps the reason
   } catch {
     if (mine !== ASG_EPOCH) return;
     paintSwitch('asg-toggle', null);
+    paintFailover(null);
     if (msg) msg.textContent = 'We could not read this setting just now.';
   }
 }
-async function saveAssigner(on) {
+/* #5382: the failover row shows only while the Assigner reads on (it runs inside the Assigner), and its switch only from
+   a read that carried the field: an older board's answer has no `failover`, which is unknown, not Off. */
+function paintFailover(r) {
+  const row = document.getElementById('asg-fo-row');
+  const known = !!r && r.on === true && typeof r.failover === 'boolean';
+  if (row) row.hidden = !known;
+  paintSwitch('asg-fo-toggle', known ? r.failover === true : null);
+}
+async function saveAssigner(patch) {
   const msg = document.getElementById('asg-msg');
   if (ASG_SAVING) { if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.'; return; }
   ASG_SAVING = true;
@@ -25397,13 +25414,14 @@ async function saveAssigner(on) {
   let failed = false;
   try {
     const res = await fetch('/api/assigner-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) failed = true; // before the epoch check, so a refused save is always repainted
     if (mine !== ASG_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('asg-toggle', out.on === true);
+    paintFailover(out);
     if (msg) msg.textContent = '';
   } catch {
     failed = true;
@@ -25416,9 +25434,15 @@ async function saveAssigner(on) {
 function asgToggleClick() {
   const tog = document.getElementById('asg-toggle');
   if (!tog.hasAttribute('aria-checked')) { paintAssigner(); return; } // not loaded: never write over a stored value
-  saveAssigner(tog.getAttribute('aria-checked') !== 'true');
+  saveAssigner({ on: tog.getAttribute('aria-checked') !== 'true' });
 }
 document.getElementById('asg-toggle') && document.getElementById('asg-toggle').addEventListener('click', asgToggleClick);
+function asgFailoverClick() {
+  const tog = document.getElementById('asg-fo-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintAssigner(); return; } // not loaded: never write over a stored value
+  saveAssigner({ failover: tog.getAttribute('aria-checked') !== 'true' });
+}
+document.getElementById('asg-fo-toggle') && document.getElementById('asg-fo-toggle').addEventListener('click', asgFailoverClick);
 
 async function paintSettings() {
   paintYouName();
