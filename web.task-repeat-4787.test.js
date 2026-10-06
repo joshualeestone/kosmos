@@ -116,7 +116,8 @@ test('#4787 slice 3: the task page\'s reviewer choice: Nobody, Me and the projec
   // A stored reviewer who left the project stays listed, so the select never shows a choice that is not stored.
   paint({ id: 'p1', agents: ['ada'] }, t);
   assert.equal(sel.value, 'rex');
-  assert.ok(sel.children.some((o) => o.value === 'rex'));
+  assert.ok(sel.children.some((o) => o.value === 'rex' && o.textContent === 'Rex (left the project)'), 'review 12: it says so');
+  assert.ok(!sel.children.some((o) => o.value === 'ada' && /left/.test(o.textContent)), 'CONTROL: a member is not marked');
   // Under the person's own focus it is not repainted; forced (its own answer) it is.
   doc.activeElement = sel; sel.value = 'ada';
   paint(p, { ...t, repeatReviewer: 'rex' });

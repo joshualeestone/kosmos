@@ -127,8 +127,10 @@ function sweep(o) {
         if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
         // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
-        if (!item.members.includes(item.reviewer)) { results.push({ ...item, act: 'held', because: 'the reviewer is no longer on the project' }); continue; }
-        if (item.swarmOff) { results.push({ ...item, act: 'held', because: 'the reviewer is switched off in this project' }); continue; }
+        /* Review 12: these two last until the person changes something, so the slot is recorded once as not reached
+           (the history keeps one entry per slot, and the row's "could not reach" is the person's cue), never typed. */
+        if (!item.members.includes(item.reviewer)) { markTold(item, 'not reached'); results.push({ ...item, act: 'unreachable', because: 'the reviewer is no longer on the project' }); continue; }
+        if (item.swarmOff) { markTold(item, 'not reached'); results.push({ ...item, act: 'unreachable', because: 'the reviewer is switched off in this project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         const card = cards.get(item.reviewer);
         if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }

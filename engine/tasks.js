@@ -877,7 +877,9 @@ function dropReviewer(t) {
 }
 function reviewerChoice(who) {
   const raw = who === undefined || who === null ? 'none' : String(who).trim();
-  return raw === '' || raw.toLowerCase() === 'nobody' ? 'none' : raw;   // review 4: 'nobody', as task assign takes
+  const low = raw.toLowerCase();
+  if (low === 'me') return 'me';
+  return raw === '' || low === 'nobody' || low === 'none' ? 'none' : raw;   // review 4: 'nobody', as task assign takes; review 12: any case
 }
 function reviewerProblem(p, t, who, opts = {}) {
   const person = opts.person === true;
