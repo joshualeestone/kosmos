@@ -134,6 +134,14 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   finished part stays owed and is named "finished by B" (red when dropped); anyOwed shares owedFor's rule (red when it
   counts records nobody can be told).
 
+- Review 11 (blind, opus), each mutation-checked (654cbd7da): the tell sweep never tells anybody to carry on (red when
+  it does); an Antigravity agent is skipped only while agyquota.resumePending (resume switched on, plan() nudge or wait
+  for the current pause), and told plainly otherwise (red when the brake is ignored, or a waiting resume is not
+  pending); the seen-idle memory is cleared when nothing is owed (source pin).
+- Decided, from review 11's NIT: a moved part stays with the agent that took it, a repeating task included, so after
+  a failover the repeating job runs on the other provider until a person moves it back. The Settings copy (next PR)
+  says the work moves; a per-(part, receiver) backoff for an unreachable receiver is a follow-up.
+
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
 - `limitedSince` is not saved across a board restart, so a restart restarts the 15 minutes (the waiting direction).
