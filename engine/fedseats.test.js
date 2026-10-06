@@ -500,7 +500,7 @@ test('#5404: several posts in the gap are counted in one sentence', async () => 
 
 test('#5404: at the log\'s cap the count is exact, and past it is said as more than the cap', async () => {
   const gapOf = (n) => n + ' messages this computer sent around the time it was removed may not have been shown to the others in the shared project.';
-  for (const [tag, sent, want] of [['at', fedseats.SENT_LOG_MAX, gapOf(fedseats.SENT_LOG_MAX)], ['past', fedseats.SENT_LOG_MAX + 2, gapOf('More than ' + fedseats.SENT_LOG_MAX).replace(/^\d+ /, '')]]) {
+  for (const [tag, sent, want] of [['at', fedseats.SENT_LOG_MAX, gapOf(fedseats.SENT_LOG_MAX)], ['past', fedseats.SENT_LOG_MAX + 1, gapOf('More than ' + fedseats.SENT_LOG_MAX).replace(/^\d+ /, '')]]) {
     const id = 'proj-5404-cap-' + tag;
     const h = await memberRoom(id);
     h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 60 }];

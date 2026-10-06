@@ -60,10 +60,9 @@ const REVOKED_REFUSAL = /that connection has been revoked/i;   // the connector'
 const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
 /* #5404: a member learns of its removal only at its next edge check or the connector's refusal, so a post it
    sends in between goes out, and the other boards may refuse it (an old-key post past the grace). Each member seat
-   keeps when its posts went (SENT_LOG_MAX entries, pruned past SENT_LOG_MS when a post goes), and on the removal the
-   room is told how many went at or after
-   the coordinator's revoked_at, less REVOKE_SENT_SKEW_MS for the two clocks and the whole-second stamp. Said as
-   "may not": during the grace some can still open (REVOKE_GRACE_MS). */
+   keeps when its posts went, and on the removal the room is told how many went at or after the coordinator's
+   revoked_at, less REVOKE_SENT_SKEW_MS for the two clocks and the whole-second stamp. Said as "may not": during the
+   grace some can still open (REVOKE_GRACE_MS). */
 const SENT_LOG_MAX = 64;
 const SENT_LOG_MS = 10 * 60 * 1000;
 const REVOKE_SENT_SKEW_MS = 5 * 1000;
