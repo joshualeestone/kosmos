@@ -514,6 +514,34 @@ function readUsage(page) {
     });
     ok(gone.block === true && gone.table === false && /5K tokens in the totals above/.test(gone.note || ''),
       `with every token unmatched the block shows its note and no empty table (got ${JSON.stringify(gone)})`);
+    /* #5362: the standard Sweep spinner shows beside the reading line while /api/usage is still answering, and is gone
+       once it answers or fails. The answer is HELD (not timed) so "while loading" is a real state, not a race. */
+    const spinState = () => p.evaluate(() => {
+      const m = document.getElementById('usage-msg');
+      const s = m && m.querySelector('.spin.spin-sweep');
+      return { spin: !!(s && s.getClientRects().length), dots: s ? s.querySelectorAll('i').length : 0, text: m ? m.textContent.trim() : null };
+    });
+    let release;
+    const held = new Promise((r) => { release = r; });
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', async (r) => { await held; await r.fulfill({ json: USAGE }); });
+    await p.waitForFunction(() => !USAGE_BUSY);
+    const painting = p.evaluate(() => paintUsage());
+    await p.waitForFunction(() => USAGE_BUSY === true);
+    const during = await spinState();
+    ok(during.spin === true && during.dots === 8 && /^Reading the transcripts\./.test(during.text || ''),
+      `while /api/usage loads, the Sweep spinner sits beside the reading line (got ${JSON.stringify(during)})`);
+    release();
+    await painting;
+    const after = await spinState();
+    ok(after.spin === false && /^Counted from/.test(after.text || ''),
+      `once it answers, the spinner is gone and the line says what was counted (got ${JSON.stringify(after)})`);
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ status: 500, json: { error: 'x' } }));
+    await p.evaluate(() => paintUsage());
+    const failed = await spinState();
+    ok(failed.spin === false && failed.text === 'We could not read token usage just now.',
+      `a failed read leaves no spinner beside the error (got ${JSON.stringify(failed)})`);
     await ctx.close();
   } finally {
     await browser.close();
