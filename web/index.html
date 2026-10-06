@@ -2570,7 +2570,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .pause { display: inline-flex; gap: 2.5px; }
 .linkish.pj-head-pause { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 28px; padding: 0 10px; border-radius: 8px;   /* kosmos#5391 */
                  font: 600 .8125rem var(--font-ui); color: var(--k-ink-2); border: 1px solid var(--k-rule); background: transparent; }
-.linkish.pj-head-pause:hover { color: var(--k-ink); background: var(--k-sunk); }
+.linkish.pj-head-pause:not(:disabled):hover { color: var(--k-ink); background: var(--k-sunk); }
+.linkish.pj-head-pause:disabled { opacity: .5; cursor: default; }   /* review 5: off looks off, as .btn:disabled does */
 .pj-head-pause .pause i { background: currentColor; }
 .pj-head-pause.on .pause { display: none; }
 .pj-head-pause.on::before { content: ""; width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
