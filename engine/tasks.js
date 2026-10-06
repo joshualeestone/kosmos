@@ -795,6 +795,60 @@ function setDue(projectId, n, dueDate) {
 }
 
 /**
+ * kosmos#4787: make a task repeat, change its rule, or stop it (`rule` null). The rule is checked whole before the write
+ * (taskrepeat.repeatProblem) and stored normalised. A closed task cannot be made to repeat: closing is how a recurring
+ * job ends. Setting the rule it already has records nothing, as setDue does.
+ */
+function setRepeat(projectId, n, rule) {
+  const taskrepeat = require('./taskrepeat');
+  const problem = taskrepeat.repeatProblem(rule);
+  if (problem) throw new Error(problem);
+  const next = taskrepeat.normalise(rule);
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (next && progressOf(t).closed) throw new Error('that task is closed; reopen it to make it repeat');
+    didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
+    changed = { ...t };
+    if (next) changed.repeat = next; else delete changed.repeat;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'repeat-set', repeat: next, words: require('./taskrepeat').describe(next) }
+      : { kind: 'repeat-cleared' });
+  }
+  return changed;
+}
+
+/**
+ * kosmos#4787: a repeating task's job ran. `by` is who ran it (the agent's name, or 'operator'), `note` one optional line
+ * about this run. Kept on the task as lastRunAt / lastRunBy / lastRunNote and recorded in its conversation, so every run
+ * is in its history while the row shows the latest. Refused on a task that does not repeat (a one-off is closed, not run)
+ * and on a closed one.
+ */
+function recordRun(projectId, n, by, note, at = Date.now()) {
+  const taskrepeat = require('./taskrepeat');
+  const problem = taskrepeat.noteProblem(note);
+  if (problem) throw new Error(problem);
+  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  let changed;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (!t.repeat) throw new Error('that task does not repeat; set how often with kosmos task repeat, or close it when it is done');
+    if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    changed = { ...t, lastRunAt: new Date(at).toISOString(), lastRunBy: String(by || 'operator').slice(0, WHO_MAX) };   // ISO, as createdAt and builtAt are
+    if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  taskchat.record(projectId, changed.number, { kind: 'run', by: changed.lastRunBy, ...(said ? { note: said } : {}) });
+  return changed;
+}
+
+/**
  * #3861: put a task under another task on the same project, or take it out from under one
  * (`parent` null or ''). Checked inside the write (parentProblem), so two people linking in
  * opposite directions at once cannot both land and make a loop: the second read sees the
@@ -1340,4 +1394,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, recordRun };

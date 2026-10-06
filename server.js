@@ -1316,6 +1316,13 @@ const fedseats = require('./engine/fedseats');
 const fedseal = require('./engine/fedseal');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
+const taskrepeat = require('./engine/taskrepeat');   // kosmos#4787
+/* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), added to a task row so neither
+   the page nor an agent's CLI computes the rule again. A task that does not repeat is returned as it is. */
+function withRepeatWords(t) {
+  if (!t || !t.repeat) return t;
+  return Object.assign({}, t, { repeatWords: taskrepeat.describe(t.repeat), repeatNextAt: taskrepeat.nextAfter(t.repeat, Date.now()) });
+}
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
@@ -4267,7 +4274,7 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
 /* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -16736,7 +16743,7 @@ const server = http.createServer(async (req, res) => {
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
     if (!forTasksView) {
-      sendJson(res, 200, { tasks: scoped, count: scoped.length, project: projectScope });
+      sendJson(res, 200, { tasks: scoped.map(withRepeatWords), count: scoped.length, project: projectScope });   // kosmos#4787
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
@@ -16795,6 +16802,9 @@ const server = http.createServer(async (req, res) => {
         waitingOnPerson,
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
+        /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
+           the page never computes the rule again. */
+        ...withRepeatWords(t),
       });
     });
     /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
@@ -18811,6 +18821,62 @@ const server = http.createServer(async (req, res) => {
      process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
+  /* kosmos#4787: a recurring task. POST .../repeat { every, at?, on?, minute?, clear? } sets, changes or stops its rule;
+     POST .../ran { note? } records that its job ran. Either from the screen (the person) or from an agent on the project,
+     identified the way the built mark is (its token, else its pane); an agent off the project is refused. The rule is
+     checked whole in the engine (taskrepeat.repeatProblem), so a bad one is a 400 with the sentence, never stored. */
+  const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran)$/);
+  if (taskRepeat && req.method === 'POST') {
+    const id = decodeSegment(taskRepeat[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      if (roster === null && !viaScreen && (presentedAgentToken(req, body) || fromPane)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not changed' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+      if (!viaScreen) {
+        let proj = null;
+        try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
+        catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
+        if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' });
+          return;
+        }
+      }
+      // Never a person's name on an unidentified process: a run or a rule from a caller Kosmos cannot name is refused.
+      if (!viaScreen && !card) { sendJson(res, 403, { error: 'Kosmos could not tell which agent sent that, so the task was not changed' }); return; }
+      const by = viaScreen ? 'operator' : card.sessionName;
+      let task;
+      try {
+        if (taskRepeat[3] === 'ran') {
+          task = tasks.recordRun(id, taskRepeat[2], by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined);
+        } else {
+          const rule = body.clear === true ? null
+            : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
+          task = tasks.setRepeat(id, taskRepeat[2], rule);
+        }
+      } catch (err) {
+        const msg = String((err && err.message) || 'we could not change that task');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : 400, { error: msg });
+        return;
+      }
+      sendJson(res, 200, { task, ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
+
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
