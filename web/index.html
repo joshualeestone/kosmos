@@ -11621,6 +11621,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
+/* 0.7.25 fix-forward (render-dm-sideways-3969): #5333's follow-up line is always in the page, and an empty .fmsg still
+   took 12px, which a sideways phone DM cannot spare (38px of conversation shown, 50 needed). Empty, it takes nothing;
+   the moment the Restart's follow-up writes into it, it shows. */
+#d-linklost-msg:empty { display: none; }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
