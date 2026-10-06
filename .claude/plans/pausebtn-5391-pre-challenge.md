@@ -5,7 +5,7 @@ branch: pausebtn-5391
 diff_hash: 8f155f1b50b5f01d22255b270e3206e537c8c66bfafbed85af2f68e0218aa835
 validation: focused, not the full local suite (light-lane queue). After every round: web.project-pause-head-5391 (4/4) and every page test touching the project card or Settings pause (24/24), the two lints (24/24), the page script parses (node --check), node --check on both browser-check files. Shots: mobile-shots exit 0, 12 shots, 0 errors, 0 overflow, all looked at (before rounds 1-5; the CSS since only adds an empty-line rule and a disabled style). render-onhold-4771's new arm is first run by CI's browser-checks on the PR.
 subdir_audit: not run (same queue)
-timestamp: 2026-10-06T13:34:52Z
+timestamp: 2026-10-06T13:35:22Z
 iterations: 6
 converged: true
 ---
