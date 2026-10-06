@@ -81,3 +81,13 @@ test('#4787 review 1: waitingForNextRun: between runs a repeating task holds no 
   assert.equal(r.waitingForNextRun(base, now), false, 'never ran, a slot since it was made has passed: due');
   assert.equal(r.waitingForNextRun({ sentence: 'one-off' }, now), false, 'CONTROL: a task that does not repeat is never waiting');
 });
+
+test('#4787 review 2: a run reported a little early is that slot\'s run; a run stamped in the future counts from now', () => {
+  const base = { repeat: { every: 'day', at: '09:00' }, createdAt: new Date(at(2026, 10, 1, 8, 0)).toISOString() };
+  assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 59) + 50000).toISOString() }, at(2026, 10, 6, 9, 5)), true,
+    'ran at 08:59:50 for the 09:00 slot: at 09:05 it is waiting for tomorrow, not due again');
+  assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 9, 9, 0)).toISOString() }, at(2026, 10, 6, 10, 0)), false,
+    'a run stamped days in the future cannot say when it last ran: due, never hidden');
+  assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 6, 9, 0) + 30000).toISOString() }, at(2026, 10, 6, 9, 0)), true,
+    'CONTROL: a stamp 30 seconds ahead (ordinary clock skew) is still that slot\'s run');
+});

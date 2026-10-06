@@ -279,6 +279,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
 function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
   let droppedForWork = false;
+  let repeatDropped = false;
   let heldDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
@@ -298,6 +299,8 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
+    // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -310,13 +313,16 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
      returned task, not in module state (review round 3), so nothing can leak to another task's write. */
   if (droppedForWork) DROPPED_FOR_WORK.add(changed);
   if (heldDropped) HELD_DROPPED.add(changed);   // #4771: the hold a close dropped, recorded the same way, after the close
+  if (repeatDropped) REPEAT_DROPPED.add(changed);   // kosmos#4787 review 2
   return changed;
 }
 const DROPPED_FOR_WORK = new WeakSet();
 const HELD_DROPPED = new WeakSet();
+const REPEAT_DROPPED = new WeakSet();
 function recordDroppedForWork(projectId, n, task) {
   if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
   if (task && HELD_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'hold-cleared', via: 'close' });
+  if (task && REPEAT_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'repeat-cleared', via: 'close' });
 }
 
 function nextPartId(parts) {
@@ -822,7 +828,8 @@ function setRepeat(projectId, n, rule, opts = {}) {
     }
     didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
     changed = { ...t };
-    if (next) { changed.repeat = next; if (person) changed.repeatByPerson = true; else delete changed.repeatByPerson; }
+    // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.
+    if (next) { changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson; }
     else { delete changed.repeat; delete changed.repeatByPerson; }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -856,7 +863,9 @@ function recordRun(projectId, n, by, note, at = Date.now()) {
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
     /* #4787 review 1: the same run reported twice (a retried command, a duplicated job: the 10-03 report) within a minute
        counts once: the first stays, nothing new is recorded. */
-    if (t.lastRunAt && Math.abs(at - Date.parse(t.lastRunAt)) < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
+    // review 2: only the SAME runner's repeat, and only a recorded run not in the future (a clock stepped back).
+    const prev = Date.parse(t.lastRunAt || '');
+    if (Number.isFinite(prev) && t.lastRunBy === String(by || 'operator').slice(0, WHO_MAX) && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
     changed = { ...t, lastRunAt: new Date(at).toISOString(), lastRunBy: String(by || 'operator').slice(0, WHO_MAX) };   // ISO, as createdAt and builtAt are
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };

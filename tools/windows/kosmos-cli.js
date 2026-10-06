@@ -1001,7 +1001,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear) {
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(which === 'ran' ? 'Recorded a run of task ' + num + ' on ' + project + '.'
+    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + '.')
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '. Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
     return 0;

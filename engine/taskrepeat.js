@@ -132,10 +132,17 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /* #4787 review 1: a repeating task between runs holds no work: its owner is not idle-with-open-work while it waits for
    the next scheduled time. Due again (so open work, nudged and counted) once a scheduled time after its last run (or,
    with no run yet, after it was made) has passed. A task that does not repeat is never waiting. */
+const RUN_GRACE_MS = 10 * 60 * 1000;
 function waitingForNextRun(t, now = Date.now()) {
   if (!t || !t.repeat) return false;
-  const since = Date.parse(t.lastRunAt || t.createdAt || '');
-  if (!Number.isFinite(since)) return false;   // no time to measure from: treat it as work, never hide it
+  const raw = Date.parse(t.lastRunAt || t.createdAt || '');
+  if (!Number.isFinite(raw)) return false;   // no time to measure from: treat it as work, never hide it
+  /* review 2: a run stamped more than a minute in the future (a clock stepped back) cannot say when the job last ran,
+     so the task is due: work is shown, never hidden. (Measuring from "now" instead would wait for ever, one slot past
+     each check.) A run reported a little early (08:59:50 for 09:00) is that slot's run, so the next is measured past a
+     short grace. */
+  if (raw > now + 60 * 1000) return false;
+  const since = raw + RUN_GRACE_MS;
   const due = nextAfter(t.repeat, since);
   return due !== null && due > now;
 }
