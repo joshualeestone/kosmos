@@ -1028,7 +1028,7 @@ test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the 
   assert.match(r.because, /\/etc\/hosts/, 'the refusal does not name the file it found');
 });
 
-test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
+test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', WIN_LAUNCHD, () => {
   const ours = '/Users/x/Library/LaunchAgents/com.kosmos.agent.a.plist';
   assert.equal(create.leftoverJob('x = { ... }', ours), null, 'no path reported: not provable');
   assert.equal(create.leftoverJob(`\tpath = ${ours}\n`, ours), null, 'our own path');
@@ -1037,12 +1037,16 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   const gone = create.leftoverJob('\tpath = /nowhere-4279/x.plist\n', ours);
   assert.equal(gone.why, 'its startup file is gone');
   assert.equal(gone.path, '/nowhere-4279/x.plist', 'it reports a different file from the one launchd loaded');
-  const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
-  try {
-    const temp = create.leftoverJob(`\tpath = ${t}\n`, ours);
-    assert.equal(temp.why, 'its startup file is in a temporary folder');
-    assert.equal(temp.path, t);
-  } finally { fs.rmSync(t, { force: true }); }
+  // #4919: the temp roots are macOS's (/private/tmp, /private/var/folders), so on Linux os.tmpdir() is not one of
+  // them; only this arm waits there. Every other arm of this test runs on Linux too.
+  if (process.platform !== 'linux') {
+    const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
+    try {
+      const temp = create.leftoverJob(`\tpath = ${t}\n`, ours);
+      assert.equal(temp.why, 'its startup file is in a temporary folder');
+      assert.equal(temp.path, t);
+    } finally { fs.rmSync(t, { force: true }); }
+  }
   assert.equal(create.leftoverJob('\tpath = /etc/hosts\n', ours), null, 'present and not temp');
   // A `..` spelling that starts with a temp root but names a live plist elsewhere is NOT temp.
   const live = homeFixture('.kosmos-4279-live-');
