@@ -203,8 +203,9 @@ export KOSMOS_TEST_RUN=1
 # A throwaway is removed when its process exits; one that was killed leaves it in tmp. This
 # runs before TMPDIR is re-pointed below, so it reaches the leftovers of direct `node --test`
 # runs (this run's own land in its private TMPDIR, removed by its EXIT trap). Each name carries
-# its process id (kosmos-test-home-<pid>-XXXXXX), and only one whose process is gone is removed:
-# another agent's live run on this Mac keeps its throwaway, however old.
+# its process id (kosmos-test-home-<pid>-XXXXXX), and only one whose process this user cannot
+# signal (gone, or another user's, whose folder rm cannot remove anyway) is removed: another
+# agent's live run on this Mac keeps its throwaway, however old.
 for d in "${TMPDIR:-/tmp}"/kosmos-test-home-*; do
   [ -d "$d" ] || continue
   pid="${d##*/kosmos-test-home-}"; pid="${pid%%-*}"
