@@ -94,7 +94,10 @@ function headingLine(askedBy, askedAt, id) {
    newline or Kosmos's comment markers into ANOTHER agent's file (a second managed block, or a forged id line). Written
    on one line, with no comment markers, at most 80 characters. */
 function askerWords(askedBy) {
-  const one = String(askedBy == null ? '' : askedBy).replace(/<!--|-->/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).trim();
+  /* Review 11: well-formed first (a lone surrogate is written to the file as U+FFFD while the record kept it, so the two
+     never matched again), every line separator collapsed (U+0085 and U+001C-U+001E too), cut by code point. */
+  const flat = String(askedBy == null ? '' : askedBy).toWellFormed().replace(/<!--|-->/g, ' ').replace(/[\s\u0085\u001c-\u001e]+/g, ' ').trim();
+  const one = Array.from(flat).slice(0, 80).join('').trim();
   return one || 'another agent';
 }
 /** The exact text Apply writes for a pending addition (the leading blank lines included). */
@@ -117,7 +120,8 @@ function pending(agent) {
 function propose(agent, text, askedBy, now) {
   const k = keyFor(agent);
   if (!k) return { ok: false, code: 'bad', because: 'that is not a name we can look up' };
-  const body = String(text == null ? '' : text);
+  /* Review 11: well-formed, so the bytes written and the span recorded are the same text (see askerWords). */
+  const body = String(text == null ? '' : text).toWellFormed();
   if (!body.trim()) return { ok: false, code: 'bad', because: 'the addition is empty' };
   /* Review 5: never Kosmos's own markers. An addition carrying `<!-- kosmos:projects:start -->` (or any comment) would
      give the target two managed blocks, and the projects / doctrine sync would stop for that agent for good. Refused as

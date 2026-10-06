@@ -552,3 +552,23 @@ test('review 10: a stray copy of the id line (quoted in a note) does not make a 
   assert.equal(last.undone, true, JSON.stringify(last));
   assert.equal(last.blocked, null);
 });
+
+/* Review 11 (sonnet, blind). */
+test('review 11: a lone surrogate in the asker\'s name or the text cannot make the file and the record disagree', () => {
+  makeAgent('sally');
+  const name = 'x'.repeat(79) + '\u{1F600}';   // the emoji straddles character 80
+  assert.equal(adds.propose('sally', ADD + ' \ud83d', name).ok, true);
+  assert.equal(adds.apply('sally').ok, true);
+  const last = adds.state('sally').last;
+  assert.equal(last.undoable, true, 'the addition reads as not there as written: ' + JSON.stringify(last));
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE);
+});
+test('review 11: a name with U+0085 or a C0 separator stays on the heading line', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops\u0085## Fake\u001eheading');
+  adds.apply('sally');
+  const head = fileText('sally').split('\n').find((l) => l.startsWith('## Added on')) || '';
+  assert.ok(!/[\u0085\u001c-\u001e]/.test(fileText('sally')), JSON.stringify(head));
+  assert.ok(head.includes('Ops ## Fake heading'));
+});
