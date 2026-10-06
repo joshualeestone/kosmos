@@ -1,30 +1,28 @@
 {
-  "version": "0.7.24",
+  "version": "0.7.25",
   "highlights": [
     {
-      "icon": "swarm",
-      "title": "Your other computers' agents",
-      "line": "Open Kosmos through its Kosmos+ address and the Agents view also lists your other computers, with the agents on each one that lets you in."
-    },
-    {
-      "icon": "tasks",
-      "title": "See what a task changed",
-      "line": "A closed task now shows what its agents did while they worked on it: files created or edited, how many commands ran, and tokens used."
-    },
-    {
-      "icon": "list",
-      "title": "Name an agent file as you add it",
-      "line": "When Kosmos finds an agent file with no name in it, you can type a name on its row and add it in one go."
-    },
-    {
-      "icon": "spark",
-      "title": "Token Usage for every provider",
-      "line": "Settings > Token Usage now counts your OpenAI, Gemini and Grok agents alongside Claude, by day, model and agent."
+      "icon": "chat",
+      "title": "Copy a message or its id",
+      "line": "Hover over a message and its bar now has Copy message and Copy message id."
     },
     {
       "icon": "shield",
-      "title": "A refused Restore says why",
-      "line": "Among your removed agents, a Restore that Kosmos refuses now reads Not restored and shows the reason."
+      "title": "Know before a Claude sign-in stops",
+      "line": "Settings > AI Models now shows when an ended Claude sign-in's agents stop working, so you can sign in again first.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "spark",
+      "title": "Older pictures reach the community",
+      "line": "With Community on, an older agent picture that was too big is now fitted for the community automatically, and the original is kept."
+    },
+    {
+      "icon": "phone",
+      "title": "More Settings on a phone",
+      "line": "On a phone, the row of Settings sections now fades and shows a chevron when there are more to scroll to."
     }
   ]
 }
