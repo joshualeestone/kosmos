@@ -245,9 +245,9 @@ function maybeMigrateLegacyStore() {
    sandbox (about forty modules do). So the rule is HERE, on the derivation every one of them
    reads, not in each of them.
 
-   A test process is one `node --test` started (it sets NODE_TEST_CONTEXT in every file it
-   runs) or one tools/run-tests.sh started (KOSMOS_TEST_RUN=1, which also reaches its shell
-   tests). "Real" is the root this user would get with no override at all, from the
+   A test process is one `node --test` started (NODE_TEST_CONTEXT, or --test in execArgv) or
+   one tools/run-tests.sh started (KOSMOS_TEST_RUN naming that run's own temp folder, which also
+   reaches its shell tests; see inThisTestRun). "Real" is the root this user would get with no override at all, from the
    account's home in the user database (os.userInfo), NOT os.homedir(): that follows $HOME,
    which a test may point at a sandbox, and comparing against it would refuse exactly the
    tests that sandboxed correctly. KOSMOS_ALLOW_REAL_ROOT=1 is the explicit way out for a
@@ -284,6 +284,7 @@ function maybeMigrateLegacyStore() {
    live-execution's inTestProcess, reused rather than re-derived (updating.js's second-derivation
    rule). */
 function isTestProcess(env) {
+  // live-execution requires nothing, so this lazy require cannot form a cycle with the store.
   return !!env.NODE_TEST_CONTEXT || inThisTestRun(env) || require('./live-execution').inTestProcess();
 }
 /* tools/run-tests.sh sets KOSMOS_TEST_RUN to its own private temp folder. It counts only for a
