@@ -50,8 +50,8 @@ for (const [label, marker] of [['node --test (NODE_TEST_CONTEXT)', { NODE_TEST_C
 }
 
 test('#5418: one throwaway root per process, however many reads, with one exit listener; removed at exit', () => {
-  const { roots, listeners, root } = runJs('const seen = new Set(); for (let i = 0; i < 15; i++) seen.add(s.ROOT);'
-    + ' process.stdout.write(JSON.stringify({ roots: seen.size, listeners: process.listenerCount("exit"), root: [...seen][0] }))', { NODE_TEST_CONTEXT: 'child-v8' });
+  const { roots, listeners, root } = runJs('const before = process.listenerCount("exit"); const seen = new Set(); for (let i = 0; i < 15; i++) seen.add(s.ROOT);'
+    + ' process.stdout.write(JSON.stringify({ roots: seen.size, listeners: process.listenerCount("exit") - before, root: [...seen][0] }))', { NODE_TEST_CONTEXT: 'child-v8' });
   assert.deepEqual({ roots, listeners }, { roots: 1, listeners: 1 });
   const home = path.dirname(path.dirname(path.dirname(root)));
   assert.ok(path.basename(home).startsWith(require('./store').TEST_HOME_PREFIX), home);

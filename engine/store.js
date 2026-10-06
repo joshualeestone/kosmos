@@ -276,9 +276,10 @@ function maybeMigrateLegacyStore() {
 function isTestProcess(env) {
   return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
 }
+let accountHome;   // os.userInfo().homedir, looked up once per process ('' when it cannot be)
 function realDefaultRoot(platform, app) {
-  let home;
-  try { home = os.userInfo().homedir; } catch { return null; }
+  if (accountHome === undefined) { try { accountHome = os.userInfo().homedir || ''; } catch { accountHome = ''; } }
+  const home = accountHome;
   if (!home) return null;
   // No APPDATA from the environment (a test may point it at a sandbox): on Windows the real root is
   // the account home's AppData\Roaming. A machine whose AppData is redirected elsewhere is not seen.
