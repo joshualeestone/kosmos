@@ -36,7 +36,7 @@ const SECTIONS = Object.freeze({
   // kosmos#5304: the blocks the board-start sweeps and the About-you save rewrite.
   you: 'the section headed "Who you work for"',
   reports: 'the section headed "Who you report to"',
-  connections: 'the sections headed "How connecting a provider works" and "The Connections tab: the services you can work with"',
+  connections: 'the sections headed "How connecting a provider works", "A plugin the person installed in their own app (Claude and Codex agents)" and "The Connections tab: the services you can work with"',
   dmfiles: 'the section headed "Where to save files you make for the person"',
   language: 'the section headed "The person\'s language"',
 });
