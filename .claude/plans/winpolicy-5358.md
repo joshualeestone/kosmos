@@ -23,12 +23,17 @@ beside PowerShell scripts refused after a machine policy reset.
 - Measured on PR #5384's windows job (10-06 04:30): the Git Bash arm passed; the policy arm failed in its own setup,
   because the CI step's PowerShell 7 module path stopped Windows PowerShell 5.1 loading Set-ExecutionPolicy. The arms
   now drop PSModulePath, which models a board started by Explorer or its logon task. NOT MODELLED: a board started from
-  a PowerShell 7 terminal, which would pass that path to its agents. PowerShell 5.1 (a gap stated, not measured: #5385).
+  a PowerShell 7 terminal, which would pass that path to its agents' PowerShell 5.1 (a gap stated, not measured: #5385).
 - New Windows-runner arms measure each shell: Git Bash, run as Claude Code's tool runs it (`bash -c`), finds `kosmos`
   on the agent's PATH (control: not without it; a red says whether it was the PATH or the shim); PowerShell with the flags Claude Code passes (taken from #570, not measured here) finds kosmos.ps1 and runs it under a Restricted policy; codex's `powershell -Command`
   is refused without the variable (control) and runs with it.
 - If all pass on the runner, Kosmos's launch path is right and #5358 is specific to that box (most likely an agent
   Kosmos did not launch, or an old build): parked needs-device for a measurement there.
+
+## Scope
+- This branch covers childEnv and the per-turn envs in win32agy and win32keyed. Other modules that copy process.env and
+  delete or set a name by its exact spelling (create, subscription, orgchartfile, grokaccounts, boardrestart,
+  codexsigninlive) are card #5386.
 
 ## Weakest premise
 That windows-latest (Server, admin) answers the same as a person's Windows 11 laptop for these shells.

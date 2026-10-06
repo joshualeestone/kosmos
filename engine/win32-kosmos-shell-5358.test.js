@@ -9,7 +9,8 @@
  *   - PowerShell with the flags Claude Code's tool passes (a premise from #570, not measured here): finds and runs
  *     kosmos.ps1 under a Restricted policy;
  *   - Codex's `powershell -Command`: refused under Restricted WITHOUT the variable (the control), runs WITH it.
- * Plus pure arms (any OS) for the one fix this card makes: the policy variable is ONE key whatever case it arrives in.
+ * Plus pure arms (any OS) for what this card fixes: every name childEnv and the per-turn envs remove or set is matched
+ * whatever its case (engine/win32env.js).
  *
  * Windows arms use a zip-shaped folder with the real shims and a stub CLI. The policy arms change the CurrentUser
  * policy, so they run only on GitHub Actions and put it back.
@@ -129,7 +130,7 @@ const said = (r) => 'status ' + r.status + (r.error ? ' (' + (r.error.code || r.
 
 test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -c), a bare kosmos is found on the agent\'s PATH',
   // On the CI runner a missing Git Bash FAILS rather than skipping: a skip there would read as green with no evidence.
-  { skip: !onWindows ? 'Windows only' : !GIT_BASH && !onCi ? 'no Git Bash on this machine' : false }, () => {
+  { timeout: 120000, skip: !onWindows ? 'Windows only' : !GIT_BASH && !onCi ? 'no Git Bash on this machine' : false }, () => {
     assert.ok(GIT_BASH, 'no Git Bash on the CI runner, so this arm measured nothing');
     const z = stageZip();
     try {
@@ -138,6 +139,7 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
       // could not run (bash's PATH lacked Git's usr\bin).
       assert.match(String(r.stdout), STUB, (/cygpath/.test(String(r.stderr)) ? 'kosmos was FOUND but its shim could not run: ' : 'kosmos was not found or did not answer: ') + said(r));
       const none = run(GIT_BASH, ['-c', 'kosmos --version'], baseEnv());
+      assert.notEqual(none.status, null, 'control: bash did not run at all, so it cannot show kosmos missing: ' + said(none));
       assert.doesNotMatch(String(none.stdout), STUB, 'control: kosmos was found without the agent\'s PATH');
     } finally { try { removeTree(z.root); } catch { /* a leftover temp folder must never hide the arm's own result */ } }
   });
