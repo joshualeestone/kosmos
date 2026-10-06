@@ -142,9 +142,10 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   which its children do not inherit: a board or CLI it starts without a sandbox is not guarded.
 
 ## Full-suite measurement of THIS design
-The 122-failure run was the first (throwing) design. The current design's own full suite: PENDING (queued
-on Mortals at each head of the review loop; its tally goes here before the proof is written, the 6j gate).
-The Windows job runs with the rule live and has no recorded run; PR CI's windows check is that run.
+The 122-failure run was the first (throwing) design. The current design's own full suite runs once on the
+final head, and its tally is recorded in `.claude/plans/realroot-5418-pre-challenge.md` (the proof file is
+outside the diff it measures; writing the tally here would change that diff). The Windows job runs with the
+rule live; PR CI's windows check is that run.
 
 ## Residual
 A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks
