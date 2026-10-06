@@ -79,7 +79,7 @@ test('#4787: an agent on the project makes its task repeat, records runs, and th
   assert.equal(row.repeatWords, 'every hour at :15');
   assert.ok(Number.isFinite(row.repeatNextAt) && row.repeatNextAt > Date.now(), 'the next run is in the future');
   assert.equal(new Date(row.repeatNextAt).getMinutes(), 15, 'at :15 local');
-  assert.notEqual(row.state, 'nobody', 'owned by its agent, so not Unassigned');
+  assert.match(row.repeatNextWords, /^(today|tomorrow) at \d{1,2}:15(am|pm)$/, 'the board says the next run in its own time');
 });
 
 test('#4787: the person can set a weekly rule and record a run from the screen; clearing stops it', async () => {
@@ -90,6 +90,10 @@ test('#4787: the person can set a weekly rule and record a run from the screen; 
   r = await post(`/api/project/${projectId}/task/${n}/ran`, {}, screen);
   assert.equal(r.status, 200);
   assert.equal(stored(n).lastRunBy, 'operator');
+  const mona = sendertoken.mint('mona');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 403, 'an agent cannot clear the person\'s rule');
+  assert.match(r.json.error, /only they can change it/);
   r = await post(`/api/project/${projectId}/task/${n}/repeat`, { clear: true }, screen);
   assert.equal(r.status, 200);
   assert.equal('repeat' in stored(n), false);

@@ -54,21 +54,24 @@ function nextAfter(rule, ms) {
   const r = normalise(rule);
   if (!r || repeatProblem(r)) return null;
   const from = new Date(ms);
+  const y = from.getFullYear(), mo = from.getMonth(), d = from.getDate();
   if (r.every === 'hour') {
-    const d = new Date(from.getFullYear(), from.getMonth(), from.getDate(), from.getHours(), r.minute, 0, 0);
-    if (d.getTime() <= ms) d.setHours(d.getHours() + 1);
-    return d.getTime();
+    // Hour by hour from this hour's slot, each built from its own parts, so the clock's own rules decide a DST hour.
+    for (let k = 0; k <= 26; k += 1) {
+      const t = new Date(y, mo, d, from.getHours() + k, r.minute, 0, 0).getTime();
+      if (t > ms) return t;
+    }
+    return null;
   }
   const [h, m] = hm(r.at);
-  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate(), h, m, 0, 0);
-  if (r.every === 'day') {
-    if (d.getTime() <= ms) d.setDate(d.getDate() + 1);
-    return d.getTime();
+  /* #4787 review 1: each candidate day is built ONCE from (year, month, day + n, h, m). Moving a built Date by setDate
+     kept a spring-forward shift (02:30 that night became 03:30) on every later day. */
+  for (let n = 0; n <= 8; n += 1) {
+    const t = new Date(y, mo, d + n, h, m, 0, 0);
+    if (r.every === 'week' && t.getDay() !== r.day) continue;
+    if (t.getTime() > ms) return t.getTime();
   }
-  let ahead = (r.day - d.getDay() + 7) % 7;
-  if (ahead === 0 && d.getTime() <= ms) ahead = 7;
-  d.setDate(d.getDate() + ahead);
-  return d.getTime();
+  return null;
 }
 
 function clock(h, m) {
@@ -110,4 +113,31 @@ function fromWords(every, opts = {}) {
   return { every: e };
 }
 
-module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords };
+/* #4787 review 1: the next run as the line says it ("today at 9am", "tomorrow at 9am", "Monday at 9:30am", or a date),
+   made on the board in the board's own time, beside the rule's words, so one line never mixes two time zones (a Kosmos+
+   view from another computer would otherwise read the next run in its own). `now` is passed in. */
+function whenWords(ms, now = Date.now()) {
+  if (!Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const time = clock(d.getHours(), d.getMinutes());
+  const day0 = (x) => { const z = new Date(x); return new Date(z.getFullYear(), z.getMonth(), z.getDate()).getTime(); };
+  const days = Math.round((day0(ms) - day0(now)) / 86400000);
+  if (days === 0) return 'today at ' + time;
+  if (days === 1) return 'tomorrow at ' + time;
+  if (days > 1 && days < 7) return DAY_NAMES[d.getDay()] + ' at ' + time;
+  return MONTHS[d.getMonth()] + ' ' + d.getDate() + ' at ' + time;
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/* #4787 review 1: a repeating task between runs holds no work: its owner is not idle-with-open-work while it waits for
+   the next scheduled time. Due again (so open work, nudged and counted) once a scheduled time after its last run (or,
+   with no run yet, after it was made) has passed. A task that does not repeat is never waiting. */
+function waitingForNextRun(t, now = Date.now()) {
+  if (!t || !t.repeat) return false;
+  const since = Date.parse(t.lastRunAt || t.createdAt || '');
+  if (!Number.isFinite(since)) return false;   // no time to measure from: treat it as work, never hide it
+  const due = nextAfter(t.repeat, since);
+  return due !== null && due > now;
+}
+
+module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords };

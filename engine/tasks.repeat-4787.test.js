@@ -68,16 +68,59 @@ test('#4787: recordRun keeps the latest run and records each one; a one-off or c
   assert.equal(runs[0].note, 'found 3 new listings');
   assert.throws(() => tasks.recordRun(id, n, 'ada', 'x'.repeat(501)), /at most/);
   tasks.close(id, n);
-  assert.throws(() => tasks.recordRun(id, n, 'ada', ''), /closed/);
+  assert.throws(() => tasks.recordRun(id, n, 'ada', ''), /does not repeat/, 'closing ended the repetition (review 1), so a run is refused');
 });
 
-test('#4787: a repeating task given to its agent is not "nobody": the board groups it with its owner', () => {
+test('#4787 review 1: between runs a repeating task holds no work for the Prompter or the Assigner; once due it does (the two agree)', () => {
+  const nudge = require('./agentnudge');
+  const assigner = require('./assigner');
   const p = projects.create({ name: 'Own ' + Math.random().toString(36).slice(2), agents: ['ada'] });
   const made = tasks.create(p.id, { sentence: 'Hourly monitor', who: 'ada' });
   tasks.setRepeat(p.id, made.number, { every: 'hour' });
-  const t = stored(p.id, made.number);
-  assert.notEqual(tasks.taskState(t), 'nobody');
-  const loose = tasks.create(p.id, { sentence: 'Nobody runs this' });
-  tasks.setRepeat(p.id, loose.number, { every: 'hour' });
-  assert.equal(tasks.taskState(stored(p.id, loose.number)), 'nobody', 'CONTROL: a repeating task with no owner is still Unassigned (repeat is not ownership)');
+  tasks.recordRun(p.id, made.number, 'ada', '');   // just ran: waiting for the next hour
+  const all = () => projects.readAll();
+  assert.equal(nudge.openParts('ada', all()).length, 0, 'ran just now: not idle-with-open-work');
+  assert.equal(assigner.hasOpenWork('ada', all()), false, 'and the Assigner agrees');
+  // CONTROL: the same task, its last run two hours ago, is due again: open work for both.
+  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === made.number ? { ...t, lastRunAt: new Date(Date.now() - 2 * 3600000).toISOString() } : t)) }));
+  assert.equal(nudge.openParts('ada', all()).length, 1, 'overdue: the owner holds open work again');
+  assert.equal(assigner.hasOpenWork('ada', all()), true);
+});
+
+test('#4787 review 1: closing a repeating task ends the repetition, and a reopen does not bring it back', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' });
+  tasks.close(id, n);
+  assert.equal('repeat' in stored(id, n), false);
+  assert.ok(taskchat.read(id, n).some((e) => e.kind === 'repeat-cleared' && e.via === 'close'));
+  tasks.reopen(id, n);
+  assert.equal('repeat' in stored(id, n), false, 'reopened as a one-off');
+});
+
+test('#4787 review 1: the person\'s rule is theirs: an agent cannot change or clear it; the person can (control)', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' }, { person: true });
+  assert.throws(() => tasks.setRepeat(id, n, { every: 'hour' }), /only they can change it/);
+  assert.throws(() => tasks.setRepeat(id, n, null), /only they can change it/);
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' });   // the same rule from an agent is no change: allowed
+  assert.deepEqual(stored(id, n).repeat, { every: 'day', at: '09:00' });
+  tasks.setRepeat(id, n, { every: 'hour' }, { person: true });
+  assert.deepEqual(stored(id, n).repeat, { every: 'hour', minute: 0 });
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'repeat-set').pop();
+  assert.equal(ev.words, 'every hour');
+  assert.equal(ev.via, 'screen');
+  assert.equal(typeof ev.every, 'string', 'flat fields, not an object stored as text');
+});
+
+test('#4787 review 1: the same run reported twice within a minute counts once', () => {
+  const { id, n } = freshTask();
+  tasks.setRepeat(id, n, { every: 'hour' });
+  const at = Date.parse('2026-10-06T09:00:00Z');
+  tasks.recordRun(id, n, 'ada', 'first', at);
+  const again = tasks.recordRun(id, n, 'ada', 'retry', at + 30000);
+  assert.equal(again.duplicate, true);
+  assert.equal(stored(id, n).lastRunNote, 'first', 'the first stays');
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'run').length, 1);
+  tasks.recordRun(id, n, 'ada', 'next hour', at + 3600000);
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'run').length, 2, 'CONTROL: an hour later is a new run');
 });
