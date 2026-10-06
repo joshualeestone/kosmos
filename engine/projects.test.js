@@ -964,13 +964,14 @@ test('#5320: two projects with one name: a pause on one of them is still owed', 
   edit(one.id, (x) => { x.tasks = [{ number: 1, sentence: 'set the budget', who: 'mara' }]; });
   edit(two.id, (x) => { x.tasks = [{ number: 1, sentence: 'file the return', who: 'mara' }]; });
   projects.syncAgent('mara', ROSTER);
-  edit(two.id, (x) => { x.paused = true; x.pausedByPerson = true; });
+  // The FIRST project listed is paused: an overwriting key would keep only the second line's marker.
+  edit(one.id, (x) => { x.paused = true; x.pausedByPerson = true; });
   clear();
   const paused = projects.syncAgent('mara', ROSTER);
   assert.equal(paused.changed, true, 'fixture: the pause must mark a task line');
   assert.deepEqual(owed(), ['projects'], 'a pause behind a shared key was missed');
   // CONTROL: the other project's task closing under the shared key is not a hold change.
-  edit(one.id, (x) => { x.tasks[0].closedAt = Date.now(); });
+  edit(two.id, (x) => { x.tasks[0].closedAt = Date.now(); });
   clear();
   const closed = projects.syncAgent('mara', ROSTER);
   assert.equal(closed.changed, true, 'fixture: closing must change the block');
