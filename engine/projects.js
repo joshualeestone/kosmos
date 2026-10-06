@@ -3269,19 +3269,23 @@ function blockRules(sessionName, cliShown) {
   };
 }
 
-/* kosmos#5320: did this write change a standing rule in a block the agent already had? `oldText` is the file before the
-   write. False when there was no block (joining is announced by its own line, membershipLine) or the block is going
-   (nothing left to read), and false for project and task lines (the agent's own task close changes those). The tasks
-   rules are compared only when the old block had them: a first task arriving is announced where it is assigned. */
-function rulesChangedIn(oldText, projects, sessionName) {
-  if (!Array.isArray(projects) || !projects.length || !sessionName) return false;
-  const found = findBlock(oldText || '');
-  if (!found || found.ambiguous) return false;
-  const old = String(oldText).slice(found.start, found.end);
+/* kosmos#5320: does the new block carry a standing rule the old block did not? `oldText` and `newText` are the file
+   before and after the write. Only additions count: a rule taken out needs no re-read. False when there was no block
+   (joining is announced by its own line, membershipLine) or none is left (nothing to read). Project and task lines are
+   not rules (the agent's own task close changes those). The tasks rules count only when both blocks list a task: a
+   first task is announced where it is assigned, and a last one closing takes those rules out. */
+function rulesChangedIn(oldText, newText, sessionName) {
+  if (!sessionName) return false;
+  const oldAt = findBlock(oldText || '');
+  const newAt = findBlock(newText || '');
+  if (!oldAt || oldAt.ambiguous || !newAt || newAt.ambiguous) return false;
+  const old = String(oldText).slice(oldAt.start, oldAt.end);
+  const now = String(newText).slice(newAt.start, newAt.end);
+  const TASK_LINE = /^ {2}- task \d+ of /m;
   const rules = blockRules(sessionName, kosmosCliShown());
   const pieces = [rules.intro, rules.member];
-  if (old.includes(rules.tasks[0])) pieces.push(rules.tasks);
-  return pieces.some((p) => !old.includes(p.join('\n')));
+  if (TASK_LINE.test(old) && TASK_LINE.test(now)) pieces.push(rules.tasks);
+  return pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')));
 }
 
 /* Exact to permit (#3932 shares it with tellAgent): our card for this exact name, or null. A roster
@@ -3416,7 +3420,7 @@ function tellAgent(sessionName, projects, roster) {
     // project the agent has been on for weeks is worse than saying nothing).
     const added = blockUnreadable(current.text, ids) ? [] : projectsInBlock(next, ids).filter((id) => !had.includes(id));
     return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added,
-      rulesChanged: rulesChangedIn(current.text, projects, sessionName) };
+      rulesChanged: rulesChangedIn(current.text, withProjects, sessionName) };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block
     // back out can push a file under the editor's minimum, and forwarding that
@@ -3563,7 +3567,7 @@ function syncAgent(sessionName, roster) {
   if (verdict && verdict.rulesChanged === true && verdict.state === TOLD.TOLD) {
     let ok = false;
     try { ok = require('./instructionreread').oweNow(key, 'projects'); } catch { ok = false; }
-    if (!ok) process.stderr.write(`Kosmos updated ${key}'s projects section but could not record that it should be told; it reads it at its next start\n`);
+    if (!ok) process.stderr.write(`Kosmos updated ${key}'s projects section but could not record that it is owed a re-read; it reads the section at its next start\n`);
   }
   const all = readAll();
   for (const p of all) {
