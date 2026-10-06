@@ -29,6 +29,9 @@ grep -q '^_kosmos_board_systemd_unit()' "$SNIP" && grep -q '^_kosmos_board_super
 STUBDIR="$(mktemp -d)"
 cat > "$STUBDIR/systemctl" <<'SC'
 #!/bin/bash
+case "$*" in
+  "--user is-enabled --quiet "*) [ "${KOSMOS_STUB_ENABLED:-yes}" = yes ]; exit $? ;;
+esac
 case "$* ${KOSMOS_STUB_CAT:-}" in
   "--user cat "*board-run)
     printf '[Unit]\nDescription=Kosmos Board\n\n[Service]\nExecStart=/bin/bash /home/user/.local/share/kosmos/bin/kosmos board-run\n'
@@ -94,6 +97,14 @@ if _kosmos_board_supervised; then
 else
   bad "supervised: board-run unit not detected"
 fi
+# #4918 review 4: the same unit, disabled, keeps nothing alive.
+export KOSMOS_STUB_ENABLED=no
+if _kosmos_board_supervised; then
+  bad "supervised: a DISABLED board-run unit counted as supervised"
+else
+  ok "supervised: disabled board-run unit -> NOT supervised"
+fi
+unset KOSMOS_STUB_ENABLED
 
 export KOSMOS_STUB_CAT=start
 if _kosmos_board_supervised; then

@@ -169,7 +169,7 @@ function installBoard(kosmosHome, port) {
    caller piece D adds can say what did not. A unit systemd does not have counts as stopped. */
 function removeBoard(kosmosHome) {
   const unit = boardUnitName(kosmosHome);
-  const notLoaded = /Unit \S+ (not loaded|does not exist|not found)/i;
+  const notLoaded = /Unit (file )?\S+ (not loaded|does not exist|not found)/i;
   const failed = (r) => r && r.ok === false && !notLoaded.test(String(r.stderr || r.because || ''));
   const st = runner('systemctl', ['--user', 'stop', unit]);
   if (failed(st)) return { ok: false, because: 'systemd could not stop the board: ' + String(st.stderr || st.because || '').trim() };

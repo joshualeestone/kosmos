@@ -336,7 +336,8 @@ function status(name, worldId) {
 function loaded(name, worldId) {
   const u = unitName(name, worldId);
   const r = runner('systemctl', ['--user', 'is-active', u]);
-  return Boolean(r && ((r.ok && r.stdout.trim() === 'active') || r.stdout.trim() === 'activating'));
+  const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
+  return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
 }
 
 function presence(name, worldId) {
@@ -348,7 +349,7 @@ function presence(name, worldId) {
    the loaded unit running and restarting from memory). */
 // systemd's own wording for a unit it does not have. Not "no such file": that is also the bus failure
 // ("Failed to connect to bus: No such file or directory"), which must stay a failure (#4918 review 3).
-const NOT_LOADED = /Unit \S+ (not loaded|does not exist|not found)/i;
+const NOT_LOADED = /Unit (file )?\S+ (not loaded|does not exist|not found)/i;   // incl. disable's "Unit file X.service does not exist"
 function remove(name, worldId) {
   const st = stop(name, worldId);
   const stopFailed = st && st.ok === false && !NOT_LOADED.test(String(st.stderr || st.because || ''));
