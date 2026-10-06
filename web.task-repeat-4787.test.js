@@ -8,8 +8,8 @@ const assert = require('node:assert/strict');
 const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
-const { tskRepeatSentence } = new Function('tskAgentName',
-  page.liftAll(SCRIPT, ['agoWords', 'tskRepeatSentence']) + '\nreturn { tskRepeatSentence };')((s) => (s === 'ada' ? 'Ada' : s));
+const { tskRepeatSentence, tskRepeatMissed } = new Function('tskAgentName',
+  page.liftAll(SCRIPT, ['agoWords', 'tskRepeatMissed', 'tskRepeatSentence']) + '\nreturn { tskRepeatSentence, tskRepeatMissed };')((s) => (s === 'ada' ? 'Ada' : s));
 const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
 const NOW = at(2026, 10, 6, 8, 0);   // a Tuesday, 8am local
 
@@ -25,9 +25,9 @@ test('#4787: the sentence says the rule, the last run (who, when, its note) and 
 });
 
 test('#4787: a repeating task\'s row carries the line; a one-off and a closed one do not (controls)', () => {
-  const row = (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName', 'tskRepeatSentence', 'TSK_GROUPS',
+  const row = (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName', 'tskRepeatSentence', 'tskRepeatMissed', 'TSK_GROUPS',
     page.liftAll(SCRIPT, ['tskRow']) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [], (s) => String(s), () => 'just now',
-    (x) => x.projectId + '#' + x.number, () => '', (s) => s, tskRepeatSentence, [])(t, { depth: 0, crumb: false, kids: 0 });
+    (x) => x.projectId + '#' + x.number, () => '', (s) => s, tskRepeatSentence, tskRepeatMissed, [])(t, { depth: 0, crumb: false, kids: 0 });
   const base = { number: 4, sentence: 'Hourly monitor', projectId: 'p1', projectName: 'Watch', createdAt: new Date(NOW).toISOString(), state: 'assigned', who: 'ada' };
   const rep = { ...base, repeat: { every: 'hour' }, repeatWords: 'every hour', repeatNextAt: at(2026, 10, 6, 9, 0), repeatNextWords: 'today at 9am' };
   assert.match(row(rep), /<div class="why tsk-repeat">Repeats every hour\. No run reported yet\. Next today at 9am\.<\/div>/);
@@ -48,4 +48,30 @@ test('#4787 slice 1b: the task page reads a stored rule back into its controls (
   // The page's day names are the ones the server reads (fromWords takes the first three letters).
   const { DAY_NAMES } = require('./engine/taskrepeat');
   assert.deepEqual(eval(days[1]), DAY_NAMES.map((n) => n.slice(0, 3).toLowerCase()));
+});
+
+test('#4787 slice 2: a missed run leads the sentence; more than one is counted; a late run says late (controls: none missed, on time)', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatWords: 'every day at 9am', repeatNextWords: 'tomorrow at 9am',
+    lastRunAt: new Date(NOW - 26 * 3600000).toISOString(), lastRunBy: 'ada' };
+  assert.match(tskRepeatSentence({ ...t, repeatMissed: 1, repeatMissedMore: false, repeatMissedWords: 'today at 9am' }, NOW),
+    /^Missed the run due today at 9am\. Repeats every day at 9am\. Last run .+ by Ada\. Next tomorrow at 9am\.$/);
+  assert.match(tskRepeatSentence({ ...t, repeatMissed: 3, repeatMissedMore: false, repeatMissedWords: 'today at 9am' }, NOW),
+    /^Missed 3 runs, the latest due today at 9am\. Repeats every day at 9am\./);
+  assert.match(tskRepeatSentence({ ...t, repeatMissed: 99, repeatMissedMore: true, repeatMissedWords: 'today at 9am' }, NOW),
+    /^Missed more than 99 runs, the latest due today at 9am\./);
+  assert.match(tskRepeatSentence(t, NOW), /^Repeats every day at 9am\./, 'CONTROL: nothing missed, nothing said about it');
+  assert.match(tskRepeatSentence({ ...t, lastRunLate: true, lastRunNote: 'done' }, NOW), / by Ada, late: done\./);
+  assert.doesNotMatch(tskRepeatSentence({ ...t, lastRunNote: 'done' }, NOW), /late/, 'CONTROL: an on-time run never says late');
+});
+
+test('#4787 slice 2: the row\'s repeat line is red (class missed) only while a run is missed', () => {
+  const row = (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName', 'tskRepeatSentence', 'tskRepeatMissed', 'TSK_GROUPS',
+    page.liftAll(SCRIPT, ['tskRow']) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [], (s) => String(s), () => 'just now',
+    (x) => x.projectId + '#' + x.number, () => '', (s) => s, tskRepeatSentence, tskRepeatMissed, [])(t, { depth: 0, crumb: false, kids: 0 });
+  const rep = { number: 4, sentence: 'Daily report', projectId: 'p1', projectName: 'Watch', createdAt: new Date(NOW).toISOString(), state: 'assigned', who: 'ada',
+    repeat: { every: 'day', at: '09:00' }, repeatWords: 'every day at 9am', repeatNextWords: 'today at 9am' };
+  assert.match(row({ ...rep, repeatMissed: 1, repeatMissedWords: 'yesterday at 9am' }), /<div class="why tsk-repeat missed">Missed the run due yesterday at 9am\./);
+  assert.match(row(rep), /<div class="why tsk-repeat">Repeats/, 'CONTROL: not missed, not red');
+  // The page's rule is wired to a colour (the class alone would do nothing).
+  assert.match(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'), /\.tsk-row \.why\.tsk-repeat\.missed, #tk-repeat-line\.missed \{ color: var\(--danger\); \}/);
 });
