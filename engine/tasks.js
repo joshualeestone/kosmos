@@ -838,6 +838,7 @@ function setRepeat(projectId, n, rule, opts = {}) {
     if (next) {
       changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
       if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
+      if (didChange) delete changed.lastRunLate;   // slice 2 review 1: "late" was measured against the old rule
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
@@ -886,11 +887,11 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
-    /* slice 2: a run reported after its slot's miss grace is LATE (the row says so). Measured against the slot that was due
-       before this run (taskrepeat.dueSlot, the same slot the missed line names), so a run that answers a missed slot is late
-       and an early or on-time one is not. */
-    const due = taskrepeat.dueSlot(t, at);
-    if (due !== null && at >= due + taskrepeat.missGraceFor(t.repeat)) changed.lastRunLate = true; else delete changed.lastRunLate;
+    /* slice 2: a run reported more than the miss grace after the LATEST slot it could answer is LATE (the row says so).
+       Review 1: measured against the latest due slot at or before the run, never the oldest unanswered one, so after a
+       missed day the next day's on-time run (09:05 for 09:00) is on time. Before its first due slot a run is early, not late. */
+    const latest = taskrepeat.latestAtOrBefore(t.repeat, taskrepeat.dueSlot(t, at), at);
+    if (latest !== null && at >= latest + taskrepeat.missGraceFor(t.repeat)) changed.lastRunLate = true; else delete changed.lastRunLate;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });

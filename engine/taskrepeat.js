@@ -177,17 +177,35 @@ const MISS_GRACE_MS = 15 * 60 * 1000;
 const MISSED_CAP = 99;
 function missGraceFor(rule) {
   const r = normalise(rule);
-  const period = !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
-  return Math.min(MISS_GRACE_MS, Math.floor(period / 4));
+  return Math.min(MISS_GRACE_MS, Math.floor(periodOf(r) / 4));
+}
+function periodOf(rule) {
+  const r = normalise(rule);
+  return !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
+}
+/* The latest scheduled slot at or before `ms`, never earlier than `from` (a slot that is itself due counts), or null.
+   Walks forward from two periods back, so it takes a few steps whatever the gap (review 1: reading it off a capped
+   count named a slot days old as the latest). */
+function latestAtOrBefore(rule, from, ms) {
+  if (from === null || from > ms) return null;
+  let s = nextAfter(rule, Math.max(from - 1, ms - 2 * periodOf(rule) - 3600000));
+  let last = null;
+  while (s !== null && s <= ms) { last = s; s = nextAfter(rule, s); }
+  return last;
 }
 function missedRuns(t, now = Date.now()) {
   if (!t || !t.repeat || t.isClosed === true || t.closedAt) return null;
   const grace = missGraceFor(t.repeat);
   let slot = dueSlot(t, now);
+  /* review 1: a run reported up to the miss grace BEFORE its slot answers that slot (a job that started at 08:50 for
+     09:00 ran; dueSlot's own early grace is smaller, for the nudge), so it is never called missed. */
+  const lastRun = Date.parse(t.lastRunAt || '');
+  if (slot !== null && Number.isFinite(lastRun) && lastRun < slot && slot - lastRun <= grace) slot = nextAfter(t.repeat, slot);
   if (slot === null || slot + grace > now) return null;
-  let count = 0, lastAt = slot;
-  while (slot !== null && slot + grace <= now && count < MISSED_CAP) { count += 1; lastAt = slot; slot = nextAfter(t.repeat, slot); }
-  return { count, more: slot !== null && slot + grace <= now, lastAt };
+  const first = slot;
+  let count = 0;
+  while (slot !== null && slot + grace <= now && count < MISSED_CAP) { count += 1; slot = nextAfter(t.repeat, slot); }
+  return { count, more: slot !== null && slot + grace <= now, lastAt: latestAtOrBefore(t.repeat, first, now - grace) };
 }
 
 /* kosmos#4787 slice 1b: the fields a screen shows for a repeating task (its rule in words, its next run in this board's
@@ -203,4 +221,4 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, MISSED_CAP };
+module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, latestAtOrBefore, MISSED_CAP };
