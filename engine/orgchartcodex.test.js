@@ -273,7 +273,7 @@ test('a file made after the consent is caught at the read: Codex is never starte
   } finally { fs.rmSync(path.join(acct, 'AGENTS.md')); }
 });
 
-test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s reason wins over a switched-off key provider\'s', () => {
+test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s reason is told (after Claude first), and Gemini\'s in one sentence', () => {
   keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
   c.setVersion(() => '9.9.9');
   try {
@@ -470,7 +470,7 @@ test('#5346 step 2: both no-reader sentences lead with Claude, name ChatGPT only
   assert.equal(keys.OFF_WHY.google, keys.googleOffWhyFor(process.platform));
 });
 
-test('#5346 step 2 review 2/3: on Windows, a ChatGPT account hears why it does not read here, then Claude first', () => {
+test('#5346 step 2 review 2/3: on Windows, a ChatGPT account hears Claude first, then why ChatGPT does not read here', () => {
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
   try {
