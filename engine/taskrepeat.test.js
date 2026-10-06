@@ -118,3 +118,62 @@ test('#4787 slice 1b: fieldsOf says the rule and the next run for an open repeat
   assert.deepEqual(r.fieldsOf({ repeat: { every: 'day', at: '09:00' }, closedAt: '2026-10-06T12:00:00Z' }, now), {});
   assert.deepEqual(r.fieldsOf({}, now), {}, 'CONTROL: a one-off task');
 });
+
+test('#4787 slice 2: missedRuns: a slot is missed once its time plus the grace passes with no run; not a moment before', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 5, 12, 0)).toISOString(),
+    lastRunAt: new Date(at(2026, 10, 5, 9, 3)).toISOString() };
+  // The 10-06 09:00 slot: the grace is 15 minutes.
+  assert.equal(r.missedRuns(t, at(2026, 10, 6, 9, 0)), null, 'at the slot itself: not missed');
+  assert.equal(r.missedRuns(t, at(2026, 10, 6, 9, 14)), null, 'inside the grace: a job a few minutes late is not missed');
+  assert.deepEqual(r.missedRuns(t, at(2026, 10, 6, 9, 15)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) }, 'at the grace: missed');
+  // A run since the slot clears it.
+  const ran = { ...t, lastRunAt: new Date(at(2026, 10, 6, 9, 40)).toISOString() };
+  assert.equal(r.missedRuns(ran, at(2026, 10, 6, 12, 0)), null, 'a late run answers the slot');
+  // Three days dead: three slots, the latest named.
+  assert.deepEqual(r.missedRuns(t, at(2026, 10, 8, 10, 0)), { count: 3, more: false, lastAt: at(2026, 10, 8, 9, 0) });
+});
+
+test('#4787 slice 2: the miss grace is the smaller of 15 minutes and a quarter of the period, and hourly counts are capped', () => {
+  assert.equal(r.missGraceFor({ every: 'hour' }), 15 * 60 * 1000);
+  assert.equal(r.missGraceFor({ every: 'day', at: '09:00' }), 15 * 60 * 1000);
+  assert.equal(r.missGraceFor({ every: 'week', day: 1, at: '09:00' }), 15 * 60 * 1000);
+  // An hourly job dead for a week: the count stops at the cap and says there were more.
+  const t = { repeat: { every: 'hour', minute: 0 }, repeatSetAt: new Date(at(2026, 10, 1, 0, 30)).toISOString() };
+  const m = r.missedRuns(t, at(2026, 10, 8, 0, 30));
+  assert.equal(m.count, r.MISSED_CAP);
+  assert.equal(m.more, true);
+  // CONTROL: one day of it is under the cap, so `more` can be false (the flag is not always true).
+  const d = r.missedRuns(t, at(2026, 10, 1, 12, 20));
+  assert.deepEqual([d.count, d.more], [12, false], "01:00 to 12:00, the noon slot past its grace at 12:15");
+});
+
+test('#4787 slice 2: no miss is claimed where there is nothing to measure from, nor on a closed, one-off or future-stamped task', () => {
+  const now = at(2026, 10, 9, 12, 0);
+  assert.equal(r.missedRuns({ repeat: { every: 'day', at: '09:00' } }, now), null, 'no stamp at all');
+  assert.equal(r.missedRuns({ sentence: 'one-off', createdAt: new Date(at(2026, 10, 1, 0, 0)).toISOString() }, now), null);
+  const old = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 0, 0)).toISOString() };
+  assert.ok(r.missedRuns(old, now), 'CONTROL: the same task open is missed');
+  assert.equal(r.missedRuns({ ...old, isClosed: true }, now), null, 'closed');
+  assert.equal(r.missedRuns({ ...old, lastRunAt: new Date(now + 3600000).toISOString() }, now), null, 'a run stamped in the future');
+  // A rule set after the slot passed: that slot is not missed (review 5's rule, kept by the shared dueSlot).
+  assert.equal(r.missedRuns({ repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 9, 10, 0)).toISOString() }, now), null);
+});
+
+test('#4787 slice 2: fieldsOf adds the missed count and the latest missed slot in words; nothing when no run is missed', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 5, 12, 0)).toISOString() };
+  const f = r.fieldsOf(t, at(2026, 10, 6, 10, 0));
+  assert.equal(f.repeatMissed, 1);
+  assert.equal(f.repeatMissedMore, false);
+  assert.equal(f.repeatMissedAt, at(2026, 10, 6, 9, 0));
+  assert.equal(f.repeatMissedWords, 'today at 9am');
+  assert.equal(f.repeatNextWords, 'tomorrow at 9am', 'the next run is still said');
+  const ok = r.fieldsOf(t, at(2026, 10, 6, 8, 0));
+  assert.equal('repeatMissed' in ok, false, 'before the slot: no missed fields at all');
+});
+
+test('#4787 slice 2: waitingForNextRun is unchanged by sharing dueSlot (the nudge and the Assigner read it)', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 5, 12, 0)).toISOString() };
+  assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 8, 59)), true);
+  assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 9, 0)), false, 'due at the slot itself, before any miss grace');
+  assert.equal(r.waitingForNextRun({ repeat: { every: 'day', at: '09:00' } }, at(2026, 10, 6, 9, 0)), false, 'no stamp: shown as work');
+});

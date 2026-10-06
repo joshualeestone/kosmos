@@ -841,7 +841,7 @@ function setRepeat(projectId, n, rule, opts = {}) {
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
-      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote;
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -886,10 +886,15 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
+    /* slice 2: a run reported after its slot's miss grace is LATE (the row says so). Measured against the slot that was due
+       before this run (taskrepeat.dueSlot, the same slot the missed line names), so a run that answers a missed slot is late
+       and an early or on-time one is not. */
+    const due = taskrepeat.dueSlot(t, at);
+    if (due !== null && at >= due + taskrepeat.missGraceFor(t.repeat)) changed.lastRunLate = true; else delete changed.lastRunLate;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
-  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}) });
   return changed;
 }
 
