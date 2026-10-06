@@ -209,6 +209,28 @@ else
 fi
 "$TMUX_BIN" kill-server 2>/dev/null || true
 
+# #4918 review 13: the real WIRING against real systemd, not only the linuxjob primitives. create.createAgent runs every
+# systemctl through create's own run() (which THROWS on a non-zero exit; is-active answers 3 for "inactive"), then
+# remove.restart and remove.remove through remove.js's run(). A wiring regression there breaks this, not a fake.
+LIVE_AGENT=livecreate4918
+if node -e '
+  require("./engine/live-execution").allowLiveExecution();
+  const create = require("./engine/create");
+  const remove = require("./engine/remove");
+  const name = process.argv[1];
+  const c = create.createAgent({ name, role: "pm", claudeBin: process.argv[2], tmuxBin: process.argv[3], platform: "linux" });
+  if (c.outcome !== create.OUTCOME.CREATED) { console.error("create:", JSON.stringify(c)); process.exit(3); }
+  const r = remove.restart(name, "live check", { platform: "linux" });
+  if (r.outcome !== remove.OUTCOME.RESTARTED) { console.error("restart:", JSON.stringify(r)); process.exit(4); }
+  const d = remove.remove(name, { platform: "linux" });
+  if (!d || /refused|failed/i.test(String(d.outcome || ""))) { console.error("remove:", JSON.stringify(d)); process.exit(5); }
+' "$LIVE_AGENT" "$MOCK_RUNNER" "$TMUX_BIN"; then
+  ok "createAgent, restart and remove run end to end against real systemd"
+else
+  bad "the create/restart/remove wiring failed against real systemd (exit $?)"
+fi
+"$TMUX_BIN" kill-server 2>/dev/null || true
+
 sleep 1
 if [ ! -f "$HOME/.config/systemd/user/kosmos-agent-$AGENT_NAME.service" ]; then
   ok "agent unit file cleaned up after remove()"

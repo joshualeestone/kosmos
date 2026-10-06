@@ -443,6 +443,7 @@ function del(name, opts) {
     try {
       // { ok } only when the unit file is gone (#4918 review 1); through this module's run() seam (review 7).
       const lj = require('./linuxjob');
+      lj.ensureRuntimeDir();
       out = lj.runWith((file, args) => run(file, args), () => lj.remove(p.name));
     } catch (err) {
       out = { ok: false, because: String((err && err.message) || err) };

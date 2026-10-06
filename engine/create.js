@@ -368,6 +368,7 @@ let runner = null;
    states ("inactive" is exit 3), so the throw becomes a result here: { ok:false, code, stdout, stderr }. */
 function linuxRun(body) {
   const lj = require('./linuxjob');
+  lj.ensureRuntimeDir();
   return lj.runWith((file, args) => {
     try { return run(file, args); } catch (err) {
       return { ok: false, code: err && err.status != null ? err.status : 1, stdout: String((err && err.stdout) || ''), stderr: String((err && err.stderr) || ''), because: (err && err.message) || String(err) };

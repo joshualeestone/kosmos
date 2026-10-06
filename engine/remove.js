@@ -537,6 +537,7 @@ function jobOps(platform) {
     const lj = require('./linuxjob');
     /* #4918 review 6: every systemctl here goes through THIS module's run(), as the Mac arm's launchctl does, so
        setRunner, setDryRun / AGENT_WORKFORCE_DRY_RUN and the live-execution gate all hold on Linux too. */
+    lj.ensureRuntimeDir();
     const via = (body) => lj.runWith((file, args) => run(file, args, { timeout: 30000 }), body);
     // The job's world: its own worldId, else read back from the unit name a removal record kept (review 8).
     const wid = (job) => (job && job.worldId !== undefined) ? job.worldId
