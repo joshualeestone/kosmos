@@ -40811,7 +40811,7 @@ function instrAddPaint(sessionName, data) {
       + (last.undoable ? ''
         : last.blocked === 'edited' ? ' This addition can no longer be undone here, because it was changed or copied after it was added. Edit the instructions above instead.'
         : last.blocked === 'short' ? ' This addition cannot be undone here, because what would be left is too short to keep. Edit the instructions above instead.'
-        : ' This addition cannot be undone here. Edit the instructions above instead.');
+        : ' This addition cannot be undone right now, because these instructions could not be read.');
     li.append(line);
     if (last.undoable) {
       const note = document.createElement('p');

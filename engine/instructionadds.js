@@ -88,7 +88,18 @@ function headingLine(askedBy, askedAt, id) {
   /* Review 4: the proposal's own id, in a comment line (an agent sees it, but it is not a rule), so "this exact addition
      is already at the end" can only ever mean THIS proposal (a re-proposal of the same words the same day is a different
      one). Proposals themselves may not hold comments (propose refuses them), so this line is always Kosmos's own. */
-  return `## Added on ${day}, asked by ${askedBy}` + (id ? `\n<!-- kosmos addition ${id} -->` : '');
+  return `## Added on ${day}, asked by ${askerWords(askedBy)}` + (id ? `\n<!-- kosmos addition ${id} -->` : '');
+}
+/* Review 10 (BLOCKER): the asker's name is an agent's own display name, read from ITS instructions, so it could carry a
+   newline or Kosmos's comment markers into ANOTHER agent's file (a second managed block, or a forged id line). Written
+   on one line, with no comment markers, at most 80 characters. */
+function askerWords(askedBy) {
+  const one = String(askedBy == null ? '' : askedBy).replace(/<!--|-->/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).trim();
+  return one || 'another agent';
+}
+/** The exact text Apply writes for a pending addition (the leading blank lines included). */
+function blockOf(p) {
+  return '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + String(p.text).replace(/\s*$/, '') + '\n';
 }
 
 /** The pending addition for this agent, or null. */
@@ -138,6 +149,12 @@ function dismiss(agent) {
   if (failedRead(all)) return { ok: false, because: failSaid(all) };
   const rec = recOf(all, k);
   if (!rec || !rec.pending) return { ok: false, code: 'none', because: 'there is no addition waiting' };
+  /* Review 10: an Apply that wrote the file but could not record it leaves the addition both waiting and in the file.
+     Dismissing then would leave it there with nothing on the page that says so or can take it out. */
+  const { text } = readText(agent);
+  if (whereIs(text, { block: blockOf(rec.pending) }) === 'here') {
+    return { ok: false, code: 'applied', because: 'this addition is already in the instructions (an earlier Apply wrote it but could not record it). Press Apply to finish; Undo can then take it out' };
+  }
   delete rec.pending;
   all.agents[k] = rec;
   writeAll(all);
@@ -169,7 +186,7 @@ function apply(agent, now) {
   const cur = instructions.read(agent);
   if (!cur || !cur.exists) return { ok: false, because: (cur && cur.because) || 'these instructions could not be read' };
   const p = rec.pending;
-  const block = '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
+  const block = blockOf(p);
   const curText = String(cur.text == null ? '' : cur.text);
   /* Review 3: IDEMPOTENT. If the file already holds exactly this addition (an earlier press wrote it but could not record
      it), it is only recorded now, never added a second time. Review 9: where the addition stands is read from the FILE
@@ -231,12 +248,26 @@ function withoutSpan(text, last) {
    line is not in the file (Undo, or taken out by hand); 'changed': the id line is there but the addition is not there
    exactly once as written; 'unread': the file could not be read. Proposals cannot hold comments (propose refuses them),
    so the id line is only ever Kosmos's own. */
-function idLineOf(block) { const m = /<!-- kosmos addition [^\n]*? -->/.exec(String(block || '')); return m ? m[0] : ''; }
+/* Review 10: a TRACE of the addition is its heading line with its id line under it, or its heading with its text. A
+   stray copy of the id line alone (quoted in a note) is not one, and deleting only the id line (it looks like clutter
+   in an editor) leaves one. */
+function tracesOf(block) {
+  const core = coreOf(block);
+  const end = core.indexOf(' -->');
+  const pair = end === -1 ? '' : core.slice(0, end + 4);
+  const heading = core.split('\n')[0];
+  const body = pair ? core.slice(pair.length).trim() : '';
+  return { pair, heading, body };
+}
 function whereIs(text, last) {
   if (typeof text !== 'string') return 'unread';
   if (withoutSpan(text, last) !== null) return 'here';
-  const id = idLineOf(last && last.block);
-  return (id ? text.includes(id) : text.includes(coreOf(last && last.block))) ? 'changed' : 'gone';
+  const { pair, heading, body } = tracesOf(last && last.block);
+  /* The heading and the text with only blank space between them: what deleting only the id line leaves. (Another
+     addition with the same heading and words has its own id line between them, so it is not this one's trace.) */
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const traced = (pair && text.includes(pair)) || (heading && body && new RegExp(esc(heading) + '\\s*' + esc(body)).test(text));
+  return traced ? 'changed' : 'gone';
 }
 function readText(agent) {
   let cur = null;
