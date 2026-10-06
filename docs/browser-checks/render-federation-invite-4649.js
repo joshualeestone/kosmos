@@ -1672,6 +1672,11 @@ const closeAll = (page) => page.evaluate(() => {
       whole.shown && whole.value === invitation('Maya Chen (' + ADDR + ')') && whole.sel[0] === 0 && whole.sel[1] === whole.value.length
       && focusC4 === 'fedinv-whole',
       JSON.stringify({ shown: whole.shown, sel: whole.sel, focus: focusC4, same: whole.value === invitation('Maya Chen (' + ADDR + ')') }));
+    // #5275 slice 2 review 1: a reset while the field has focus (here, as the next press does) hides it and puts focus
+    // back on Copy the invitation, never on the page behind the sheet. Its precondition is C4's: focus in the field.
+    const backTo = await page.evaluate(() => { fedInviteCopyReset(); return document.activeElement && document.activeElement.id; });
+    check('C4 #5275 hiding the field while it has focus returns focus to Copy the invitation (precondition: C4, focus in the field)',
+      focusC4 === 'fedinv-whole' && backTo === 'fedinv-copy-all', JSON.stringify({ before: focusC4, after: backTo }));
     // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
     await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
     await copyAll(page);
