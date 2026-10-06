@@ -17,7 +17,13 @@ beside PowerShell scripts refused after a machine policy reset.
 - Review 9: the same case trap held for every other name childEnv touches (the child-session markers,
   KOSMOS_AGENT_TOKEN, CLAUDE_CONFIG_DIR, CODEX_HOME and the like): an inherited `Claude_Config_Dir` survived
   `delete env.CLAUDE_CONFIG_DIR`, the #2129 account leak in another spelling. All of them now go through two helpers,
-  envDelete (every spelling) and envSet (one key). PATH keeps its own one-key line, unchanged.
+  envDelete (every spelling) and envSet (one key), in engine/win32env.js since review 11 so the per-turn envs that
+  delete one hop later (win32agy and win32keyed: CLAUDE_CONFIG_DIR, XAI_API_KEY) use them too. PATH keeps its own
+  one-key line, unchanged.
+- Measured on PR #5384's windows job (10-06 04:30): the Git Bash arm passed; the policy arm failed in its own setup,
+  because the CI step's PowerShell 7 module path stopped Windows PowerShell 5.1 loading Set-ExecutionPolicy. The arms
+  now drop PSModulePath, which models a board started by Explorer or its logon task. NOT MODELLED: a board started from
+  a PowerShell 7 terminal, which would pass that path to its agents' PowerShell 5.1 (a gap stated, not measured).
 - New Windows-runner arms measure each shell: Git Bash, run as Claude Code's tool runs it (`bash -c`), finds `kosmos`
   on the agent's PATH (control: not without it; a red says whether it was the PATH or the shim); PowerShell with the flags Claude Code passes (taken from #570, not measured here) finds kosmos.ps1 and runs it under a Restricted policy; codex's `powershell -Command`
   is refused without the variable (control) and runs with it.
