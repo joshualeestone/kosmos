@@ -21845,11 +21845,12 @@ function paintLoginAdvisories(advs) {
 /* #5407 (Josh): the notice's Refresh login opens Settings > AI Models at that account's row, highlighted, with its
    Sign in again focused. The account list paints after a live read, so the row is found when it paints (acctLand,
    called from paintAccounts) as well as at once when it is already there. The highlight stays a short while across
-   the list's own follow-up repaints, then goes. With no row for that folder (removed meanwhile), the section opens
+   the list's own follow-up repaints, then a timer takes it off. With no row for that folder (removed meanwhile), the section opens
    with nothing highlighted, never a wrong row. */
 let ACCT_LAND_DIR = '';
 let ACCT_LAND_UNTIL = 0;
 const ACCT_LAND_MS = 20000;
+let ACCT_SOON_SEQ = 0;   // unique ids for each row's warning line (aria-describedby)
 function loginAdvGo(dir) {
   ACCT_LAND_DIR = typeof dir === 'string' ? dir : '';
   ACCT_LAND_UNTIL = Date.now() + ACCT_LAND_MS;
@@ -21860,6 +21861,10 @@ function loginAdvGo(dir) {
     showTab('settings');
     settingsOpen('accounts');
   }
+  /* Review 1: the pressed button sat in a notice that has just stepped aside, so focus goes to the section until the
+     row paints (acctLand then moves it to the row's Sign in again); with no row for that folder it stays there. */
+  const sec = document.getElementById('s-sec-accounts');
+  if (sec && !sec.contains(document.activeElement)) sec.focus({ preventScroll: true });
   acctLand();
 }
 /* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
@@ -21873,6 +21878,11 @@ function acctLand() {
   if (!row) return;
   ACCT_LAND_DONE = ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL;
   row.classList.add('acct-land');
+  // Review 1: the ring goes when its time is up, not at the next repaint (which may never come).
+  setTimeout(() => {
+    if (Date.now() < ACCT_LAND_UNTIL) return;   // a newer landing extended it
+    document.querySelectorAll('#set-accounts .acct-box.acct-land').forEach((r) => r.classList.remove('acct-land'));
+  }, Math.max(0, ACCT_LAND_UNTIL - Date.now()) + 50);
   row.scrollIntoView({ block: 'center' });
   const go = row.querySelector('.acct-reauth');
   if (go) go.focus({ preventScroll: true });
@@ -26182,11 +26192,17 @@ async function paintAccounts(opts) {
     /* #5407 (Josh): a login inside the notice's window (the board counts the days the way the notice does). */
     const expiresIn = a.connection && Number.isInteger(a.connection.loginExpiresInDays) ? a.connection.loginExpiresInDays : null;
     const expiresWords = expiresIn === null ? '' : expiresIn === 0 ? 'expires today' : 'expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days');
+    const expiresAt = a.connection && Number.isFinite(a.connection.loginExpiresAt) ? a.connection.loginExpiresAt : null;
+    const expiresDate = expiresAt ? new Date(expiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+    /* #5407 review 1: past its date with the agents already stopped (no stop time ahead): the notice's "has expired". */
+    const loginEnded = !!(a.connection && a.connection.loginEnded === true) && !stopsAt;
     if (stopsAt) {
       const when = loginAdvWhen(stopsAt);
       connBadge = '<span class="acct-unverified acct-stopsat" title="' + esc('This account\'s sign-in has run out. Its agents keep working on the access they already hold until ' + when.replace(/^at /, '') + ', then stop. Sign in again before then to keep them running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · stops working ' + esc(when) + '</span>';
+    } else if (loginEnded) {
+      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('This account\'s sign-in has run out, and its agents have stopped. Sign in again to bring them back.') + '"><span class="dot" aria-hidden="true"></span>Login expired</span>';
     } else if (expiresIn !== null) {
-      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · login ' + esc(expiresWords) + '</span>';
+      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + (expiresDate || 'soon') + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · login ' + esc(expiresWords) + '</span>';
     } else if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
@@ -26244,12 +26260,15 @@ async function paintAccounts(opts) {
        agents on borrowed time), or the row the person arrived at from the notice, leads with Sign in again and says
        why in one line. Not an API-key row: it has no sign-in to redo (#2433). */
     const claudeSignIn = !isKeyed && !a.apiKey;
-    const signInFirst = claudeSignIn && (!!stopsAt || expiresIn !== null || acctLanded(a.dir));
+    const signInFirst = claudeSignIn && (!!stopsAt || loginEnded || expiresIn !== null);
     const soonLine = !claudeSignIn ? ''
       : stopsAt ? 'Its login has ended, and its agents stop working ' + loginAdvWhen(stopsAt) + '. Sign in again to keep them running.'
+      : loginEnded ? 'Its login has ended, and its agents have stopped. Sign in again to bring them back.'
       : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + ': sign in again to keep its agents running.'
       : '';
+    const soonId = soonLine ? 'acct-soon-' + (++ACCT_SOON_SEQ) : '';   // review 1: the line describes the main button
     const reauthBtn = (main) => '<button class="acct-reauth' + (main ? ' uprime acct-reauth-main' : '') + '" type="button" data-reauth="' + esc(a.dir) + '" '
+      + (main && soonId ? 'aria-describedby="' + soonId + '" ' : '')
       + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
       + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
     return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" data-acct-dir="' + esc(a.dir || '') + '">'
@@ -26257,7 +26276,7 @@ async function paintAccounts(opts) {
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'
       + connBadge + '</div>'
-      + (soonLine ? '<p class="acct-expiring-line">' + esc(soonLine) + '</p>' : '')
+      + (soonLine ? '<p class="acct-expiring-line" id="' + soonId + '">' + esc(soonLine) + '</p>' : '')
       + shared
       /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
          enumerates the agents on an account and REFUSES while any is on it,

@@ -9901,11 +9901,17 @@ const server = http.createServer(async (req, res) => {
             connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
               ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
               ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
-              /* #5407: inside the login notice's window (the same count and window as the notice), so the row can say
-                 so and lead with Sign in again. Only while the login is still good: an ended one says loginStopsAt. */
+              /* #5407: the login notice's window, from the login date alone (review 1: NOT from loginOk, which needs an
+                 idle row, so an account whose agents were working, the very one the notice is about, never got it).
+                 Not over a rejection or a sign-out, which say more already. Inside the window: loginExpiresInDays (and
+                 the date, for the title). Past its date: loginEnded, unless loginStopsAt (below) says the agents still
+                 work for a while, which the row says instead. */
               ...((() => {
-                const d = loginOk ? require('./engine/loginexpiry').daysLeftInWindow(loginArgs.until, nowMs) : null;
-                return d !== null && d >= 0 ? { loginExpiresInDays: d } : {};
+                const until = loginUntil.get(a);
+                if (!Number.isFinite(until) || v.badge === 'rejected' || v.badge === 'signed_out') return {};
+                const d = require('./engine/loginexpiry').daysLeftInWindow(until, nowMs);
+                if (d === null) return {};
+                return until > nowMs ? { loginExpiresInDays: Math.max(0, d), loginExpiresAt: until } : { loginEnded: true };
               })()),
               ...(loginGreen ? { observedFrom: 'login' } : {}),
               /* #5168: the login has ended but its agents still work on the access token they hold, until this time.

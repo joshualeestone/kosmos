@@ -15,6 +15,10 @@
  *   R2  the ended row: its line says when its agents stop, Sign in again is its main action
  *   C1  CONTROL: a login good for 20 days stays green with no line, and Sign in again is the plain link, not first
  *   C2  CONTROL: a notice for a folder with no row opens AI Models and rings nothing
+ *   R3  an ended login whose agents have stopped: "Login expired", its line, Sign in again first
+ *   K1  the one-screen layout (Settings last on another section): opens AI Models, rings the row, focuses Sign in
+ *       again, the notices step aside; CONTROL: leaving brings them back
+ *   T1  the ring goes when its time is up, with no repaint
  *   N2  on AI Models the login notices step aside; CONTROL: back on the board they show again
  *   P1  on a phone (touch), Refresh login and the main Sign in again are at least 44px tall
  * Light and dark.
@@ -50,8 +54,11 @@ function row(email, dir, conn) {
     connection: { state: 'connected', badge: 'working', observedFrom: 'login', checkedLive: true, plan: null, ...conn },
   };
 }
+/* Review 1: the soon row is what the server sends for an account whose agents ARE working (the one the notice is about):
+   a working badge from an agent's request, no loginValidUntil, and the window's days with the date. */
 const ACCOUNTS = [
-  row('soon@example.com', '/home/.claude-soon', { loginValidUntil: Date.now() + 2 * DAY + 3600000, loginExpiresInDays: 2 }),
+  row('soon@example.com', '/home/.claude-soon', { observedFrom: 'agent', observedAgeMs: 30000, loginExpiresInDays: 2, loginExpiresAt: Date.now() + 2 * DAY + 3600000 }),
+  row('gone@example.com', '/home/.claude-gone2', { badge: 'signed_in_unverified', observedFrom: null, loginEnded: true }),
   row('ended@example.com', '/home/.claude-ended', { badge: 'signed_in_unverified', observedFrom: null, loginStopsAt: Date.now() + 5 * 3600000 }),
   row('fine@example.com', '/home/.claude-fine', { loginValidUntil: Date.now() + 20 * DAY }),
 ];
@@ -60,7 +67,7 @@ const ADV_SOON = { agents: ['mona'], names: ['Mona'], daysLeft: 2, severity: 'wa
 const ADV_ENDED = { agents: ['echo'], names: ['Echo'], daysLeft: -1, severity: 'urgent', expired: true, service: 's-ended',
   worksUntil: Date.now() + 5 * 3600000, provider: 'Claude', email: 'ended@example.com', dir: '/home/.claude-ended' };
 const ADV_GONE = { agents: ['leo'], names: ['Leo'], daysLeft: -2, severity: 'urgent', expired: true, service: 's-gone2',
-  worksUntil: null, provider: 'Claude', email: 'fine@example.com', dir: '/home/.claude-fine' };
+  worksUntil: null, provider: 'Claude', email: 'gone@example.com', dir: '/home/.claude-gone2' };
 const ADV_NOROW = { ...ADV_SOON, service: 's-norow', email: 'gone@example.com', dir: '/home/.claude-gone' };
 
 async function setUp(page, theme) {
@@ -89,6 +96,8 @@ function readRows(page) {
         badge: ((b.querySelector('.acct-box-top > span') || {}).textContent || '').trim(),
         firstIsReauth: !!(first && first.matches('.acct-reauth')),
         mainGold: main ? getComputedStyle(main).backgroundColor : '',
+        describedBy: !!(main && main.getAttribute('aria-describedby') && document.getElementById(main.getAttribute('aria-describedby'))
+          && document.getElementById(main.getAttribute('aria-describedby')).classList.contains('acct-expiring-line')),
         reauthCount: b.querySelectorAll('[data-reauth]').length,
       };
     }
@@ -117,7 +126,7 @@ function readRows(page) {
     })));
     chk(notices.length === 3 && notices.every((n) => n.go === 'Refresh login'), theme + ' N1: every notice carries Refresh login', JSON.stringify(notices));
     chk(notices.some((n) => /stops working/.test(n.head) && n.dir === '/home/.claude-ended'), theme + ' N1: the "stops working" notice, naming its row');
-    chk(notices.some((n) => /has expired/.test(n.head) && n.dir === '/home/.claude-fine'), theme + ' N1: the "has expired" notice, naming its row');
+    chk(notices.some((n) => /has expired/.test(n.head) && n.dir === '/home/.claude-gone2'), theme + ' N1: the "has expired" notice, naming its row');
 
     // L1: press the warn notice's button.
     await page.click('#login-adv-slot button.login-adv-go[data-adv-dir="/home/.claude-soon"]');
@@ -161,6 +170,10 @@ function readRows(page) {
       const c = getComputedStyle(probe).backgroundColor; probe.remove(); return c;
     });
     chk(soon.mainGold === gold, theme + ' R1: it is the gold primary', soon.mainGold + ' vs ' + gold);
+    chk(soon.describedBy, theme + ' R1: the line describes the main Sign in again (screen readers)');
+    const gone = rows['gone@example.com'] || {};
+    chk(gone.line === 'Its login has ended, and its agents have stopped. Sign in again to bring them back.', theme + ' R3: the ended-and-stopped row says so', JSON.stringify(gone.line));
+    chk(/Login expired/.test(gone.badge || '') && gone.firstIsReauth && /acct-expiring/.test(gone.cls || ''), theme + ' R3: its badge, and Sign in again is its main action', JSON.stringify(gone));
 
     const ended = rows['ended@example.com'] || {};
     chk(/^Its login has ended, and its agents stop working (tomorrow )?at about .+\. Sign in again to keep them running\.$/.test(ended.line || ''), theme + ' R2: the ended row says when its agents stop', JSON.stringify(ended.line));
@@ -188,9 +201,62 @@ function readRows(page) {
       open: !document.getElementById('s-sec-accounts').hidden,
       ringed: document.querySelectorAll('#set-accounts .acct-box.acct-land').length,
       rows: document.querySelectorAll('#set-accounts .acct-box[data-acct-dir]').length,
+      focusInSection: document.getElementById('s-sec-accounts').contains(document.activeElement),
     }));
-    chk(c2.open && c2.rows === 3 && c2.ringed === 0, theme + ' C2 CONTROL: no row for that folder: AI Models opens, nothing ringed', JSON.stringify(c2));
+    chk(c2.open && c2.rows === 4 && c2.ringed === 0, theme + ' C2 CONTROL: no row for that folder: AI Models opens, nothing ringed', JSON.stringify(c2));
+    chk(c2.focusInSection, theme + ' C2: focus stays in AI Models, not lost to the page', JSON.stringify(c2));
     await p2.close();
+  }
+
+  // K1 (review 1): the one-screen layout, with Settings last left on another section.
+  {
+    const pk = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await setUp(pk, 'light');
+    await pk.evaluate(() => {
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      PROJECTS = [{ id: 'k', name: 'K', parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 }];
+      document.documentElement.setAttribute('data-layout', 'consolidated'); PJ_CURRENT = 'k'; showTab('projects');
+      SETTINGS_SEC = 'you';
+    });
+    const isCons = await pk.evaluate(() => document.body.classList.contains('consolidated'));
+    chk(isCons, 'K1: fixture: the one-screen layout is on');
+    await pk.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
+    await pk.click('#login-adv-slot button.login-adv-go');
+    await pk.waitForSelector('#set-accounts .acct-box.acct-land', { timeout: 5000 }).catch(() => {});
+    const k = await pk.evaluate(() => {
+      const row = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-soon"]');
+      const f = document.activeElement;
+      return {
+        settings: !document.getElementById('panel-settings').hidden,
+        accounts: !document.getElementById('s-sec-accounts').hidden,
+        ringed: !!(row && row.classList.contains('acct-land')),
+        focus: !!(f && f.matches('.acct-reauth') && row && row.contains(f)),
+        notices: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length,
+      };
+    });
+    chk(k.settings && k.accounts, 'K1: Refresh login opens AI Models in the one-screen layout', JSON.stringify(k));
+    chk(k.ringed && k.focus, 'K1: the row is ringed and its Sign in again has focus', JSON.stringify(k));
+    chk(k.notices === 0, 'K1: the login notices step aside there too', JSON.stringify(k));
+    await pk.evaluate(() => { if (typeof pjView === 'function') pjView('one'); });
+    const kb = await pk.evaluate(() => [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length);
+    chk(kb === 1, 'K1 CONTROL: leaving Settings there brings the notice back', String(kb));
+    await pk.close();
+  }
+
+  // T1 (review 1): the ring is taken off when its time is up, with no repaint.
+  {
+    const pt = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    await pt.clock.install();
+    await setUp(pt, 'light');
+    await pt.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
+    await pt.click('#login-adv-slot button.login-adv-go');
+    await pt.clock.runFor(500);
+    await pt.waitForSelector('#set-accounts .acct-box.acct-land', { timeout: 5000 }).catch(() => {});
+    const before = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
+    await pt.clock.runFor(21000);
+    const after = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
+    chk(before === 1 && after === 0, 'T1: ringed on arrival, and the ring goes after its time with no repaint', before + ' -> ' + after);
+    await pt.close();
   }
 
   // P1: a phone (touch): both controls at finger size.

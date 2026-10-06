@@ -194,6 +194,36 @@ test('#5407: a login inside the notice\'s window carries its days left; one outs
     assert.equal(m.get('aria@example.com').loginValidUntil, SOON, 'the date is still there for the page');
     assert.equal(m.get('boss@example.com').loginExpiresInDays, undefined, 'CONTROL: twenty days out is not in the window');
     assert.equal(m.get('cleo@example.com').loginExpiresInDays, undefined, 'a login that has run out says so another way');
+    assert.equal(m.get('cleo@example.com').loginEnded, true, 'an ended login with its agents stopped says so (review 1)');
+    assert.equal(m.get('boss@example.com').loginEnded, undefined, 'CONTROL: a good login is not ended');
+    assert.equal(m.get('aria@example.com').loginExpiresAt, SOON, 'the date travels with the days, for the title');
+  } finally {
+    claudeloginlive.setReaderForTests((ccd) => { asked.push(ccd); return ccd === CLEO_DIR ? PAST : FUTURE; });
+  }
+});
+
+test('#5407 review 1: an account whose agents ARE working (the one the notice is about) still carries its days left', async () => {
+  const SOON = Date.now() + 2 * DAY + 3600000;
+  claudeloginlive.setReaderForTests((ccd) => (ccd === ARIA_DIR ? SOON : ccd === CLEO_DIR ? PAST : FUTURE));
+  try {
+    observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.OK, Date.now());
+    const m = await rows();
+    assert.equal(m.get('aria@example.com').badge, 'working', 'fixture: the agent\'s request was not seen');
+    assert.equal(m.get('aria@example.com').loginExpiresInDays, 2, JSON.stringify(m.get('aria@example.com')));
+  } finally {
+    claudeloginlive.setReaderForTests((ccd) => { asked.push(ccd); return ccd === CLEO_DIR ? PAST : FUTURE; });
+  }
+});
+
+test('#5407: a rejected account inside the window says nothing more than its rejection', async () => {
+  const SOON = Date.now() + 2 * DAY + 3600000;
+  claudeloginlive.setReaderForTests((ccd) => (ccd === ARIA_DIR ? SOON : ccd === CLEO_DIR ? PAST : FUTURE));
+  try {
+    observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.REJECTED, Date.now());
+    const m = await rows();
+    assert.equal(m.get('aria@example.com').badge, 'rejected', 'fixture: the rejection was not seen');
+    assert.equal(m.get('aria@example.com').loginExpiresInDays, undefined);
+    assert.equal(m.get('aria@example.com').loginEnded, undefined);
   } finally {
     claudeloginlive.setReaderForTests((ccd) => { asked.push(ccd); return ccd === CLEO_DIR ? PAST : FUTURE; });
   }
