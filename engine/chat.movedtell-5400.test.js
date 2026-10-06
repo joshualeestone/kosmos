@@ -321,3 +321,34 @@ test('review 7: a caller passing another casing of the name still finds what the
     assert.deepEqual(told, [real]);
   });
 });
+
+/* Review 8 (sonnet, blind): a failing hook never costs a person's line. */
+test('review 8: a hook whose owed, note or told throws leaves every line going out (bare), never a thrown delivery', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const boom = () => { throw new Error('a bad project record'); };
+    for (const [which, h] of [
+      ['owed', { owed: boom, note: (i) => ft.noteFor(i), told: () => {} }],
+      ['note', { owed: () => [ITEM], note: boom, told: () => {} }],
+    ]) {
+      chat.setMovedTell(h);
+      const tmux = arm([ok(), ok()]);
+      const v = chat.deliver('casey', 'Your limit has reset; carry on.', board.agents);
+      assert.equal(v.state, chat.DELIVERY.PLACED, which + ' threw and the line did not go: ' + JSON.stringify(v));
+      assert.equal(tmux.pastedText(), 'Your limit has reset; carry on.', which);
+    }
+    chat.setMovedTell({ owed: () => [ITEM], note: (i) => ft.noteFor(i), told: boom });
+    arm([ok(), ok()]);
+    const v = chat.deliver('casey', 'Your limit has reset; carry on.', board.agents);
+    assert.equal(v.state, chat.DELIVERY.PLACED, 'a throwing told lost the verdict');
+  });
+});
+test('review 8: an incomplete hook is ignored (no note, nothing called)', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    let called = 0;
+    chat.setMovedTell({ owed: () => { called += 1; return [ITEM]; }, note: (i) => ft.noteFor(i) });   // no told
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'Your limit has reset; carry on.', board.agents);
+    assert.equal(tmux.pastedText(), 'Your limit has reset; carry on.');
+    assert.equal(called, 0);
+  });
+});
