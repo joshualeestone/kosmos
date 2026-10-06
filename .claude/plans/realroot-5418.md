@@ -14,11 +14,13 @@ Refuse at the single derivation every module reads, `store.root()`:
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
 - In a test process, a resolved root equal to the machine's REAL default root is never used:
-  - with NO sandbox variable set, the process gets ONE throwaway home for its life (mkdtemp, prefix
-    `kosmos-test-home-`), exported as AGENT_WORKFORCE_HOME so its children share it, re-exported if a
-    test deletes the variable, and removed at exit (best effort: a killed process leaves it in tmp).
-    As the general home seam it also moves the workers root, worlds and accounts into the throwaway
-    for that process, which for an unsandboxed test is the same protection;
+  - with NO sandbox variable set, the store answers ONE throwaway root of that process's own (mkdtemp,
+    prefix `kosmos-test-home-`), removed at exit (best effort; run-tests.sh sweeps ones older than two
+    hours). It is the store's alone: no environment variable is set, so no other seam changes (an
+    earlier version exported AGENT_WORKFORCE_HOME, which agystatus, accounts, codexupdate and others
+    also read, and which overrode a HOME set later; review 2 caught it). A child process is a test
+    process too and gets its own. The legacy migration is skipped for it, since its target would be
+    the real store;
   - with a sandbox variable set that still resolves to the real root, it throws a named error.
 - "Real" is derived from `os.userInfo().homedir` (the account's home in the user database), NOT
   `os.homedir()`, which follows $HOME: a test that sandboxes by pointing HOME elsewhere must not be
@@ -59,6 +61,12 @@ web.told-banner, server.socket-split, engine/store and engine/team (all failed u
 ## Existing test changed
 `engine/store.lazyroot-1443.test.js`'s CONTROL reads the unsandboxed root to prove it is the real
 per-platform location (a path read only). It now says KOSMOS_ALLOW_REAL_ROOT=1 for that read.
+
+## Second redesign (review 2): store-only, no environment
+Exporting the throwaway as AGENT_WORKFORCE_HOME changed every seam that reads that variable, depending
+on which module read the store first, and silently overrode a HOME set later. The throwaway now lives
+in store.js only. Cost: a parent and the children it starts no longer share one throwaway; only
+unsandboxed pairs that both used the REAL store shared before, and those are this card's leaks.
 
 ## Residual
 A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks
