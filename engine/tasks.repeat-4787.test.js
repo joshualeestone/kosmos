@@ -320,3 +320,18 @@ test('#4787 slice 3 review 2: an agent cannot get round the person\'s reviewer b
   tasks.setRepeat(p.id, n, null, { person: true });
   assert.equal(stored(p.id, n).repeat, undefined, 'the person can stop it');
 });
+
+test('#4787 slice 3 review 3: closing a repeating task drops its reviewer with its rule, so a reopened one starts clean', () => {
+  const p = projects.create({ name: 'Rev5 ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['ada', 'bob'] }));
+  const n = tasks.create(p.id, { sentence: 'Report' }).number;
+  tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });
+  tasks.setReviewer(p.id, n, 'ada', { person: true });
+  tasks.close(p.id, n);
+  const t = stored(p.id, n);
+  for (const f of ['repeat', 'repeatReviewer', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt']) assert.equal(t[f], undefined, f);
+  tasks.reopen(p.id, n);
+  tasks.setRepeat(p.id, n, { every: 'day', at: '10:00' });
+  tasks.setReviewer(p.id, n, 'bob');
+  assert.equal(stored(p.id, n).repeatReviewer, 'bob', 'no old lock came back');
+});

@@ -300,7 +300,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
-    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -709,7 +709,7 @@ function setClosed(projectId, n, closedAt) {
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
-    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -847,7 +847,7 @@ function setRepeat(projectId, n, rule, opts = {}) {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
       // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
-      delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.repeatReviewerByPerson; delete changed.repeatReviewerSetAt; delete changed.missToldAt;
+      dropReviewer(changed);
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -870,6 +870,11 @@ function setRepeat(projectId, n, rule, opts = {}) {
 /* The checks a reviewer must pass, on a task as it stands (`t`) in its project (`p`); a sentence, or null. Shared by
    setReviewer and the repeat route, which checks a reviewer BEFORE storing a rule sent with it (review 1: a refused
    reviewer must not leave the rule half-applied). "Does it repeat" is setReviewer's own check. */
+/* slice 3 review 3: the reviewer belongs to the rule, so wherever the rule is dropped (closing, stopping) it goes too;
+   otherwise a reopened task given a new rule would bring back an old reviewer still marked as the person's choice. */
+function dropReviewer(t) {
+  delete t.repeatReviewer; delete t.repeatReviewerPerson; delete t.repeatReviewerByPerson; delete t.repeatReviewerSetAt; delete t.missToldAt;
+}
 function reviewerChoice(who) {
   const raw = who === undefined || who === null ? 'none' : String(who).trim();
   return raw === '' ? 'none' : raw;

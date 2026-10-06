@@ -235,3 +235,12 @@ test('#4787 slice 3 review 2: a rule and reviewer for a task that does not exist
   const r = await post(`/api/project/${projectId}/task/99999/repeat`, { every: 'daily', at: '09:00', reviewer: 'fixture' }, screen);
   assert.equal(r.status, 404, JSON.stringify(r.json));
 });
+
+test('#4787 slice 3 review 3: a time or day sent without a frequency is refused, not dropped', async () => {
+  const n = newTask('Time without frequency');
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '08:00' }, screen);
+  const r = await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'fixture', at: '10:00' }, screen);
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /goes with how often/);
+  assert.equal(stored(n).repeatReviewer, undefined, 'nothing applied');
+});

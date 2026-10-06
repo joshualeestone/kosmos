@@ -179,3 +179,13 @@ test('#4787 slice 3 review 1: the history entry names the slot that was missed',
   const ev = taskchat.read(id, n).find((e) => e.kind === 'missed');
   assert.equal(Date.parse(ev.slot), at(2026, 10, 6, 9, 0));
 });
+
+test('#4787 slice 3 review 3: a reviewer who also runs the task is not typed into (the nudge asks the owner); the miss is still recorded', () => {
+  const { id, n } = fixture('rex');   // rex holds the part and reviews it
+  const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: () => { throw new Error('typed'); } });
+  assert.equal(r.results[0].act, 'owner');
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'missed');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].owner, 'rex');
+  assert.equal(mt.owed(only(id), NOW).length, 0, 'once');
+});

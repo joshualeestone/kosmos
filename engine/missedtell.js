@@ -78,7 +78,7 @@ function markTold(item, outcome) {
   }));
   taskchat.record(item.projectId, item.n, {
     kind: 'missed', slot: new Date(item.slot).toISOString(), count: item.count,   // review 1: taskchat stamps its own `at`
-    ...(item.person ? { person: true } : { told: item.reviewer, reached: outcome === 'reached' }),
+    ...(item.person ? { person: true } : outcome === 'owner' ? { owner: item.reviewer } : { told: item.reviewer, reached: outcome === 'reached' }),
   });
 }
 
@@ -105,6 +105,9 @@ function sweep(o) {
         /* Review 1: a slot typed in this process is never typed again, even when its told mark could not be written. */
         if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
+        /* Review 3: a reviewer who also runs the task is already asked by slice 1's nudge (the owner is not told again):
+           the miss is recorded, nothing is typed. */
+        if (item.owners.includes(item.reviewer)) { markTold(item, 'owner'); results.push({ ...item, act: 'owner' }); continue; }
         // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
         if (!item.members.includes(item.reviewer)) { results.push({ ...item, act: 'held', because: 'the reviewer is no longer on the project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
