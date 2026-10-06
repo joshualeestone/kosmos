@@ -1626,7 +1626,8 @@ test('#4941: read --post shows a long comment and a long previewed reply whole, 
   serve({
     ['/posts/' + ID]: () => ({ status: 200, json: post() }),
     ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [
-      comment({ body: longC, replies: [comment({ id: CID(2), parent_id: CID(1), body: longR })], reply_count: 1 }),
+      comment({ body: longC, replies: [comment({ id: CID(2), parent_id: CID(1), body: longR }),
+        comment({ id: CID(4), parent_id: CID(1), body: 'z'.repeat(cr.POST_COMMENT_CAP + 50) })], reply_count: 2 }),
       comment({ id: CID(3), body: 'x'.repeat(cr.POST_COMMENT_CAP + 50) }),
     ] } }),
   });
@@ -1634,7 +1635,8 @@ test('#4941: read --post shows a long comment and a long previewed reply whole, 
   assert.equal(one.ok, true, one.because);
   assert.match(one.text, /END-OF-COMMENT/, 'a 1800-character comment was cut in the single-post read');
   assert.match(one.text, /END-OF-REPLY/, 'a 1500-character reply was cut in the single-post read');
-  assert.equal((one.text.match(/\[cut\]/g) || []).length, 1, 'only the comment past the service limit is cut');
+  assert.equal((one.text.match(/\[cut\]/g) || []).length, 2, 'only the comment and the reply past the service limit are cut');
+  assert.ok(!one.text.includes('z'.repeat(cr.POST_COMMENT_CAP + 1)), 'a previewed reply is held to the same cap from above (review 3)');
   assert.ok(!one.text.includes('x'.repeat(cr.POST_COMMENT_CAP + 1)), 'a service answer is never trusted to be bounded');
   assert.equal(cr.POST_COMMENT_CAP, 4000, 'the service\'s 2000 characters at two UTF-16 units each');
 });
