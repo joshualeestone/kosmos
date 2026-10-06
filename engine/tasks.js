@@ -832,6 +832,9 @@ function setRepeat(projectId, n, rule, opts = {}) {
     if (!person && t.repeatByPerson === true && JSON.stringify(t.repeat || null) !== JSON.stringify(next)) {
       throw new Error('the person set how often this task repeats, so only they can change it');
     }
+    /* slice 3 review 2: stopping the repeat takes the reviewer with it, so a process cannot stop a task whose reviewer the
+       person chose (it would clear the person's choice, then name its own after setting the rule again). */
+    if (!person && !next && t.repeatReviewerByPerson === true) throw new Error('the person chose who reviews this task, so only they can stop it repeating');
     didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
     changed = { ...t };
     // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.

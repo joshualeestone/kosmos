@@ -306,3 +306,17 @@ test('#4787 slice 3 review 1: the person\'s Nobody is theirs too, and choosing w
   assert.throws(() => tasks.setReviewer(p.id, q, 'bob'), /person chose/);
   assert.equal(taskchat.read(p.id, q).filter((e) => e.kind === 'reviewer-set').length, 1, 'the lock alone records nothing');
 });
+
+test('#4787 slice 3 review 2: an agent cannot get round the person\'s reviewer by stopping and restarting the repeat', () => {
+  const p = projects.create({ name: 'Rev4 ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['ada', 'bob'] }));
+  const n = tasks.create(p.id, { sentence: 'Report' }).number;
+  tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });   // an agent's rule
+  tasks.setReviewer(p.id, n, 'ada', { person: true });
+  assert.throws(() => tasks.setRepeat(p.id, n, null), /only they can stop it repeating/);
+  assert.equal(stored(p.id, n).repeatReviewer, 'ada', 'the person\'s choice stands');
+  tasks.setRepeat(p.id, n, { every: 'day', at: '10:00' });
+  assert.equal(stored(p.id, n).repeatReviewer, 'ada', 'CONTROL: the agent may still change its own rule; the reviewer stays');
+  tasks.setRepeat(p.id, n, null, { person: true });
+  assert.equal(stored(p.id, n).repeat, undefined, 'the person can stop it');
+});

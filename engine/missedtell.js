@@ -111,7 +111,7 @@ function sweep(o) {
         const card = cards.get(item.reviewer);
         if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }
         /* As the nudge's card rule (agentnudge.nudgeableCard), less its idle test: a line is typed only into a pane that is
-           ours and not a switched-off swarm. A busy reviewer still gets it (the board's typing path waits its turn). */
+           ours and not a switched-off swarm. A busy reviewer is tried again on the next minute (below), never skipped. */
         if (card.isNamedOurs !== true || (card.swarm && card.swarm.active === false)) { results.push({ ...item, act: 'held', because: 'the reviewer cannot be typed into' }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;

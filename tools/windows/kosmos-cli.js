@@ -982,6 +982,8 @@ async function taskRepeat(ctx, args) {
     else { ctx.err('Say how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
   }
   if (want) { ctx.err('--at, --on and --reviewer each need a value. ' + REPEAT_USAGE); return 2; }
+  // Review 2, as install/kosmos: --at and --on belong to a frequency; without one they would be dropped without a word.
+  if (!every && !clear && (at || on)) { ctx.err('--at and --on go with how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
   /* Each field only when given, as install/kosmos: no frequency leaves the rule as it is, so --reviewer can change alone. */
   const body = { clear, from_pane: '' };
   if (every) body.every = every;
