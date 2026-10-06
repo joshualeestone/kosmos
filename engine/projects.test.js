@@ -845,6 +845,7 @@ test('#5320: only a change to the block\'s standing rules owes the running agent
   const joined = projects.syncAgent('mara', ROSTER);
   assert.equal(joined.state, projects.TOLD.TOLD);
   assert.equal(joined.changed, true, 'fixture: the first write must add the block');
+  assert.equal(joined.rulesChanged, false);
   assert.equal(owed(), undefined, 'joining owed a second line');
   // A block written by an older Kosmos, without the pause rule: the rewrite brings the rule, and that is owed.
   const PAUSE = 'When your person asks to pause a whole project, pause it';
@@ -860,6 +861,7 @@ test('#5320: only a change to the block\'s standing rules owes the running agent
   clear();
   const again = projects.syncAgent('mara', ROSTER);
   assert.notEqual(again.changed, true, 'fixture: the second write must be unchanged');
+  assert.notEqual(again.rulesChanged, true);
   assert.equal(owed(), undefined, 'an unchanged write owed a re-read');
   // Its own task arriving and then closing changes the block's task lines, not its rules: nothing owed.
   setTasks([{ number: 1, sentence: 'draft the renewal letter', who: 'mara' }]);
@@ -879,6 +881,39 @@ test('#5320: only a change to the block\'s standing rules owes the running agent
   assert.equal(left.changed, true, 'fixture: leaving must remove the block');
   assert.ok(!fs.readFileSync(file, 'utf8').includes('## Your projects'), 'fixture: the block is gone');
   assert.equal(owed(), undefined, 'a removed block owed a re-read of a section that is gone');
+});
+
+test('#5320: the tasks rules are owed only when both the old and the new block list a task', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  const file = path.join(agent('mara', '# Mara\n\nYou are the executive assistant.\n'), 'CLAUDE.md');
+  const p = projects.create({ name: 'Ledger', folder: folder('ledger-5320'), agents: ['mara'] });
+  const setTasks = (tasks) => { const all = projects.readAll(); all.find((x) => x.id === p.id).tasks = tasks; projects.writeAll(all); };
+  const OPEN = [{ number: 1, sentence: 'reconcile March', who: 'mara' }, { number: 2, sentence: 'reconcile April', who: 'mara' }];
+  setTasks(OPEN);
+  projects.syncAgent('mara', ROSTER);
+  const MARK = 'When you have built one and it is waiting to be released or checked, mark it:';
+  // An older Kosmos's block: the tasks rules without the "mark it built" rule (#3951).
+  const older = () => fs.writeFileSync(file, fs.readFileSync(file, 'utf8').split('\n').filter((l) => l !== MARK).join('\n'));
+  older();
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(MARK), 'fixture: the older block lacks the rule');
+  // One task closes, one stays open: the new block still lists a task and now carries the new rule, so it is owed.
+  setTasks([{ ...OPEN[0], closedAt: Date.now() }, OPEN[1]]);
+  clear();
+  const still = projects.syncAgent('mara', ROSTER);
+  assert.equal(still.rulesChanged, true, 'a new tasks rule was not seen');
+  assert.deepEqual(owed(), ['projects'], 'a new tasks rule beside an open task was not owed');
+  // The same older block, but the LAST task closes: the new block lists no task and carries no tasks rules. Nothing owed.
+  older();
+  setTasks([{ ...OPEN[0], closedAt: Date.now() }, { ...OPEN[1], closedAt: Date.now() }]);
+  clear();
+  const done = projects.syncAgent('mara', ROSTER);
+  assert.equal(done.changed, true, 'fixture: closing the last task must change the block');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(MARK), 'fixture: the new block carries no tasks rules');
+  assert.equal(done.rulesChanged, false);
+  assert.equal(owed(), undefined, 'rules the new block does not carry were owed');
 });
 
 test('an agent with no worker folder is recorded as a member we COULD NOT tell', () => {
