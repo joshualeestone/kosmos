@@ -805,7 +805,7 @@ async function taskAdd(ctx, args) {
     const num = Number.isInteger(r.json.task.number) && r.json.task.number > 0 ? ' ' + r.json.task.number : '';
     ctx.out('Task' + num + ' added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project);
     /* #5376, as install/kosmos: given to nobody (the board says null), the Assigner may hand it to an idle agent; say so. */
-    if (r.json.task.who === null) ctx.out('Nobody has it yet, so an idle agent on the project may be given it. To choose who does it: kosmos task assign ' + project + ' ' + (num ? num.trim() : '<task-number>') + ' <agent>');
+    if (r.json.task.who === null) ctx.out('Nobody has it yet: it waits for someone to take it, or Kosmos gives it to an idle agent on the project. To choose who does it: kosmos task assign ' + project + ' ' + (num ? num.trim() : '<task-number>') + ' <agent> (or me)');
     if (typeof r.json.note === 'string' && r.json.note) ctx.out(r.json.note);   // #5319: open tasks with the same text
     return 0;
   }
