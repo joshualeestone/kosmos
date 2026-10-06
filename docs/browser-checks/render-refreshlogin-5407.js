@@ -286,6 +286,17 @@ function readRows(page) {
       return !!f && !f.closest('.acct-box[data-acct-dir="/home/.claude-soon"]');
     });
     chk(kept, 'T1: a follow-up repaint does not pull focus back to the landed row');
+    // Review 4: nor the page: scroll away from the row, repaint, and the page stays where the person put it.
+    const stay = await pt.evaluate(async () => {
+      document.body.style.minHeight = '3000px';   // room to scroll
+      if (document.activeElement) document.activeElement.blur();   // the list's own focus restore would scroll to it
+      const se = document.scrollingElement;
+      se.scrollTop = se.scrollHeight;
+      const before = se.scrollTop;
+      await paintAccounts({ followUp: 1 });
+      return { before, after: se.scrollTop };
+    });
+    chk(stay.before > 0 && stay.after === stay.before, 'T1: a follow-up repaint does not scroll back to the landed row', JSON.stringify(stay));
     await pt.clock.runFor(21000);
     const after = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
     chk(before === 1 && after === 0, 'T1: ringed on arrival, and the ring goes after its time with no repaint', before + ' -> ' + after);
