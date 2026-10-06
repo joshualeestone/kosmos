@@ -11694,7 +11694,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    pointer press (at most once a second), focus and return to the tab: a Mac set to "Automatic"
    switches scrollbars when a mouse is plugged in, which fires no resize, and the press that opens an
    agent then measures first. In consolidated (#5379) a resize measures once the drag settles, and a
-   press, a focus and a return to the tab do not (once measured), since a measurement there reflows the page. */
+   press, a focus and a return to the tab do not, since a measurement there reflows the page. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
   /* #5379: measured in the consolidated layout too, so the width its header is padded by (the #5379 rule) follows a
@@ -11781,11 +11781,10 @@ window.kosmosMeasureScrollbarWidth();
     lastPress = now;
     window.kosmosMeasureScrollbarWidth();
   }, { capture: true, passive: true });
-  /* #5379: a focus or a return to the tab measures in consolidated only if nothing has been measured yet: there every
-     measurement reflows the page, and these fire on every switch back to Kosmos. */
+  /* #5379: a focus or a return to the tab does not measure in consolidated: there every measurement reflows the page,
+     and these fire on every switch back to Kosmos. Load, a settled resize and a flip measure there. */
   function remeasureOnReturn() {
-    var root = document.documentElement;
-    if (root.getAttribute('data-layout') === 'consolidated' && root.hasAttribute('data-scrollbar-measured')) return;
+    if (document.documentElement.getAttribute('data-layout') === 'consolidated') return;
     window.kosmosMeasureScrollbarWidth();
   }
   window.addEventListener('focus', remeasureOnReturn);
