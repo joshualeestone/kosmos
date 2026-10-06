@@ -3312,8 +3312,9 @@ function blockRules(sessionName, cliShown) {
          control (#5391) instead of guessing. "The same place they asked": the request can come in the room or
          directly. The Pause pointer is given while asking (afterwards the button reads Resume). */
       'If you cannot tell whether your person means the whole project, ask them in the same place they asked (they can',
-      'also press Pause beside the project\'s name, at the top of its page), and pause it if they say yes. If they mean',
-      `only some tasks, put those on hold: \`${cliShown} task hold <project-id> <task-number>\`.`,
+      'also press Pause beside the project\'s name, at the top of its page; if they do, nothing more is needed), and',
+      'pause it if they say yes. If they mean only some tasks, put those on hold:',
+      `\`${cliShown} task hold <project-id> <task-number>\`. If they say no, leave it as it is.`,
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
