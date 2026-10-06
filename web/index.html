@@ -1026,7 +1026,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    sits beside `#d-provider` in the same .frow, and that sibling is NOT in this
    rule and sizes intrinsically. It is here so an account name does not render
    as a stub next to it, and the known cost is that the row wraps. */
-#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }   /* #5429: the switch's model sits beside its account */
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -12537,6 +12537,10 @@ window.kosmosMeasureScrollbarWidth();
              was the whole card. Shown when a switch to a provider with accounts is armed: OpenAI, Gemini, Grok and, since
              #5091, Claude. Its label is set for the chosen provider when it shows. -->
         <select id="d-provider-account" aria-label="Account to run on" hidden></select>
+        <!-- kosmos#5429 (Josh, 2026-10-06): the TARGET provider's model, chosen in the same step, so provider, account and
+             model change in one restart. Shown for a switch to Claude (its models, the default preselected) or OpenAI
+             (the chosen account's list, "Let OpenAI choose" first); hidden for a provider that picks its own model. -->
+        <select id="d-provider-model" aria-label="Model to run on" hidden></select>
         <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
       <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -49169,6 +49173,54 @@ function switchAccountsEnsure(forAgent) {
       if (CURRENT && CURRENT.sessionName === forAgent) fillSwitchAccountsSafely();   // a newer agent's panel is left alone
     });
 }
+/* kosmos#5429: the switch's model menu, for the provider being switched TO. Filled wherever the switch's account menu
+   is (fillSwitchAccountsSafely), so the two can never describe different switches. A generation guard drops an OpenAI
+   list that arrives after the provider or account moved on. */
+let SWITCH_MODEL_GEN = 0;
+async function fillSwitchModel() {
+  const sel = document.getElementById('d-provider-model');
+  const prov = document.getElementById('d-provider');
+  if (!sel || !prov) return;
+  const gen = ++SWITCH_MODEL_GEN;
+  const want = prov.value;
+  const hide = () => { sel.hidden = true; if (sel.innerHTML) sel.innerHTML = ''; };
+  if (!want || !CURRENT || want === providerOf(CURRENT)) { hide(); return; }
+  if (want === 'anthropic') {
+    if (!CREATE_MODELS.length) {
+      try { const res = await fetch('/api/roles', { cache: 'no-store' }); if (res.ok) CREATE_MODELS = ((await res.json()) || {}).models || []; } catch { /* no list: hidden, as before */ }
+      if (gen !== SWITCH_MODEL_GEN) return;
+    }
+    if (!CREATE_MODELS.length) { hide(); return; }
+    // The create form's default (create.js marks one), so an untouched switch lands where a new agent would.
+    sel.innerHTML = CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
+    sel.hidden = false;
+    return;
+  }
+  if (want === 'openai') {
+    const acct = document.getElementById('d-provider-account');
+    const dir = acct && !acct.hidden ? acct.value : '';
+    if (!dir) { hide(); return; }
+    sel.innerHTML = '<option value="">Loading this account’s models…</option>';
+    sel.disabled = true;
+    sel.hidden = false;
+    let out = null;
+    try { const res = await fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(dir), { cache: 'no-store' }); out = res.ok ? await res.json() : null; } catch { out = null; }
+    if (gen !== SWITCH_MODEL_GEN) return;
+    sel.disabled = !!(prov && prov.disabled);
+    if (!(out && out.ok && Array.isArray(out.models) && out.models.length)) { hide(); return; }   // not listable: OpenAI picks
+    sel.innerHTML = '<option value="" selected>Let OpenAI choose (recommended)</option>'
+      + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join('');
+    return;
+  }
+  hide();   // Gemini, Grok, Antigravity: each picks (or Kosmos pins) its own model, so there is nothing to choose
+}
+/* What the switch will send as its model, with its label, or null (shown and chosen only). */
+function switchModelPicked() {
+  const sel = document.getElementById('d-provider-model');
+  if (!sel || sel.hidden || sel.disabled || !sel.value) return null;
+  const o = sel.options[sel.selectedIndex];
+  return { key: sel.value, label: o ? o.textContent : sel.value };
+}
 function fillSwitchAccountsSafely() {
   try {
     fillSwitchAccounts();
@@ -49182,6 +49234,8 @@ function fillSwitchAccountsSafely() {
       SWITCH_ACCT_SAID = brokenLine;
     }
   }
+  // kosmos#5429: after the accounts, since an OpenAI model list is the chosen account's.
+  try { fillSwitchModel(); } catch { /* the model menu is extra; the switch still works without it */ }
 }
 /* 🛑 NAMED FOR THE SAME REASON ITS SIBLING IS, AND CLEARED ON THE SAME CONDITION. This
    was added as an inline literal beside the hint-clearing code whose ENTIRE purpose is
@@ -49869,6 +49923,7 @@ if (switchAcctSel) {
     if (go && prov) {
       go.disabled = prov.disabled || !prov.value || !CURRENT || prov.value === providerOf(CURRENT);
     }
+    try { fillSwitchModel(); } catch { /* #5429: an OpenAI list is per account */ }
   });
 }
 
@@ -49954,6 +50009,7 @@ async function changeProviderNow(say) {
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
   const acctSel = document.getElementById('d-provider-account');
+  const modelSel = document.getElementById('d-provider-model');   // #5429
   const want = sel.value;
   if (!want) return;
   /* #1561: refuse to switch onto OpenAI when every OpenAI sign-in is dead, rather
@@ -50000,6 +50056,8 @@ async function changeProviderNow(say) {
      one confusing second. Disabled here and re-enabled in the same guarded `finally` as its
      two siblings, so the in-flight state is one fact rather than three. */
   if (acctSel) acctSel.disabled = true;
+  const pickedModel = switchModelPicked();   // #5429: read before the menu is held for the request
+  if (modelSel) modelSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
     let sentAccount = null;   // #5091: what `account` below sent, kept for the repaint after
@@ -50020,6 +50078,7 @@ async function changeProviderNow(say) {
         provider: want,
         account: (sentAccount = (acctSel && !acctSel.hidden) ? acctSel.value : null),
         picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
+        ...(pickedModel ? { model: pickedModel.key } : {}),   // #5429: one restart, not two
       }),
     });
     const out = await res.json().catch(() => null);
@@ -50103,7 +50162,8 @@ async function changeProviderNow(say) {
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
       // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
-      CURRENT.plannedModelName = want === 'anthropic' ? 'Claude (its default model)' : null;
+      // #5429: a model picked with the switch is the one Runs on names until the live reading catches up.
+      CURRENT.plannedModelName = out && out.model && out.model.label ? out.model.label : want === 'anthropic' ? 'Claude (its default model)' : null;
       /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one. The one exception
          (#5145): the route named an account the page's list does not have (a stale list). Then nothing is recorded,
          since the agent is on THAT account, not main, and naming main would be wrong; Move waits for the next list. */
@@ -50201,6 +50261,7 @@ async function changeProviderNow(say) {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
       if (acctSel) acctSel.disabled = false;
+      if (modelSel) modelSel.disabled = false;   // #5429
       /* 🛑 THE SAME DEAD END, A THIRD LAYER DOWN. Hard-coding `true` here undid both
          earlier fixes in the common case: re-selecting the option a <select> already
          has selected fires NO `change`, so after a refusal drops the ghost row a
@@ -50284,7 +50345,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            sign-in", which reads as OPENAI choosing the account and is false in every
            reachable state: when the menu shows, the page sends the visible row; when
            it is hidden, the COMPUTER's default applies, not the provider's. */
-         ? 'Its ' + fromWord + ' model and account choices do not cross: OpenAI picks its own model, '
+         ? 'Its ' + fromWord + ' model and account choices do not cross: '
+           + ((() => { const pm = switchModelPicked(); return pm ? 'it starts on ' + pm.label + ', ' : 'OpenAI picks its own model, '; })())   // #5429
            + ((() => {
              const on = switchAcctShown();
              if (on) return 'and it will run on ' + on + '.';
@@ -50363,9 +50425,11 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            the picker is not sending one. */
         : ((() => {
           const on = switchAcctShown();
-          if (on) return 'It will run on ' + on + ', on Claude’s default model until you change it.';
-          if (switchAcctSending()) return 'It runs on the Claude account shown above, on Claude’s default model until you change it.';
-          return 'It runs on your main Claude account and Claude’s default model until you change them.';
+          const pm = switchModelPicked();   // #5429: the model picked with the switch, named
+          const onModel = pm ? 'on ' + pm.label + '.' : 'on Claude’s default model until you change it.';
+          if (on) return 'It will run on ' + on + ', ' + onModel;
+          if (switchAcctSending()) return 'It runs on the Claude account shown above, ' + onModel;
+          return pm ? 'It runs on your main Claude account, on ' + pm.label + '.' : 'It runs on your main Claude account and Claude’s default model until you change them.';
         })())),
     go: 'Switch and restart',
     /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
