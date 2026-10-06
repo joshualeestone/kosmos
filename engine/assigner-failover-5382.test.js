@@ -65,7 +65,9 @@ function world(specs) {
 function heldTask(pid, who, sentence) {
   const t = tasks.create(pid, { sentence, made: { via: 'screen' } });
   const partId = tasks.progressOf(t).parts[0].id;
-  const r = tasks.assignPart(pid, t.number, partId, who, { via: 'screen' });
+  /* Given as the Assigner gives it, not as a person: a person's give is stamped at the real clock (2026), after T0
+     (2001), so it would read as "given during the limit", which the failover leaves alone (review 13). */
+  const r = tasks.assignPart(pid, t.number, partId, who, { via: 'assigner', onlyIfFree: true });
   assert.ok(r.ok, 'fixture: could not give the part: ' + JSON.stringify(r));
   return { n: t.number, partId };
 }
@@ -588,4 +590,17 @@ test('review 12: "finished by B" only for a part B finished; a task closed as a 
   assert.match(ft.owedFor('ann', rec({ closedAt: '2026-10-06T00:00:00Z' }))[0].phrase, /\(finished by bob\)$/);
   assert.match(ft.owedFor('ann', rec({}, { closedAt: '2026-10-06T00:00:00Z' }))[0].phrase, /\(closed\)$/, 'a whole-task close was credited to bob');
   assert.match(ft.owedFor('ann', rec({}))[0].phrase, /\(now bob's\)$/);
+});
+
+test('review 13: a part a person gave the agent while it was already limited stays; one it held before its limit moves', () => {
+  const w = world([{ name: 'pglim', paneState: 'rate_limited' }, { name: 'pggem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.pglim, 'write the deploy notes');
+    const at = T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS);
+    const withGive = (movedAt) => projects.readAll().map((p) => (p.id !== w.pid ? p : { ...p, tasks: p.tasks.map((x) => (x.number !== h.n ? x
+      : { ...x, parts: tasks.progressOf(x).parts.map((q) => ({ ...q, movedVia: 'screen', movedAt })) })) }));
+    // The limit began at T0 (the first step of later()): a person's give after that stays.
+    assert.equal(later(w, { records: withGive(new Date(T0 + 60 * 1000).toISOString()) }).toAssign.length, 0, 'moved a part a person gave it during its limit');
+    assert.equal(later(w, { records: withGive(new Date(T0 - 60 * 1000).toISOString()) }).toAssign.length, 1, 'control: a give before the limit moves');
+  } finally { w.restore(); }
 });

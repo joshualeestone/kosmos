@@ -322,7 +322,7 @@ function askText(item) {
 /* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
    may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
    those out, #1307). `runnerOf` maps session -> provider. */
-function stalledParts(projects, ripe, runnerOf, now = Date.now()) {
+function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince = new Map()) {
   const out = [];
   for (const p of projects) {
     if (require('./projects').isPaused(p)) continue;
@@ -333,6 +333,10 @@ function stalledParts(projects, ripe, runnerOf, now = Date.now()) {
       if (prog.closed) continue;
       for (const x of prog.parts) {
         if (x.closedAt || !ripe.has(x.who)) continue;
+        /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
+           after its reset); only work it held before its limit began moves. */
+        const since = limitedSince instanceof Map ? limitedSince.get(x.who) : undefined;
+        if (x.movedVia === 'screen' && Number.isFinite(since) && Date.parse(x.movedAt || '') >= since) continue;
         out.push({ projectId: p.id, n: t.number, partId: x.id, from: x.who, fromRunner: runnerOf.get(x.who) || null,
           due: dueKey(t), age: ageKey(t) });
       }
@@ -401,7 +405,7 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     limitedSince.set(a.sessionName, since);
     if (now - since >= FAILOVER_MS) ripe.add(a.sessionName);
   }
-  const stalled = setting.failover === true && ripe.size ? stalledParts(projects, ripe, runnerOf, now) : [];
+  const stalled = setting.failover === true && ripe.size ? stalledParts(projects, ripe, runnerOf, now, limitedSince) : [];
   const movedParts = new Set();
   for (const a of Array.isArray(roster) ? roster : []) {
     if (!idleCard(a)) continue;

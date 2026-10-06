@@ -142,6 +142,14 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   a failover the repeating job runs on the other provider until a person moves it back. The Settings copy (next PR)
   says the work moves; a per-(part, receiver) backoff for an unreachable receiver is a follow-up.
 
+- Review 12 (blind, opus): the tell starts a turn like any typed line, so it asks for a one-word reply (red when the
+  sentence is dropped); "finished by B" only for a part B finished, "closed" for a whole-task close (red when credited).
+- Review 13 (blind, opus): a part a PERSON gave the agent after its limit began stays with it (red without the skip).
+  KNOWN LIMITATION, decided: the tell lands when the agent next reads idle, so a person who resumes a Claude agent
+  themselves (Enter on Claude Code's limit menu, or a message right at the reset) can have it carry on with a moved part
+  before the tell arrives. The full fix attaches the owed line to whatever message resumes the agent (the delivery
+  path), which is a follow-up card, not this off-by-default PR.
+
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
 - `limitedSince` is not saved across a board restart, so a restart restarts the 15 minutes (the waiting direction).
