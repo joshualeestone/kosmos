@@ -55,6 +55,15 @@ test('#5418: a test that sandboxes by pointing HOME elsewhere is NOT refused (th
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
+test('#5418: the real home reached through a symlink is still the real root, and refused', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-link-'));
+  const link = path.join(dir, 'home');
+  try {
+    fs.symlinkSync(os.userInfo().homedir, link);
+    assert.match(rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_HOME: link }), /^THREW=/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('#5418 control: outside a test process the real root is returned as before', () => {
   assert.equal(rootIn({}), 'ROOT=' + realRoot());
 });
