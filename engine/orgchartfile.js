@@ -446,16 +446,27 @@ const PROVIDER = 'Anthropic (Claude)';
    first, then what else reads, and never "you need an API key". ChatGPT only where it reads (not on Windows yet:
    orgchartcodex WHY_WINDOWS). */
 /* opts.chatgpt: true or false only (anything else is false); left out, ChatGPT is named where it reads. */
-function noModelFor(platform, opts) {
+const ANY_PROVIDER = 'A CSV or Excel export works with any provider, and so does typing the list.';
+/* What reads, Claude first, without the closing CSV sentence. */
+function whatReads(platform, opts) {
   const chatgpt = opts && opts.chatgpt !== undefined ? opts.chatgpt === true : platform !== 'win32';
   return 'Claude reads a picture or PDF, connected in Settings, AI Models. '
     + (!chatgpt ? 'OpenAI or Grok connected with a key can read a PNG or JPG picture too'
       : 'ChatGPT, connected the same way, also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too')
-    + ' (OpenAI reads a PDF as well). A CSV or Excel export works with any provider, and so does typing the list.';
+    + ' (an OpenAI key also reads a PDF).';
 }
+function noModelFor(platform, opts) { return whatReads(platform, opts) + ' ' + ANY_PROVIDER; }
 const NO_MODEL = noModelFor(process.platform);
-/* The no-reader sentence after a read by `reader` could not run: not offering ChatGPT again after a ChatGPT read. */
-const noModelAfter = (reader) => (reader && reader.kind === 'codex' ? noModelFor(process.platform, { chatgpt: false }) : NO_MODEL);
+/* #5346: when the person's own ChatGPT cannot be used: Claude first (what reads, not ChatGPT again), then their
+   ChatGPT's reason, then a switched-off key provider's in one sentence (`short`), then the closing sentence. */
+function composeWhy(chatgptWhy, short) {
+  const any = ' ' + require('./orgchartcodex').ANY_PROVIDER;
+  const own = chatgptWhy.endsWith(any) ? chatgptWhy.slice(0, -any.length) : chatgptWhy;
+  return [whatReads(process.platform, { chatgpt: false }), own, short, ANY_PROVIDER].filter(Boolean).join(' ');
+}
+/* The no-reader sentence after a read by `reader` could not run (only Claude and Codex report that, when their
+   program is gone): after a ChatGPT read, why, and not ChatGPT again. */
+const noModelAfter = (reader) => (reader && reader.kind === 'codex' ? composeWhy(require('./orgchartcodex').WHY_NO_CODEX) : NO_MODEL);
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
@@ -636,12 +647,7 @@ function currentReader(name) {
   // null-shaped answer the caller can read, from the same look at the accounts (see whyNoReader).
   // #5346 step 2: a person whose own ChatGPT account cannot be used hears why, then what does read (Claude first, and
   // not ChatGPT again); with no ChatGPT account, a switched-off key provider's reason.
-  if (sub.offWhy) {
-    const any = ' ' + require('./orgchartcodex').ANY_PROVIDER;
-    const own = sub.offWhy.endsWith(any) ? sub.offWhy.slice(0, -any.length) : sub.offWhy;
-    // A switched-off key provider (Gemini) the person also has is said in one sentence, so they know theirs is off.
-    lastWhy = [own, got.offShort, noModelFor(process.platform, { chatgpt: false })].filter(Boolean).join(' ');
-  } else lastWhy = got.offWhy;
+  lastWhy = sub.offWhy ? composeWhy(sub.offWhy, got.offShort) : got.offWhy;
   return got.reader ? { kind: 'key', ...got.reader } : null;
 }
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */
@@ -756,4 +762,4 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = { MODEL_TIMEOUT_MS,
-  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, noModelFor, noModelAfter, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

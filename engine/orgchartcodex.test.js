@@ -89,9 +89,10 @@ keys.setAccounts(() => []);
 test.after(() => { c.setBin(null); c.setVersion(null); c.setSystemConfigPaths(null); c.setAccounts(null); c.setSpawn(null); c.setTimeoutMs(null); keys.setAccounts(null); });
 
 /* #5346 step 2: what a person whose ChatGPT cannot be used is told: that reason, then what does read (Claude first). */
-const combined = (why, platform = process.platform, short = null) => [why.slice(0, -(' ' + c.ANY_PROVIDER).length), short, o.noModelFor(platform, { chatgpt: false })].filter(Boolean).join(' ');
-/* Nothing after "Claude reads" mentions ChatGPT: it was just said not to read. */
-const noChatgptAfterClaude = (why) => !/ChatGPT/.test(String(why).split('Claude reads')[1] || 'ChatGPT');
+const tail = ' ' + c.ANY_PROVIDER;
+const combined = (why, platform = process.platform, short = null) => [o.noModelFor(platform, { chatgpt: false }).slice(0, -tail.length), why.slice(0, -tail.length), short, c.ANY_PROVIDER].filter(Boolean).join(' ');
+/* The Claude-first sentence leads, and it does not offer ChatGPT (the person's own ChatGPT cannot be used). */
+const noChatgptAfterClaude = (why) => { const m = /^Claude reads [^]*?PDF\)\./.exec(String(why)); return !!m && !/ChatGPT/.test(m[0]); };
 
 test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', () => {
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey', isDefault: true }, { dir: '/b', authMode: 'chatgpt', email: 'b@x.test' }, { ...SUB, isDefault: true }]);
@@ -503,12 +504,23 @@ test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex v
   try {
     assert.equal(o.currentReader(), null);
     if (process.platform !== 'win32') {
-      assert.equal(o.whyNoReader(), 'ChatGPT does not read org charts with the Codex on this computer (version 9.9.9): Kosmos has checked only version ' + PINNED + '.'
+      assert.equal(o.whyNoReader(), 'Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can read a PNG or JPG picture too (an OpenAI key also reads a PDF).'
+        + ' ChatGPT does not read org charts with the Codex on this computer (version 9.9.9): Kosmos has checked only version ' + PINNED + '.'
         + ' Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
-        + ' Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can read a PNG or JPG picture too (OpenAI reads a PDF as well).'
         + ' A CSV or Excel export works with any provider, and so does typing the list.');
     }
   } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); }
+  // Windows, written out too: a ChatGPT account and a Gemini key.
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), 'Claude reads a picture or PDF, connected in Settings, AI Models. OpenAI or Grok connected with a key can read a PNG or JPG picture too (an OpenAI key also reads a PDF).'
+      + ' ChatGPT does not read org charts on Windows yet.'
+      + ' Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
+      + ' A CSV or Excel export works with any provider, and so does typing the list.');
+  } finally { Object.defineProperty(process, 'platform', real); keys.setAccounts(() => []); }
 });
 
 test('#5346 step 2 review 6: every refusal ends with ANY_PROVIDER, which currentReader takes off by value', () => {

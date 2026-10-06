@@ -43,6 +43,14 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - After a consented ChatGPT read could not run, the server answers `noModelAfter(reader)`, which does not offer ChatGPT.
 - One combination's whole sentence is written out in a test, so the composition is not only checked against itself.
 
+## Review rounds 6-7 (calls)
+- The composed answer LEADS with what reads (Claude first, ChatGPT not offered again), then the person's ChatGPT reason,
+  then Gemini's one sentence, then the closing CSV sentence: the card's ask is to lead with Claude, and round 3's order
+  put Claude last behind two refusals. One `composeWhy` serves the no-reader answer and the after-a-failed-read answer
+  (`noModelAfter`, which now says why: WHY_NO_CODEX, with what to do).
+- "(an OpenAI key also reads a PDF)": ChatGPT is OpenAI too and does not read a PDF.
+- Not an issue (round 6): a key read never reports unavailable (only Claude and Codex do, when their program is gone).
+
 ## Tests
 - server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
 - engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes
