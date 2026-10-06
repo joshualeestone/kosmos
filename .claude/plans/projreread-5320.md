@@ -9,17 +9,27 @@ the new lines until a restart. Splinter 21:53 named the stale-instructions root;
 
 ## Change
 - engine/instructionreread.js SECTIONS gains `projects: 'the section headed "Your projects"'` (the block's heading).
-- engine/projects.js syncAgent: when tellAgent's verdict is TOLD and `changed === true`, oweNow(key, 'projects'). Never
-  fails the write (try/catch); an unchanged write owes nothing.
+- engine/projects.js: the block's standing rules (everything but project and task lines) move into blockRules();
+  tellAgent reports `rulesChanged` (rulesChangedIn: a rule in the new block is missing from the OLD block). syncAgent
+  owes 'projects' only on rulesChanged, and logs a debt it could not record, as its siblings in server.js do.
+- Review 1 (iteration 1) changed the trigger from "the block changed" to "a rule changed": an agent closing its own
+  task, a first task arriving, joining (membershipLine already says read the section) and leaving (the section is
+  gone) all changed the block and would each have cost a needless turn.
 
 ## Tests
-engine/projects.test.js "#5320: a CHANGED projects block owes the running agent a re-read; an unchanged write owes none":
-the first sync changes the block and owes ['projects']; a second, unchanged sync owes nothing (control). projects +
-instructionreread tests 183/183. Red against origin/main's projects.js (the owe assertion fails).
+engine/projects.test.js "#5320: only a change to the block's standing rules owes the running agent a re-read":
+join owes nothing; a block missing the pause rule (an older Kosmos) owes ['projects'] on rewrite; an unchanged
+write, a task arriving, the agent's own task closing and leaving the last project each owe nothing. Red on the old
+trigger (`changed`): "joining owed a second line".
 
-## Part 2 (next): `kosmos project pause <id> --ask` (a Pause project button in the room; one click pauses as the verb does).
+## Part 2 (next): an agent unsure whether to pause asks in the room and points at the Pause button beside the project's
+name (Mona's #5391, PR #5395). Built after that merges, so the line never names a button that is not there.
+
+## Known limit
+No board-start sweep: an agent whose FILE already got the pause rule before this ships, while its session predates it,
+is not owed a re-read; it learns at its next start. A sweep cannot tell what a session read. Its next rules change,
+or a restart, reaches it.
 
 ## Weakest premise
-Noise: a busy agent whose tasks change often is owed a re-read each time the block changes. Debts merge per agent and a
-landed line clears them all, so it is at most one line per delivery pass (INSTRUCTION_REREAD_MS, 5 minutes), sent only
-when the agent is idle. Not yet measured on a live busy agent.
+That the tasks rules need not be owed when a first task arrives: the assignment is announced where it is made, and
+that line is assumed to point the agent at its task list.
