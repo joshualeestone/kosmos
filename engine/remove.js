@@ -546,7 +546,8 @@ function jobOps(platform) {
       win32: false,
       linux: true,
       disable: (name, job) => via(() => Boolean(lj.disable(name, wid(job)).ok)),
-      stopNow: (name, job) => via(() => Boolean(lj.stop(name, wid(job)).ok)),
+      // A unit systemd never had is stopped, not a refused stop (review 14).
+      stopNow: (name, job) => via(() => lj.stoppedOrNotLoaded(lj.stop(name, wid(job)))),
       enable: (name, job) => via(() => Boolean(lj.enable(name, wid(job)).ok)),
       startNow: (name, job) => via(() => Boolean(lj.startOnly(name, wid(job)).ok)),   // never re-enables (review 9)
       loaded: (name, job) => via(() => Boolean(lj.loaded(name, wid(job)))),

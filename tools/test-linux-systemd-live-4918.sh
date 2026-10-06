@@ -220,7 +220,9 @@ if node -e '
   const name = process.argv[1];
   const c = create.createAgent({ name, role: "pm", claudeBin: process.argv[2], tmuxBin: process.argv[3], platform: "linux" });
   if (c.outcome !== create.OUTCOME.CREATED) { console.error("create:", JSON.stringify(c)); process.exit(3); }
-  const r = remove.restart(name, "live check", { platform: "linux" });
+  // startIfDead: with the mock runner the board has no pane it recognises as running, so a plain restart refuses
+  // ("not running"); this drives the restart path (stop, start, confirm loaded) through the run() in remove.js regardless.
+  const r = remove.restart(name, "live check", { platform: "linux", startIfDead: true });
   if (r.outcome !== remove.OUTCOME.RESTARTED) { console.error("restart:", JSON.stringify(r)); process.exit(4); }
   const d = remove.remove(name, { platform: "linux" });
   if (!d || /refused|failed/i.test(String(d.outcome || ""))) { console.error("remove:", JSON.stringify(d)); process.exit(5); }

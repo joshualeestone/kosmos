@@ -63,7 +63,7 @@ const BOARD_LABEL = 'com.kosmos.board';
    spawn a real kosmos or probe a real install. */
 let installedCliFn = () => installedKosmosCli();
 function setInstalledCli(fn) {
-  installedCliFn = typeof fn === 'function' ? fn : () => fn;
+  installedCliFn = fn;   // #4918 review 14: unchanged seam; the Linux tests pass functions
 }
 let spawner = (cmd, args, opts) => spawn(cmd, args, opts);
 function setSpawner(fn) { spawner = fn; }
