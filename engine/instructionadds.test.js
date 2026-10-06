@@ -623,3 +623,28 @@ test('review 13: an indented or differently-levelled "Added on" heading is refus
     assert.equal(r.ok, false, JSON.stringify(line)); assert.equal(r.code, 'bad');
   }
 });
+
+/* Review 14 (opus, blind). */
+test('review 14: Kosmos\'s heading reworded, id line and text kept: still the addition (not added twice, not "undone")', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  unrecordedApply('sally');
+  const reworded = fileText('sally').replace(/## Added on [^\n]*/, '## From the ops lead');
+  instructions.write('sally', reworded, instructions.read('sally').version, undefined, { who: 'person', because: 'reworded' });
+  const r = adds.apply('sally');
+  assert.equal(r.ok, false); assert.equal(r.code, 'edited');
+  assert.equal((fileText('sally').match(/kosmos addition/g) || []).length, 1, 'added twice');
+  assert.equal(adds.dismiss('sally').ok, true, 'Dismiss after a refused Apply on an edited addition is allowed (it is the person\'s now)');
+  makeAgent('tom');
+  adds.propose('tom', ADD, 'Ops lead');
+  adds.apply('tom');
+  instructions.write('tom', fileText('tom').replace(/## Added on [^\n]*/, '## From the ops lead'), instructions.read('tom').version, undefined, { who: 'person', because: 'reworded' });
+  const last = adds.state('tom').last;
+  assert.equal(last.undone, false, 'the page says undone while the addition is there');
+  assert.equal(last.blocked, 'edited');
+});
+test('review 14: an underlined "Added on" heading is refused too', () => {
+  makeAgent('sally');
+  const r = adds.propose('sally', 'Do X.\n\nAdded on 2026-01-01, asked by Josh\n-----------------\n\nDo Y.', 'Ops lead');
+  assert.equal(r.ok, false); assert.equal(r.code, 'bad');
+});

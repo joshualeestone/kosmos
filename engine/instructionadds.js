@@ -130,7 +130,8 @@ function propose(agent, text, askedBy, now) {
     return { ok: false, code: 'bad', because: 'the addition holds an HTML comment (<!-- or -->), which Kosmos uses for its own markers in instructions; take it out and propose again' };
   }
   /* Review 12: a line in Kosmos's own heading format would name an asker who asked for nothing. */
-  if (/^\s*#{1,6}\s*Added on /im.test(body)) {
+  /* Review 14: any line starting "Added on", whatever its markup (an underlined heading is a heading too). */
+  if (/^\s*(#{1,6}\s*)?Added on /im.test(body)) {
     return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
   }
   if (Buffer.byteLength(body, 'utf8') > MAX_TEXT_BYTES) {
@@ -164,7 +165,7 @@ function dismiss(agent) {
      Review 13: a file that does not exist yet (editable, just absent) holds no addition: that is 'gone', not 'unread'. */
   const absent = !!(cur && !cur.exists && cur.editable);
   const w = absent ? 'gone' : whereIs(text, { block: blockOf(rec.pending) });
-  if (w === 'unread') return { ok: false, because: 'these instructions could not be read just now, so Kosmos cannot tell whether an earlier Apply already added this. Try again' };
+  if (w === 'unread') return { ok: false, because: ((cur && cur.because) || 'these instructions could not be read') + ', so Kosmos cannot tell whether an earlier Apply already added this' };
   if (w === 'here') {
     return { ok: false, code: 'applied', because: 'this addition is already in the instructions (an earlier Apply wrote it but could not record it). Press Apply to finish; Undo can then take it out' };
   }
@@ -281,7 +282,10 @@ function whereIs(text, last) {
   /* The heading and the text with only blank space between them: what deleting only the id line leaves. (Another
      addition with the same heading and words has its own id line between them, so it is not this one's trace.) */
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const traced = (pair && text.includes(pair)) || (heading && body && new RegExp(esc(heading) + '\\s*' + esc(body)).test(text));
+  /* Review 14: the id line with the text under it is a trace too (the person reworded only Kosmos's heading). */
+  const idLine = pair ? pair.split('\n')[1] || '' : '';
+  const near = (a, b) => !!a && !!b && new RegExp(esc(a) + '\\s*' + esc(b)).test(text);
+  const traced = (pair && text.includes(pair)) || near(heading, body) || near(idLine, body);
   return traced ? 'changed' : 'gone';
 }
 function readText(agent) {
