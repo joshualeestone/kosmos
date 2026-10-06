@@ -40731,6 +40731,10 @@ function instrAddPaint(sessionName, data) {
   list.textContent = '';
   const p = data && data.pending;
   const last = data && data.last;
+  /* Review 18: the "taken out" sentence is said by the first paint after an Undo, whatever that paint shows, and only
+     while the file itself says the addition is gone; the flag never waits for a later paint (a later Apply). */
+  const justUndone = INSTR_ADD_UNDONE === sessionName && !!(last && last.undone);
+  INSTR_ADD_UNDONE = null;
   const li = document.createElement('li');
   li.className = 'community-mine-row community-held-row';
   if (data && (data.unreadable || data.busy)) {
@@ -40794,14 +40798,14 @@ function instrAddPaint(sessionName, data) {
     dismiss.addEventListener('click', () => instrAddAct(sessionName, 'dismiss', note, [apply, dismiss]));
     acts.append(apply, dismiss);
     li.append(text, acts);
-  } else if (INSTR_ADD_UNDONE === sessionName) {
+  } else if (justUndone) {
     const line = document.createElement('p');
     line.className = 'dhint';
     line.style.margin = '0';
     /* Review 9: Undo keeps edits made elsewhere and Kosmos's own block, so only the addition is said to be gone. */
     line.textContent = 'The addition was taken out. The rest of these instructions is as it was.';
     li.append(line);
-    INSTR_ADD_UNDONE = null;   // said once; the line goes on the next load
+    // said once (the flag was consumed above); the line goes on the next load
   } else if (last && !last.undone && (last.undoable || Date.now() - new Date(last.appliedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
     const line = document.createElement('p');
     line.className = 'dhint';
@@ -40863,7 +40867,7 @@ async function instrAddAct(sessionName, act, note, buttons) {
     note.textContent = (out && (out.because || out.error)) || 'That did not work. Try again.';
     return;
   }
-  if (act === 'undo') INSTR_ADD_UNDONE = sessionName;
+  INSTR_ADD_UNDONE = act === 'undo' ? sessionName : null;   // review 18: any other act clears it
   if (act === 'dismiss') { loadInstrAdd(sessionName); return; }
   /* Apply and Undo changed the file. An unsaved edit in the box is never replaced: show the note that offers Update. */
   const box = document.getElementById('d-instr');

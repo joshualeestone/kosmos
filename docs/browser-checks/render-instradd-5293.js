@@ -134,6 +134,25 @@ function readAdd(page) {
     const undone = await readAdd(page);
     chk(!undone.undo && /The addition was taken out\. The rest of these instructions is as it was\./.test(undone.text), 'after Undo: the sentence, and no button', JSON.stringify(undone.text));
 
+    /* Review 18: Undo while another proposal has arrived unseen, then Apply that one: the row shows the new addition
+       with its Undo, never "The addition was taken out" (the old flag outlived its paint). Ends back at BASE. */
+    adds.propose('mara', 'First of two, applied then undone.', 'Leo');
+    await openInstr(page, 'leo'); await openInstr(page, 'mara');
+    await page.waitForFunction(() => /An addition to these instructions/.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
+    await page.click('#d-instr-add button:has-text("Apply")');
+    await page.waitForFunction(() => /Undo this addition/.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
+    adds.propose('mara', 'Second of two, applied after the undo.', 'Leo');   // arrives with no repaint
+    await page.click('#d-instr-add button:has-text("Undo this addition")');
+    await page.waitForFunction(() => /An addition to these instructions/.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
+    await page.click('#d-instr-add button:has-text("Apply")');
+    await page.waitForFunction(() => /Added on .*, asked by Leo\./.test(document.getElementById('d-instr-add').textContent)
+      || /taken out/.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
+    const second = await readAdd(page);
+    chk(!/taken out/.test(second.text) && second.undo, 'review 18: after Undo then Apply of the next one, the row shows the new addition with Undo, not "taken out"', JSON.stringify(second.text));
+    await page.click('#d-instr-add button:has-text("Undo this addition")');
+    await page.waitForFunction(() => /The addition was taken out/.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
+    chk(fs.readFileSync(fileOf('mara'), 'utf8') === BASE, 'review 18: back to the earlier text');
+
     // Dismiss: gone, and the file untouched.
     adds.propose('mara', 'A short addition.', 'Leo');
     await openInstr(page, 'leo'); await openInstr(page, 'mara');
