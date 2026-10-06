@@ -288,7 +288,9 @@ function plan(name, opts) {
     job = {
       path: jobPath,
       label: isLinux ? require('./linuxjob').unitName(clean) : create.serviceLabel(clean),
-      trash: trashCanTake(jobPath),
+      /* #4918 review 1: a systemd unit is deleted by linuxjob.remove, never moved to the Trash, so the Trash promise
+         is never made for it. */
+      trash: isLinux ? false : trashCanTake(jobPath),
       ...(isLinux ? { unit: true } : {}),
     };
   }
@@ -439,8 +441,7 @@ function del(name, opts) {
     const what = 'its startup job';
     let out;
     try {
-      require('./linuxjob').remove(p.name);
-      out = { ok: true };
+      out = require('./linuxjob').remove(p.name);   // { ok } only when the unit file is gone (#4918 review 1)
     } catch (err) {
       out = { ok: false, because: String((err && err.message) || err) };
     }

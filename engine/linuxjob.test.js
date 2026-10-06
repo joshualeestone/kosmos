@@ -27,7 +27,7 @@ test('unitName and unitPath derive correct service names', () => {
   assert.equal(u, 'kosmos-agent-scorpion.service');
 
   const uCustom = linuxjob.unitName(name, 'testworld');
-  assert.equal(uCustom, 'kosmos-agent-scorpion+testworld.service');
+  assert.equal(uCustom, 'kosmos-agent-scorpion\\x2btestworld.service', 'a named world\'s "+" is systemd-escaped (#4918 review 1)');
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-test-'));
   try {
@@ -53,7 +53,7 @@ test('unitFor generates valid systemd unit with all parameters', () => {
   assert.match(content, /^Description=Kosmos agent subzero/m);
   assert.match(content, /^After=network.target/m);
   assert.match(content, /^\[Service\]/m);
-  assert.match(content, /^ExecStart=\/bin\/bash .* subzero .* \/usr\/bin\/claude \/usr\/bin\/tmux .* claude-3-5-sonnet-20241022/m);
+  assert.match(content, /^ExecStart="\/bin\/bash" .* "subzero" .* "\/usr\/bin\/claude" "\/usr\/bin\/tmux" .* "claude-3-5-sonnet-20241022"/m);
   assert.match(content, /^Restart=always/m);
   assert.match(content, /^RestartSec=5/m);
   assert.match(content, /^Environment="CLAUDE_CONFIG_DIR=\/home\/user\/\.claude-custom"/m);
@@ -72,7 +72,7 @@ test('unitFor handles non-Claude runners (e.g. codex)', () => {
     'codex'
   );
 
-  assert.match(content, /^ExecStart=.* raiden .* \/usr\/bin\/codex \/usr\/bin\/tmux .* gpt-4o codex/m);
+  assert.match(content, /^ExecStart=.* "raiden" .* "\/usr\/bin\/codex" "\/usr\/bin\/tmux" .* "gpt-4o" "codex"/m);
   assert.match(content, /^Environment="CODEX_HOME=\/home\/user\/\.codex-home"/m);
 });
 
@@ -87,7 +87,7 @@ test('unitFor quotes empty model argument for non-Claude runners to prevent argu
   );
 
   // Must emit "" explicitly so systemd does not collapse spaces and shift codex into position 6
-  assert.match(content, /^ExecStart=.* raiden .* \/usr\/bin\/codex \/usr\/bin\/tmux .* "" codex/m);
+  assert.match(content, /^ExecStart=.* "raiden" .* "\/usr\/bin\/codex" "\/usr\/bin\/tmux" .* "" "codex"/m);
   const parsed = linuxjob.readUnitJob(content);
   assert.ok(parsed);
   assert.equal(parsed.model, null);
@@ -183,9 +183,9 @@ test('lifecycle commands execute correct systemctl arguments', () => {
 
     // enableLinger
     linuxjob.enableLinger();
-    const lastCall = calls[calls.length - 1];
-    assert.equal(lastCall.cmd, 'loginctl');
-    assert.equal(lastCall.args[0], 'enable-linger');
+    const lingerCalls = calls.filter((c) => c.cmd === 'loginctl');
+    assert.equal(lingerCalls[lingerCalls.length - 2].args[0], 'enable-linger');
+    assert.equal(lingerCalls[lingerCalls.length - 1].args[0], 'show-user', 'linger is read back, not assumed (#4918 review 1)');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -228,5 +228,44 @@ test('rewriteAgentJob succeeds on Linux using runnerBin and tmux fields', () => 
     assert.match(content, /claude-3-5-sonnet/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// #4918 review 1 (Ice Cream Kitty): the adopted PR's blockers and warnings.
+test('#4918 the agent and board units stop only their own process, never the shared tmux server (KillMode=process)', () => {
+  const linuxboard = require('./linuxboard');
+  assert.match(linuxjob.unitFor('subzero', '/usr/bin/claude', '/usr/bin/tmux', null, null, 'claude'), /^KillMode=process$/m);
+  assert.match(linuxboard.boardUnitFor('/tmp/kosmos-home-4918', 16180), /^KillMode=process$/m);
+});
+
+test('#4918 unit names are valid systemd names: anything outside [A-Za-z0-9:_.-] is \\xHH-escaped', () => {
+  assert.equal(linuxjob.escapeUnitNamePart('a+b'), 'a\\x2bb');
+  assert.equal(linuxjob.escapeUnitNamePart('plain-1.x_y:z'), 'plain-1.x_y:z', 'CONTROL: allowed characters stay');
+  for (const n of ['scorpion', 'a.b-c']) assert.match(linuxjob.unitName(n, 'w1'), /^kosmos-agent-[A-Za-z0-9:_.\\-]+\.service$/);
+});
+
+test('#4918 a value systemd would expand or split is refused, never written', () => {
+  for (const bad of ['/tmp/a%b', '/tmp/a$b', '/tmp/a\\b', '/tmp/a"b', '/tmp/a\nExecStartPre=/bin/x']) {
+    assert.throws(() => linuxjob.unitSafe(bad, 'x'), /cannot go into a systemd unit/, JSON.stringify(bad));
+  }
+  assert.equal(linuxjob.unitSafe('/tmp/a b/c', 'x'), '/tmp/a b/c', 'CONTROL: a space is fine (the value is quoted)');
+  assert.throws(() => linuxjob.unitFor('subzero', '/usr/bin/claude', '/usr/bin/tmux', 'evil\nExecStartPre=/bin/x', null, 'claude'), /model name/);
+});
+
+test('#4918 start reports a failed daemon-reload or enable instead of starting anyway', () => {
+  const calls = [];
+  linuxjob.setRunnerForTests((cmd, args) => { calls.push(args[1]); return args[1] === 'enable' ? { ok: false, stderr: 'Unit file is not valid' } : { ok: true, stdout: '' }; });
+  try {
+    const r = linuxjob.start('sonya', '');
+    assert.equal(r.ok, false);
+    assert.match(r.because, /did not enable/);
+    assert.ok(!calls.includes('start'), 'it went on to start a unit systemd would not enable');
+  } finally { linuxjob.setRunnerForTests(null); }
+});
+
+test('#4918 enableLinger says whether linger is on, read back from loginctl', () => {
+  for (const [out, on] of [['Linger=yes\n', true], ['Linger=no\n', false]]) {
+    linuxjob.setRunnerForTests((cmd, args) => (args[0] === 'show-user' ? { ok: true, stdout: out } : { ok: true, stdout: '' }));
+    try { assert.equal(linuxjob.enableLinger().lingering, on, out.trim()); } finally { linuxjob.setRunnerForTests(null); }
   }
 });

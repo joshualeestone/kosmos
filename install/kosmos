@@ -1243,7 +1243,7 @@ cmd_start() {
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  { [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  { [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
   # #2956 / #4918: under supervision (launchd on macOS, systemd on Linux), let the supervisor OWN the board --
   # do NOT nohup a second node beside it (two would race the one port). The stop-marker was
@@ -1376,7 +1376,7 @@ cmd_board_run() {
   if port_has_listener; then exit 0; fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  { [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  { [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
   # The supervisor OWNS this process: record the pidfile as THIS shell's pid, then
   # `exec` node IN PLACE so node keeps that exact pid. `kosmos stop`/`status`

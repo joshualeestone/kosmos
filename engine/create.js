@@ -3714,11 +3714,16 @@ function installJob(name, opts) {
       try { dismissCodexUpdateNotice(configDir, !configDir); } catch { /* same */ }
     }
     let started = false;
-    try {
-      lj.enableLinger();
-      const r = lj.start(clean);
-      started = Boolean(r && r.ok !== false);
-    } catch { started = false; }
+    let lingering = true;
+    if (DRY_RUN) {
+      started = true;   // #4918 review 1: a dry run starts nothing, as the creation path's Linux arm does
+    } else {
+      try {
+        lingering = lj.enableLinger().lingering;
+        const r = lj.start(clean);
+        started = Boolean(r && r.ok === true);
+      } catch { started = false; }
+    }
     return {
       ok: true,
       started,
@@ -3727,9 +3732,11 @@ function installJob(name, opts) {
         model: modelArg ? null : 'we do not know which model it was set to run on, so it will start on the default',
         account: (configDir || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
-      because: started
-        ? 'set up and started now, and it will start again at every login'
-        : 'set up to start at your next login, but could not be started just now',
+      because: !started
+        ? 'set up, but systemd could not start it just now'
+        : lingering
+          ? 'set up and started now, and it keeps running with nobody logged in'
+          : 'set up and started now, but it stops when you log out: this computer does not let Kosmos keep it running (systemd linger is off)',
     };
   }
   try {
