@@ -7,7 +7,7 @@
  *
  * Each agent runs bin/agent-supervisor.sh under a user unit:
  *   ~/.config/systemd/user/kosmos-agent-<session>.service
- * with Restart=always and RestartSec=5.
+ * with Restart=always and RestartSec=10 (launchd's default throttle), and KillMode=process.
  *
  * Systemd user units run without sudo/root privileges via systemctl --user,
  * and survive disconnect/logout via loginctl enable-linger.
@@ -117,6 +117,15 @@ function unitName(name, worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   const session = launchidentity.launchKey(name, world);
   return `kosmos-agent-${escapeUnitNamePart(session)}.service`;
+}
+
+/* #4918 review 8: the world a unit name belongs to, read back from the name itself (the inverse of unitName), so
+   a record that kept only the label acts on THAT world's unit, not the current one. null when it is not ours. */
+function worldFromUnitName(label) {
+  const m = /^kosmos-agent-(.+)\.service$/.exec(String(label || ''));
+  if (!m) return null;
+  const key = m[1].replace(/((?:\\x[0-9a-f]{2})+)/gi, (seq) => Buffer.from(seq.replace(/\\x/gi, ''), 'hex').toString('utf8'));
+  return launchidentity.parseKey(key).worldId;
 }
 
 function unitPath(name, worldId) {
@@ -415,6 +424,7 @@ module.exports = {
   remove,
   enableLinger,
   enabledState,
+  worldFromUnitName,
   unitSafe,
   escapeUnitNamePart,
   refuseRealUnitDirInTests,

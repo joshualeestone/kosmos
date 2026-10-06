@@ -213,3 +213,34 @@ test('#4918 review 6: under remove.js\'s dry run, the Linux ops never reach syst
     linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
   }
 });
+
+test('#4918 review 8: a Linux restart whose stop systemd refused is never reported as restarted', (t) => {
+  const create = require('./create');
+  const name = 'restartlin';
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  const unit = linuxjob.unitPath(name);
+  fs.writeFileSync(unit, '[Service]\nExecStart="/bin/bash" "/x/agent-supervisor.sh" "restartlin" "/w" "/usr/bin/claude" "/usr/bin/tmux" "/w/start.log"\n');
+  remove.setRunner((cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (cmd === 'systemctl' && args[1] === 'stop') return { ok: false, code: 1, stderr: 'Failed to stop: Connection timed out' };
+    if (cmd === 'systemctl' && args[1] === 'is-active') return { ok: true, stdout: 'active\n' };
+    return { ok: true, stdout: '' };
+  });
+  t.after(() => {
+    remove.setRunner(null);
+    fs.rmSync(unit, { force: true });
+    fs.rmSync(create.workerDir(name), { recursive: true, force: true });
+  });
+  const r = remove.restart(name, 'test', { platform: 'linux', startIfDead: true });
+  assert.notEqual(r.outcome, remove.OUTCOME.RESTARTED, 'a refused stop reported as a restart: ' + JSON.stringify(r));
+});
+
+test('#4918 review 8: a removal record that kept only the unit name acts on THAT world\'s unit', (t) => {
+  remove.setRunner((cmd, args) => { calls.push([cmd, ...args]); return { ok: true, stdout: '' }; });
+  t.after(() => remove.setRunner(null));
+  calls = [];
+  const record = { label: linuxjob.unitName('kenshi', 'w9'), ours: true };   // no worldId, as a removal record holds
+  remove.jobOps('linux').enable('kenshi', record);
+  assert.deepEqual(calls, [['systemctl', '--user', 'enable', linuxjob.unitName('kenshi', 'w9')]], 'enabled the current world\'s unit instead');
+  assert.equal(linuxjob.worldFromUnitName('not-ours.service'), null, 'CONTROL: a foreign unit name has no world');
+});

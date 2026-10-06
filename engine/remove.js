@@ -538,20 +538,23 @@ function jobOps(platform) {
     /* #4918 review 6: every systemctl here goes through THIS module's run(), as the Mac arm's launchctl does, so
        setRunner, setDryRun / AGENT_WORKFORCE_DRY_RUN and the live-execution gate all hold on Linux too. */
     const via = (body) => lj.runWith((file, args) => run(file, args, { timeout: 30000 }), body);
+    // The job's world: its own worldId, else read back from the unit name a removal record kept (review 8).
+    const wid = (job) => (job && job.worldId !== undefined) ? job.worldId
+      : (job && job.label && lj.worldFromUnitName(job.label) !== null) ? lj.worldFromUnitName(job.label) : undefined;
     return {
       win32: false,
       linux: true,
-      disable: (name, job) => via(() => Boolean(lj.disable(name, job && job.worldId).ok)),
-      stopNow: (name, job) => via(() => Boolean(lj.stop(name, job && job.worldId).ok)),
-      enable: (name, job) => via(() => Boolean(lj.enable(name, job && job.worldId).ok)),
-      startNow: (name, job) => via(() => Boolean(lj.start(name, job && job.worldId).ok)),
-      loaded: (name, job) => via(() => Boolean(lj.loaded(name, job && job.worldId))),
-      startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, job && job.worldId)),
+      disable: (name, job) => via(() => Boolean(lj.disable(name, wid(job)).ok)),
+      stopNow: (name, job) => via(() => Boolean(lj.stop(name, wid(job)).ok)),
+      enable: (name, job) => via(() => Boolean(lj.enable(name, wid(job)).ok)),
+      startNow: (name, job) => via(() => Boolean(lj.start(name, wid(job)).ok)),
+      loaded: (name, job) => via(() => Boolean(lj.loaded(name, wid(job)))),
+      startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, wid(job))),
       diagnose: (name, job) => {
-        const u = lj.unitPath(name, job && job.worldId);
-        const st = via(() => lj.status(name, job && job.worldId));
+        const u = lj.unitPath(name, wid(job));
+        const st = via(() => lj.status(name, wid(job)));
         return {
-          label: lj.unitName(name, job && job.worldId),
+          label: lj.unitName(name, wid(job)),
           unitExists: fs.existsSync(u),
           status: st,
         };
@@ -2144,13 +2147,16 @@ function restartInner(name, cause, platform, startIfDead) {
   const relaunched = step('asked it to start again now', () => {
     stopped = ops.stopNow(clean, job);
     if (ops.waitUnloaded) held = stopped ? !ops.waitUnloaded(clean, job) : true;
+    /* #4918 review 8: on Linux a refused stop leaves the old service running, and the start that follows is a no-op
+       on an active unit, so is-active would answer for the OLD one. Held, as the Mac's refused bootout is. */
+    if (ops.linux) held = !stopped;
     const started = ops.startNow(clean, job);
     firstLoadedNew = bootstrapLoadedNew();
     return started;
   });
   /* Held: only a bootstrap that really answered 0 is a new job. "Already loaded" is the dying job, and no bootstrap at
      all (a launch file that is gone: startNow returns true without one) leaves print answering for the dying job. */
-  const heldAnswer = () => !ops.win32 && held && !bootstrapLoadedNew();
+  const heldAnswer = () => !ops.win32 && held && (ops.linux || !bootstrapLoadedNew());
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
      rather than trusting the OS call -- this is the exact check that would have caught Nora
      (job registered on disk, not loaded). Routed through step() and short-circuited on a dead
