@@ -1749,6 +1749,8 @@ test('the previewed path IS the path the act produces, case correction included'
   // property the preview exists for on both kinds of volume.
   reset();
   fs.mkdirSync(path.join(projects.projectsRoot(), 'Lease'), { recursive: true });
+  // #5424: whether `lease` opens `Lease` is the disk's answer, asked before anything is made.
+  const sameFolder = fs.existsSync(path.join(projects.projectsRoot(), 'lease'));
   const previewed = projects.folderPathPreview('lease');
   const made = projects.makeFolder('lease');
   assert.equal(previewed.path, made,
@@ -1756,7 +1758,9 @@ test('the previewed path IS the path the act produces, case correction included'
   // The act distinction travels with the path: this folder existed, so the
   // screen must say ADOPT, and a fresh name must say MAKE (round 17: the
   // preview claimed "make" over a folder adoption).
-  assert.equal(previewed.exists, true, 'an existing folder previews as existing');
+  assert.equal(previewed.exists, sameFolder, 'the folder previews as existing exactly when this name opens one');
+  assert.equal(path.basename(made), sameFolder ? 'Lease' : 'lease',
+    'a case-insensitive disk adopts Lease; a case-sensitive one makes lease beside it');
   const fresh = projects.folderPathPreview('Never previewed into being');
   assert.strictEqual(fresh.exists, false, 'a fresh name previews as not existing');
   assert.ok(!fs.existsSync(fresh.path),
