@@ -8,9 +8,10 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
 (rejected: a new interaction surface and an authority path triggered by agent-written content); it is one instruction.
 
 ## Change (engine/projects.js blockRules().member)
-- Right after the pause line: "If you cannot tell whether they mean the whole project, ask them where they asked, and
-  tell them they can also press Pause beside the project's name themselves." (review 1: "where they asked", not "in the
-  room", since the request can come directly; placed after the pause line so "they" is the pause request)
+- Right after the pause line: "If you cannot tell whether they mean the whole project, ask them in the same place they
+  asked, and pause it if they say yes. Tell them they can also press Pause beside the project's name themselves."
+  (review 1: not "in the room", since the request can come directly; placed after the pause line so "they" is the pause
+  request. Review 2: "where they asked" read as "ask where"; and it now says what to do on a yes)
 - The resume pointer names the button: "tell them to press Resume beside the project's name, at the top of its page"
   (was "tell them it is on the project's page").
 - Delivery: part 1 (#5409, merged) owes a running member a re-read when its block is next rewritten (a task or
@@ -19,12 +20,17 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
 
 ## Ordering
 Do NOT merge before #5395: the line names a button that only exists once it lands. ENFORCED by a test (review 1): it
-reads web/index.html for id="pj-head-pause" and the Pause / Resume label, so it is red on main until #5395 lands and
+reads web/index.html for id="pj-head-pause" and checks paintHeadPause (which labels it) names it with 'Pause' and
+'Resume' (review 2: not one pinned source line), so it is red on main until #5395 lands and
 red again if the button is ever removed or renamed.
 
 ## Tests
 engine/projects.test.js "#5320 part 2": both sentences present, the old pointer gone. Red against main's projects.js.
 projects + instructionreread tests 188/188.
+
+## Known limit
+The button is hidden on an archived project; agents are not told about archived projects, so the line is not reached
+there.
 
 ## Weakest premise
 That "beside the project's name" stays true: if #5395's button moves before it merges, this wording moves with it.

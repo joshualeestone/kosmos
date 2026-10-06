@@ -843,7 +843,7 @@ test('telling an agent writes the block into its real instruction file', () => {
 test('#5320 part 2: the block points a person at the Pause and Resume buttons beside the project name', () => {
   const body = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: ['mara'], tasks: [] }], 'mara');
   const flat = body.replace(/\n/g, ' ');
-  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. If you cannot tell whether they mean the whole project, ask them where they asked, and tell them they can also press Pause beside the project's name themselves\./,
+  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. If you cannot tell whether they mean the whole project, ask them in the same place they asked, and pause it if they say yes\. Tell them they can also press Pause beside the project's name themselves\./,
     'the ask follows the pause line, so its "they" is the pause request');
   assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\./);
   assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
@@ -852,12 +852,17 @@ test('#5320 part 2: the block points a person at the Pause and Resume buttons be
   assert.doesNotMatch(anon, /press Pause beside/);
 });
 
-test('#5320 part 2: the button the instructions name exists on the project page (merge after #5391)', () => {
+// Merge order: red until kosmos#5391's button (PR #5395) is on main, so this branch cannot land first.
+test('#5320 part 2: the Pause / Resume button the instructions name exists beside the project name', () => {
   // The block tells agents to point their person at a Pause / Resume button beside the project name. If that button
   // is ever removed or renamed, this goes red instead of agents describing a button that is not there.
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /id="pj-head-pause"/, 'no Pause / Resume button beside the project name (#5391)');
-  assert.match(page, /const word = paused \? 'Resume' : 'Pause';/, 'the button is not labelled Pause / Resume');
+  const at = page.indexOf('function paintHeadPause(');
+  assert.ok(at >= 0, 'paintHeadPause (which labels that button) is gone');
+  const body = page.slice(at, page.indexOf('\nfunction ', at + 1));
+  assert.ok(body.includes('pj-head-pause') && body.includes("'Pause'") && body.includes("'Resume'"),
+    'the header button is no longer labelled Pause / Resume');
 });
 
 test('#5320: only a change to the block\'s standing rules owes the running agent a re-read', () => {
