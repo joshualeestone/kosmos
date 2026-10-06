@@ -21,16 +21,19 @@ const communitysend = require('./communitysend');
 
 const SHOWN = 20;   // the newest items listed; the rest are counted
 
-/* #5415: where an item that is in the community can be seen. The community site's own post page is /post/<id>
-   (kosmos-community web/app/post/[id]/page.tsx; the board page links the same way). The site has no address for one
-   comment, so a comment links to the post it is on. Only the states that are in the community, and only a plain id
-   (the page's rule), so nothing odd from a record is printed into a terminal. The address is the one this board sends
-   to, so a test or staging board never prints a production link. */
+/* #5415: a link to where an item that is in the community can be seen: <site>/post/<id> (kosmos-community
+   web/app/post/[id]/page.tsx). A comment has no page of its own, so it links to the post it is on. */
 const LINKED = new Set(['sent', 'sent_refused']);
 const PLAIN_ID = /^[0-9a-f-]{8,64}$/i;
+function siteOrigin() {
+  let u;
+  try { u = new URL(communitysend.sendAddress()); } catch { return null; }
+  return u.protocol === 'https:' && (u.pathname === '/' || u.pathname === '') && !u.search && !u.hash ? u.origin : null;
+}
 function linkFor(state, id) {
   if (!LINKED.has(state) || typeof id !== 'string' || !PLAIN_ID.test(id)) return null;
-  return communitysend.publicAddress() + '/post/' + encodeURIComponent(id);
+  const site = siteOrigin();
+  return site ? site + '/post/' + encodeURIComponent(id) : null;
 }
 
 /* What each state means to the agent, in its words. A state without words reads "unknown (<state>)"; a test reads
@@ -80,7 +83,8 @@ function readRecords() {
   const state = r(p.stateFile);
   const keys = r(p.keysFile);
   const shared = state !== null && keys !== null;
-  return { state: state || {}, keys: keys || {},
+  const sent = r(p.sentFile);
+  return { state: state || {}, keys: keys || {}, sent: sent || {},
     postsOk: shared && r(p.sentFile) !== null && r(p.deletesFile) !== null,
     // Review 3: the sweep stops before the comment pass when a POST record is unreadable, so comments need both halves.
     commentsOk: shared && r(p.sentFile) !== null && r(p.deletesFile) !== null
@@ -140,7 +144,7 @@ function itemsFor(sessionName, now = Date.now()) {
   for (const p of communitystore.publishedPosts()) {
     if (!byAgent(p, sessionName)) continue;
     const state = postStatus ? stateOf('post', postStatus[p.id], p, ctx) : 'unreadable';
-    const link = linkFor(state, postStatus && postStatus[p.id] && postStatus[p.id].remoteId);
+    const link = linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);
     out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state, ...(link ? { link } : {}) });
   }
   for (const c of communitystore.serviceComments()) {
