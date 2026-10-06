@@ -106,16 +106,55 @@ test('undo restores EXACTLY the text from before the apply', () => {
   assert.equal(adds.undo('sally').ok, false, 'an addition was undone twice');
 });
 
-test('undo is refused once the instructions were EDITED after the apply, and the edit survives', () => {
+test('rebase review: an edit ELSEWHERE leaves the addition to Undo by itself (the edit survives); an edit INSIDE it refuses', () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   adds.apply('sally');
-  const edited = fileText('sally') + '\nThe person added this line by hand.\n';
+  const applied = fileText('sally');
+  const edited = 'The person added this line by hand, at the top.\n' + applied;
   instructions.write('sally', edited, instructions.read('sally').version, undefined, { who: 'person', because: 'test edit' });
-  assert.equal(adds.state('sally').last.undoable, false, 'the page would offer an Undo that cannot work');
-  const r = adds.undo('sally');
+  assert.equal(adds.state('sally').last.undoable, true, 'an edit elsewhere blocked Undo');
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), 'The person added this line by hand, at the top.\n' + BASE, 'Undo lost the edit or left the addition');
+  // An edit INSIDE the addition: Undo is refused and the edit survives.
+  makeAgent('tom');
+  adds.propose('tom', ADD, 'Ops lead');
+  adds.apply('tom');
+  const inside = fileText('tom').replace('write to them once', 'write to them twice');
+  instructions.write('tom', inside, instructions.read('tom').version, undefined, { who: 'person', because: 'test edit' });
+  assert.equal(adds.state('tom').last.undoable, false, 'the page would offer an Undo that cannot take out the edited addition');
+  assert.equal(adds.state('tom').last.blocked, 'edited');
+  const r = adds.undo('tom');
   assert.equal(r.ok, false); assert.equal(r.code, 'edited');
-  assert.equal(fileText('sally'), edited, 'undo overwrote the person\'s later edit');
+  assert.equal(fileText('tom'), inside, 'undo overwrote the person\'s edit');
+});
+
+test('rebase review (#5297): Kosmos appending its own block after the addition neither blocks Undo nor reads as "edited"', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  adds.apply('sally');
+  const BLOCK = '\n<!-- kosmos:community -->\nCommunity rules here.\n<!-- /kosmos:community -->\n';
+  instructions.write('sally', fileText('sally') + BLOCK, instructions.read('sally').version, undefined, { who: 'kosmos', because: 'community refresh' });
+  const last = adds.state('sally').last;
+  assert.equal(last.undoable, true, 'Kosmos\'s own block refresh made the addition read as edited: ' + JSON.stringify(last));
+  assert.equal(adds.undo('sally').ok, true);
+  const after = fileText('sally');
+  assert.ok(!after.includes('## Added on'), 'Undo left the addition in');
+  assert.ok(after.includes('<!-- kosmos:community -->'), 'Undo took out Kosmos\'s community block too');
+  assert.ok(after.startsWith(BASE.trimEnd()), 'Undo changed the text before the addition');
+});
+
+test('rebase review (#5297): an unrecorded apply, then a Kosmos block appended, then Apply again: added once, not twice', () => {
+  makeAgent('sally');
+  adds.propose('sally', ADD, 'Ops lead');
+  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  let r;
+  try { r = adds.apply('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  assert.equal(r.code, 'unrecorded', 'fixture: the record did not fail');
+  const BLOCK = '\n<!-- kosmos:community -->\nCommunity rules here.\n<!-- /kosmos:community -->\n';
+  instructions.write('sally', fileText('sally') + BLOCK, instructions.read('sally').version, undefined, { who: 'kosmos', because: 'community refresh' });
+  assert.equal(adds.apply('sally').ok, true);
+  assert.equal((fileText('sally').match(/## Added on/g) || []).length, 1, 'the addition went in twice');
 });
 
 test('apply is refused, and nothing is lost, when the agent has no instructions file to add to', () => {
@@ -220,7 +259,8 @@ test('review 3: the reason Undo is not offered is told apart: short is not "edit
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   adds.apply('sally');
-  instructions.write('sally', fileText('sally') + 'hand edit\n', instructions.read('sally').version, undefined, { who: 'person', because: 't' });
+  // An edit inside the addition (one elsewhere no longer blocks Undo since the rebase review).
+  instructions.write('sally', fileText('sally').replace('tell me instead', 'tell the team'), instructions.read('sally').version, undefined, { who: 'person', because: 't' });
   assert.equal(adds.state('sally').last.blocked, 'edited');
 });
 

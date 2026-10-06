@@ -171,10 +171,12 @@ function apply(agent, now) {
   const p = rec.pending;
   const block = '\n\n' + headingLine(p.askedBy, p.askedAt, p.id) + '\n\n' + p.text.replace(/\s*$/, '') + '\n';
   const curText = String(cur.text == null ? '' : cur.text);
-  /* Review 3: IDEMPOTENT. If the file already ends with exactly this addition (an earlier press wrote it but could not
-     record it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail. */
-  const already = curText.endsWith(block);
-  const before = already ? curText.slice(0, curText.length - block.length) + '\n' : curText;
+  /* Review 3: IDEMPOTENT. If the file already holds exactly this addition (an earlier press wrote it but could not record
+     it), it is only recorded now, never added a second time. So no take-back write is needed, and none can fail.
+     Rebase review: ANYWHERE in the file, not only at the end: since #5297 a board start can append Kosmos's community
+     block after it, and a second press must still find it (the block carries this proposal's own id line). */
+  const already = curText.includes(block);
+  const before = already ? curText.replace(block, '') + '\n' : curText;
   let version = cur.version;
   if (!already) {
     const after = curText.replace(/\s*$/, '') + block;
@@ -188,7 +190,9 @@ function apply(agent, now) {
   }
   /* Only a real content version can guard an Undo (instructions.read's sentinels 'absent'/'unreadable' cannot). */
   if (typeof version !== 'string' || !version.startsWith('sha256:')) version = null;
-  rec.last = { appliedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(), askedBy: p.askedBy, before, version };
+  /* `block`: the exact span written, so Undo can take out just that span later even after Kosmos rewrote another part
+     of the file (rebase review: #5297's board-start community refresh changes the version without anybody editing). */
+  rec.last = { appliedAt: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(), askedBy: p.askedBy, before, version, block };
   delete rec.pending;
   all.agents[k] = rec;
   try {
@@ -202,15 +206,31 @@ function apply(agent, now) {
 /** What the page shows about the last applied addition: when, who asked, whether Undo can still work, and if not, why.
  *  Review 3: read from the FILE, not only the record: a file back at the earlier text is undone (even if recording the
  *  undo failed), and each reason Undo is not offered is told apart, so the page never says "edited" when nobody did. */
+/* Rebase review: where the applied span sits in the current text, once and exactly; -1 when it is not there exactly
+   once (taken out, edited, or duplicated by hand). Records from before `block` was kept have none: -1. */
+function spanAt(text, last) {
+  if (!last || typeof last.block !== 'string' || !last.block || typeof text !== 'string') return -1;
+  const at = text.indexOf(last.block);
+  return at !== -1 && text.indexOf(last.block, at + 1) === -1 ? at : -1;
+}
+/* The text with the applied span taken out, as it was before Apply (Apply trimmed the end before appending). */
+function withoutSpan(text, last) {
+  const at = spanAt(text, last);
+  if (at === -1) return null;
+  const out = text.slice(0, at) + text.slice(at + last.block.length);
+  return at + last.block.length === text.length ? out.replace(/\s*$/, '') + '\n' : out;
+}
 function publicLast(agent, last) {
   if (!last) return null;
   let cur = null;
   try { cur = instructions.read(agent); } catch { cur = null; }
   const backToBefore = Boolean(cur && cur.exists && typeof last.before === 'string' && cur.text === last.before);
   const undone = Boolean(last.undoneAt) || backToBefore;
+  const spanHere = Boolean(cur && cur.exists && withoutSpan(String(cur.text), last) !== null);
   let blocked = null;
   if (!undone) {
     if (typeof last.before !== 'string' || last.before.trim().length < instructions.MIN_CHARS) blocked = 'short';
+    else if (spanHere) blocked = null;   // the addition is still there as written: Undo takes out just that
     else if (!last.version || !cur || !cur.exists) blocked = 'unknown';
     else if (cur.version !== last.version) blocked = 'edited';
   }
@@ -227,11 +247,15 @@ function undo(agent) {
   const last = rec && rec.last;
   if (!last || last.undoneAt) return { ok: false, code: 'none', because: 'there is no addition to undo' };
   const cur = instructions.read(agent);
-  if (!cur || cur.version !== last.version) {
+  /* Rebase review: the addition still there exactly as written is taken out by itself, whatever else changed (Kosmos's
+     own block refreshes since #5297); otherwise the whole earlier text only while nothing changed at all. */
+  const curText = cur && cur.exists ? String(cur.text == null ? '' : cur.text) : null;
+  const cut = curText === null ? null : withoutSpan(curText, last);
+  if (!cur || (cut === null && cur.version !== last.version)) {
     return { ok: false, code: 'edited', because: 'the instructions were edited after the addition, so it cannot be undone here' };
   }
   try {
-    instructions.write(agent, last.before, last.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
+    instructions.write(agent, cut !== null ? cut : last.before, cur.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
   } catch (e) {
     return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
   }
