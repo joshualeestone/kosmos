@@ -29,8 +29,11 @@ to another provider the person had connected; moving it by hand cleared the stal
 - The Settings switch (web). Next PR, with design shots for Mona: until then the flag can only be set by the route's
   screen caller, so the behaviour is unreachable for a person.
 - The one-press "Give its tasks to another agent" on a paused card.
-- Telling the limited agent: its pane is rate-limited, so a line typed there is not read until it resets. The move is
-  recorded in the task's conversation, and the agent's own list no longer shows the part.
+- (Built after review 7, so no longer out:) the limited agent IS told, once its limit lifts: step sees the
+  rate_limited reading end (pausedSince) and runOnce's `tell` sends one line naming the parts moved during that limit
+  (server.js failoverTell; Antigravity agents get it in agyquota's carry-on line instead). One try per lift.
+- A per-(part, receiver) backoff after a receiver could not be reached: a failover move and its hand-back can repeat
+  each minute while that receiver stays unreachable, as the Assigner's ordinary give already does (review 7 NIT).
 
 ## Rejected
 - Switching the limited agent's provider: restarts it and, for Codex, Gemini and Grok, drops its conversation.
@@ -44,6 +47,12 @@ to another provider the person had connected; moving it by hand cleared the stal
 ## Weakest premise
 That projects have members on more than one provider. If each agent is alone on its project, this never fires and the
 remaining path is switching the agent's provider, which this PR does not do.
+
+Second, from review 7: only a limit Kosmos can date moves work. Claude Code prints no date on a limit that resets within
+a day, so an ordinary Claude 5-hour limit never triggers failover; a weekly one, Antigravity's quota (quotaUntil) and
+the shared pool do. Codex and Gemini CLI limits carry no reset Kosmos reads, so they do not either. That is the safe
+side (an old limit line on an idle screen can outlive the limit by hours) and the narrow one: the reporter's case may
+well have been a 5-hour limit. What would widen it: a reset time read from Codex's and Gemini's own lines.
 
 ## Evidence
 - `providerOf` (8847ca0e0): a test that an Antigravity agent's part does not move to a Gemini CLI agent, with a Claude
@@ -94,6 +103,13 @@ remaining path is switching the agent's provider, which this PR does not do.
     give's line does not (mutations: note never sent, note on every give: both red).
   - movedAwayFrom (server.js) is not exported and is wired only inside start(), so it has no direct test; its input
     (movedFrom read through progressOf) is pinned above.
+
+- Review 7 (blind, opus), each pinned and mutation-checked (32d9b236a): an undated Codex/Gemini limit moves nothing
+  (red when it does); tick reads runners through readRunner and a throwing read is unknown (red when tick ignores
+  them); a lifted limit is reported once and only with failover on (red when never reported); an unrecognised runner
+  has no provider (red without the check); a refused failover move names the real reason; source pins for the
+  readRunner and tell wiring and failoverTell's Antigravity skip and empty-list return.
+- After the rebase onto main: a repeating task between runs (#4787) is not moved (red without the skip).
 
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
