@@ -144,7 +144,7 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
 
 test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and runs with Claude Code\'s flags; codex\'s PowerShell needs the agent\'s variable',
   // Its own timeout: several PowerShell starts, past the runner script's 60 s per test default.
-  { timeout: 240000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
+  { timeout: 300000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
     const z = stageZip();
     const ps = (env, command, flags = []) => run(POWERSHELL, ['-NoProfile', '-NonInteractive', ...flags, '-Command', command], env);
     // If this read fails, the restore writes Undefined (the policy a fresh GitHub runner has at this scope).

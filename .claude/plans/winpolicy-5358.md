@@ -34,5 +34,9 @@ beside PowerShell scripts refused after a machine policy reset.
 That windows-latest (Server, admin) answers the same as a person's Windows 11 laptop for these shells.
 
 ## Tests
+- engine/win32env.js: envDelete, envSet (one key, the canonical spelling) and envCanon (an inherited spelling moved to
+  the canonical one before code reads it back), used by childEnv and the per-turn envs in win32agy and win32keyed.
+- engine/win32keyed.test.js: the #5358 arms (Grok key in another spelling; Gemini key with and without an account key,
+  NO_BROWSER kept).
 - engine/win32-kosmos-shell-5358.test.js (pure arms anywhere; shell arms on the Windows runner, the policy arm only
   on GitHub Actions and restoring the CurrentUser policy).
