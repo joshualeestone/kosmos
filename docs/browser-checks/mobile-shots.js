@@ -252,9 +252,11 @@ const SCREENS = [
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
   { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
+    // Not paused, whatever an earlier pass of project-paused left (the board lives across themes and sizes).
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }), data.projectId);
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
-    await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 8000 });
+    await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
   } },
   { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
