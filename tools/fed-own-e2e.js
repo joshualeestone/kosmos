@@ -37,6 +37,7 @@
  *      route refuses to CREATE an account, #4454). A and B then both sign in to it
  *      through the board's Plus wizard routes (signin-start/verify/register), reading
  *      each dev code off the coordinator's stdout. Distinct mac_id, standing good.
+ *   4b. B is ALLOWED by A (#4681): B's join code, A's Allow with that code, B's "codes match".
  *   5. A makes a project and its own code; B verifies and joins it (edge "own:<ref>").
  *   6. Both seats up; A posts, B must hold it as an external row; B posts, A must hold
  *      it. Each computer has its own seat (two distinct relay members in one room).
@@ -580,6 +581,39 @@ async function main() {
   chk(macA && macB && macA !== macB, 'step 4: both enrolled with distinct mac_id', (macA || '-') + ' / ' + (macB || '-'));
   chk(remoteJson(A).standing === 'good' && remoteJson(B).standing === 'good', 'step 4: both hold standing good (Kosmos+)',
     remoteJson(A).standing + ' / ' + remoteJson(B).standing);
+
+  // 4b. kosmos#4681/#4794: a second computer must be ALLOWED by the first before the account's computers can be read
+  // from it, so without this the own-code verify in step 5 answers 409 "This computer has not been allowed" (measured
+  // 10-06 01:28 on both arms). Done as a person does it: B's join rounds work out a code, A's Allow carries that same
+  // code from A's pending list, and B confirms "The codes match".
+  const allowedOnA = async () => {
+    const d = await http(A.base, 'GET', '/api/remote/devices');
+    return d.status === 200 && d.json && Array.isArray(d.json.allowed) ? d.json.allowed : null;
+  };
+  const before = await allowedOnA();
+  chk(Array.isArray(before), 'step 4b control: A\'s device list is readable before the Allow', before ? before.length + ' allowed' : 'no list');
+  let joinCode = '';
+  let waiting = null;
+  const paired = await waitFor(async () => {
+    const j = await http(B.base, 'GET', '/api/remote/join');
+    if (j.status === 200 && j.json && j.json.join_code) joinCode = j.json.join_code;
+    if (!joinCode) return null;
+    const p = await http(A.base, 'GET', '/api/remote/pending');
+    const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
+    waiting = devs.find((d) => d.code === joinCode) || null;
+    return waiting;
+  }, 90000, 1500);
+  chk(!!paired, 'step 4b: B shows a join code and A lists B as waiting with that same code',
+    'code ' + (joinCode || '-') + ', waiting ' + (waiting ? waiting.device_id.slice(0, 12) + '... (' + (waiting.joining_computer || '-') + ')' : '-'));
+  if (paired) {
+    let r0 = await http(A.base, 'POST', '/api/remote/devices/allow', { device_id: waiting.device_id, code: joinCode }, SCREEN);
+    chk(r0.status === 200, 'step 4b: A allows B with the code it shows', r0.status + ' ' + r0.text.slice(0, 200));
+    r0 = await http(B.base, 'POST', '/api/remote/join/confirm', { code: joinCode }, SCREEN);
+    chk(r0.status === 200 && r0.json && r0.json.confirmed === true, 'step 4b: B confirms the codes match', r0.status + ' ' + r0.text.slice(0, 200));
+    const after = await allowedOnA();
+    chk(Array.isArray(after) && after.some((d) => d && d.device_id === waiting.device_id) && !(before || []).some((d) => d && d.device_id === waiting.device_id),
+      'step 4b: B is on A\'s allowed list now and was not before', (after || []).length + ' allowed');
+  }
 
   // 5. A: a project with an agent, and its own code. B: verify + join with that code.
   let r = await http(A.base, 'POST', '/api/projects', { name: 'Shared ' + RUN });
