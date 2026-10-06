@@ -23,9 +23,14 @@ did this. The patterns are ASCII. What C changes, in both directions (the first 
 
 - **Narrower, and fixed here:** in C, `[[:space:]]` is ASCII only, but JavaScript reads U+00A0, U+1680,
   U+2000-200A, U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF as whitespace, so `process.kill(<U+2003>-1, 9)`
-  would have passed. The `code` arm now uses `JW`, `[[:space:]]` plus the UTF-8 bytes of those characters.
+  would have passed. The `code` and `argv` arms now use `JW`, `[[:space:]]` plus the UTF-8 bytes of those
+  characters (`argv` found by blind review 3: an `execFileSync` or `spawn` argv with such a space passed).
   The test covers twelve of them (every row of the list, plus U+2000, U+2007 and U+2028/2029 inside the
   byte range), with and without jq, and a non-whitespace letter as the control.
+- **A side effect, fixed:** with `JW*` matching zero spaces, `NZ` (a signal other than 0) took the first
+  byte of a Unicode space as its character and refused a harmless signal 0. `NZ` now never starts with a
+  lead byte of a `JW` space (review 3). Tested: signal 0 with such a space before or after it is allowed,
+  signal 9 after one is refused.
 - **Narrower, accepted:** a Unicode space between a shell `kill` and `-1` no longer matches the shell arms.
   Bash splits words on ASCII whitespace only, so it would not run that text as `kill -1` either.
 - **Wider, an improvement:** an invalid UTF-8 byte just before `kill -9 -1` used to defeat the boundary

@@ -281,3 +281,24 @@ test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that
   // Control: a letter that is not whitespace makes an identifier, not a minus one, and stays allowed.
   assert.equal(run('Write', { file_path: '/tmp/x.js', content: 'process.KILL(\u00e9N1, 9);\n' }).code, 0);
 });
+
+test('#5420 the argv arm reads Unicode spaces too, and a signal 0 after one stays allowed', () => {
+  for (const ws of [' ', ' ', '　']) {
+    const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+    for (const content of [
+      `execFileSync('KILL',${ws}['-9', 'N1']);\n`,
+      `spawn('KILL',${ws}['-9','N1']);\n`,
+      `spawn([${ws}'KILL', 'N1']);\n`,
+    ]) {
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `${name} argv with jq: ${content}`);
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `${name} argv without jq: ${content}`);
+    }
+    // Signal 0 sends nothing: a Unicode space before or after the 0 must not turn it into a refusal.
+    for (const content of [`process.KILL(N1,${ws}0);\n`, `process.KILL(N1, 0${ws});\n`]) {
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 0, `${name} signal 0 with jq: ${content}`);
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 0, `${name} signal 0 without jq: ${content}`);
+    }
+    // Control for the signal arm: a real signal after the same space still blocks.
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content: `process.KILL(N1,${ws}9);\n` }).code, 2, `${name} signal 9`);
+  }
+});
