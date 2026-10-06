@@ -21048,7 +21048,7 @@ function start(port = PORT) {
           if (!owed.length) return;
           const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
           // Review 6: the roster only when an agent can actually be typed into (the sweep holds those lines otherwise).
-          const r = allowed && owed.some((x) => !x.person) ? safeRoster() : null;
+          const r = allowed && owed.some((x) => !x.person && x.members.includes(x.reviewer)) ? safeRoster() : null;   // review 7: not for a departed reviewer
           missedtell.sweep({
             projects: projs, roster: r, now: Date.now(),
             allowed,

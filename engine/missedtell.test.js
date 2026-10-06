@@ -132,7 +132,7 @@ test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside t
   assert.match(body, /deliver: \(session, text, ro\) => chat\.deliverAutomatic\(/);
   assert.match(body, /const allowed = agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\);/, 'the nudge\'s gate: live execution and the brake');
   assert.match(body, /missedtell\.sweep\(\{[\s\S]*\ballowed,/, 'and it is what the sweep is given');
-  assert.match(body, /const r = allowed && owed\.some\(/, 'review 6: no roster read while nothing can be typed');
+  assert.match(body, /const r = allowed && owed\.some\(\(x\) => !x\.person && x\.members\.includes\(x\.reviewer\)\)/, 'reviews 6 and 7: no roster read while nothing can be typed');
   assert.equal((src.match(/missedtell\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });
 
