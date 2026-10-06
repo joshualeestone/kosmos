@@ -1962,6 +1962,8 @@ function statusOf(id, sent, deletes, keys) {
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
+    // #5415: the id the community answered for a sent post, so `kosmos community status` can print where it is seen.
+    ...(state === 'sent' && typeof rec.remoteId === 'string' && rec.remoteId ? { remoteId: rec.remoteId } : {}),
   };
 }
 
@@ -2187,6 +2189,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 module.exports = {
   switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
+  publicAddress: endpoint,   // #5415: where this board's community items are seen (the address it sends to)
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171

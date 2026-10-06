@@ -254,3 +254,62 @@ test('--replies with only a queued post says it is waiting to go out, not "no po
   assert.equal(r.ok, true);
   assert.match(r.text, /none of your posts is in the community yet: 1 waiting to go out\. See where each stands with: kosmos community status/);
 });
+
+/* #5415: an item in the community prints where it can be seen; nothing else does. */
+const RID = '5f0e8c1a-1111-4222-8333-444455556666';
+test('#5415: a sent post prints its public link on its own line; a queued one prints none', () => {
+  post('ava', 'Queued one');
+  const b = post('ava', 'Sent one');
+  writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID, sentAt: '2026-10-01T20:00:00Z' } });
+  const items = status.itemsFor('ava');
+  assert.equal(items.find((x) => x.title === 'Sent one').link, 'https://community.kosmosplus.com/post/' + RID);
+  assert.equal(items.find((x) => x.title === 'Queued one').link, undefined, 'a queued post was given a link');
+  const t = status.statusText('ava').text;
+  assert.match(t, /"Sent one".*: in the community\n  see it at https:\/\/community\.kosmosplus\.com\/post\/5f0e8c1a-1111-4222-8333-444455556666$/m);
+  assert.equal((t.match(/see it at /g) || []).length, 1, 'more than the one sent post was linked:\n' + t);
+});
+
+test('#5415: a sent comment links to the post it is on; an unsent comment does not', () => {
+  const c = comment('ava', 'A sent comment.');
+  comment('ava', 'A queued comment.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'sent', agent: 'ava', remoteId: 'c-remote-1', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
+  const t = status.statusText('ava').text;
+  assert.match(t, /"A sent comment\.".*: in the community\n  on the post at https:\/\/community\.kosmosplus\.com\/post\/7a1b2c3d-0000-4000-8000-000000000001$/m);
+  assert.doesNotMatch(t, /"A queued comment\.".*\n  on the post at/, 'a queued comment was given a link');
+  assert.equal((t.match(/on the post at /g) || []).length, 1);
+});
+
+test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed and refused do not', () => {
+  const a = post('ava', 'Sent then refused');
+  const b = post('ava', 'Taken down');
+  const c = post('ava', 'Unconfirmed');
+  const d = post('ava', 'Refused');
+  writeJson(cs._paths.keysFile(), { ava: { refused: true } });
+  writeJson(cs._paths.sentFile(), {
+    [a.id]: { state: 'sent', agent: 'ava', remoteId: RID },
+    [b.id]: { state: 'sent', agent: 'ava', remoteId: RID.replace('5f', '6f'), takenDown: true },
+    [c.id]: { state: 'pending', agent: 'ava', attempted: true },
+    [d.id]: { state: 'refused', agent: 'ava', remoteId: RID.replace('5f', '7f') },
+  });
+  const by = Object.fromEntries(status.itemsFor('ava').map((x) => [x.title, x]));
+  assert.equal(by['Sent then refused'].state, 'sent_refused', 'fixture');
+  assert.ok(by['Sent then refused'].link, 'CONTROL: a post that is in the community lost its link');
+  for (const t of ['Taken down', 'Unconfirmed', 'Refused']) assert.equal(by[t].link, undefined, t + ' was given a link (state ' + by[t].state + ')');
+});
+
+test('#5415: an id that is not a plain id is never printed', () => {
+  const b = post('ava', 'Odd id');
+  writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: 'x\u001b[2J/../evil' } });
+  assert.equal(status.itemsFor('ava')[0].state, 'sent', 'fixture');
+  assert.equal(status.itemsFor('ava')[0].link, undefined);
+  assert.doesNotMatch(status.statusText('ava').text, /see it at|evil/);
+});
+
+test('#5415: the link uses the address this board sends to, not a fixed production one', (t) => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://staging-community.example.test/';
+  const b = post('ava', 'Staging');
+  writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
+  assert.equal(status.itemsFor('ava')[0].link, 'https://staging-community.example.test/post/' + RID);
+});
