@@ -20629,7 +20629,7 @@ function start(port = PORT) {
               /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
                  same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
               skip: (c) => c.runner === 'antigravity' && agyQuota.resumePending(c.sessionName,
-                { book: AGY_QUOTA_BOOK, now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed() }),
+                { now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed(), book: AGY_QUOTA_BOOK }),
               deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
             for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
           } catch { /* best-effort, like the tick */ }

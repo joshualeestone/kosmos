@@ -138,7 +138,7 @@ test('review 8: readRunner is failoverRunnerOf (null when nothing recorded); the
   assert.match(after, /!owed \? \[\] : ft\.sweepOnce\(\{ roster: safeRoster\(\)/, 'the sweep reads the roster even when nothing is owed');
   assert.match(after, /seenIdle: FAILOVER_TELL_SEEN/, 'the sweep types into a card the moment it goes idle');
   // Review 11: an Antigravity agent is skipped only while agyquota will still resume it (then told plainly).
-  assert.match(after, /skip: \(c\) => c\.runner === 'antigravity' && agyQuota\.resumePending\(c\.sessionName,\s*\{ book: AGY_QUOTA_BOOK, now: Date\.now\(\), env: process\.env, allowed: liveExecution\.liveExecutionAllowed\(\) \}\)/);
+  assert.match(after, /skip: \(c\) => c\.runner === 'antigravity' && agyQuota\.resumePending\(c\.sessionName,\s*\{ now: Date\.now\(\), env: process\.env, allowed: liveExecution\.liveExecutionAllowed\(\), book: AGY_QUOTA_BOOK \}\)/);
   assert.doesNotMatch(after, /resumeFor/, 'the sweep resumes agents again');
   assert.match(after, /isIdle: \(c\) => c\.state === 'idle'/, 'the sweep no longer types only into idle cards');
   assert.match(after, /if \(!owed\) FAILOVER_TELL_SEEN\.clear\(\);/, 'the idle memory outlives a quiet spell');
