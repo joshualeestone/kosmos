@@ -171,13 +171,20 @@ _qh_take() {
     # Asked again under the lock (the wait asked outside it, and a main-lane light take holds this lock too), then
     # the side claim. Only a won take drops the queue marker; a lost one leaves it, and the next wait resumes that place.
     kosmos_light_side_take "$WHAT" "$((SIDE_MIN + 2))" && rc=0
-  elif _qh_clear >/dev/null 2>&1; then kosmos_claim_machine "$CLAIM_MIN" && rc=0; fi
+  # #5332: the main lane's wait kept this run's queue place (KOSMOS_WAIT_KEEP_MARK), so the ORDER is asked here, under
+  # the lock, with every earlier waiter still marked: a later joiner can no longer pass while this run is between its
+  # wait and its claim.
+  elif kosmos_refuse_if_earlier_suite_waiter "$WHAT" 2>/dev/null && _qh_clear >/dev/null 2>&1; then
+    kosmos_claim_machine "$CLAIM_MIN" && rc=0
+  fi
   rm -rf "$lock"
   # Test seam (#5064): QH_TEST_LOSE_TAKES=N makes the first N takes lose, so a lost take can be proven without racing.
   # Main lane only: a side take holds a side claim that kosmos_release_machine does not release (review, #5064).
   if [ "$rc" = 0 ] && [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ "${QH_TEST_LOSE_TAKES:-0}" -gt 0 ] 2>/dev/null; then
     QH_TEST_LOSE_TAKES=$((QH_TEST_LOSE_TAKES - 1)); kosmos_release_machine 2>/dev/null || true; rc=1
   fi
+  # The place is given up only once the take is won (a lost one keeps it, and the next wait resumes it).
+  [ "$rc" = 0 ] && [ "${KOSMOS_WAIT_LANE:-main}" != side ] && kosmos_unmark_suite_waiting
   return "$rc"
 }
 # #5064: this run's place in the queue is its join time (taken here, within a few seconds of the library's own).
@@ -185,6 +192,7 @@ _qh_take() {
 # to the back (Kitty's ick 5031 full, 15:28:59 2026-10-02: first in line, then 21 ahead, its clock restarted). A lost
 # take now writes the marker back with the original join time, and the library's resume path keeps that place.
 QH_JOINED="$(date +%s)"
+[ "${KOSMOS_WAIT_LANE:-main}" != side ] && export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take
 until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; }; _qh_take; }; do
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') another run took the turn first; waiting again: $WHAT"
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
@@ -325,7 +333,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES   # review 5: a command that queues on its own must not claim to be one of these
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).

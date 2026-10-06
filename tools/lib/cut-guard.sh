@@ -853,6 +853,13 @@ kosmos_wait_until_clear() {
       return 0
     fi
     if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
+      # #5332: a caller that takes the box under its own lock (tools/queued-heavy.sh) keeps its place until the take
+      # is won: dropping it here let a later waiter see nobody ahead and race this run to the lock. The caller asks
+      # again under that lock and unmarks after its claim. Only queued-heavy sets this; run-tests.sh does not.
+      if [ "$queue" = 1 ] && [ -n "$ts" ] && [ "${KOSMOS_WAIT_KEEP_MARK:-0}" = 1 ]; then
+        [ "$waited" -gt 0 ] && echo "the box is clear after waiting ${waited}s; $what takes it now." >&2
+        return 0
+      fi
       if [ "$queue" = 1 ] && [ -n "$ts" ]; then
         kosmos_unmark_suite_waiting
         # The second ask (see the queue note above): anything that started while this run was still

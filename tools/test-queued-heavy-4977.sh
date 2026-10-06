@@ -218,10 +218,16 @@ run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two command
 o=$(run5064 "$REAL_QH" $S/m5064)
 ok "#5064: the lost take was really lost (the test seam fired), so the order below means something" '[[ "$o" == *"took the turn first"* ]]'
 ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* && "$o" == *"re-marked its place in the queue"* ]]'
-# The same scenario on a copy of the wrapper without the re-mark: the later joiner goes first, so the arm above can fail.
-sed '/kosmos_mark_suite_waiting "\$QH_JOINED"/d' "$REAL_QH" > $S/qh-no5064.sh
+# The same scenario on a copy of the wrapper with NEITHER way of keeping the place: no re-mark (#5064) and no kept
+# marker through the take (#5332). The later joiner goes first, so the arm above can fail. Since #5332 either one alone
+# keeps A's place, so removing only one would leave the order right and prove nothing.
+sed -e '/kosmos_mark_suite_waiting "\$QH_JOINED"/d' -e '/export KOSMOS_WAIT_KEEP_MARK=1/d' "$REAL_QH" > $S/qh-no5064.sh
 o=$(run5064 $S/qh-no5064.sh $S/m5064n)
-ok "#5064 CONTROL: without the re-mark the later joiner runs first (the arm above is not vacuous)" '[[ "$o" == *"ORDER=B A "* ]] && ! grep -q "kosmos_mark_suite_waiting \"\$QH_JOINED\"" $S/qh-no5064.sh'
+ok "#5064 CONTROL: without the re-mark and the kept marker the later joiner runs first (the arm above is not vacuous)" '[[ "$o" == *"ORDER=B A "* ]] && ! grep -q "kosmos_mark_suite_waiting \"\$QH_JOINED\"" $S/qh-no5064.sh && ! grep -q "export KOSMOS_WAIT_KEEP_MARK=1" $S/qh-no5064.sh'
+# #5332: the kept marker ALONE keeps the place: the re-mark removed, the order still holds.
+sed '/kosmos_mark_suite_waiting "\$QH_JOINED"/d' "$REAL_QH" > $S/qh-keeponly.sh
+o=$(run5064 $S/qh-keeponly.sh $S/m5064k)
+ok "#5332: with the re-mark removed, the kept marker alone keeps A ahead of the later joiner" '[[ "$o" == *"ORDER=A B "* ]] && grep -q "export KOSMOS_WAIT_KEEP_MARK=1" $S/qh-keeponly.sh'
 # #5331: the teardown never blocks on its capper, even one that is not a group leader AND is stopped (the shape of the
 # canary hang: the group kill missed it and an unbounded wait held the claim). Both copies drop the capper's own `set -m`
 # so it is not a group leader; the control also keeps the old teardown (group kill, then wait), which hangs.
@@ -246,7 +252,7 @@ side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-EXPECTED=85   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms
+EXPECTED=86   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms, one #5332 arm
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
