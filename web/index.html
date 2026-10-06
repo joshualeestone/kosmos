@@ -3370,15 +3370,15 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      adding an empty strip. The padding is on the inner header, not .apphead, because the inner header carries
      consolidated's background and bottom rule, which then still reach the window edge. Less what the page really
      gives up (100vw - 100%: .apphead has no padding or margin here), as the tab view's rule does: a window too short
-     for the grid scrolls the page, and its real scrollbar already holds the width. */
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
-    padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
-  /* The Kosmos+ bar above it likewise: in the tab view kplusBarFit ends it at the reserved gutter, so Log out sat
-     15px further right in consolidated. */
+     for the grid scrolls the page, and its real scrollbar already holds the width. The Kosmos+ bar above it takes
+     the same padding (one rule, so the two cannot drift): in the tab view kplusBarFit ends it at the reserved gutter,
+     so Log out sat 15px further right in consolidated. */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
     padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
-     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. kplusBarFit
+     tests the same state in script (consolidated chosen, body not .consolidated, wide); the 2624 bar arm pins both. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
   html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
@@ -11687,10 +11687,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
-   the window edge, and wide headers are padded by this less what the page gives up (consolidated's by
-   all of it, #5379), so the header does not move between views. Read off the root itself, not a
-   scrolling element: a runner that hides scrollbars still reserves the root's gutter, and an element
-   probe then reads 0 against a 15px gutter. Measured at load, again once applyPlatformCopy stamps
+   the window edge, and wide headers are padded by this less what the page gives up (consolidated's
+   without the tab view's body-padding term, #5379), so the header does not move between views. Read off
+   the root itself, not a scrolling element: a runner that hides scrollbars still reserves the root's
+   gutter, and an element probe then reads 0 against a 15px gutter. Measured at load, again once applyPlatformCopy stamps
    Windows (its scrollbar rule changes the width), on resize (a zoom, a move to another display), on a
    pointer press (at most once a second), focus and return to the tab: a Mac set to "Automatic"
    switches scrollbars when a mouse is plugged in, which fires no resize, and the press that opens an
@@ -11794,10 +11794,11 @@ window.kosmosMeasureScrollbarWidth();
     return w;
   }
   function remeasureUnlessConsolidatedUnchanged() {
+    if (document.documentElement.getAttribute('data-layout') !== 'consolidated') { window.kosmosMeasureScrollbarWidth(); return; }
     var t = scrollbarThickness();
     var same = t === probedThickness;
     probedThickness = t;
-    if (same && document.documentElement.getAttribute('data-layout') === 'consolidated') return;
+    if (same) return;
     window.kosmosMeasureScrollbarWidth();
   }
   probedThickness = scrollbarThickness();

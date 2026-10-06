@@ -254,7 +254,7 @@ async function measure(page, view, notice, name) {
     }
     // A width set by hand, 0px and then 15px, so a Mac with overlay scrollbars (real width 0) can see the padding at all,
     // and a classic-scrollbar runner (real width 15, already padded) still sees it move. At each width the tab view's
-    // rule pads by it less what the page really gives up, and consolidated by all of it, so the right cluster and the
+    // rule pads by it less what the page really gives up, and consolidated likewise (without the body-padding term), so the right cluster and the
     // centred tabs land on the same pixels in both views. The 0 -> 15 step must move consolidated's right controls 15px
     // left, so equal numbers are not two views ignoring the width alike.
     const at = {};
