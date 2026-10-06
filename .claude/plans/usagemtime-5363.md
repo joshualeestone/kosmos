@@ -102,3 +102,6 @@ engine/usage.test.js still passes (29/29 across both files).
 - [N] FIXED: dailyUsageByModel's docblock no longer says the read is not saved, that it costs "hundreds of
   transcripts" every call, or that mtime proves nothing for "today" only.
 - [N] noted: the dedup test's mtimeCut has no effect (both files are fresh); it is dedup coverage, not cut coverage.
+
+## Review round 4 (sonnet): no B/W, CONVERGED
+- [N] FIXED: the docblock says 'the files written since an hour before today began (UTC)', not 'today's files'.
