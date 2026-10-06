@@ -47,6 +47,8 @@ test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives i
   }
   assert.deepEqual(keysOf(launcher.childEnv({}, 't', null, 'C:\\K\\bin', 'claude'), 'PSExecutionPolicyPreference'), [],
     'control: a claude child is left as #3380 decided (its PowerShell tool passes its own policy flag)');
+  assert.equal(launcher.childEnv({ PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', 'claude').PSEXECUTIONPOLICYPREFERENCE, 'AllSigned',
+    'control: a claude child keeps an inherited value untouched');
 });
 
 /* ---------- Windows only: the shells themselves ---------- */
