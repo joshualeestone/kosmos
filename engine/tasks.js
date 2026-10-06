@@ -528,8 +528,8 @@ function assignPart(projectId, n, partId, who, made) {
       /* #5382: `movedFrom`, who a failover move took the part from (the receiver's line names it; any other move clears it).
          `owedTell`, every agent the failover took this part from that has not yet been TOLD (engine/failovertell.js), kept
          on the part so the obligation survives a restart, a setting change and a long pause (review 8). A failover move
-         adds its source; any move drops the new holder (it is theirs again, nothing to tell); finishing it ends the
-         need (the sweep reads open parts only). A chain A -> B -> C owes both A and B. */
+         adds its source; any move drops the new holder (it is theirs again, nothing to tell). Finishing it does NOT end
+         the need (review 10): the source may still resume it. A chain A -> B -> C owes both A and B. */
       const owed = (Array.isArray(x.owedTell) ? x.owedTell : []).filter((s) => typeof s === 'string' && s !== whoKey);
       if (made && made.failover === true && x.who) {
         y.movedFrom = x.who;

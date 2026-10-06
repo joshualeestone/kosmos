@@ -136,8 +136,8 @@ test('review 8: readRunner is failoverRunnerOf (null when nothing recorded); the
   assert.match(after, /const ft = require\('\.\/engine\/failovertell'\)/);
   assert.match(after, /!ft\.anyOwed\(records\) \? \[\] : ft\.sweepOnce\(\{ roster: safeRoster\(\)/, 'the sweep reads the roster even when nothing is owed');
   assert.match(after, /seenIdle: FAILOVER_TELL_SEEN/, 'the sweep types into a card the moment it goes idle');
-  assert.match(after, /skip: \(c\) => c\.runner === 'antigravity' && require\('\.\/engine\/agyquota'\)\.resumeEnabled\(true, process\.env\)/,
-    'the sweep no longer leaves Antigravity agents to their carry-on line');
+  assert.match(after, /resumeFor: \(c\) => c\.runner === 'antigravity',/, 'the sweep no longer tells an Antigravity agent to carry on');
+  assert.doesNotMatch(after, /skip: /, 'review 10: the sweep skips some agents again (an Antigravity one could go untold for good)');
   assert.match(after, /markTold: tasks\.markMoveTold/);
   assert.match(SRC, /movedAway: \(session\) => require\('\.\/engine\/failovertell'\)\.owedFor\(session, projects\.readAll\(\)\)/);
   assert.match(SRC, /movedTold: \(session, items\) => require\('\.\/engine\/failovertell'\)\.markAll\(session, items, tasks\.markMoveTold\)/);

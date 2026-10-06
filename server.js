@@ -20624,9 +20624,10 @@ function start(port = PORT) {
             // Review 9: on almost every board nothing is owed, and then no roster is read at all.
             const told = !ft.anyOwed(records) ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
               isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
-              /* An Antigravity agent is told by agyquota's carry-on line at its reset, which names the same list; typed into
-                 first, it would answer this line and never get "carry on" (review 9). Only while that resume is on. */
-              skip: (c) => c.runner === 'antigravity' && require('./engine/agyquota').resumeEnabled(true, process.env),
+              /* An Antigravity agent may be waiting for agyquota's carry-on line at its reset; this line, typed first, says
+                 to carry on with the rest itself, so whichever lands first does the whole job (review 10: skipping them
+                 left one untold for good whenever that carry-on line never came). */
+              resumeFor: (c) => c.runner === 'antigravity',
               deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
             for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
           } catch { /* best-effort, like the tick */ }

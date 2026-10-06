@@ -451,8 +451,11 @@ test('review 8: owedFor lists only open parts the agent is owed and does not hol
     assert.deepEqual(ft.owedFor(w.key.ofb, projects.readAll()), [], 'the holder is owed a line about its own part');
     tasks.addPart(w.pid, h.n, { sentence: 'a second step', made: { via: 'screen' } });
     assert.equal(ft.owedFor(w.key.ofa, projects.readAll()).length, 1, 'another write to the task dropped the record');
+    // Review 10: a part the receiver finished is still owed, named as finished (the source may resume it otherwise).
     tasks.setPartClosed(w.pid, h.n, h.partId, new Date().toISOString());
-    assert.deepEqual(ft.owedFor(w.key.ofa, projects.readAll()), [], 'a finished part is still owed');
+    const done = ft.owedFor(w.key.ofa, projects.readAll());
+    assert.equal(done.length, 1, 'a finished part was dropped from the line');
+    assert.match(done[0].phrase, new RegExp('\\(finished by ' + w.key.ofb + '\\)'));
     tasks.setPartClosed(w.pid, h.n, h.partId, null);
     assert.equal(tasks.markMoveTold(w.pid, h.n, h.partId, w.key.ofa).ok, true);
     assert.deepEqual(ft.owedFor(w.key.ofa, projects.readAll()), [], 'told, still owed');
@@ -522,7 +525,12 @@ test('review 9: owedFor says "given to another agent" only when somebody holds i
   assert.deepEqual(ft.owedFor('ann', rec9({ swarmOff: ['ann'] })), [], 'told about a project its swarm is switched off in');
   assert.equal(ft.anyOwed(rec9()), true);
   assert.equal(ft.anyOwed(rec9({}, { owedTell: [] })), false);
-  assert.equal(ft.anyOwed(rec9({}, { closedAt: '2026-10-06T00:00:00Z' })), false, 'a finished part counts as owed');
+  assert.equal(ft.anyOwed(rec9({}, { closedAt: '2026-10-06T00:00:00Z' })), true, 'review 10: a finished part is still owed');
+  // Review 10: anyOwed uses owedFor's own rule, so a record that can never be told does not keep the roster read alive.
+  for (const [what, r] of [['archived', rec9({ archived: true })], ['left the project', rec9({ agents: ['bob'] })],
+    ['nobody holds it', rec9({}, { who: null })], ['switched off', rec9({ swarmOff: ['ann'] })]]) {
+    assert.equal(ft.anyOwed(r), false, 'anyOwed is true for a record owedFor never tells (' + what + ')');
+  }
 });
 
 test('review 9: the sweep counts only lines that may have landed toward its cap, waits one pass of idle, and honours skip', () => {
@@ -563,4 +571,21 @@ test('review 9: markMoveTold changes owedTell only, never the holder, the move r
     assert.equal(after.owedTell, undefined);
     for (const k of ['builtAt', 'closedAt', 'onHold']) assert.deepEqual(taskAfter[k], taskBefore[k], 'task ' + k + ' changed');
   } finally { w.restore(); }
+});
+
+test('review 10: the line names finished parts as finished, and adds "carry on" only for an agent waiting to resume', () => {
+  const items = [{ phrase: 'task 1 in "P" (now bob\'s)' }, { phrase: 'task 2 in "P" (finished by bob)' }];
+  const plain = ft.lineFor(items);
+  assert.match(plain, /task 2 in "P" \(finished by bob\) were given to another agent\. Leave those to them/);
+  assert.doesNotMatch(plain, /carry on/);
+  assert.match(ft.lineFor(items, { resume: true }), /Leave those to them; .* Then carry on with the rest of what you were doing\.\]$/);
+  const D = require('./chat').DELIVERY;
+  const rec = [{ id: 'p1', name: 'P', agents: ['agy', 'cla', 'bob'], tasks: [{ number: 1, sentence: 's',
+    parts: [{ id: 1, sentence: 's', who: 'bob', owedTell: ['agy', 'cla'] }] }] }];
+  const sent = {};
+  ft.sweepOnce({ roster: [{ sessionName: 'agy', isNamedOurs: true, runner: 'antigravity' }, { sessionName: 'cla', isNamedOurs: true, runner: 'claude' }],
+    records: rec, DELIVERY: D, isIdle: () => true, markTold: () => ({ ok: true }), resumeFor: (c) => c.runner === 'antigravity',
+    deliver: (s, text) => { sent[s] = text; return { state: D.PLACED }; } });
+  assert.match(sent.agy, /carry on with the rest/, 'the Antigravity agent was not told to carry on');
+  assert.doesNotMatch(sent.cla, /carry on/, 'a Claude agent was told to carry on');
 });
