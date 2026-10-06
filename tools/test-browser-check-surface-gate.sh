@@ -160,6 +160,20 @@ if command -v zsh >/dev/null 2>&1; then
     '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-4811"
   : > "$TMP/f-4811"; : > "$TMP/m-4811"
   BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
+  # Every check in the REAL folder the gate itself maps to this change (#5072: a second check, render-subback-4586,
+  # now claims tsk-crumb). Selected with the gate's own parser (bc_surface_tokens_of, bc_surface_token_hits), so the
+  # compliant-change arms below update, or excuse, exactly the checks the gate would ask for.
+  WD4811_CHANGED="$(command grep -E '^[-+][^-+]' "$TMP/wd-4811")"
+  CRUMB_CHECKS="$(for f in "$BCDIR_ABS"/*.js; do
+    [ -f "$f" ] || continue
+    for tok in $(bc_surface_tokens_of "$f"); do
+      if bc_surface_token_hits "$tok" "$WD4811_CHANGED"; then basename "$f"; break; fi
+    done
+  done)"
+  case "$CRUMB_CHECKS" in
+    *render-alltasks.js*) pass "#4811 setup: the checks that claim tsk-crumb were found ($(printf '%s' "$CRUMB_CHECKS" | tr '\n' ' '))" ;;
+    *) fail "#4811 setup: render-alltasks.js no longer claims tsk-crumb, so the arms below test nothing" ;;
+  esac
   # CONTROL: a gate that believes the lying grep passes this change. KOSMOS_BCG_REEXEC=1 forces the in-process answer
   # (the re-run's own marker), so this shows what the guard below protects against.
   if KOSMOS_BCG_REEXEC=1 bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
@@ -190,7 +204,7 @@ if command -v zsh >/dev/null 2>&1; then
   fi
   # Review 4: a CDPATH under which bash's cd ECHOES the directory it found must not corrupt the recorded path. Bash,
   # sourcing by a relative path from the repo root with CDPATH set to it, and a grep function so the re-run is used.
-  printf 'M\tdocs/browser-checks/render-alltasks.js\n' > "$TMP/f-4811ok"
+  printf '%s\n' "$CRUMB_CHECKS" | while read -r c; do printf 'M\tdocs/browser-checks/%s\n' "$c"; done > "$TMP/f-4811ok"
   REPO_4811="$(cd "$HERE/.." && pwd)"
   if ( cd "$REPO_4811" && CDPATH="$REPO_4811" bash -c 'grep() { command grep "$@"; }; . tools/lib/browser-check-surface-gate.sh && KOSMOS_BCSG_WEBDIFF="$1" KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_surface_gate' _ \
        "$TMP/wd-4811" "$TMP/f-4811ok" "$TMP/m-4811" ) >/dev/null 2>&1; then
@@ -209,7 +223,7 @@ if command -v zsh >/dev/null 2>&1; then
   fi
   # From the repo root with the default checks folder: the gate matches an updated check by the same relative path
   # the file list carries (an absolute KOSMOS_BCSG_DIR would never match it, under bash too).
-  printf 'M\tdocs/browser-checks/render-alltasks.js\n' > "$TMP/f-4811ok"
+  printf '%s\n' "$CRUMB_CHECKS" | while read -r c; do printf 'M\tdocs/browser-checks/%s\n' "$c"; done > "$TMP/f-4811ok"
   if zsh -c 'cd "$5" && . "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; kosmos_browser_check_surface_gate' _ \
        "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811ok" "$TMP/m-4811" "$(cd "$HERE/.." && pwd)" >/dev/null 2>&1; then
     pass "#4811 positive control: through the re-run, the same change with its check updated passes"
@@ -225,8 +239,8 @@ if command -v zsh >/dev/null 2>&1; then
   else
     fail "#4811: a plain zsh KOSMOS_BCSG_DIR did not reach the re-run"
   fi
-  # KOSMOS_BCG_MSGS: a per-check override trailer in the given messages excuses render-alltasks.js.
-  printf 'x\n\nBrowser-check-surface: render-alltasks.js excused for this test\n' > "$TMP/m-4811ok"
+  # KOSMOS_BCG_MSGS: per-check override trailers in the given messages excuse every check in CRUMB_CHECKS.
+  { printf 'x\n\n'; printf '%s\n' "$CRUMB_CHECKS" | while read -r c; do printf 'Browser-check-surface: %s excused for this test\n' "$c"; done; } > "$TMP/m-4811ok"
   if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
        "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811ok" "$BCDIR_ABS" >/dev/null 2>&1; then
     pass "#4811: a plain zsh KOSMOS_BCG_MSGS reaches the re-run (its override excuses the check)"
