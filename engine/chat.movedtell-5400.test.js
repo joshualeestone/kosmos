@@ -259,3 +259,27 @@ test('review 4: the short-token bound is 12: a 12-character token gets no note, 
     assert.equal(told.length, 1);
   });
 });
+
+/* Review 5 (opus, blind). */
+test('review 5: an agent whose card reads capped (its limit menu still up) gets no note; it rides once the card is past it', () => {
+  const rows = (state) => fleet.install([fleet.agent('casey', { state })]);
+  let board = rows('rate_limited');
+  try {
+    const card = board.agents.find((c) => c.sessionName.startsWith('casey'));
+    assert.equal(card && card.state, 'rate_limited', 'fixture: the card does not read capped: ' + JSON.stringify(card && card.state));
+    const told = hook([ITEM]);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver(card.sessionName, 'Are you back? Carry on with the tests.', board.agents);
+    assert.ok(!tmux.pastedText().includes(ITEM.phrase), 'the note went into the limit menu');
+    assert.equal(told.length, 0);
+  } finally { board.restore(); }
+});
+test('review 5: server.js installs the hook with the note that asks for nothing, and told drops the cached records (source pin)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('chat.setMovedTell({');
+  assert.ok(at > -1, 'the hook is not installed: the whole feature is off');
+  const block = src.slice(at, src.indexOf('});', at));
+  assert.match(block, /note: \(items\) => require\('\.\/engine\/failovertell'\)\.noteFor\(items\)/, 'the note is not noteFor (lineFor asks every person\'s message for a one-word reply)');
+  assert.match(block, /told: \(session, items\) => \{ movedRecs\.recs = null;/, 'told keeps a stale read, so the next lines repeat the note');
+  assert.match(block, /markAll\(session, items, tasks\.markMoveTold\)/);
+});

@@ -1711,12 +1711,16 @@ let MOVED_TELL = null;
 function setMovedTell(h) {
   MOVED_TELL = h && typeof h.owed === 'function' && typeof h.note === 'function' && typeof h.told === 'function' ? h : null;
 }
-function movedNoteFor(sessionName, raw, opts) {
+function movedNoteFor(sessionName, raw, opts, card) {
   if (!MOVED_TELL || typeof raw !== 'string' || !raw.trim()) return null;
   /* Review 3: a caller whose line is the agent's LAST in this session (the restart-for-handoff request: write the
      handoff, stop, the session is restarted) passes { movedNote: false }; the note then rides the fresh session's
      pickup line, where the agent that acts next reads it. */
   if (opts && opts.movedNote === false) return null;
+  /* Review 5: never while the card reads capped or needs-you. Claude Code's limit menu ("What do you want to do?")
+     keeps the card capped (status.retireResetLimits), and a line typed there lands in the menu, reads PLACED, and
+     would mark a note told that nobody read. Owed agents are exactly the ones just at their limit. */
+  if (card && (card.state === 'rate_limited' || card.state === 'needs_you')) return null;
   /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
      allowed commands match ^/), and a /clear would erase the note anyway. */
   /* Review 4: and "!", Claude Code's shell mode, which a note in front would turn into a prompt too. Trimmed, because
@@ -1762,7 +1766,7 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
-  const m = movedNoteFor(sessionName, raw, opts);   // #5400 (a card that is not ours is refused before any typing)
+  const m = movedNoteFor(sessionName, raw, opts, card);   // #5400 (a card that is not ours is refused before any typing)
   return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
 }
 
@@ -1831,7 +1835,7 @@ async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   const before = deliveryQueues.get(target) || Promise.resolve();
   // #5400: the note is worked out when this line's turn to be typed comes, so two queued lines cannot both carry it.
   const delivery = before.catch(() => {}).then(() => {
-    const m = movedNoteFor(sessionName, raw, opts);
+    const m = movedNoteFor(sessionName, raw, opts, card);
     return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, true));
   });
   deliveryQueues.set(target, delivery);
