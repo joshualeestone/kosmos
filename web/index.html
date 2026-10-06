@@ -39292,8 +39292,7 @@ function usageHistoryHtml(byDay) {
     + rows.join('');
 }
 let USAGE_BUSY = false;
-/* #5362: the standard loading spinner (Take D Sweep) for a load measured over about a second on a real board: Token
-   Usage (/api/usage) and first-run's "Looking for agents already here" (/api/scan-agents, 5.5s cold). */
+/* #5362: the standard loading spinner (Take D Sweep), beside Token Usage's reading line while /api/usage loads. */
 const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
@@ -39374,17 +39373,19 @@ async function paintUsage() {
        machine, and a config root we could not read is a gap in the number
        rather than a zero. The engine reports what it actually read. */
     const roots = Array.isArray(data.rootsRead) ? data.rootsRead.length : null;
-    msg.textContent = roots === null
+    /* #5362 review 1: built here and written ONCE below, so the status region (role=status) announces it once. */
+    let said = roots === null
       ? 'Counted from the transcripts on this computer.'
       : 'Counted from ' + roots + (roots === 1 ? ' place on this computer that holds' : ' places on this computer that hold') + ' transcripts.';
     /* #2840: name any model excluded from the API-cost figure for want of a
        published price (Splinter's flag-do-not-guess rule), so an incomplete cost
        is never read as complete. */
     if (api.unpriced.length) {
-      msg.textContent += ' The equivalent API cost leaves out '
+      said += ' The equivalent API cost leaves out '
         + api.unpriced.length + (api.unpriced.length === 1 ? ' model' : ' models')
         + ' with no published price (' + api.unpriced.join(', ') + ').';
     }
+    msg.textContent = said;
   } catch (e) {
     msg.textContent = 'We could not read token usage just now.';
     clearAll();
@@ -74142,7 +74143,7 @@ function frPaintFleet() {
        search that lands after somebody has moved on must not repaint. */
     if (FR_FOUND === null) {
       title.textContent = 'Looking for agents already here\u2026';
-      box.innerHTML = '<p>' + LOAD_SPIN_HTML + ' Reading what is on this computer. This takes a moment.</p>';   // #5362
+      box.innerHTML = '<p>Reading what is on this computer. This takes a moment.</p>';
       frActions();
       /* The search is already in flight: it is started once at the top of this
          function for every path (#1493). Calling it again here fired a second
@@ -74161,7 +74162,7 @@ function frPaintFleet() {
     if (FR_SCAN === null) {
       frScanAgents();
       title.textContent = 'Looking for agents already here…';
-      box.innerHTML = '<p>' + LOAD_SPIN_HTML + ' Reading what is on this computer. This takes a moment.</p>';   // #5362
+      box.innerHTML = '<p>Reading what is on this computer. This takes a moment.</p>';
       frActions();
       return;
     }
