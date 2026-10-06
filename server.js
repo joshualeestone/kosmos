@@ -19088,6 +19088,12 @@ const server = http.createServer(async (req, res) => {
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
           /* slice 3: `reviewer` ('me', an agent's session name, or 'none') rides the same request; a rule being set
              (not cleared) is in place first, so the reviewer is checked against it. Omitted: the reviewer is unchanged. */
+          /* Review 1: a reviewer sent WITH a rule is checked first, so a refused reviewer leaves the rule as it was. */
+          if (rule !== null && body.every !== undefined && body.reviewer !== undefined) {
+            const proj = projects.readAll().find((x) => x && x.id === id) || null;
+            const problem = proj ? tasks.reviewerProblem(proj, tasks.byNumber(proj, taskRepeat[2]), body.reviewer, { person: viaScreen }) : null;
+            if (problem) throw new Error(problem);
+          }
           if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
           if (rule !== null && body.reviewer !== undefined) task = tasks.setReviewer(id, taskRepeat[2], body.reviewer, { person: viaScreen });
           if (!task) throw new Error('say how often it repeats, or who reviews it');

@@ -287,3 +287,22 @@ test('#4787 slice 3: stopping the repeat takes the reviewer and the told mark wi
   const t = stored(p.id, n);
   for (const f of ['repeatReviewer', 'repeatReviewerPerson', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt']) assert.equal(t[f], undefined, f);
 });
+
+test('#4787 slice 3 review 1: the person\'s Nobody is theirs too, and choosing what an agent named makes it theirs', () => {
+  const p = projects.create({ name: 'Rev3 ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['ada', 'bob'] }));
+  const n = tasks.create(p.id, { sentence: 'Report' }).number;
+  tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });
+  tasks.setReviewer(p.id, n, 'none', { person: true });
+  assert.throws(() => tasks.setReviewer(p.id, n, 'ada'), /person chose/, 'an agent cannot undo the person\'s Nobody');
+  tasks.setReviewer(p.id, n, 'ada', { person: true });
+  tasks.setReviewer(p.id, n, 'bob', { person: true });
+  // An agent names itself; the person then picks that same agent: it is now theirs.
+  const q = tasks.create(p.id, { sentence: 'Other' }).number;
+  tasks.setRepeat(p.id, q, { every: 'day', at: '09:00' });
+  tasks.setReviewer(p.id, q, 'ada');
+  tasks.setReviewer(p.id, q, 'ada', { person: true });
+  assert.equal(stored(p.id, q).repeatReviewerByPerson, true);
+  assert.throws(() => tasks.setReviewer(p.id, q, 'bob'), /person chose/);
+  assert.equal(taskchat.read(p.id, q).filter((e) => e.kind === 'reviewer-set').length, 1, 'the lock alone records nothing');
+});

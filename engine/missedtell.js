@@ -44,7 +44,7 @@ function owed(projects, now = Date.now()) {
         projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
         slot: missed.lastAt, count: missed.count, more: missed.more, words: taskrepeat.whenWords(missed.lastAt, now),
         reviewer: t.repeatReviewerPerson === true ? null : t.repeatReviewer, person: t.repeatReviewerPerson === true,
-        owners: tasks.whoOf(t),
+        owners: tasks.whoOf(t), members: Array.isArray(p.agents) ? p.agents.slice() : [],
       });
     }
   }
@@ -60,9 +60,12 @@ function tellText(item, nameOf = (s) => s) {
     + 'Check whether it ran and tell the person if something is wrong.';
 }
 
-/* Is a run missed on a task whose reviewer is the person? Then it waits on the person (Needs Your Decision). */
+/* Is a run missed on a task whose reviewer is the person? Then it waits on the person (Needs Your Decision). Review 1:
+   never a held task or one in a paused project (owed() tells nobody about those either: parking it means "not now"). */
 function personReviewMissed(t, now = Date.now()) {
-  return Boolean(t && t.repeatReviewerPerson === true && t.repeat && taskrepeat.missedRuns(t, now));
+  if (!t || t.repeatReviewerPerson !== true || !t.repeat || t.projectPaused === true) return false;
+  if (require('./tasks').isOnHold(t)) return false;
+  return Boolean(taskrepeat.missedRuns(t, now));
 }
 
 /* Store that `slot` was told about, and record it in the task's history. */
@@ -74,7 +77,7 @@ function markTold(item, outcome) {
     tasks: (p.tasks || []).map((x) => (x && x.number === item.n ? { ...x, missToldAt: new Date(item.slot).toISOString() } : x)),
   }));
   taskchat.record(item.projectId, item.n, {
-    kind: 'missed', at: new Date(item.slot).toISOString(), count: item.count,
+    kind: 'missed', slot: new Date(item.slot).toISOString(), count: item.count,   // review 1: taskchat stamps its own `at`
     ...(item.person ? { person: true } : { told: item.reviewer, reached: outcome === 'reached' }),
   });
 }
@@ -91,12 +94,19 @@ function sweep(o) {
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
+    // The book is memory: a slot older than a week is long past being owed, so its entry is dropped.
+    for (const k of [...book.keys()]) { const slot = Number(String(k).split('@').pop()); if (Number.isFinite(slot) && now - slot > 7 * 24 * HOUR_MS) book.delete(k); }
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
     const cards = new Map((Array.isArray(o.roster) ? o.roster : []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
     for (const item of owed(o.projects, now)) {
       try {
+        const key = item.projectId + '#' + item.n + '@' + item.slot;
+        /* Review 1: a slot typed in this process is never typed again, even when its told mark could not be written. */
+        if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
+        // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
+        if (!item.members.includes(item.reviewer)) { results.push({ ...item, act: 'held', because: 'the reviewer is no longer on the project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         const card = cards.get(item.reviewer);
         if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }
@@ -104,15 +114,18 @@ function sweep(o) {
            ours and not a switched-off swarm. A busy reviewer still gets it (the board's typing path waits its turn). */
         if (card.isNamedOurs !== true || (card.swarm && card.swarm.active === false)) { results.push({ ...item, act: 'held', because: 'the reviewer cannot be typed into' }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
-        const key = item.projectId + '#' + item.n + '@' + item.slot;
         let state = null;
-        try { const r = o.deliver(item.reviewer, tellText(item, o.nameOf), o.roster); state = r && r.state; }
+        let wait = false;
+        try { const r = o.deliver(item.reviewer, tellText(item, o.nameOf), o.roster); state = r && r.state; wait = Boolean(r && (r.held === true || r.busy === true)); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+        /* Review 1, as the nudge and the reply nudge: a quota hold or a pane still placing another message typed nothing,
+           so no try is spent (the slot is told after the reset, not given up on). */
+        if (wait) { results.push({ ...item, act: 'held', because: 'the reviewer cannot take a line just now', delivery: state }); continue; }
         const D = o.DELIVERY || {};
         const reached = (D.PLACED != null && state === D.PLACED) || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
-        const tries = (book.get(key) || 0) + 1;
-        if (reached) { sent.push(now); book.delete(key); markTold(item, 'reached'); }
-        else if (tries >= MAX_TRIES) { book.delete(key); markTold(item, 'not reached'); }
+        const tries = (Number(book.get(key)) || 0) + 1;
+        if (reached) { sent.push(now); book.set(key, 'told'); markTold(item, 'reached'); }
+        else if (tries >= MAX_TRIES) { book.set(key, 'told'); markTold(item, 'not reached'); }
         else book.set(key, tries);
         results.push({ ...item, act: 'tell', reached, delivery: state, tries });
         say({ reviewer: item.reviewer, task: item.n, project: item.projectId, reached, delivery: state, tries });

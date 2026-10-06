@@ -107,3 +107,12 @@ test('#4787 slice 3 Windows: the same words, the same request', async () => {
   assert.match(r.out, /now repeats every day at 9am/);
   assert.equal(JSON.parse(r.calls[0].body).every, 'daily');
 });
+
+test('#4787 slice 3 review 1: a rule and a reviewer together say both (Mac and Windows)', async () => {
+  await withBoard(() => [200, OK], async (env) => {
+    const r = await runCli(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00', '--reviewer', 'ada'], env);
+    assert.match(r.stdout, /now repeats every day at 9am\. ada will be told when it misses a run\./);
+  });
+  const w = await runWin(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00', '--reviewer', 'ada'], () => ({ body: JSON.stringify(OK) }));
+  assert.match(w.out, /now repeats every day at 9am\. ada will be told when it misses a run\./);
+});
