@@ -1319,12 +1319,7 @@ const tasks = require('./engine/tasks');
 const taskrepeat = require('./engine/taskrepeat');   // kosmos#4787
 /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), added to a task row so neither
    the page nor an agent's CLI computes the rule again. A task that does not repeat is returned as it is. */
-function repeatFields(t) {
-  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};   // review 1: a closed task has no next run
-  const now = Date.now();
-  const nextAt = taskrepeat.nextAfter(t.repeat, now);
-  return { repeatWords: taskrepeat.describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: taskrepeat.whenWords(nextAt, now) };
-}
+function repeatFields(t) { return taskrepeat.fieldsOf(t); }   // slice 1b: one derivation, shared with the projects list
 function withRepeatWords(t) {
   if (!t || !t.repeat) return t;
   return Object.assign({}, t, repeatFields(t));

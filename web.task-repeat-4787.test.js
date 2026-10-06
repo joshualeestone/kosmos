@@ -34,3 +34,18 @@ test('#4787: a repeating task\'s row carries the line; a one-off and a closed on
   assert.doesNotMatch(row(base), /tsk-repeat/);
   assert.doesNotMatch(row({ ...rep, state: 'closed' }), /tsk-repeat/);
 });
+
+test('#4787 slice 1b: the task page reads a stored rule back into its controls (Sunday is 0; an hourly rule at any minute reads as Every hour)', () => {
+  const SRC = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
+  assert.ok(days, 'the page names its days');
+  const stored = new Function('TK_REPEAT_DAYS', page.liftAll(SRC, ['tkRepeatStoredChoice']) + '\nreturn tkRepeatStoredChoice;')(eval(days[1]));
+  assert.deepEqual(stored({ repeat: { every: 'week', day: 0, at: '09:30' } }), { every: 'week', on: 'sun', at: '09:30' });
+  assert.deepEqual(stored({ repeat: { every: 'week', day: 2, at: '10:30' } }), { every: 'week', on: 'tue', at: '10:30' });
+  assert.deepEqual(stored({ repeat: { every: 'day', at: '08:15' } }), { every: 'day', at: '08:15' });
+  assert.deepEqual(stored({ repeat: { every: 'hour', minute: 30 } }), { every: 'hour' });
+  assert.deepEqual(stored({}), { clear: true }, 'CONTROL: no rule reads as Never');
+  // The page's day names are the ones the server reads (fromWords takes the first three letters).
+  const { DAY_NAMES } = require('./engine/taskrepeat');
+  assert.deepEqual(eval(days[1]), DAY_NAMES.map((n) => n.slice(0, 3).toLowerCase()));
+});

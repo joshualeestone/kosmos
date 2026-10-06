@@ -723,6 +723,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
     subtasks: tree.progress(t.number),
+    ...require('./taskrepeat').fieldsOf(t),   // kosmos#4787 slice 1b: the task page's repeat line, in the board's words
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole

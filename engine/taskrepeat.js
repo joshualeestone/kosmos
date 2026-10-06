@@ -159,4 +159,13 @@ function waitingForNextRun(t, now = Date.now()) {
   return due !== null && due > now;
 }
 
-module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords };
+/* kosmos#4787 slice 1b: the fields a screen shows for a repeating task (its rule in words, its next run in this board's
+   own time), one derivation for every route that hands tasks to the page (/api/tasks and the projects list). A closed
+   task has no next run. */
+function fieldsOf(t, now = Date.now()) {
+  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};
+  const nextAt = nextAfter(t.repeat, now);
+  return { repeatWords: describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: whenWords(nextAt, now) };
+}
+
+module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf };

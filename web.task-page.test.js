@@ -96,13 +96,15 @@ function runPaint({ task, project, now }) {
   }
   const proj = { ...project, tasks: [...(project.tasks || []), task] };
   new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc',
-    'discTint', 'discInk', 'initials', 'tkMemberName', 'Date',
+    'discTint', 'discInk', 'initials', 'tkMemberName', 'Date', 'tkPaintRepeat',
     src + '\n; paintTaskPage();')(
     doc, () => proj, proj.id, task.number, (v) => views.push(v),
     (x) => String(x), () => '#dfe5ea', () => '#4a5560',
     (n) => String(n).slice(0, 2).toUpperCase(),
     (p, sn) => ((p.agents || []).find((a) => a.sessionName === sn) || {}).name || sn,
-    FixedDate);
+    FixedDate,
+    // kosmos#4787 slice 1b: the Repeats control has its own tests (web.task-repeat-4787, render-onhold-4771); not this file's subject.
+    () => {});
   return { doc, views };
 }
 
@@ -318,9 +320,9 @@ test('a task that disappears under the open page sends you to its project', () =
   const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
     fnSource('paintTaskPage'), fnSource('tkPaintSubtasks')].join('\n');
   new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc',
-    'discTint', 'discInk', 'initials', 'tkMemberName', src + '\n; paintTaskPage();')(
+    'discTint', 'discInk', 'initials', 'tkMemberName', 'tkPaintRepeat', src + '\n; paintTaskPage();')(
     doc, () => ({ ...PROJECT, tasks: [] }), 'p1', 99, (v) => views.push(v),
-    String, () => '#eee', () => '#333', String, (p, s) => s);
+    String, () => '#eee', () => '#333', String, (p, s) => s, () => {});
   /* 🔑 A DIALOG COULD JUST BE DISMISSED. A page has to go somewhere, and the
      project it belonged to is the only honest destination -- staying put would
      leave a screen describing a task that is not there. */

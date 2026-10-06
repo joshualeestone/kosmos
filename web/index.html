@@ -6308,6 +6308,13 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* #768: the due-date input sits in a tmeta row like the read-only values, but is
    editable. Inherit the font, keep it right-aligned and unobtrusive; the native
    date control carries its own picker + a clear affordance. */
+/* kosmos#4787 slice 1b: the Repeats controls wear the Due date field's look (.tk-due-input), so the column reads as one set. */
+.tk-repeat-in { font: inherit; color: inherit; background: transparent; border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; min-height: 30px; }
+.tk-repeat-in:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+.tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
+.tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
+@media (hover: none) { .tk-repeat-in { min-height: 40px; } }
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -16551,6 +16558,25 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
+        <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
+             line under it is the board's own sentence (rule, last run, next run). Hourly runs on the hour from this screen;
+             an agent can set another minute with kosmos task repeat. -->
+        <div class="tmeta" id="tk-repeat-row"><span>Repeats</span>
+          <select id="tk-repeat-every" class="tk-repeat-in" aria-label="How often this task repeats">
+            <option value="">Never</option><option value="hour">Every hour</option><option value="day">Every day</option><option value="week">Every week</option>
+          </select>
+        </div>
+        <div class="tmeta" id="tk-repeat-when" hidden><span>When</span>
+          <span class="tk-repeat-when">
+            <select id="tk-repeat-day" class="tk-repeat-in" aria-label="Day of the week" hidden>
+              <option value="mon">Monday</option><option value="tue">Tuesday</option><option value="wed">Wednesday</option><option value="thu">Thursday</option><option value="fri">Friday</option><option value="sat">Saturday</option><option value="sun">Sunday</option>
+            </select>
+            <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="Time of day" value="09:00">
+          </span>
+        </div>
+        <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" disabled>Save</button></div>
+        <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -59234,6 +59260,7 @@ function paintTaskPage() {
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.
   for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
+  tkPaintRepeat(p, t);
   const holdHint = document.getElementById('tk-hold-hint');
   if (holdHint) holdHint.textContent = p.paused === true
     ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'
@@ -59882,6 +59909,93 @@ async function saveTaskDue(value) {
 document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
 
 /* #4771: put the open task on hold, or take it off. The button acts on the state as last read from the server. */
+/* kosmos#4787 slice 1b: the task page's Repeats control. The stored rule fills the controls only when it changes (or
+   another task opens), so the five-second poll never undoes what a person is choosing; Save lights up only when the
+   choice differs from what is stored. A finished task has nothing to repeat: no control. */
+const TK_REPEAT_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+function tkRepeatChoice() {
+  const every = document.getElementById('tk-repeat-every').value;
+  if (!every) return { clear: true };
+  if (every === 'hour') return { every: 'hour' };
+  const at = document.getElementById('tk-repeat-at').value || '09:00';
+  return every === 'day' ? { every: 'day', at } : { every: 'week', on: document.getElementById('tk-repeat-day').value, at };
+}
+function tkRepeatStoredChoice(t) {
+  const r = t && t.repeat;
+  if (!r) return { clear: true };
+  if (r.every === 'hour') return { every: 'hour' };
+  return r.every === 'day' ? { every: 'day', at: r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
+}
+function tkRepeatShowWhen() {
+  const every = document.getElementById('tk-repeat-every').value;
+  document.getElementById('tk-repeat-when').hidden = every !== 'day' && every !== 'week';
+  document.getElementById('tk-repeat-day').hidden = every !== 'week';
+}
+function tkRepeatDirty(t) {
+  const save = document.getElementById('tk-repeat-save');
+  // Hourly from this screen runs on the hour; a rule an agent set at another minute still reads as unchanged.
+  if (save) save.disabled = JSON.stringify(tkRepeatChoice()) === JSON.stringify(tkRepeatStoredChoice(t));
+}
+function tkPaintRepeat(p, t) {
+  const done = TK_ACT === 'reopen';
+  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line']) { const el = document.getElementById(id); if (el && done) el.hidden = true; }
+  const act = document.querySelector('.tk-repeat-actions');
+  if (act) act.hidden = done;
+  const msg = document.getElementById('tk-repeat-msg');
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  if (done) return;
+  document.getElementById('tk-repeat-row').hidden = false;
+  const every = document.getElementById('tk-repeat-every');
+  const stored = JSON.stringify(tkRepeatStoredChoice(t));
+  if (every.dataset.task !== key || every.dataset.stored !== stored) {
+    const c = tkRepeatStoredChoice(t);
+    every.value = c.clear ? '' : c.every;
+    if (c.at) document.getElementById('tk-repeat-at').value = c.at;
+    if (c.on) document.getElementById('tk-repeat-day').value = c.on;
+    every.dataset.task = key;
+    every.dataset.stored = stored;
+  }
+  tkRepeatShowWhen();
+  tkRepeatDirty(t);
+  const line = document.getElementById('tk-repeat-line');
+  const said = t.repeat ? tskRepeatSentence(t, Date.now()) : '';
+  if (line.textContent !== said) line.textContent = said;
+  line.hidden = !said;
+}
+function tkOpenTask() {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return [null, null];
+  return [p, (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN)) || null];
+}
+for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day']) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  const on = () => { tkRepeatShowWhen(); const [, t] = tkOpenTask(); if (t) tkRepeatDirty(t); };
+  el.addEventListener('change', on);
+  el.addEventListener('input', on);
+}
+document.getElementById('tk-repeat-save').addEventListener('click', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const btn = document.getElementById('tk-repeat-save');
+  const msg = document.getElementById('tk-repeat-msg');
+  btn.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(tkRepeatChoice()),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { if (msg && PJ_CURRENT === p.id) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); return; }
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+  } catch {
+    if (msg && PJ_CURRENT === p.id) msg.textContent = 'we could not reach Kosmos to change how that task repeats';
+    tkRepeatDirty(t);
+  }
+});
+
 document.getElementById('tk-hold').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
