@@ -3360,6 +3360,11 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
+  /* #5379: the tab view reserves the scrollbar gutter on <html> and consolidated does not (its panes scroll inside),
+     so on a platform whose scrollbars take width (Windows, Linux; 0 on macOS) the header's right controls sat 15px
+     further right in consolidated and the centred tabs 7.5px: the header jumped on every view flip (CI:
+     render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead { padding-right: var(--scrollbar-width, 0px); }
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
@@ -11676,8 +11681,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
-  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
-  if (root.getAttribute('data-layout') === 'consolidated') return;
+  /* #5379: measured in the consolidated layout too. It reserves no gutter, so its header is padded by this width
+     instead (see the #5379 rule), to sit where the tab view's header sits beside its reserved gutter. */
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
