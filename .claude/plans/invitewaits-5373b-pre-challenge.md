@@ -60,5 +60,5 @@ static browser-check guards 99/99 on the merged tree.
 **New findings:** none after deduplication. **Converged.**
 
 ### Final Ledger
-- WARNINGs fixed 11, deferred 1 (the final-head run, since done). Deferred NITs: pre-existing waitForFunction(fn,
+- WARNINGs: 9 (iterations 1-7); fixed 8, deferred 1 (the final-head run, since done). Deferred NITs: pre-existing waitForFunction(fn,
   {timeout}) calls outside the diff; B4's synchronous-only coverage note; B18e (not a click).
