@@ -38,12 +38,16 @@ to another provider the person had connected; moving it by hand cleared the stal
 - Moving on the first rate_limited reading: a scraped limit is a warning (#966); 15 minutes lets a misread clear and
   waits out short per-minute limits.
 - Same provider, other account: possible later; the reporter's ask was another provider.
+- Comparing raw runners: Antigravity and the Gemini CLI can run on one Google account and share the quota that
+  stopped the first agent (#4588), so `providerOf` counts them as one provider ("google"). Raised by review 5.
 
 ## Weakest premise
 That projects have members on more than one provider. If each agent is alone on its project, this never fires and the
 remaining path is switching the agent's provider, which this PR does not do.
 
 ## Evidence
+- `providerOf` (8847ca0e0): a test that an Antigravity agent's part does not move to a Gemini CLI agent, with a Claude
+  control that does; red with the grouping removed.
 - `engine/assigner-failover-5382.test.js`, 11 tests on real cards (fleet fixture) and real tasks: moves to another
   provider with `from`; not with failover off (and a control with it on); not to the same provider; not before the period
   and the clock restarts when the card stops reading rate_limited; waits out a reset within 10 minutes, from quotaUntil
