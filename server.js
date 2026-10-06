@@ -9901,6 +9901,12 @@ const server = http.createServer(async (req, res) => {
             connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
               ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
               ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
+              /* #5407: inside the login notice's window (the same count and window as the notice), so the row can say
+                 so and lead with Sign in again. Only while the login is still good: an ended one says loginStopsAt. */
+              ...((() => {
+                const d = loginOk ? require('./engine/loginexpiry').daysLeftInWindow(loginArgs.until, nowMs) : null;
+                return d !== null && d >= 0 ? { loginExpiresInDays: d } : {};
+              })()),
               ...(loginGreen ? { observedFrom: 'login' } : {}),
               /* #5168: the login has ended but its agents still work on the access token they hold, until this time.
                  Not over a rejection or a sign-out, which say more than this does. worksUntil reads ONLY the cache that

@@ -794,6 +794,19 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-remove { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-check[disabled] { cursor: default; text-decoration: none; opacity: .7; }
+/* #5407 (Josh): a Claude sign-in inside the login notice's window, or ended with its agents on borrowed time: the
+   row's edge takes the warning ink, one line says when and what to do, and Sign in again is its main action (the
+   gold primary, first in the row). Arriving from the notice's Refresh login rings the row for a short while. */
+.acct-box.acct-expiring { border-color: var(--warn-ink); }
+.acct-expiring-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
+.acct-actions > button.acct-reauth-main { text-decoration: none; font-weight: 600; padding: .45em .95em; border-radius: 8px;
+  border: 1px solid var(--gold-bright); min-height: 32px; }
+.acct-box.acct-land { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright) 75%, transparent); }
+@media (prefers-reduced-motion: no-preference) { .acct-box.acct-land { transition: box-shadow .3s ease; } }
+/* #5407: on Settings > AI Models the login notices step aside. Every row they are about says the same thing there, in
+   place, with its own Sign in again; floating over the list they covered the very row Refresh login lands on. They
+   come back on every other screen. */
+body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv-slot { display: none; }
 /* #2264: the per-connection actions on ONE bar-separated row instead of stacked
    single links. Each action after the first carries a left bar (--k-rule, the
    same hairline as the box), so an OpenAI two-action row and a Claude
@@ -6354,6 +6367,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   .namego, .utoast .ux { position: relative; }
   :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
   :is(.apphead .tab, #agent-sort) { min-height: 44px; }
+  /* #5407: the login notice's Refresh login and a row's main Sign in again, at finger size. */
+  :is(.utoast .uacts button.login-adv-go, .acct-actions > button.acct-reauth-main) { min-height: 44px; }
   /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
      its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
      10px to the left for a short name's area; nothing drawn moves. */
@@ -21809,9 +21824,13 @@ function paintLoginAdvisories(advs) {
     return '<div class="utoast login-adv ' + sev + '">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
+      + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" aria-label="'
+      + esc('Refresh login: ' + (a.provider || 'Claude') + (a.email ? ', ' + a.email : '')) + '">Refresh login</button></div>'
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
+  slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'))));
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
@@ -21822,6 +21841,41 @@ function paintLoginAdvisories(advs) {
       || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
+}
+/* #5407 (Josh): the notice's Refresh login opens Settings > AI Models at that account's row, highlighted, with its
+   Sign in again focused. The account list paints after a live read, so the row is found when it paints (acctLand,
+   called from paintAccounts) as well as at once when it is already there. The highlight stays a short while across
+   the list's own follow-up repaints, then goes. With no row for that folder (removed meanwhile), the section opens
+   with nothing highlighted, never a wrong row. */
+let ACCT_LAND_DIR = '';
+let ACCT_LAND_UNTIL = 0;
+const ACCT_LAND_MS = 20000;
+function loginAdvGo(dir) {
+  ACCT_LAND_DIR = typeof dir === 'string' ? dir : '';
+  ACCT_LAND_UNTIL = Date.now() + ACCT_LAND_MS;
+  if (document.body.classList.contains('consolidated')) {
+    SETTINGS_SEC = 'accounts';
+    openConsolidatedSettings();
+  } else {
+    showTab('settings');
+    settingsOpen('accounts');
+  }
+  acctLand();
+}
+/* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
+function acctLanded(dir) { return !!dir && dir === ACCT_LAND_DIR && Date.now() < ACCT_LAND_UNTIL; }
+/* Bring the landed row into view and focus its Sign in again, once: the first paint that has the row. */
+let ACCT_LAND_DONE = '';
+function acctLand() {
+  if (!acctLanded(ACCT_LAND_DIR) || ACCT_LAND_DONE === ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL) return;
+  const box = document.getElementById('set-accounts');
+  const row = box && [...box.querySelectorAll('.acct-box[data-acct-dir]')].find((r) => r.getAttribute('data-acct-dir') === ACCT_LAND_DIR);
+  if (!row) return;
+  ACCT_LAND_DONE = ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL;
+  row.classList.add('acct-land');
+  row.scrollIntoView({ block: 'center' });
+  const go = row.querySelector('.acct-reauth');
+  if (go) go.focus({ preventScroll: true });
 }
 /* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
    notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
@@ -26125,9 +26179,14 @@ async function paintAccounts(opts) {
        then stop. The same fact the board's notice says, in the same words; it outranks "Signed in · active", which is
        true now and wrong in a few hours. The page's own clock decides it has passed. */
     const stopsAt = a.connection && Number.isFinite(a.connection.loginStopsAt) && a.connection.loginStopsAt > Date.now() ? a.connection.loginStopsAt : null;
+    /* #5407 (Josh): a login inside the notice's window (the board counts the days the way the notice does). */
+    const expiresIn = a.connection && Number.isInteger(a.connection.loginExpiresInDays) ? a.connection.loginExpiresInDays : null;
+    const expiresWords = expiresIn === null ? '' : expiresIn === 0 ? 'expires today' : 'expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days');
     if (stopsAt) {
       const when = loginAdvWhen(stopsAt);
       connBadge = '<span class="acct-unverified acct-stopsat" title="' + esc('This account\'s sign-in has run out. Its agents keep working on the access they already hold until ' + when.replace(/^at /, '') + ', then stop. Sign in again before then to keep them running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · stops working ' + esc(when) + '</span>';
+    } else if (expiresIn !== null) {
+      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · login ' + esc(expiresWords) + '</span>';
     } else if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
@@ -26181,10 +26240,24 @@ async function paintAccounts(opts) {
         : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     }
-    return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
+    /* #5407 (Josh): a Claude sign-in that needs signing in again soon (inside the notice's window, or ended with its
+       agents on borrowed time), or the row the person arrived at from the notice, leads with Sign in again and says
+       why in one line. Not an API-key row: it has no sign-in to redo (#2433). */
+    const claudeSignIn = !isKeyed && !a.apiKey;
+    const signInFirst = claudeSignIn && (!!stopsAt || expiresIn !== null || acctLanded(a.dir));
+    const soonLine = !claudeSignIn ? ''
+      : stopsAt ? 'Its login has ended, and its agents stop working ' + loginAdvWhen(stopsAt) + '. Sign in again to keep them running.'
+      : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + ': sign in again to keep its agents running.'
+      : '';
+    const reauthBtn = (main) => '<button class="acct-reauth' + (main ? ' uprime acct-reauth-main' : '') + '" type="button" data-reauth="' + esc(a.dir) + '" '
+      + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+      + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
+    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" data-acct-dir="' + esc(a.dir || '') + '">'
+      + '<div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'
       + connBadge + '</div>'
+      + (soonLine ? '<p class="acct-expiring-line">' + esc(soonLine) + '</p>' : '')
       + shared
       /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
          enumerates the agents on an account and REFUSES while any is on it,
@@ -26223,6 +26296,7 @@ async function paintAccounts(opts) {
          a CSS border-left on each action after the first (.acct-actions), so a
          row with two actions or three lays out the same with no separator markup. */
       + '<div class="acct-actions">'
+      + (signInFirst ? reauthBtn(true) : '')   // #5407: the row's main action, first
       /* #3136: "Check now" — a USER-INITIATED real liveness check that greens (or
          honestly reddens) THIS account's badge on demand. The passive badge only
          greens from a witnessed streaming turn, so a signed-in-but-idle account
@@ -26271,10 +26345,7 @@ async function paintAccounts(opts) {
               + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
               + 'title="' + esc('Signs in again to this Grok subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
             : ''))
-        : (a.apiKey ? ''
-          : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-            + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>'))
+        : (a.apiKey || signInFirst ? '' : reauthBtn(false)))
       /* #2441: api-key Claude Disconnect is now LIVE. #2420's removal slice landed, so
          `forgetAccount` accepts api-key accounts (erases the stored key + unwires the
          apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
@@ -26384,6 +26455,7 @@ async function paintAccounts(opts) {
   const fEl = followUp && box.contains(document.activeElement) ? document.activeElement : null;
   const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  acctLand();   // #5407: arriving from the login notice
   if (fAttr) {
     const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
     if (back && typeof back.focus === 'function') back.focus();

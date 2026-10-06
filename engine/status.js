@@ -7862,8 +7862,14 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
           return typeof email === 'string' && email ? email : null;
         } catch { return null; }
       });
+      /* #5407: the account's folder as Settings > AI Models names its row (accounts.list: the default is
+         ~/.claude, any other the folder itself), so the notice's Refresh login can open that row. */
+      const dirOf = (ccd) => {
+        const set = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
+        return set ? path.resolve(set) : path.join(accounts.homeDir(), '.claude');
+      };
       return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
-        .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf) }));
+        .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a.ccd) }));
     },
   });
 }

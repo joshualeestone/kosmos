@@ -144,3 +144,16 @@ test('#5018: the email comes from the config file the agent reads: unset reads ~
   assert.equal(by('cleo').email, null, 'no record: no email, never a guess');
   assert.deepEqual(by('cleo').names, ['cleo'], 'no identity in the sandbox: the system name, never blank');
 });
+
+test('#5407: each advisory names its account row\'s folder as Settings > AI Models does (unset: ~/.claude; set: the folder)', () => {
+  const now = 1_000_000_000_000;
+  const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'cleo-discord', pane: '0.1' })];
+  const ccdByName = { roo: '/acct/one/', cleo: null };   // a trailing slash, and an unset one
+  const readCcd = (a) => ccdByName[a.name];
+  const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] } });
+  const dirs = out.map((a) => a.dir).sort();
+  assert.deepStrictEqual(dirs, ['/acct/one', nodePath.join(SANDBOX, '.claude')].sort(), JSON.stringify(out));
+  // The same spelling accounts.list gives the default row (the page matches on it exactly).
+  assert.ok(dirs.includes(nodePath.join(require('./accounts').homeDir(), '.claude')));
+});

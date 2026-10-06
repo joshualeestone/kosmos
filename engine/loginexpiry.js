@@ -126,6 +126,16 @@ function ccdFromPsEnv(psText) {
   return m ? m[1] : null;
 }
 
+/* #5407: whole days of login left, counted the way the notice counts them (floored; negative once ended). One
+   function, so the notice and Settings > AI Models can never disagree about which logins are inside the window. */
+function daysLeftOf(expiresAt, now = Date.now()) { return Math.floor((expiresAt - now) / DAY_MS); }
+/* #5407: the days left when they are inside the notice's window (WARN_WITHIN_DAYS), else null. */
+function daysLeftInWindow(expiresAt, now = Date.now(), warnWithinDays = WARN_WITHIN_DAYS) {
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null;
+  const d = daysLeftOf(expiresAt, now);
+  return d <= warnWithinDays ? d : null;
+}
+
 function severityFor(daysLeft) {
   if (daysLeft <= URGENT_DAYS) return 'urgent';   // dies today/tomorrow, or already expired
   if (daysLeft <= WARN_DAYS) return 'warn';
@@ -145,7 +155,7 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_
     const times = loginTimesFor(acct.ccd, { readCred });
     const expiresAt = times.refreshExpiresAt;
     if (expiresAt == null) continue;
-    const daysLeft = Math.floor((expiresAt - now) / DAY_MS);
+    const daysLeft = daysLeftOf(expiresAt, now);
     if (daysLeft > warnWithinDays) continue;
     const expired = daysLeft < 0;
     out.push({
@@ -214,4 +224,5 @@ function loginGeneration() { return loginGen; }
 module.exports = {
   serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
+  daysLeftOf, daysLeftInWindow,
 };

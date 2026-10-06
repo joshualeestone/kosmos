@@ -184,3 +184,17 @@ test('#3997 review 1 control: capacity is not a failure, and keeps the login-gre
     assert.equal(m.get('aria@example.com').observedFrom, 'login', 'a capacity answer took the green away: ' + JSON.stringify(m.get('aria@example.com')));
   } finally { create.setClaudeProbe(null); }
 });
+
+test('#5407: a login inside the notice\'s window carries its days left; one outside it, or one that has run out, does not', async () => {
+  const SOON = Date.now() + 2 * DAY + 3600000;
+  claudeloginlive.setReaderForTests((ccd) => (ccd === ARIA_DIR ? SOON : ccd === CLEO_DIR ? PAST : FUTURE));
+  try {
+    const m = await rows();
+    assert.equal(m.get('aria@example.com').loginExpiresInDays, 2, JSON.stringify(m.get('aria@example.com')));
+    assert.equal(m.get('aria@example.com').loginValidUntil, SOON, 'the date is still there for the page');
+    assert.equal(m.get('boss@example.com').loginExpiresInDays, undefined, 'CONTROL: twenty days out is not in the window');
+    assert.equal(m.get('cleo@example.com').loginExpiresInDays, undefined, 'a login that has run out says so another way');
+  } finally {
+    claudeloginlive.setReaderForTests((ccd) => { asked.push(ccd); return ccd === CLEO_DIR ? PAST : FUTURE; });
+  }
+});
