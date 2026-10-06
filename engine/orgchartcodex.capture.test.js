@@ -107,6 +107,17 @@ test('#5346 (a): with the reader\'s flags, a captured request offers only update
   }
 });
 
+/* The exact command line a real read runs: no model is named, so Codex picks its own default. That default must be a
+   model the derived catalog hardened, and the request must offer only the two tools (#5346 review round 13). */
+test('#5346 (a): the reader\'s own command line, with no model named, offers only the two tools on a catalog model', { skip: why || false, timeout: 120000 }, async () => {
+  const bodies = await capture(({ dir, catalog, schema, image, base }) => c.codexArgs({ dir, catalog, schema, image, prompt: 'Read this org chart.', extra: [base] }));
+  assert.ok(bodies.length >= 1, 'Codex sent no model request to the capture server');
+  for (const b of bodies) {
+    assert.ok(slugs.includes(b.model), 'the default model ' + b.model + ' is not in the hardened catalog');
+    assert.deepEqual([...new Set(c.offeredTools(b))].sort(), [...c.ALLOWED_TOOLS].sort(), 'tools offered: ' + JSON.stringify(c.offeredTools(b)));
+  }
+});
+
 test('#5346 (a) CONTROL: with Codex\'s default tools, the same capture sees the code-mode exec tool', { skip: why || false, timeout: 120000 }, async () => {
   const bodies = await capture(({ dir, schema, image, base }) => ['exec', '--json', '--ephemeral', '--skip-git-repo-check',
     '--sandbox', 'read-only', '-C', dir, '-c', base, '--output-schema', schema, '-i', image, '--', 'Read this org chart.']);
