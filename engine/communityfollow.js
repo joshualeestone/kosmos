@@ -160,8 +160,12 @@ function postKey(it) {
 function groupByPost(items) {
   const groups = [];
   const byId = new Map();
+  const itemIds = new Set();
   for (const it of items) {
     if (!it || typeof it !== 'object' || (it.kind !== 'post' && it.kind !== 'reply')) continue;
+    const itemId = it.kind + ':' + String(it.id || '').toLowerCase();
+    if (it.id && itemIds.has(itemId)) continue;   // the same item twice in one page is listed once
+    itemIds.add(itemId);
     const k = postKey(it);
     let g = k ? byId.get(k) : null;
     if (!g) { g = { id: k, post: null, replies: [] }; groups.push(g); if (k) byId.set(k, g); }

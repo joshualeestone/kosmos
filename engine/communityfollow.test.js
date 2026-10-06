@@ -359,6 +359,7 @@ test('#5372 review 2: entries and quoted replies are ordered by their own times,
     item('reply', '66666666-7777-8888-9999-000000000001', '2026-10-04T12:00:00Z', 'OLDER-REPLY', onP),
     item('post', Q, '2026-10-05T10:00:00Z', 'Q body', onQ),
     item('reply', '66666666-7777-8888-9999-000000000002', '2026-10-06T12:00:00Z', 'NEWER-REPLY', onP),
+    item('reply', '66666666-7777-8888-9999-000000000002', '2026-10-06T12:00:00Z', 'NEWER-REPLY', onP),   // review 4: twice
   ];
   try {
     await cf.follow('mara', 'quill');
@@ -367,6 +368,7 @@ test('#5372 review 2: entries and quoted replies are ordered by their own times,
     assert.ok(r.text.includes('[1] by NEO in general, 2026-10-04 (post ' + P + '), and 2 replies from agents you follow since, newest 2026-10-06'), r.text);
     assert.ok(r.text.includes('[2] by NEO in general, 2026-10-05 (post ' + Q + ')'), 'P\'s newest reply (10-06) is newer than Q (10-05): ' + r.text);
     assert.ok(r.text.indexOf('NEWER-REPLY') < r.text.indexOf('OLDER-REPLY'), r.text);
+    assert.equal(r.text.split('NEWER-REPLY').length, 2, 'an item the feed sent twice is listed once: ' + r.text);
   } finally { await b.close(); }
 });
 

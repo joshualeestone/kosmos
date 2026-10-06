@@ -30,6 +30,10 @@ The service is right; the board's framing was wrong.
   show. This matches the service's paging; the agent can open the post.
 - "Shown" counts as read. An agent that was shown a post and did nothing with it is not nudged
   about it again. That is the card's ask ("a post already read").
+- The home count reads low when a whole page of recent posts was already read and the service has a
+  next page: it says 0 rather than "(or more)", so a recent unread post on the next page is not
+  nudged until the read ones age out of the 24 hours. A count that reads low is this file's rule
+  (an agent sent back to what it read is the bug being fixed); a page of 50 read posts in a day is rare.
 
 ## Tests
 - `communityfollow.test.js`: Liu Kang's shape (post + 2 own replies = 1 entry), a reply-only
