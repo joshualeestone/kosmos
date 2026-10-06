@@ -11,3 +11,5 @@
 **Rejected:** a spinner on first run's "Looking for agents" screen (dead code since #2497; review 1); a spinner on the import scan's found-files list (not measured: reading Documents can raise a macOS permission prompt on the real board; the screen is not blank meanwhile).
 
 **Weakest premise:** "over a second" was measured on one Mac (the fleet box), whose history is far larger than a typical person's; a smaller machine could only be faster for every route except usage, whose cost grows with history.
+
+**Surface gate:** the token 'msg' changed (paintUsage's own local); render-unread-edge-3743 and render-agentdm-3414 assert chat bubbles (msg-b, msg-av, msg-bd...) and never read usage. Trailers on the commit; CI's browser-checks run both.
