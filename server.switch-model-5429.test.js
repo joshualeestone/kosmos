@@ -173,3 +173,49 @@ test('#5429 route: a model sent with a switch to a provider that picks its own i
   assert.match(r.body.because, /picks its own model/);
   assert.equal(store.readProfile(name).provider, 'anthropic');
 });
+
+/* Review 1: the OpenAI path. The account's model list is stubbed (the route reads it through openaiaccounts). */
+/* An OpenAI API-key sign-in in the sandbox home (as server.switch-account-1373.test.js seeds one), so the switch has
+   somewhere to land; the switch sends it as the account. */
+function seedOpenai(label) {
+  const dir = nodePath.join(HOME, '.codex-' + label);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-switchmodel5429test' + label }));
+  return nodePath.resolve(dir);
+}
+const OAI = seedOpenai('sm');
+const openaiAccounts = require('./engine/openaiaccounts');
+function withOpenaiList(list, fn) {
+  const realModels = openaiAccounts.accountModels;
+  const realAllow = openaiAccounts.runnableAllowlist;
+  openaiAccounts.accountModels = async () => { if (list instanceof Error) throw list; return { ok: true, models: list.map((k) => ({ key: k })) }; };
+  openaiAccounts.runnableAllowlist = (got) => (got && Array.isArray(got.models) ? got.models.map((m) => m.key) : null);
+  return Promise.resolve(fn()).finally(() => { openaiAccounts.accountModels = realModels; openaiAccounts.runnableAllowlist = realAllow; });
+}
+
+test('#5429 route: to OpenAI with a model the account runs: one restart, the model is in the switched job', () => withOpenaiList(['gpt-6'], async () => {
+  const name = born('srv-sm-oai-ok');
+  restarts = 0;
+  const r = await switchTo(name, { provider: 'openai', account: OAI, model: 'gpt-6' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.provider, 'openai');
+  assert.equal(restarts, 1);
+  assert.match(plist(name), /gpt-6/, 'the switched Codex job carries the model');
+}));
+
+test('#5429 route: to OpenAI with a model the account does not run: refused, nothing changed', () => withOpenaiList(['gpt-6'], async () => {
+  const name = born('srv-sm-oai-no');
+  restarts = 0;
+  const r = await switchTo(name, { provider: 'openai', account: OAI, model: 'gpt-9' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.because, /not a model that account can run/);
+  assert.equal(restarts, 0);
+  assert.equal(store.readProfile(name).provider, 'anthropic');
+}));
+
+test("#5429 route: when the account's list cannot be read it fails open, as the model route does", () => withOpenaiList(new Error('offline'), async () => {
+  const name = born('srv-sm-oai-open');
+  const r = await switchTo(name, { provider: 'openai', account: OAI, model: 'gpt-6' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(plist(name), /gpt-6/);
+}));

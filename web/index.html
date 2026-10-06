@@ -49028,6 +49028,9 @@ function paintProviderPicker(a) {
      control. */
   const acctSel0 = document.getElementById('d-provider-account');
   if (acctSel0) acctSel0.hidden = true;
+  /* #5429 review 1: the switch's model menu goes with it, so another agent's menu never stays on screen. */
+  const modelSel0 = document.getElementById('d-provider-model');
+  if (modelSel0) { modelSel0.hidden = true; modelSel0.innerHTML = ''; delete modelSel0.dataset.for; }
   /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
      (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
   { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
@@ -49184,7 +49187,17 @@ async function fillSwitchModel() {
   if (!sel || !prov) return;
   const gen = ++SWITCH_MODEL_GEN;
   const want = prov.value;
-  const hide = () => { sel.hidden = true; if (sel.innerHTML) sel.innerHTML = ''; };
+  /* Review 1: every path sets `disabled` (a Claude menu shown after an OpenAI load in flight stayed greyed out), from
+     the provider menu, which is the in-flight state. */
+  const held = !!prov.disabled;
+  const hide = () => { sel.hidden = true; sel.disabled = held; if (sel.innerHTML) sel.innerHTML = ''; delete sel.dataset.for; };
+  /* Review 1: a refill for the SAME target (the account list arriving, a Claude account change) keeps the person's pick;
+     a different target starts from its default. */
+  const keep = (forKey) => { const was = sel.dataset.for === forKey ? sel.value : null; return (html) => {
+    sel.innerHTML = html;
+    if (was !== null && [...sel.options].some((o) => o.value === was)) sel.value = was;
+    sel.dataset.for = forKey;
+  }; };
   if (!want || !CURRENT || want === providerOf(CURRENT)) { hide(); return; }
   if (want === 'anthropic') {
     if (!CREATE_MODELS.length) {
@@ -49193,7 +49206,8 @@ async function fillSwitchModel() {
     }
     if (!CREATE_MODELS.length) { hide(); return; }
     // The create form's default (create.js marks one), so an untouched switch lands where a new agent would.
-    sel.innerHTML = CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
+    keep('anthropic')(CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>' + esc(m.label) + '</option>').join(''));
+    sel.disabled = held;
     sel.hidden = false;
     return;
   }
@@ -49201,6 +49215,7 @@ async function fillSwitchModel() {
     const acct = document.getElementById('d-provider-account');
     const dir = acct && !acct.hidden ? acct.value : '';
     if (!dir) { hide(); return; }
+    const put = keep('openai|' + dir);
     sel.innerHTML = '<option value="">Loading this account’s models…</option>';
     sel.disabled = true;
     sel.hidden = false;
@@ -49209,8 +49224,8 @@ async function fillSwitchModel() {
     if (gen !== SWITCH_MODEL_GEN) return;
     sel.disabled = !!(prov && prov.disabled);
     if (!(out && out.ok && Array.isArray(out.models) && out.models.length)) { hide(); return; }   // not listable: OpenAI picks
-    sel.innerHTML = '<option value="" selected>Let OpenAI choose (recommended)</option>'
-      + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join('');
+    put('<option value="" selected>Let OpenAI choose (recommended)</option>'
+      + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join(''));
     return;
   }
   hide();   // Gemini, Grok, Antigravity: each picks (or Kosmos pins) its own model, so there is nothing to choose

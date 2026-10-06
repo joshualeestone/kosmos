@@ -22,8 +22,12 @@ function world({ provider, current = 'google', account = '', models = [], openai
       this.options = [...v.matchAll(/<option value="([^"]*)"( selected)?>([^<]*)<\/option>/g)].map((m) => ({ value: m[1], selected: !!m[2], textContent: m[3] }));
       const i = this.options.findIndex((o) => o.selected);
       this.selectedIndex = i === -1 ? (this.options.length ? 0 : -1) : i;
-      this.value = this.selectedIndex === -1 ? '' : this.options[this.selectedIndex].value;
     },
+  });
+  // As a real select: value reads the selected option and setting it moves the selection.
+  Object.defineProperty(sel, 'value', {
+    get() { return this.selectedIndex === -1 ? '' : this.options[this.selectedIndex].value; },
+    set(v) { const i = this.options.findIndex((o) => o.value === v); this.selectedIndex = i; },
   });
   const els = { 'd-provider-model': sel, 'd-provider': el('d-provider', { value: provider }), 'd-provider-account': el('d-provider-account', { hidden: !account, value: account }) };
   const fetched = [];
@@ -41,7 +45,7 @@ function world({ provider, current = 'google', account = '', models = [], openai
   const api = new Function('document', 'fetch', 'esc', 'providerOf', 'ctx',
     'let SWITCH_MODEL_GEN = 0; let CURRENT = ctx.CURRENT; let CREATE_MODELS = ctx.CREATE_MODELS;\n' + src + '\nreturn { fillSwitchModel, switchModelPicked };')(
     { getElementById: (id) => els[id] || null }, fetchFn, (s) => String(s), (a) => a.provider, ctx);
-  return { api, sel, fetched, setAccount: (a) => Object.assign(els['d-provider-account'], a) };
+  return { api, sel, fetched, setAccount: (a) => Object.assign(els['d-provider-account'], a), setProvider: (v) => { els['d-provider'].value = v; } };
 }
 const CLAUDE = [{ key: 'opus55', label: 'Claude Opus 5.5' }, { key: 'sonnet', label: 'Claude Sonnet 5', default: true }];
 
@@ -98,4 +102,28 @@ test('#5429: an OpenAI list that arrives after the switch moved on is dropped (g
   releaseA();
   await first;
   assert.deepEqual(w.sel.options.map((o) => o.value), ['', 'gpt-b'], 'account A\'s late list did not overwrite account B\'s');
+});
+
+test('#5429 review 1: a refill for the same target keeps the person\'s pick; another target starts from its default', async () => {
+  const w = world({ provider: 'anthropic', models: CLAUDE });
+  await w.api.fillSwitchModel();
+  w.sel.value = 'opus55';   // the person picks
+  await w.api.fillSwitchModel();   // the account list arrives, or a Claude account changes
+  assert.equal(w.sel.value, 'opus55', 'kept');
+  w.setProvider('google'); await w.api.fillSwitchModel();
+  w.setProvider('anthropic'); await w.api.fillSwitchModel();
+  assert.equal(w.sel.value, 'sonnet', 'CONTROL: after another target it starts from the default again');
+});
+
+test('#5429 review 1: a Claude menu shown after an OpenAI load was in flight is usable, not left greyed out', async () => {
+  let release;
+  const late = new Promise((r) => { release = r; });
+  const w = world({ provider: 'openai', account: '/acct/a', models: CLAUDE, openai: async () => (await late, { ok: true, models: [{ key: 'gpt-6', label: 'GPT-6' }] }) });
+  const first = w.api.fillSwitchModel();   // OpenAI: the menu is disabled while it loads
+  assert.equal(w.sel.disabled, true, 'precondition: disabled while loading');
+  w.setProvider('anthropic');
+  await w.api.fillSwitchModel();
+  release(); await first;
+  assert.equal(w.sel.disabled, false);
+  assert.notEqual(w.api.switchModelPicked(), null, 'and it sends the shown model');
 });
