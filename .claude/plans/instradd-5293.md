@@ -122,6 +122,25 @@ the person pasted it in on the colleague's page.
   refusals, short, undone from the record, unreadable as unknown. Related files 265/265.
 - DECIDED: lines the person types directly under the addition are theirs and survive Undo (pinned).
 
+## Reviews 10 to 19 (blind, alternating opus and sonnet)
+- 10 (opus): BLOCKER the asker's display name went into the other agent's file unchecked (markers, a forged id line):
+  now one line, no comment markers, at most 80 code points. W: Dismiss after an unrecorded Apply; deleting only the id
+  line; a stray id line copy. Traces are now heading+id line, heading+text, id line+text.
+- 11 (sonnet): W a lone surrogate made the file and record disagree (well-formed text and name). Gate (isViaScreen) is
+  the board's speed bump until #4491: decided, on the card.
+- 12 (opus): W Dismiss on an unreadable file; linear-time trims; no "Added on" heading in a proposal.
+- 13 (sonnet): W Dismiss stuck for an agent with no file yet.
+- 14 (opus): W a reworded heading read as gone (id line + text trace); underlined headings.
+- 15 (sonnet): W CRLF files (LF view, Undo keeps CRLF); spacing variants of the ban; size check first.
+- 16 (opus): W CRLF in the proposal itself (stored LF); markup before "Added on".
+- 17 (sonnet): DECIDED the "Added on" ban is a courtesy, not a boundary (the id comment line marks Kosmos's heading);
+  the name is cleaned in the history reason too.
+- 18 (opus): W the page's "taken out" flag outlived its paint and showed after a later Apply; the browser check runs
+  that sequence (red on the old page).
+- 19 (sonnet): CONVERGED, no BLOCKER or WARNING; a 72-combination fuzz of Apply, Kosmos block rewrites and Undo, 0
+  failures. NIT accepted: a corrupt store moved aside after an unrecorded Apply loses the Undo record (needs two faults).
+- Every fix above has a test that reds without it (mutation-checked in each round).
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.
