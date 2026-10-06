@@ -24,6 +24,10 @@ web.plus-wait-5354.test.js: the words at 1, 59, 119 (CONTROL), 120, 121, 1290, 3
 "about 22 minutes" and counts down in seconds under two minutes. Reverting the paint reds it. web.plus-wizard-3796,
 web.code-box and web.plus-stale still pass.
 
+## Review 1 (sonnet, blind): converged (no BLOCKER, WARNING or CONVENTION)
+- NIT accepted: no hours branch (7200 s reads "about 120 minutes"), the same as the relay's waitWords: parity.
+- NIT accepted: only the first "in N seconds" is reworded; the one other such sentence (a timeout) never reaches here.
+
 ## Weakest premise
 That the coordinator's sentence keeps "in N seconds". If it changed, the app would show the refusal without a countdown
 (its existing fallback), not a wrong number.
