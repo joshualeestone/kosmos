@@ -239,11 +239,46 @@ function maybeMigrateLegacyStore() {
   }
 }
 
+/* #5418: a test process never gets this machine's real data root. Test runs wrote fixture
+   records (sender tokens and more) into a fleet Mac's real store and left them there for
+   weeks, through a module that froze `store.ROOT` at require time before its test set the
+   sandbox (about forty modules do). So the refusal is HERE, on the one derivation every
+   one of them reads, not in each of them.
+
+   A test process is one `node --test` started (it sets NODE_TEST_CONTEXT in every file it
+   runs) or one tools/run-tests.sh started (KOSMOS_TEST_RUN=1, which also reaches its shell
+   tests). "Real" is the root this user would get with no override at all, from the
+   account's home in the user database (os.userInfo), NOT os.homedir(): that follows $HOME,
+   which a test may point at a sandbox, and comparing against it would refuse exactly the
+   tests that sandboxed correctly. KOSMOS_ALLOW_REAL_ROOT=1 is the explicit way out for a
+   process that must read the real store under a test runner. */
+function isTestProcess(env) {
+  return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
+}
+function realDefaultRoot(platform, env) {
+  let home;
+  try { home = os.userInfo().homedir; } catch { return null; }
+  if (!home) return null;
+  return dataRootFor(platform, home, { APPDATA: env.APPDATA });
+}
+function refuseRealRootInTests(resolved, platform, env) {
+  if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return;
+  const real = realDefaultRoot(platform, env);
+  if (real && path.resolve(resolved) === path.resolve(real)) {
+    throw new Error('store: a test process resolved this machine\'s REAL data root (' + resolved + '). '
+      + 'Set AGENT_WORKFORCE_DATA (or AGENT_WORKFORCE_HOME) to a sandbox BEFORE requiring any engine module '
+      + '(many freeze store.ROOT when they load). #5418');
+  }
+}
+
 function root() {
-  /* Migrate BEFORE resolving, so the very first store access (a read as often as
+  const resolved = dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
+  // #5418: refused before the migration below, which would otherwise rename the real store first.
+  refuseRealRootInTests(resolved, process.platform, process.env);
+  /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
-  return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
+  return resolved;
 }
 /* The store's two per-agent folders, named ONCE (#1704 PR4). worlds.js builds the
    same folders for a Kosmos this process is not serving (worldProfilesDir /
@@ -642,7 +677,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, refuseRealRootInTests, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
