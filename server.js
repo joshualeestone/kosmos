@@ -17135,7 +17135,7 @@ const server = http.createServer(async (req, res) => {
     const id = decodeSegment(proj[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {   // #5340: the folder move tells each member and waits for it
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -17150,6 +17150,45 @@ const server = http.createServer(async (req, res) => {
           const missing = new Error('there is no project by that name');
           missing.status = 404;
           throw missing;
+        }
+        /* kosmos#5340: the project's folder moved on this computer, and the person points the project at its new place.
+           The person's own act, from the page (isViaScreen, as community release: an agent token is refused), and on
+           its own, so it is one write that happened or did not. The engine checks the new folder as create does. The
+           members' instructions name the folder, so they are re-told, and the room is told where it went. */
+        if (body.folder !== undefined) {
+          const others = Object.keys(body).filter((k) => k !== 'folder' && k !== 'token' && k !== 'from_pane');
+          if (others.length) {
+            const mixed = new Error('move the folder on its own, then save the other changes');
+            mixed.status = 400;
+            throw mixed;
+          }
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('the project\'s folder is the person\'s to move, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          const moved = projects.moveFolder(id, body.folder);
+          const rosterM = safeRoster();
+          /* Review 1: each member separately (one failure skips nobody else): its instructions rewritten, then told on its
+             screen, as joining and leaving are. The page says how many were reached, never more. */
+          const members = moved.agents || [];
+          /* Review 3: a member whose instructions could not be updated is counted, so the page never promises it will see
+             the new place at its next start. */
+          let notUpdated = 0;
+          for (const a of members) {
+            let v = null;
+            try { v = projects.syncAgent(a, rosterM); } catch { v = null; }
+            if (!v || v.state === projects.TOLD.COULD_NOT) notUpdated += 1;
+          }
+          // Review 2: told in parallel, as project create tells its members, so the answer waits for the slowest pane, not
+          // the sum of them (each tmux call has its own 5 s bound).
+          const said = await Promise.all(members.map((a) => projects.speakOfMembershipAsync(a, moved, 'moved', rosterM).catch(() => null)));
+          const reached = said.filter((r) => r && r.state === chat.DELIVERY.PLACED).length;
+          try { messages.roomNote(id, 'This project\'s folder is now at ' + moved.folder + '. Work there from now on.'); } catch { /* best effort */ }
+          let projectM = null;
+          try { projectM = projects.get(id, rosterM); } catch { projectM = null; }
+          sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null, members: members.length, reached, notUpdated });
+          return;
         }
         /* ⚠️ Each field moves only when the request CARRIES it, and every
            carried field is applied in ONE engine write. Two separate
