@@ -58710,6 +58710,9 @@ async function tskLoad(arrival) {
   /* #3949: who needs the person as of THIS read, so a question asked after the read and before the next poll
      still counts as a change (tskRosterChanged). */
   TSK.needs = tskNeedsSig();
+  /* kosmos#4787 slice 2 review 6: stamped when the read STARTS, as TSK.needs is, so a read slower than one poll is
+     not restarted by tskRepeatStale on every tick. */
+  TSK.readAt = Date.now();
   const msg = document.getElementById('tsk-msg');
   if (arrival) {
     TSK.sel.clear();
@@ -58738,7 +58741,6 @@ async function tskLoad(arrival) {
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
       TSK.data = body.tasks;
-      TSK.readAt = Date.now();   // kosmos#4787 slice 2: when the repeat lines were last read (tskRepeatStale)
       TSK.rosterUnknown = body.rosterUnreadable === true;
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));

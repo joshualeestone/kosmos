@@ -169,6 +169,10 @@ test('#4787 slice 2: fieldsOf adds the missed count and the latest missed slot i
   assert.equal(f.repeatMissedWords, 'today at 9am');
   assert.equal(f.repeatNextWords, 'tomorrow at 9am', 'the next run is still said');
   assert.equal(f.repeatMissAfter, at(2026, 10, 7, 9, 15), 'review 5: when the next slot would be missed, for an open screen');
+  // Review 6: read inside a slot's grace, the reread is that slot's own miss time, today, not tomorrow's.
+  const ran = { ...t, lastRunAt: new Date(at(2026, 10, 5, 9, 0)).toISOString() };
+  assert.equal(r.fieldsOf(ran, at(2026, 10, 6, 9, 5)).repeatMissAfter, at(2026, 10, 6, 9, 15));
+  assert.equal(r.fieldsOf(ran, at(2026, 10, 6, 9, 15)).repeatMissAfter, at(2026, 10, 7, 9, 15), 'CONTROL: at the grace it moves on');
   const ok = r.fieldsOf(t, at(2026, 10, 6, 8, 0));
   assert.equal('repeatMissed' in ok, false, 'before the slot: no missed fields at all');
 });
