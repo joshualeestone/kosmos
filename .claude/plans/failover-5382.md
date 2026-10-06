@@ -44,17 +44,30 @@ That projects have members on more than one provider. If each agent is alone on 
 remaining path is switching the agent's provider, which this PR does not do.
 
 ## Evidence
-- `engine/assigner-failover-5382.test.js`, 9 tests on real cards (fleet fixture) and real tasks: moves to another
+- `engine/assigner-failover-5382.test.js`, 11 tests on real cards (fleet fixture) and real tasks: moves to another
   provider with `from`; not with failover off (and a control with it on); not to the same provider; not before the period
-  and the clock restarts when the card stops reading rate_limited; waits out a reset within 10 minutes (control: one
-  further off moves); never a built, webhook or finished part; assignPart's failover refusals and a recorded move; the
-  setting's defaults and independence.
+  and the clock restarts when the card stops reading rate_limited; waits out a reset within 10 minutes, from quotaUntil
+  or poolUntil (control: one further off moves); never takes from a card that is not ours; stalled work before the
+  backlog, and one stalled part to one receiver; never a part on hold, in a paused project, of a built, webhook or
+  finished task; assignPart's write-time refusals (not on `from`, finished, built, on hold, paused) and a recorded move;
+  the setting's defaults and independence.
+- `server.assigner-failover-5382.test.js`, 4 tests through the real givePart: a delivered move is kept and marked the
+  Assigner's; refused unless still on `from`; an unreached move goes back to `from`; and if `from` has left the
+  project, to nobody.
+- `server.recommender-assigner-2619.test.js`, 3 new route tests: failover reads off by default; set on its own and
+  independent of `on`; a non-boolean is a 400 and a process caller is a 403, neither changing the store.
 - The reset test caught a real bug on its first run: `Math.max` over a missing reset is NaN, which read as no reset
   known. Fixed.
-- Mutations, each red: same-provider check removed; setting gate removed; assignPart's finished-part refusal removed;
-  failover period removed (this one stayed GREEN on the first version of the test, because the receiver had not been
-  idle long enough either; the test now starts the receiver's idle clock first); the limited clock never resetting.
-- Neighbouring suites: assigner, assigner-setting, assigner-free-4552, server.recommender-assigner-2619, tasks: green.
+- Mutations, each red: same-provider check; setting gate; failover period (this one stayed GREEN on the first version of
+  the test, because the receiver had not been idle long enough either; the test now starts the receiver's idle clock
+  first); the limited clock never resetting; poolUntil; ours; priority over the backlog; one receiver per part; pick-time
+  on-hold and paused; write-time finished, built, on-hold and paused; hand-back to nobody instead of `from`; no fallback
+  when `from` has left; the route's GET field and PUT field.
+- `server.agyhold-4588.test.js` pins the assigner's give closure by its source text; the pin is updated to the closure
+  with `from` (it was red on this branch until then, found by running every test that touches the assigner).
+- Every test file that touches the assigner or its setting, run directly: assigner, assigner-setting, assigner-free-4552,
+  assigner-failover-5382, tasks, tasks.built-3951, onhold-4771, agentnudge, agyhold-4588 (engine and server),
+  server.assigner-give-3595, server.assigner-failover-5382, server.recommender-assigner-2619, web.settings-nav: green.
 
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
