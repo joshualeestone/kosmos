@@ -44,7 +44,8 @@ function owed(projects, now = Date.now()) {
         projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
         slot: missed.lastAt, count: missed.count, more: missed.more, words: taskrepeat.whenWords(missed.lastAt, now),
         reviewer: t.repeatReviewerPerson === true ? null : t.repeatReviewer, person: t.repeatReviewerPerson === true,
-        owners: tasks.whoOf(t), members: Array.isArray(p.agents) ? p.agents.slice() : [],
+        /* Review 4: who RUNS it now: holders of an open part (as the nudge's openParts), never one whose part is done. */
+        owners: [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))], members: Array.isArray(p.agents) ? p.agents.slice() : [],
       });
     }
   }
