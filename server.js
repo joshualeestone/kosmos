@@ -20950,27 +20950,6 @@ function start(port = PORT) {
             log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
           });
         } catch { /* best-effort, like the nudge sweep */ }
-        /* kosmos#4787 slice 3: a repeating task's named reviewer is told once when a run is missed (engine/missedtell.js,
-           which holds the rules and is tested there). Runs whether or not the Prompter is on: the reviewer asked to be
-           told. The roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read. */
-        try {
-          const projs = projects.readAll();
-          const owed = missedtell.owed(projs);
-          if (owed.length) {
-            const agentOwed = owed.some((x) => !x.person);
-            const r = agentOwed ? safeRoster() : null;
-            missedtell.sweep({
-              projects: projs, roster: r, now: Date.now(),
-              allowed: agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
-              limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
-              sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK,
-              deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
-              DELIVERY: chat.DELIVERY,
-              nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
-              log: (x) => process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
-            });
-          }
-        } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
         if (t && typeof t.unref === 'function') t.unref();
@@ -20986,6 +20965,29 @@ function start(port = PORT) {
       Promise.resolve().then(() => fedseats.ensureAll()).catch(() => {});
       const fedTick = setInterval(() => { fedseats.ensureAll().catch(() => {}); }, 60000);
       if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
+      /* kosmos#4787 slice 3: a repeating task's named reviewer is told once when a run is missed (engine/missedtell.js,
+         which holds the rules and is tested there). Its own minute timer, not the Prompter tick: it runs whether or not
+         the Prompter is on (the reviewer asked to be told), and the Prompter tick types only through prompterTick. The
+         roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read a minute. */
+      const missedTellTick = setInterval(() => {
+        try {
+          const projs = projects.readAll();
+          const owed = missedtell.owed(projs);
+          if (!owed.length) return;
+          const r = owed.some((x) => !x.person) ? safeRoster() : null;
+          missedtell.sweep({
+            projects: projs, roster: r, now: Date.now(),
+            allowed: agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+            limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+            sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK,
+            deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
+            log: (x) => process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+          });
+        } catch { /* best-effort, like the nudge sweep */ }
+      }, 60000);
+      if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       /* #4951: new comments on an agent's own community post: one line to the idle agent, once per comment

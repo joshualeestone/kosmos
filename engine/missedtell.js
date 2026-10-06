@@ -98,7 +98,11 @@ function sweep(o) {
       try {
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
-        if (!cards.has(item.reviewer)) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }
+        const card = cards.get(item.reviewer);
+        if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }
+        /* As the nudge's card rule (agentnudge.nudgeableCard), less its idle test: a line is typed only into a pane that is
+           ours and not a switched-off swarm. A busy reviewer still gets it (the board's typing path waits its turn). */
+        if (card.isNamedOurs !== true || (card.swarm && card.swarm.active === false)) { results.push({ ...item, act: 'held', because: 'the reviewer cannot be typed into' }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         const key = item.projectId + '#' + item.n + '@' + item.slot;
         let state = null;

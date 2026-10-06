@@ -42,7 +42,7 @@ function fixture(reviewer, extra = {}) {
 }
 const stored = (id, n) => tasks.byNumber(projects.readAll().find((x) => x.id === id), n);
 const only = (id) => projects.readAll().filter((x) => x.id === id);
-const roster = [{ sessionName: 'ada', name: 'Ada' }, { sessionName: 'rex', name: 'Rex' }];
+const roster = [{ sessionName: 'ada', name: 'Ada', isNamedOurs: true }, { sessionName: 'rex', name: 'Rex', isNamedOurs: true }];
 
 test('#4787 slice 3: an agent reviewer is told once per missed slot, with the task, the run and its owner', () => {
   const { id, n } = fixture('ada');
@@ -114,9 +114,22 @@ test('#4787 slice 3: held, not spent, while Kosmos cannot type, the reviewer is 
   assert.equal(mt.sweep({ ...base, roster, allowed: false, sent: [] }).results[0].act, 'held');
   assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'rex' }], allowed: true, sent: [] }).results[0].act, 'held');
   assert.equal(mt.sweep({ ...base, roster, allowed: true, limit: { on: true, perHour: 1 }, sent: [NOW - 1000] }).results[0].act, 'held');
+  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: false }], allowed: true, sent: [] }).results[0].act, 'held', 'not ours');
+  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: true, swarm: { active: false } }], allowed: true, sent: [] }).results[0].act, 'held', 'a switched-off swarm');
   assert.equal(stored(id, n).missToldAt, undefined, 'nothing is marked told while held');
   // CONTROL: the same task, allowed and running, is told.
   const r = mt.sweep({ ...base, roster, allowed: true, sent: [], deliver: () => ({ state: 'placed' }) });
   assert.equal(r.results[0].act, 'tell');
   assert.equal(r.results[0].reached, true);
+});
+
+test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside the Prompter tick, with the board\'s typing path', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const i = src.indexOf('const missedTellTick = setInterval(');
+  assert.ok(i > 0, 'the timer is there');
+  const body = src.slice(i, src.indexOf('}, 60000);', i));
+  assert.match(body, /missedtell\.sweep\(/);
+  assert.match(body, /deliver: \(session, text, ro\) => chat\.deliverAutomatic\(/);
+  assert.match(body, /allowed: agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'the nudge\'s gate: live execution and the brake');
+  assert.equal((src.match(/missedtell\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });
