@@ -4,7 +4,7 @@
     {
       "icon": "tasks",
       "title": "Tasks that repeat",
-      "line": "Set a task to repeat every hour, day or week from its own page; its agent is reminded each time it is due."
+      "line": "Set a task to repeat every hour, day or week from its own page. When it comes due, it is open work for its agent again."
     },
     {
       "icon": "list",
