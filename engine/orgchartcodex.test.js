@@ -428,3 +428,12 @@ test('Codex exiting before any turn with its own reason: a missing sign-in is na
   assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, 'ChatGPT did not answer', 'CONTROL: any other reason is not called a sign-in');
   await grandchildGone();
 });
+
+test('a model catalog far past a real one is refused unread, so its size cannot stall the board', () => {
+  const big = path.join(root, 'big-acct');
+  fs.mkdirSync(big, { recursive: true });
+  fs.writeFileSync(path.join(big, 'models_cache.json'), JSON.stringify({ ...CACHE, pad: 'x'.repeat(c.MAX_CATALOG_BYTES) }));
+  assert.equal(c.deriveCatalog(big), null);
+  fs.writeFileSync(path.join(big, 'models_cache.json'), JSON.stringify(CACHE));
+  assert.ok(c.deriveCatalog(big), 'CONTROL: the same catalog at its real size is used');
+});

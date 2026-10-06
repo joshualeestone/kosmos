@@ -84,13 +84,18 @@ const MODEL_FIELDS = new Set(['slug', 'display_name', 'description', 'default_re
 /* Not forced: shell_type and web_search_tool_type, whose off values are not known and could make Codex refuse the
    catalog. The tools they shape are switched off by `--disable shell_tool`/`unified_exec` and `web_search="disabled"`
    instead; the capture test reds if either comes back (a mutation re-enabling the shell does). */
+const MAX_CATALOG_BYTES = 4 << 20;
 const FORCED = { apply_patch_tool_type: null, tool_mode: null, experimental_supported_tools: [], node_repl_disabled: true,
   supports_search_tool: false, include_apps_usage_instructions: false, include_plugin_usage_instructions: false,
   include_skills_usage_instructions: false };
 /* The account's catalog made safe as { catalog }, or { why } saying which of the three reasons it cannot be used. */
 function catalogFor(accountDir) {
   let cache;
-  try { cache = JSON.parse(fs.readFileSync(path.join(accountDir, 'models_cache.json'), 'utf8')); } catch { cache = null; }
+  const file = path.join(accountDir, 'models_cache.json');
+  // OpenAI writes this file and it is read on every reader choice: one far past a real catalog (about 160 KB
+  // today) is refused rather than parsed, so its size cannot stall the board.
+  try { if (fs.statSync(file).size > MAX_CATALOG_BYTES) return { why: WHY_CATALOG_UNKNOWN }; } catch { /* missing: below */ }
+  try { cache = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { cache = null; }
   if (!cache || !Array.isArray(cache.models) || !cache.models.length) return { why: WHY_CATALOG };
   if (cache.client_version !== pinnedVersion()) return { why: WHY_CATALOG_VERSION };
   if (cache.models.some((m) => !m || typeof m !== 'object' || Object.keys(m).some((k) => !MODEL_FIELDS.has(k)))) return { why: WHY_CATALOG_UNKNOWN };
@@ -441,4 +446,4 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
   });
 }
 
-module.exports = { KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
+module.exports = { MAX_CATALOG_BYTES, KNOWN_EVENTS, WHY_CATALOG_VERSION, WHY_CATALOG_UNKNOWN, TMP_PREFIX, WHY_CATALOG, WHY_WINDOWS, WHY_MANAGED, setSystemConfigPaths, MODEL_FIELDS, FORCED, pickWithWhy, setVersion, INSTRUCTION_FILES, WHY_INSTRUCTIONS, childEnv, ENV_KEEP, KEEPS, NAME, READS, ALLOWED_TOOLS, TIMEOUT_MS, DISABLED_FEATURES, CONFIG, codexArgs, deriveCatalog, offeredTools, pick, label, cannotRead, read, setAccounts, setBin, setSpawn, setTimeoutMs };
