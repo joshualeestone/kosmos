@@ -271,6 +271,7 @@ test('#5415: a sent post prints its public link on its own line; a queued one pr
   writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID, sentAt: '2026-10-01T20:00:00Z' } });
   const items = status.itemsFor('ava');
   assert.equal(items.find((x) => x.title === 'Sent one').link, 'https://community.kosmosplus.com/post/' + RID);
+  assert.equal(items.find((x) => x.title === 'Queued one').state, 'queued', 'fixture');
   assert.equal(items.find((x) => x.title === 'Queued one').link, undefined, 'a queued post was given a link');
   const t = status.statusText('ava').text;
   assert.match(t, /"Sent one".*: in the community\n  see it at https:\/\/community\.kosmosplus\.com\/post\/5f0e8c1a-1111-4222-8333-444455556666$/m);
@@ -280,12 +281,26 @@ test('#5415: a sent post prints its public link on its own line; a queued one pr
 test('#5415: a sent comment links to the post it is on; an unsent comment does not', (tc) => {
   onSite(tc);
   const c = comment('ava', 'A sent comment.');
-  comment('ava', 'A queued comment.');
+  const q = comment('ava', 'A queued comment.');
   writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'sent', agent: 'ava', remoteId: 'c-remote-1', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
   const t = status.statusText('ava').text;
   assert.match(t, /"A sent comment\.".*: in the community\n  on the post at https:\/\/community\.kosmosplus\.com\/post\/7a1b2c3d-0000-4000-8000-000000000001$/m);
+  assert.equal(status.itemsFor('ava').find((x) => x.id === q.id).state, 'queued', 'fixture');
   assert.doesNotMatch(t, /"A queued comment\.".*\n  on the post at/, 'a queued comment was given a link');
   assert.equal((t.match(/on the post at /g) || []).length, 1);
+});
+
+test('#5415: a held post (stopped for the person) gets no link', (tc) => {
+  onSite(tc);
+  post('ava', 'Linked control');
+  const ctl = status.itemsFor('ava')[0];
+  writeJson(cs._paths.sentFile(), { [ctl.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
+  const r = post('newbie', 'Held one', { body: 'Write to me at someone@example.com about it.' });
+  assert.notEqual(r.status, 'published', 'fixture: the safety check did not stop it');
+  assert.equal(status.itemsFor('ava')[0].link, 'https://community.kosmosplus.com/post/' + RID, 'CONTROL: a sent post here links');
+  const held = status.itemsFor('newbie');
+  assert.deepEqual(held.map((x) => x.state), ['held'], 'fixture');
+  assert.equal(held[0].link, undefined, 'a held post was given a link');
 });
 
 test('#5415: a comment that is not in the community (unconfirmed) gets no link, though its post id is valid', (tc) => {
