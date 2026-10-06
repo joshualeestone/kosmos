@@ -699,7 +699,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteDelay = 2000; });
     await page.click('#fedinv-make');
     // #5373: wait for the limit's own message (300 ms here), not a fixed 700 ms.
-    await page.waitForFunction(() => document.getElementById('fedinv-msg').textContent !== '', null, { timeout: 4000 }).catch(() => {});
+    // Not just "not empty": the in-flight "Making a code…" is already a message, so that wait returned at once.
+    await page.waitForFunction(() => { const t = document.getElementById('fedinv-msg').textContent; return t !== '' && t !== 'Making a code…'; },
+      null, { timeout: 4000 }).catch(() => {});
     const timed = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, make: !document.getElementById('fedinv-make').disabled,
       focus: document.activeElement && document.activeElement.id }));
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteDelay = 0; });
@@ -719,7 +721,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteBodyStall = true; });
     await page.click('#fedinv-make');
     // #5373: wait for the limit's message (300 ms here), not a fixed 700 ms.
-    await page.waitForFunction(() => document.getElementById('fedinv-msg').textContent !== '', null, { timeout: 4000 }).catch(() => {});
+    // Not just "not empty": the in-flight "Making a code…" is already a message, so that wait returned at once.
+    await page.waitForFunction(() => { const t = document.getElementById('fedinv-msg').textContent; return t !== '' && t !== 'Making a code…'; },
+      null, { timeout: 4000 }).catch(() => {});
     const msg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteBodyStall = false; });
     check('A12 an abort during the body read still says a code may have been made (control: A11, an abort before the headers)',
