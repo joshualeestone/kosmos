@@ -272,12 +272,12 @@ test('#5420 every grep in the kill guard runs in the C locale, so GNU grep stays
 test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that the greps run in C', () => {
   // In C, [[:space:]] is ASCII only. JavaScript treats these as whitespace, so the minus one below is still a
   // minus one to node; under the UTF-8 locale the old greps caught some of them, and all must still block.
-  for (const ws of [' ', ' ', ' ', ' ', ' ', ' ', ' ', '　', '﻿']) {
+  for (const ws of ['\u00a0', '\u1680', '\u2000', '\u2003', '\u2007', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff']) {
     const content = `process.KILL(${ws}N1, 9);\n`;
     const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
     assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `${name} with jq`);
     assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `${name} without jq`);
   }
   // Control: a letter that is not whitespace makes an identifier, not a minus one, and stays allowed.
-  assert.equal(run('Write', { file_path: '/tmp/x.js', content: 'process.KILL(éN1, 9);\n' }).code, 0);
+  assert.equal(run('Write', { file_path: '/tmp/x.js', content: 'process.KILL(\u00e9N1, 9);\n' }).code, 0);
 });
