@@ -190,7 +190,7 @@ const OFF_SHORT = {
   google: 'Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.',
 };
 const OFF_WHY = {
-  google: googleOffWhyFor(process.platform),
+  get google() { return googleOffWhyFor(process.platform); },   // read when used, like composeWhy's platform
 };
 
 /* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the

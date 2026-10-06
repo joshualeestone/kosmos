@@ -453,10 +453,10 @@ function whatReads(platform, opts) {
       : 'ChatGPT, connected the same way, also reads a PNG or JPG picture, and OpenAI or Grok connected with a key can read one too')
     + ' (an OpenAI key also reads a PDF).';
 }
-function noModelFor(platform, opts) { return whatReads(platform, opts) + ' ' + ANY_PROVIDER; }
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). #5346: Claude
-   first, then what else reads, and never "you need an API key". */
-const NO_MODEL = noModelFor(process.platform);
+   first, then what else reads, and never "you need an API key". NO_MODEL (on the exports) is this for process.platform,
+   read when used. */
+function noModelFor(platform, opts) { return whatReads(platform, opts) + ' ' + ANY_PROVIDER; }
 /* #5346: when the person's own ChatGPT cannot be used: Claude first (what reads, not ChatGPT again), then their
    ChatGPT's reason, then a switched-off key provider's in one sentence (`short`), then the closing sentence. */
 function composeWhy(chatgptWhy, short) {
@@ -474,7 +474,7 @@ function noModelAfter(reader) {
   if (reader && reader.kind === 'codex') return composeWhy(codex.WHY_NO_CODEX, got.offShort);
   let sub = { offWhy: null };
   try { sub = codex.pickWithWhy(); } catch { sub = { offWhy: null }; }
-  return whyFrom(sub, got) || NO_MODEL;
+  return whyFrom(sub, got) || noModelFor(process.platform);
 }
 /* The reason for no reader, from one look at the ChatGPT account (`sub`) and the key accounts (`got`): shared by
    currentReader and noModelAfter so the same accounts get the same words. */
@@ -774,4 +774,4 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = { MODEL_TIMEOUT_MS,
-  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

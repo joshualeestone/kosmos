@@ -538,3 +538,17 @@ test('#5346 step 2 review 8: after a Claude read could not run, a refused ChatGP
   } finally { c.setVersion(() => PINNED); }
   assert.equal(o.noModelAfter({ kind: 'claude' }), o.NO_MODEL, 'control: a usable ChatGPT here: the usual sentence (ChatGPT does read)');
 });
+
+test('#5346 step 2 review 13: faked Windows with a Gemini key and NO ChatGPT account is never told ChatGPT reads', () => {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  c.setAccounts(() => []);
+  keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    assert.equal(o.currentReader(), null);
+    assert.equal(keys.OFF_WHY.google, keys.googleOffWhyFor('win32'), 'the Gemini reason is read for the platform now, not at load');
+    assert.equal(o.NO_MODEL, o.noModelFor('win32'), 'NO_MODEL too');
+    assert.doesNotMatch(o.whyNoReader(), /ChatGPT/, 'Windows is not told ChatGPT reads');
+    assert.match(o.whyNoReader(), /Gemini/, 'CONTROL: this is the Gemini sentence');
+  } finally { Object.defineProperty(process, 'platform', real); c.setAccounts(() => [SUB]); keys.setAccounts(() => []); }
+});
