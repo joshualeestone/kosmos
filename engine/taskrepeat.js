@@ -125,9 +125,10 @@ function whenWords(ms, now = Date.now()) {
   if (days === 0) return 'today at ' + time;
   if (days === 1) return 'tomorrow at ' + time;
   if (days > 1 && days < 7) return DAY_NAMES[d.getDay()] + ' at ' + time;
-  /* slice 2: a missed slot is in the past: "yesterday at 9am", or its weekday within the last week. */
+  /* slice 2: a missed slot is in the past: "yesterday at 9am", or "last Monday at 9am" within the last week (review 5:
+     a bare weekday read the same as a weekly task's next run, "Next Monday at 9am"). */
   if (days === -1) return 'yesterday at ' + time;
-  if (days < -1 && days > -7) return DAY_NAMES[d.getDay()] + ' at ' + time;
+  if (days < -1 && days > -7) return 'last ' + DAY_NAMES[d.getDay()] + ' at ' + time;
   return MONTHS[d.getMonth()] + ' ' + d.getDate() + ' at ' + time;
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -241,6 +242,8 @@ function fieldsOf(t, now = Date.now()) {
   if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};
   const nextAt = nextAfter(t.repeat, now);
   const out = { repeatWords: describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: whenWords(nextAt, now) };
+  /* review 5: when the next slot would become missed, so an open screen knows when to read again. */
+  if (nextAt !== null) out.repeatMissAfter = nextAt + missGraceFor(t.repeat);
   /* slice 2: the missed runs, in the board's own time like the next run. */
   const missed = missedRuns(t, now);
   if (missed) Object.assign(out, { repeatMissed: missed.count, repeatMissedMore: missed.more, repeatMissedAt: missed.lastAt, repeatMissedWords: whenWords(missed.lastAt, now) });

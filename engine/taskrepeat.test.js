@@ -168,6 +168,7 @@ test('#4787 slice 2: fieldsOf adds the missed count and the latest missed slot i
   assert.equal(f.repeatMissedAt, at(2026, 10, 6, 9, 0));
   assert.equal(f.repeatMissedWords, 'today at 9am');
   assert.equal(f.repeatNextWords, 'tomorrow at 9am', 'the next run is still said');
+  assert.equal(f.repeatMissAfter, at(2026, 10, 7, 9, 15), 'review 5: when the next slot would be missed, for an open screen');
   const ok = r.fieldsOf(t, at(2026, 10, 6, 8, 0));
   assert.equal('repeatMissed' in ok, false, 'before the slot: no missed fields at all');
 });
@@ -188,7 +189,7 @@ test('#4787 slice 2: whenWords says a past slot as yesterday or its weekday, and
   const now = at(2026, 10, 6, 12, 0);   // a Tuesday
   assert.equal(r.whenWords(at(2026, 10, 6, 9, 0), now), 'today at 9am');
   assert.equal(r.whenWords(at(2026, 10, 5, 9, 0), now), 'yesterday at 9am');
-  assert.equal(r.whenWords(at(2026, 10, 3, 9, 30), now), 'Saturday at 9:30am');
+  assert.equal(r.whenWords(at(2026, 10, 3, 9, 30), now), 'last Saturday at 9:30am');
   assert.equal(r.whenWords(at(2026, 9, 29, 9, 0), now), 'Sep 29 at 9am', 'a week back is a date, never an ambiguous weekday');
   assert.equal(r.whenWords(at(2026, 10, 7, 9, 0), now), 'tomorrow at 9am');
   assert.equal(r.whenWords(at(2026, 10, 9, 9, 0), now), 'Friday at 9am');
@@ -261,4 +262,15 @@ test('#4787 slice 2 review 4: the late mark and the missed line agree for every 
     }
     assert.ok(checked > 100, 'the grid ran for ' + rule.every);
   }
+});
+
+test('#4787 slice 2 review 5: a weekly task\'s missed run and its next run never read the same', () => {
+  const t = { repeat: { every: 'week', day: 1, at: '09:00' }, repeatSetAt: new Date(at(2026, 9, 1, 12, 0)).toISOString(),
+    lastRunAt: new Date(at(2026, 9, 28, 9, 0)).toISOString() };   // ran Monday 9-28; Monday 10-05 missed
+  for (let d = 5; d <= 11; d += 1) {
+    const f = r.fieldsOf(t, at(2026, 10, d, 12, 0));
+    assert.ok(f.repeatMissedWords && f.repeatNextWords, 'precondition: missed and next both said on Oct ' + d);
+    assert.notEqual(f.repeatMissedWords, f.repeatNextWords, 'Oct ' + d + ': ' + f.repeatMissedWords);
+  }
+  assert.equal(r.fieldsOf(t, at(2026, 10, 8, 12, 0)).repeatMissedWords, 'last Monday at 9am');
 });
