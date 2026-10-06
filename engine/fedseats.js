@@ -58,6 +58,24 @@ const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account
    /v1/mac/federation/room-ticket)", which shows a raw path and says "ask" twice. */
 const REVOKED_REFUSAL = /that connection has been revoked/i;   // the connector's FINAL_REFUSALS phrase, not any 'revoked'
 const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
+/* #5404: a member learns of its removal only at its next edge check or the connector's refusal, so a post it
+   sends in between goes out, and the other boards may refuse it (an old-key post past the grace). Each seat keeps
+   when its posts went (SENT_LOG_MAX, SENT_LOG_MS), and on the removal the room is told how many went at or after
+   the coordinator's revoked_at, less REVOKE_SENT_SKEW_MS for the two clocks and the whole-second stamp. Said as
+   "may not": during the grace some can still open (REVOKE_GRACE_MS). */
+const SENT_LOG_MAX = 64;
+const SENT_LOG_MS = 10 * 60 * 1000;
+const REVOKE_SENT_SKEW_MS = 5 * 1000;
+function noteSentAfterRevoke(projectId, s, revokedAtSec) {
+  const log = s.sentLog || [];
+  s.sentLog = [];
+  if (!Number.isFinite(revokedAtSec) || revokedAtSec <= 0) return;   // nothing says when, so no claim
+  const since = revokedAtSec * 1000 - REVOKE_SENT_SKEW_MS;
+  const n = log.filter((t) => t >= since).length;
+  if (!n) return;
+  say(projectId, (n === 1 ? 'A message this computer sent' : n + ' messages this computer sent')
+    + ' around the time it was removed may not have been shown to the others in the shared project.');
+}
 /** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
     (the room's sentence says what to do), and without a trailing full stop. The reason comes from
     outside and can be a whole 64 KB line, so only its first REASON_SCAN characters are read, and
@@ -736,7 +754,7 @@ function isFresh(at, now) {
 /** #5193: end a member's seat whose edge the owner revoked, at once, as the connector's own
     refusal (code 3) would about two minutes later: the room is told once, the link keeps the
     ending across a restart, and held posts go with it (setStatus 'ended'). */
-function endRevokedMember(projectId, s, link) {
+function endRevokedMember(projectId, s, link, revokedAtSec) {
   if (!s || s.stopped || s.status === 'ended') return;
   // An ending already told keeps its own words on the link, so the room and the record agree (round 3).
   if (!s.endedNoted) {
@@ -744,6 +762,7 @@ function endRevokedMember(projectId, s, link) {
     s.ended = 'the owner removed this computer from the project';
     say(projectId, REVOKED_NOTE);
   }
+  noteSentAfterRevoke(projectId, s, revokedAtSec);
   try { federation.recordLink(projectId, Object.assign({}, link, { ended: s.ended || 'the connection ended' })); } catch { /* ends again at its next ticket ask */ }
   setStatus(projectId, 'ended');
   s.stopped = true;   // the child's close then neither restarts it nor tells the room again, and
@@ -763,7 +782,7 @@ async function memberEdgeCheck(projectId, ask, seat) {
   if (!link || link.role !== 'member' || !link.edge_id) return;
   if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_member)) return;
   const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
-  if (e && e.status === 'revoked') endRevokedMember(projectId, s, link);
+  if (e && e.status === 'revoked') endRevokedMember(projectId, s, link, e.revoked_at);
 }
 function sharedEdges(now, notBeforeMono) {
   // #5285: `notBeforeMono` refuses a cached answer asked before then (it cannot know of a later join).
@@ -1472,6 +1491,12 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
     if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
     return false;
   }
+  {
+    // #5404: when this post went, for noteSentAfterRevoke.
+    const now = Date.now();
+    s.sentLog = (s.sentLog || []).filter((t) => now - t < SENT_LOG_MS).slice(-(SENT_LOG_MAX - 1));
+    s.sentLog.push(now);
+  }
   // A held post a member sent while still behind went under the key it has (#5197): counted
   // once it is written, for the flush note.
   if (heldAt && sealed && sealed.role === 'member' && s.behind && s.behind.epoch > sealed.epoch && s.behindArmedAt === sealed.epoch) s.oldKeySent = (s.oldKeySent || 0) + 1;
@@ -1499,4 +1524,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { farSide, retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { farSide, retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
