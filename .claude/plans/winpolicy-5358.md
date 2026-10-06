@@ -14,8 +14,8 @@ beside PowerShell scripts refused after a machine policy reset.
   Code's PowerShell meets the policy. The #570 measurement says it does not; #3380's claude exclusion stands.
 - Kept: the variable is ONE key whatever case it arrives in (an inherited `psexecutionpolicypreference` plus a new
   `PSExecutionPolicyPreference` is the two-keys trap the PATH comment names).
-- New Windows-runner arms measure each shell: Git Bash login shell finds `kosmos` on the agent's PATH (control: not
-  without it); Claude Code's exact PowerShell flags run it under a Restricted policy; codex's `powershell -Command`
+- New Windows-runner arms measure each shell: Git Bash, run as Claude Code's tool runs it (`bash -c`), finds `kosmos`
+  on the agent's PATH (control: not without it; a red says whether it was the PATH or the shim); Claude Code's exact PowerShell flags run it under a Restricted policy; codex's `powershell -Command`
   is refused without the variable (control) and runs with it.
 - If all pass on the runner, Kosmos's launch path is right and #5358 is specific to that box (most likely an agent
   Kosmos did not launch, or an old build): parked needs-device for a measurement there.

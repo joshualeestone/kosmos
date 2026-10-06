@@ -93,7 +93,9 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
     const z = stageZip();
     try {
       const r = run(GIT_BASH, ['-c', 'kosmos --version'], agentEnv(z.bin, 'claude'));
-      assert.match(String(r.stdout), STUB, said(r));
+      // Two different reds: "command not found" is the PATH half; the shim's own cygpath line means it was found but
+      // could not run (bash's PATH lacked Git's usr\bin).
+      assert.match(String(r.stdout), STUB, (/cygpath/.test(String(r.stderr)) ? 'kosmos was FOUND but its shim could not run: ' : 'kosmos was not found or did not answer: ') + said(r));
       const none = run(GIT_BASH, ['-c', 'kosmos --version'], baseEnv());
       assert.doesNotMatch(String(none.stdout), STUB, 'control: kosmos was found without the agent\'s PATH');
     } finally { fs.rmSync(z.root, { recursive: true, force: true }); }
