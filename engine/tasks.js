@@ -1335,7 +1335,9 @@ function lastActivityOf(projectId, task) {
     if (!progressOf(task).closed) {
       let events = [];
       try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
-      for (const e of events) consider(e && e.at);
+      /* kosmos#4787 slice 3 (review 5): Kosmos's own note that a run was MISSED is not activity: a dead job must not sort
+         as freshly active under "Quietest first". */
+      for (const e of events) if (!(e && e.kind === 'missed')) consider(e && e.at);
     }
   }
   return newest;

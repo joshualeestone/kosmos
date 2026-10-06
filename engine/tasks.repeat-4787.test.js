@@ -345,3 +345,16 @@ test('#4787 slice 3 review 4: "nobody" means no reviewer, as task assign reads i
   tasks.setReviewer(p.id, n, 'Nobody');
   assert.equal(stored(p.id, n).repeatReviewer, undefined);
 });
+
+test('#4787 slice 3 review 5: Kosmos\'s own "missed" note is not activity (a dead job does not sort as fresh)', () => {
+  const p = projects.create({ name: 'Rev7 ' + Math.random().toString(36).slice(2) });
+  const n = tasks.create(p.id, { sentence: 'Report' }).number;
+  const tick = () => { const s = Date.now(); while (Date.now() - s < 5) { /* let the clock move, so a newer event is newer */ } };
+  const before = tasks.lastActivityOf(p.id, stored(p.id, n));
+  tick();
+  taskchat.record(p.id, n, { kind: 'missed', slot: new Date().toISOString(), count: 1, person: true });
+  assert.equal(tasks.lastActivityOf(p.id, stored(p.id, n)), before);
+  tick();
+  taskchat.record(p.id, n, { kind: 'message', text: 'hi' });
+  assert.notEqual(tasks.lastActivityOf(p.id, stored(p.id, n)), before, 'CONTROL: a real event a moment later is activity');
+});

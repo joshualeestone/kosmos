@@ -54,10 +54,11 @@ function owed(projects, now = Date.now()) {
 
 /* The line an agent reviewer is sent. Names the task, the run, and its owner, so the reviewer can act without a lookup. */
 function tellText(item, nameOf = (s) => s) {
-  const owners = (item.owners || []).map((s) => plain(nameOf(s), 60)).filter(Boolean);
+  const self = (item.owners || []).includes(item.reviewer);   // review 5: the reviewer may run it too
+  const owners = (item.owners || []).filter((s) => s !== item.reviewer).map((s) => plain(nameOf(s), 60)).filter(Boolean);
   const runs = item.count > 1 || item.more ? (item.more ? 'more than ' + item.count : item.count) + ' runs, the latest due ' + item.words : 'its run due ' + item.words;
   return 'Kosmos: task #' + item.n + ' in ' + plain(item.project, 80) + ', "' + plain(item.sentence, 160) + '", missed ' + runs + '. '
-    + 'You review its results' + (owners.length ? '; ' + owners.join(' and ') + (owners.length > 1 ? ' run it' : ' runs it') : '') + '. '
+    + (self ? 'You run it and review its results' : 'You review its results') + (owners.length ? '; ' + owners.join(' and ') + (owners.length > 1 ? ' run it' : ' runs it') + (self ? ' too' : '') : '') + '. '
     + 'Check whether it ran and tell the person if something is wrong.';
 }
 
@@ -79,7 +80,7 @@ function markTold(item, outcome) {
   }));
   taskchat.record(item.projectId, item.n, {
     kind: 'missed', slot: new Date(item.slot).toISOString(), count: item.count,   // review 1: taskchat stamps its own `at`
-    ...(item.person ? { person: true } : outcome === 'owner' ? { owner: item.reviewer } : { told: item.reviewer, reached: outcome === 'reached' }),
+    ...(item.person ? { person: true } : { told: item.reviewer, reached: outcome === 'reached' }),
   });
 }
 
@@ -106,9 +107,6 @@ function sweep(o) {
         /* Review 1: a slot typed in this process is never typed again, even when its told mark could not be written. */
         if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
-        /* Review 3: a reviewer who also runs the task is already asked by slice 1's nudge (the owner is not told again):
-           the miss is recorded, nothing is typed. */
-        if (item.owners.includes(item.reviewer)) { markTold(item, 'owner'); results.push({ ...item, act: 'owner' }); continue; }
         // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
         if (!item.members.includes(item.reviewer)) { results.push({ ...item, act: 'held', because: 'the reviewer is no longer on the project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
