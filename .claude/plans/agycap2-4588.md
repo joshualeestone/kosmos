@@ -247,3 +247,14 @@ Left as accepted: one setting read per call.
   person or agent skip the cap) is the decision recorded above under "Not covered by the cap"; added a one-line comment
   at both sites (server.js task-message loop, givePart) so it reads as a decision there. NIT (a race-only 409 from
   givePart) needs no change. CONVERGED at 16.
+
+## Rebased onto main 2026-10-06 (after the 0.7.25 cut)
+- Both runs had passed at 4881c5df7 (full suite 15634 tests, 0 fail; full browser checks EXIT 0, no retry), but main had
+  moved in eight of this branch's files and engine/roomhold.js conflicted, so the 19:29 no-rerun ruling does not apply.
+- The conflict was `withoutStale`: main's #4926 R2 drops any held id the member answered or that is a day old
+  (`evenIfAsked`); this branch drops a stale cap-held `^id` like a plain one. Combined: an id in `evenIfAsked` is
+  dropped whatever its mark; otherwise every id that does not ask the member (plain or `^`) is dropped when stale; an
+  `@id` is kept. Main's log line is kept as it was.
+- Mutation: main's original condition (keep any marked id) reds "a cap-marked id is dropped when stale like a plain one".
+  Related files (roomhold, messages, agentnudge, assigner, agycap, agyquota, community turn, agyhold): 430/430.
+- The plan is renamed agycap-4588.md -> agycap2-4588.md for the branch name the PR hook reads.
