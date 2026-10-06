@@ -1024,7 +1024,7 @@ test('#4279: a RELATIVE printed path is refused with the generic message and nev
   assert.match(r.because, /nothing else left of it/, 'a relative path was named as a file Kosmos did not make');
 });
 
-test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {
+test('#4279: a verify that throws for any OTHER reason is not proof the job left', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-timeout.plist');
   fs.writeFileSync(leaked, '<plist/>');
@@ -1040,6 +1040,20 @@ test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the 
   const r = create.createAgent({ ...BINS, name: 'leftover-named', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /\/etc\/hosts/, 'the refusal does not name the file it found');
+});
+
+test('#4279: a temp symlink to OUR OWN plist is ours, not a leftover', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
+  // Split out of "leftoverJob reads only the first-level path" (#4919): off macOS the link is not under a temp root,
+  // so null would hold whatever the own-path check did; here it reports as skipped instead.
+  // A symlink in temp whose target is OUR plist is ours, not a leftover. Our plist is itself in
+  // temp here (a launch root pointed there), so only the realpath own-path check can refuse it.
+  const oursDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'k4279-ours-'));
+  const tmpLink = nodePath.join(os.tmpdir(), `k4279-link-${process.pid}.plist`);
+  try {
+    const realOurs = nodePath.join(oursDir, 'com.kosmos.agent.a.plist'); fs.writeFileSync(realOurs, '');
+    fs.symlinkSync(realOurs, tmpLink);
+    assert.equal(create.leftoverJob(`\tpath = ${tmpLink}\n`, realOurs), null, 'a temp symlink to our own plist was treated as a leftover');
+  } finally { fs.rmSync(tmpLink, { force: true }); fs.rmSync(oursDir, { recursive: true, force: true }); }
 });
 
 test('#4279: leftoverJob calls a plist in the system temp folder a temporary-folder leftover', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
@@ -1076,15 +1090,6 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   assert.equal(create.underRoot('/var/foldersx/x.plist', '/var/folders'), false);
   assert.equal(create.underRoot('/tmp/x.plist', '/tmp'), true);
   assert.equal(create.underRoot('/tmp', '/tmp'), true);
-  // A symlink in temp whose target is OUR plist is ours, not a leftover. Our plist is itself in
-  // temp here (a launch root pointed there), so only the realpath own-path check can refuse it.
-  const oursDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'k4279-ours-'));
-  const tmpLink = nodePath.join(os.tmpdir(), `k4279-link-${process.pid}.plist`);
-  try {
-    const realOurs = nodePath.join(oursDir, 'com.kosmos.agent.a.plist'); fs.writeFileSync(realOurs, '');
-    fs.symlinkSync(realOurs, tmpLink);
-    assert.equal(create.leftoverJob(`\tpath = ${tmpLink}\n`, realOurs), null, 'a temp symlink to our own plist was treated as a leftover');
-  } finally { fs.rmSync(tmpLink, { force: true }); fs.rmSync(oursDir, { recursive: true, force: true }); }
   // A plist we cannot STAT (a permission error, not a deletion) is not "gone".
   const locked = homeFixture('.kosmos-4279-locked-');
   try {
