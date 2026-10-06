@@ -234,10 +234,11 @@ from a night in this codebase, kosmos#2616.)
    process (`node --test`, or `tools/run-tests.sh`) that reaches this machine's real root is given a
    throwaway store root instead, so a missing sandbox no longer writes to a person's store, but it
    also no longer reads your fixtures: sandbox first. `KOSMOS_ALLOW_REAL_ROOT=1` lets a test read
-   the real root on purpose (`test-support/real-root-allowed.js`). `engine/worldenv.js`'s header enumerates the ~26 frozen
-   modules across both capture shapes (`const BASE = store.ROOT` and
-   `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988) documents the
-   require-ordering trap for consumers; `engine/store.js` owns the `store.ROOT` getter itself.
+   the real root on purpose (`test-support/real-root-allowed.js`). `engine/worldenv.js`'s
+   header enumerates the ~26 frozen modules across both capture shapes (`const BASE =
+   store.ROOT` and `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988)
+   documents the require-ordering trap for consumers; `engine/store.js` owns the
+   `store.ROOT` getter itself.
 
 3. **Destructive/live actions fail closed by default; production opts in once.** A module that
    performs a real side effect (a `launchctl`/`tmux kill-session`, a delete) calls

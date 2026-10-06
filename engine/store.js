@@ -272,7 +272,8 @@ function maybeMigrateLegacyStore() {
    Every caller that derives the current or legacy root to READ or WRITE it goes through
    resolveDataRoot below (create.supportDir, worlds.baseRoot, boardauth's legacy token, the
    silence monitor). Not routed: setup-assistant's deny-rule paths (named, never read),
-   win32uninstall (its own explicit home) and install/setup.sh's consult (an installer).
+   win32uninstall (its own explicit home), install/setup.sh's consult (an installer) and
+   win32anchor's runtime anchor (LOCALAPPDATA's runtime folder, not the store).
    Protected is this account's OS-default root (the user database's home), equal or inside; a
    store a shell's inherited non-default AGENT_WORKFORCE_DATA/HOME names is not (the shell side
    is #5428). With no user-database home (os.userInfo throws) the rule is off. */
@@ -332,9 +333,14 @@ function sweepDeadTestHomes(dir) {
     if (!m) continue;
     const pid = Number(m[1]);
     if (pid === process.pid) continue;
+    const at = path.join(dir, n);
+    // Only a real folder this user owns: never a link, a file, or someone else's.
+    let st;
+    try { st = fs.lstatSync(at); } catch { continue; }
+    if (!st.isDirectory() || (typeof process.getuid === 'function' && st.uid !== process.getuid())) continue;
     let gone = false;
     try { process.kill(pid, 0); } catch (e) { gone = e && e.code === 'ESRCH'; }
-    if (gone) { try { fs.rmSync(path.join(dir, n), { recursive: true, force: true }); } catch { /* next time */ } }
+    if (gone) { try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* next time */ } }
   }
 }
 let testHome = null;            // this process's one throwaway home
@@ -368,8 +374,10 @@ function resolveDataRoot(platform, home, env, app = APP) {
 function root() {
   const env = process.env;
   const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
-  // #5418: a throwaway root is not migrated (the migration's own target is the real store).
+  // #5418: a throwaway root is not migrated (the migration's own target is the real store), and
+  // neither is a test process that allowed the real root to READ it (KOSMOS_ALLOW_REAL_ROOT).
   if (testRoots.has(resolved)) return resolved;
+  if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1') return resolved;
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
@@ -772,7 +780,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, sweepDeadTestHomes, realDefaultRoot, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
