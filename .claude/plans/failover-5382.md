@@ -128,6 +128,12 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   honoured (3 arms, each red); the server reads no roster unless a part is owed, and leaves Antigravity agents to
   agyquota while its resume is on (source pins); markMoveTold changes owedTell only.
 
+- Review 10 (blind, opus), each mutation-checked (a7e2bcb8b): the tell sweep no longer skips Antigravity agents (a skip
+  left one untold for good when agyquota's carry-on line never came); its line to one adds "carry on with the rest", so
+  whichever line lands first does the whole job (red when the resume wording is dropped, or given to every runner); a
+  finished part stays owed and is named "finished by B" (red when dropped); anyOwed shares owedFor's rule (red when it
+  counts records nobody can be told).
+
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
 - `limitedSince` is not saved across a board restart, so a restart restarts the 15 minutes (the waiting direction).
