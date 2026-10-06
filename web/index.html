@@ -58640,14 +58640,14 @@ function tskRosterChanged() {
   if (shown && TSK.data && !TSK.busy && tskRepeatStale(TSK.data, TSK.readAt, Date.now())) { tskLoad(); return; }
   if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
 }
-const TSK_MISSED_REREAD_MS = 5 * 60 * 1000;
 function tskRepeatStale(rows, readAt, now) {
+  const MISSED_REREAD_MS = 5 * 60 * 1000;   // kept inside, so the function lifts whole into the page tests
   /* At most one read per 30 seconds: repeatMissAfter is the board's time, and a browser clock ahead of it would
      otherwise read on every poll until the board caught up. */
   if (now - readAt < 30 * 1000) return false;
   return (rows || []).some((t) => t && t.repeat && t.state !== 'closed'
     && ((Number.isFinite(t.repeatMissAfter) && now >= t.repeatMissAfter)
-      || (Number(t.repeatMissed) >= 1 && !(now - readAt < TSK_MISSED_REREAD_MS))));
+      || (Number(t.repeatMissed) >= 1 && !(now - readAt < MISSED_REREAD_MS))));
 }
 /* The agents needing the person by the board's own rule, with the project a question names: the part of the
    roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
