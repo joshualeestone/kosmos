@@ -274,11 +274,14 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   local uid="(\\\$\\(id -u[^)]*\\)|\\\$\\{?UID\\}?|[0-9]+)"
   local lctl="${B}launchctl${SP}(reboot|bootout${SP}${Q}(gui|user|login)/${Q}${uid}${Q}${E})"
   local _t="$1"
-  if printf '%s' "$_t" | grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
-  elif printf '%s' "$_t" | grep -Eq -- "$user|$every"; then echo "a kill that matches every process you own"
-  elif printf '%s' "$_t" | grep -Eq -- "$pgall" && printf '%s' "$_t" | grep -Eq -- "$kword"; then echo "a kill fed by a pgrep that matches every process you own"
-  elif printf '%s' "$_t" | grep -Eq -- "$sess"; then echo "a kill of the login window or window server (it ends your login session)"
-  elif printf '%s' "$_t" | grep -Eq -- "$lctl"; then echo "a launchctl command that ends your whole login session or the computer"
+  # LC_ALL=C on every grep (#5420): under a UTF-8 locale GNU grep took over 60 s on the first pattern for one
+  # 1.5 MB line (each of its four parts alone: under 0.1 s), past the hook's 15 s timeout; in C it took 0.07 s.
+  # The patterns are ASCII, and bash splits words on ASCII whitespace only, so bytes are the right unit here.
+  if printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
+  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$user|$every"; then echo "a kill that matches every process you own"
+  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$pgall" && printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$kword"; then echo "a kill fed by a pgrep that matches every process you own"
+  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$sess"; then echo "a kill of the login window or window server (it ends your login session)"
+  elif printf '%s' "$_t" | LC_ALL=C grep -Eq -- "$lctl"; then echo "a launchctl command that ends your whole login session or the computer"
   else return 1; fi
 }
 if [ "$EVENT" = PreToolUse ] && [ "${KOSMOS_KILL_GUARD:-}" != off ]; then
