@@ -561,23 +561,25 @@ async function listLook(page) {
     return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, groundImg: cs.backgroundImage, groundColor: cs.backgroundColor, nameAlign: nm ? getComputedStyle(nm).textAlign : 'absent' };
   });
   const rest = await read();
-  let hover = null, hoverGround = null;
+  let hover = null, hoverGround = null, hoverSeen = false;
   if (rest.found) {
     /* The board can redraw the list between the hover and the read; a replaced row is probably not :hover until the
        pointer moves, so it read the resting border (#5298). So the border is read IN THE SAME page turn that sees the row
        under the pointer, re-hovering a replaced row up to three times. The wait gates on :hover only, never on the
-       border, so a missing hover rule still reads red. */
+       border, so a missing hover rule still reads red. The read is in the first frame :hover applies, which is right
+       only while .lrow has no transition: one on border-color would read its start (the resting value) here. */
     const PLAIN = '#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)';
     let seen = null;
     for (let i = 0; i < 3 && !seen; i++) {
-      await page.mouse.move(1, 1); await page.hover(PLAIN).catch(() => {});
+      await page.mouse.move(1, 1); await page.hover(PLAIN, { timeout: 2000 }).catch(() => {});
       seen = await page.waitForFunction((sel) => {
-        const r = document.querySelector(sel);
-        if (!r || !r.matches(':hover')) return false;
+        const r = document.querySelector(sel + ':hover');
+        if (!r) return false;
         const cs = getComputedStyle(r);
         return { border: cs.borderTopColor, groundImg: cs.backgroundImage, groundColor: cs.backgroundColor };
       }, PLAIN, { timeout: 1000 }).then((hd) => hd.jsonValue(), () => null);
     }
+    hoverSeen = !!seen;
     const h = seen || await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
   }
   /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
@@ -594,7 +596,7 @@ async function listLook(page) {
   }, EDGE_RATIO);
   const grid = await page.$('#boardbar .vt[data-layout="grid"]');
   if (grid) { await grid.click(); await page.waitForTimeout(300); }
-  return { ...rest, hover, hoverGround, strokes };
+  return { ...rest, hover, hoverGround, hoverSeen, strokes };
 }
 /* How far an element's top edge stands off its own ground (surface, then any state wash, then the edge; all may be
    translucent), as a contrast ratio. Evaluated in the page. 1.5:1 is the floor the dash arms ask: under WCAG's 3:1
@@ -982,11 +984,12 @@ const AGENTS_LOOK = `(() => {
       const listOn = await listLook(page);
       chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && ['left', 'start'].includes(listOn.nameAlign),
         `${tag} On, Agents list: a plain row loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
-      chk(listOn.found && listOn.hoverGround === listOn.groundImg + ' | ' + listOn.groundColor, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
-        JSON.stringify({ rest: listOn.groundImg + ' | ' + listOn.groundColor, hover: listOn.hoverGround }));
+      chk(listOn.found && listOn.hoverSeen && listOn.hoverGround === listOn.groundImg + ' | ' + listOn.groundColor, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
+        JSON.stringify({ rest: listOn.groundImg + ' | ' + listOn.groundColor, hover: listOn.hoverGround, hoverSeen: listOn.hoverSeen }));
       chk(listOn.strokes && listOn.strokes.attn.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.style === 'dashed' && listOn.strokes.unk.ratio >= 1.5,
         `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row a dash you can see (1.5:1 or more off its ground)`, JSON.stringify(listOn.strokes));
-      chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
+      // hoverSeen: the pointer was seen on a row; without it a red says the harness never hovered, not that the rule is gone.
+      chk(listOn.found && listOn.hoverSeen && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
       const tkOn = await tasksLook(page);
       chk(tkOn.found && tkOn.plain === 'rgba(0, 0, 0, 0)' && tkOn.radius === '16px' && tkOn.list === 'rgba(0, 0, 0, 0)' && tkOn.listRadius === '16px',
