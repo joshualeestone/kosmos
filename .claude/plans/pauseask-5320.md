@@ -20,7 +20,8 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
   they press it; and a plain no means leave it. Review 5: the Pause pointer is an instruction ("tell them"), not an
   aside; the branches run yes / nothing / some tasks so "no, just tasks 3 and 4" has one reading; "the room is told
   you paused it (unless it already was)" (server.js posts only on a change); and the idle nudge (engine/agentnudge.js)
-  no longer says "asked in the room", which contradicted "the same place they asked".
+  no longer says "asked in the room", which contradicted "the same place they asked". Review 6: the branches hang off
+  "When they answer:", so the agent waits; "if they pressed it, nothing more is needed" is one of them.
 - Delivery: part 1 (#5409, merged) owes a running member a re-read when its block is next rewritten (a task or
   membership change) and the rule is new there. Until then it keeps the old pointer ("it is on the project's page"),
   which is still true.
@@ -34,8 +35,7 @@ paintHeadPause alone (to its closing brace; review 3) names it with 'Pause' and 
 red again if the button is ever removed or renamed.
 
 ## Tests
-engine/projects.test.js "#5320 part 2": both sentences present, the old pointer gone. Red against main's projects.js.
-Red against main's projects.js. On this branch (main underneath) the merge-order test is the one expected red; on a
+engine/projects.test.js "#5320 part 2": both sentences present, the old pointer gone. Red against main's projects.js. On this branch (main underneath) the merge-order test is the one expected red; on a
 tree with #5395 merged in, engine/projects.test.js is 162/162.
 
 ## Known limit
