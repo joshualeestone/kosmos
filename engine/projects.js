@@ -3294,13 +3294,15 @@ function rulesChangedIn(oldText, newText, sessionName) {
   return false;
 }
 
-/* A block's task lines as task -> its hold marker ('' for none). The key is the line without the marker. */
+/* A block's task lines as "task <n> of <project>" -> its hold marker ('' for none), so a task reworded in the same
+   write is still the same task. blockBody appends the marker last. */
 function holdsOf(block) {
   const out = new Map();
   for (const line of String(block).split('\n')) {
-    if (!/^ {2}- task \d+ of /.test(line)) continue;
+    const task = /^ {2}- (task \d+ of .*?): /.exec(line);
+    if (!task) continue;
     const m = / \[on hold: [^\]]*\]$/.exec(line);
-    out.set(m ? line.slice(0, m.index) : line, m ? m[0] : '');
+    out.set(task[1], m ? m[0] : '');
   }
   return out;
 }

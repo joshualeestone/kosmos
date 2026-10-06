@@ -937,6 +937,13 @@ test('#5320: a pause set or lifted on the screen marks the agent\'s open task, a
   const resumed = projects.syncAgent('mara', ROSTER);
   assert.equal(resumed.changed, true, 'fixture: resuming must unmark the task line');
   assert.deepEqual(owed(), ['projects'], 'a resume on an open task was not owed');
+  // Paused and reworded in one write: still the same task, so still owed.
+  edit((x) => { x.paused = true; x.pausedByPerson = true; x.tasks[0].sentence = 'draft the renewal letter today'; });
+  clear();
+  projects.syncAgent('mara', ROSTER);
+  assert.deepEqual(owed(), ['projects'], 'a pause beside a reword was missed');
+  edit((x) => { delete x.paused; delete x.pausedByPerson; x.tasks[0].sentence = 'draft the renewal letter'; });
+  projects.syncAgent('mara', ROSTER);
   // CONTROL: the task's own words changing, with no hold, is not a hold change.
   edit((x) => { x.tasks[0].sentence = 'draft and send the renewal letter'; });
   clear();
