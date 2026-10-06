@@ -221,3 +221,14 @@ function varintOf(n) {
   do { let b = v % 128; v = Math.floor(v / 128); if (v > 0) b |= 0x80; out.push(b); } while (v > 0);
   return out;
 }
+
+test('#5367: Antigravity takes the same cut as every scan (windowCutMs): 30 minutes before the window is read, 90 is not', async () => {
+  const near = agyConversation([generation({ prompt: 900, reply: 9 })], { steps: [{ type: 15, secs: secs('2026-10-02T00:20:00Z') }] });
+  const t1 = new Date('2026-10-01T23:30:00Z');
+  fs.utimesSync(near.file, t1, t1);
+  assert.equal((await only(near.home, { sinceDay: '2026-10-02' })).days['2026-10-02']['gemini-3.8-flash'].rows, 1, 'inside the hour margin: read');
+  const far = agyConversation([generation({ prompt: 900, reply: 9 })], { steps: [{ type: 15, secs: secs('2026-10-02T00:20:00Z') }] });
+  const t2 = new Date('2026-10-01T22:30:00Z');
+  fs.utimesSync(far.file, t2, t2);
+  assert.deepEqual((await only(far.home, { sinceDay: '2026-10-02' })).days, {}, 'CONTROL: before the margin: not read');
+});
