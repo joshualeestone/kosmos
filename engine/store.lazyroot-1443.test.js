@@ -75,8 +75,13 @@ test('the DERIVED paths move too, which is the half that is easy to miss', () =>
 });
 
 test('CONTROL: with no sandbox it is the real per-platform location', () => {
-  /* Without this, "always return a temp path" passes everything above. */
-  const got = withNoSandbox(() => store.ROOT);
+  /* Without this, "always return a temp path" passes everything above. #5418: a test process is never
+     given the real root, so this read (a path only, nothing is written) says so on purpose. */
+  const savedAllow = process.env.KOSMOS_ALLOW_REAL_ROOT;
+  process.env.KOSMOS_ALLOW_REAL_ROOT = '1';
+  let got;
+  try { got = withNoSandbox(() => store.ROOT); }
+  finally { if (savedAllow === undefined) delete process.env.KOSMOS_ALLOW_REAL_ROOT; else process.env.KOSMOS_ALLOW_REAL_ROOT = savedAllow; }
   assert.equal(got, store.dataRootFor(process.platform, os.homedir(), {}),
     'the unsandboxed root no longer matches the platform rule');
   assert.doesNotMatch(got, /late-sandbox/, 'a previous test leaked into the unsandboxed answer');

@@ -195,10 +195,10 @@ kosmos_test_locale_pin
 # migration to relocate a legacy seed.
 export KOSMOS_NO_LEGACY_MIGRATION=1
 # #5418: marks every process this run starts (node and shell tests alike) as a test, so
-# engine/store.js refuses to hand any of them this machine's REAL data root. A test that
-# requires an engine module before setting its sandbox now fails loudly instead of writing
-# fixture records into the operator's store. (node --test marks its own files with
-# NODE_TEST_CONTEXT; this covers the shell tests and anything they start.)
+# engine/store.js never hands any of them this machine's REAL data root: a test with no
+# sandbox gets a throwaway home instead, and one whose sandbox variable still points at the
+# real store is refused by name. (node --test marks its own files with NODE_TEST_CONTEXT;
+# this covers the shell tests and anything they start.)
 export KOSMOS_TEST_RUN=1
 
 # #4253: no board a test boots may phone home. A sandboxed board mints a fresh install id,

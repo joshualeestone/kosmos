@@ -80,16 +80,31 @@ test('#5418: a sandboxed test process gets its sandbox (AGENT_WORKFORCE_DATA, or
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('#5418: a test that sandboxes by pointing HOME elsewhere is NOT refused (the real home comes from the user database)', () => {
+test('#5418: a test that sandboxes by pointing HOME elsewhere keeps ITS sandbox (the real home comes from the user database)', { skip: process.platform === 'win32' && 'os.homedir() reads USERPROFILE on Windows, not HOME' }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-home-'));
   try {
+    // Inside the HOME sandbox itself, not merely away from the real home: a throwaway home would
+    // also avoid the real one, so only this tells the two apart.
+    const want = path.join(tmp, 'Library', 'Application Support', require('./store').APP);
     const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', HOME: tmp });
-    assert.match(out, /^ROOT=/, out);
-    assert.ok(!out.includes(os.userInfo().homedir + path.sep), out);
+    assert.ok(out === 'ROOT=' + want || out === 'ROOT=' + path.join(fs.realpathSync(tmp), 'Library', 'Application Support', require('./store').APP), out);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('#5418: the real home reached through a symlink is still the real root, and refused', () => {
+test('#5418: one throwaway home per process, even when a test deletes and restores the variable', () => {
+  const env = Object.assign({}, process.env);
+  for (const k of SANDBOX_VARS) delete env[k];
+  Object.assign(env, { HOME: os.userInfo().homedir, KOSMOS_NO_LEGACY_MIGRATION: '1', NODE_TEST_CONTEXT: 'child-v8' });
+  const src = 'const s = require(' + JSON.stringify(STORE) + '); const seen = new Set();'
+    + ' for (let i = 0; i < 15; i++) { delete process.env.AGENT_WORKFORCE_HOME; seen.add(s.ROOT); }'
+    + ' process.stdout.write(JSON.stringify({ roots: seen.size, listeners: process.listenerCount("exit") }))';
+  const r = spawnSync(process.execPath, ['-e', src], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /MaxListenersExceeded/, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { roots: 1, listeners: 1 });
+});
+
+test('#5418: the real home reached through a symlink is still the real root, and refused', { skip: process.platform === 'win32' && 'a directory symlink needs Developer Mode on Windows' }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-link-'));
   const link = path.join(dir, 'home');
   try {

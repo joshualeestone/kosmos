@@ -255,20 +255,26 @@ function maybeMigrateLegacyStore() {
 
    Two outcomes, measured on the full suite before choosing them (about 60 test files set no
    sandbox at all and only load modules that freeze the root):
-   - NO sandbox variable set: the process gets a throwaway home of its own (exported as
-     AGENT_WORKFORCE_HOME, so the children it starts share it), which is what a CI runner's
-     empty real root already gives those tests. AGENT_WORKFORCE_HOME is not one of the board's
-     #634 half-sandbox variables, so an in-process board still boots.
+   - NO sandbox variable set: the process gets ONE throwaway home for its whole life, exported
+     as AGENT_WORKFORCE_HOME so the children it starts share it (and re-exported if a test
+     deletes it), which is what a CI runner's empty real root already gives those tests.
+     AGENT_WORKFORCE_HOME is not one of the board's #634 half-sandbox variables, so an
+     in-process board still boots. It is the general home seam, so from then on it also moves
+     the other roots that read it (the workers root, worlds, accounts) into the throwaway: for a
+     test that set no sandbox, that is the same protection. Removed at exit, best effort: a
+     process that is killed leaves it in tmp.
    - A sandbox variable IS set and still resolves to the real root (a symlink to the real home,
      a DATA path inside it): that is a misconfiguration, and it throws. */
 function isTestProcess(env) {
   return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
 }
-function realDefaultRoot(platform, env) {
+function realDefaultRoot(platform) {
   let home;
   try { home = os.userInfo().homedir; } catch { return null; }
   if (!home) return null;
-  return dataRootFor(platform, home, { APPDATA: env.APPDATA });
+  // No APPDATA from the environment (a test may point it at a sandbox): on Windows the real root is
+  // the account home's AppData\Roaming. A machine whose AppData is redirected elsewhere is not seen.
+  return dataRootFor(platform, home, {});
 }
 /* The nearest existing ancestor's realpath with the rest re-attached, so two spellings of one
    directory (a symlinked /var, a home reached through a link) compare equal even before the
@@ -284,19 +290,19 @@ function realish(p) {
 }
 function isRealRootInTests(resolved, platform, env) {
   if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
-  const real = realDefaultRoot(platform, env);
+  const real = realDefaultRoot(platform);
   return !!real && realish(resolved) === realish(real);
 }
 const TEST_HOME_PREFIX = 'kosmos-test-home-';
+let testHome = null;
 function giveTestProcessItsOwnHome(env) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX));
-  env.AGENT_WORKFORCE_HOME = home;
-  const owner = process.pid;
-  process.on('exit', () => {
-    if (process.pid !== owner) return;
-    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* the OS clears tmp */ }
-  });
-  return home;
+  if (!testHome) {
+    testHome = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX));
+    const made = testHome;
+    process.on('exit', () => { try { fs.rmSync(made, { recursive: true, force: true }); } catch { /* the OS clears tmp */ } });
+  }
+  env.AGENT_WORKFORCE_HOME = testHome;
+  return testHome;
 }
 function refuseRealRootInTests(resolved, platform, env) {
   if (isRealRootInTests(resolved, platform, env)) {
@@ -716,7 +722,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, refuseRealRootInTests, TEST_HOME_PREFIX, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, TEST_HOME_PREFIX, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

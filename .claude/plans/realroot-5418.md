@@ -14,13 +14,16 @@ Refuse at the single derivation every module reads, `store.root()`:
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
 - In a test process, a resolved root equal to the machine's REAL default root is never used:
-  - with NO sandbox variable set, the process gets its own throwaway home (mkdtemp, prefix
-    `kosmos-test-home-`), exported as AGENT_WORKFORCE_HOME so its children share it, removed when the
-    process that made it exits;
+  - with NO sandbox variable set, the process gets ONE throwaway home for its life (mkdtemp, prefix
+    `kosmos-test-home-`), exported as AGENT_WORKFORCE_HOME so its children share it, re-exported if a
+    test deletes the variable, and removed at exit (best effort: a killed process leaves it in tmp).
+    As the general home seam it also moves the workers root, worlds and accounts into the throwaway
+    for that process, which for an unsandboxed test is the same protection;
   - with a sandbox variable set that still resolves to the real root, it throws a named error.
 - "Real" is derived from `os.userInfo().homedir` (the account's home in the user database), NOT
   `os.homedir()`, which follows $HOME: a test that sandboxes by pointing HOME elsewhere must not be
-  refused. Same derivation as test-support/data-root-sandbox.js (#4340), which this makes mandatory.
+  refused. On Windows the real root is that home's AppData\Roaming, not the APPDATA variable (a test
+  may sandbox it); a machine whose AppData is redirected elsewhere is not recognised.
 - Paths are compared by realpath of the nearest existing ancestor, so a symlinked spelling of the real
   home is still the real root.
 - The refusal runs before the legacy migration, which would otherwise rename the real store first.
@@ -52,6 +55,10 @@ throwaway home, which is exactly what a CI runner's empty real root already give
 is not one of the board's #634 half-sandbox variables, so in-process boards still boot. Checked locally:
 web.told-banner, server.socket-split, engine/store and engine/team (all failed under the throw) pass,
 43/43, with no throwaway home left behind.
+
+## Existing test changed
+`engine/store.lazyroot-1443.test.js`'s CONTROL reads the unsandboxed root to prove it is the real
+per-platform location (a path read only). It now says KOSMOS_ALLOW_REAL_ROOT=1 for that read.
 
 ## Residual
 A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks
