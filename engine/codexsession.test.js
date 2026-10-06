@@ -138,7 +138,7 @@ test('the newest session wins when a folder has several', () => {
   assert.equal(codex.read(WORKDIR).lastAgentMessage, 'the newer one');
 });
 
-test('a symlinked folder still matches, because /tmp is one on macOS', { skip: process.platform !== 'darwin' && 'macOS temp folder premise: os.tmpdir() is reached through a symlink (/var -> /private/var) only on macOS' }, () => {
+test('a symlinked folder still matches, because /tmp is one on macOS', { skip: fs.realpathSync(os.tmpdir()) === os.tmpdir() && 'needs os.tmpdir() reached through a symlink, as on macOS; here it is not (#4919)' }, () => {
   /* 🛑 MEASURED, NOT ANTICIPATED: every session in this suite is under /tmp,
      which is a symlink to /private/tmp, so a string compare of the two paths
      misses every one of them. The reader resolves both sides.
