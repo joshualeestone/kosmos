@@ -1192,7 +1192,9 @@ function readJobVerdict(name, worldId, platform) {
     catch (e) {
       return { job: null, win32: false, linux: true, absent: Boolean(e && e.code === 'ENOENT'), because: (e && e.message) || 'could not read unit file' };
     }
-    return { job: lj.readUnitJob(content), win32: false, linux: true };
+    const job = lj.readUnitJob(content);
+    // #4918 review 9: a unit whose ExecStart is incomplete is said, never "(undefined)".
+    return job ? { job, win32: false, linux: true } : { job: null, win32: false, linux: true, because: 'its ExecStart line is incomplete' };
   }
   if (!win32) return { job: readPlistJob(name, worldId), win32 };
   let read;
@@ -4775,7 +4777,7 @@ function createAgentInner(opts) {
       if (!fs.existsSync(lj.unitPath(name))) {
         return {
           outcome: OUTCOME.REFUSED,
-          because: `systemd is still running something called ${shown}, though its startup file is gone. Pick another name, or stop it with: systemctl --user stop ${lj.unitName(name)}`,
+          because: `systemd is still running something called ${shown}, though its startup file is gone. Pick another name, or stop it with: systemctl --user stop '${lj.unitName(name)}'`,
           field: 'name',
           steps,
         };

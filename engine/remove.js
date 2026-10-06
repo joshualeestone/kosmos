@@ -547,7 +547,7 @@ function jobOps(platform) {
       disable: (name, job) => via(() => Boolean(lj.disable(name, wid(job)).ok)),
       stopNow: (name, job) => via(() => Boolean(lj.stop(name, wid(job)).ok)),
       enable: (name, job) => via(() => Boolean(lj.enable(name, wid(job)).ok)),
-      startNow: (name, job) => via(() => Boolean(lj.start(name, wid(job)).ok)),
+      startNow: (name, job) => via(() => Boolean(lj.startOnly(name, wid(job)).ok)),   // never re-enables (review 9)
       loaded: (name, job) => via(() => Boolean(lj.loaded(name, wid(job)))),
       startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, wid(job))),
       diagnose: (name, job) => {

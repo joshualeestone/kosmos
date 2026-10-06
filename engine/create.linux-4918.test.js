@@ -91,5 +91,5 @@ test('#4918 review 7: a name systemd still runs with no unit file left gets the 
   systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' } : lingerIs(true)(cmd, args));
   const r = create.createAgent({ ...BINS, name: 'ghostbot', role: 'pm', platform: 'linux' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(r));
-  assert.match(r.because, /systemctl --user stop kosmos-agent-ghostbot\.service/);
+  assert.match(r.because, /systemctl --user stop 'kosmos-agent-ghostbot\.service'/, 'the unit is quoted so a pasted \\x2b survives the shell');
 });
