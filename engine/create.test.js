@@ -205,10 +205,11 @@ const WIN_LAUNCHD = onWin('reads or drives the launchd job (plist, launchctl, th
   + '"already set to start" launchd arm). Windows runs a Scheduled Task; covered by create.win32-job-read.test.js '
   + 'and create.win32-launch-570.test.js');
 /* #4919: a few #4279 leftover-job tests build their temp-plist fixtures from macOS's temp folder and its /private
-   spelling, so on Linux they cannot reach the case they test. Agent jobs on Linux are systemd user units (#4918), so
-   this launchd path does not run there. Skipped only on a Linux host; macOS and Windows are unchanged. */
+   spelling, so on Linux they cannot reach the case they test: tempRoots() lists only /private/tmp and
+   /private/var/folders. Linux agent jobs are #4918's work, not yet on main. Skipped only on a Linux host; macOS and
+   Windows are unchanged. */
 const LINUX_LAUNCHD_TEMP = process.platform === 'linux'
-  ? { skip: 'macOS launchd leftover-job fixture: a macOS temp-folder plist and its /private spelling; Linux agent jobs are systemd units (#4918)' } : {};
+  ? { skip: 'macOS launchd leftover-job fixture: tempRoots() lists only macOS /private temp folders; Linux agent jobs are #4918, not yet on main' } : {};
 const WIN_LAUNCHD_FAIL = onWin('simulates a failed start or write through the launchd runner seam (create.setRunner), '
   + 'which the win32 create path never calls. Windows failed starts: create.win32-launch-570.test.js (7c-2)');
 const WIN_TASK_STUB = onWin('switches an agent by rewriting its launch job, and this file\'s win32 stub answers every '
