@@ -120,8 +120,9 @@ test('#5254: a removed agent\'s pages are swept; an unreadable removed list is n
   await draw('/api/agent/ava/files/preview', 'agent.pdf');
   const dir = folderFor(path.join(FILES, 'agent.pdf'));
   assert.ok(dir);
-  filepreview.sweep({ removal: { removedNames: () => ({ ok: false, names: [] }) } });
-  assert.equal(fs.existsSync(dir), true, 'an unreadable list was taken as a removal');
+  // Review 2 (NIT): the unreadable answer NAMES ava, so only skipping the check keeps the page (an empty list would too).
+  filepreview.sweep({ removal: { removedNames: () => ({ ok: false, names: ['ava'] }) } });
+  assert.equal(fs.existsSync(dir), true, 'an unreadable removed list was used anyway');
   filepreview.sweep({ removal: { removedNames: () => ({ ok: true, names: ['someone-else'] }) } });
   assert.equal(fs.existsSync(dir), true, 'CONTROL: another agent\'s removal swept this one');
   filepreview.sweep({ removal: { removedNames: () => ({ ok: true, names: ['ava'] }) } });
@@ -166,6 +167,72 @@ test('#5254 review 1: an agent named with stray spacing matches its cleaned remo
   assert.equal(create.cleanName('ava '), 'ava', 'premise: the removed list stores the cleaned name');
   filepreview.sweep({ removal: { removedNames: () => ({ ok: true, names: ['ava'] }) } });
   assert.equal(fs.existsSync(dir), false, 'an owner spelled differently from its removed name kept its page');
+});
+
+test('#5254 review 2: a symlinked cache folder is never swept; CONTROL: the real one is', () => {
+  const CACHE = filepreview.CACHE;
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-preview-sweep-outside-'));
+  const precious = path.join(outside, 'precious');
+  fs.mkdirSync(precious);
+  fs.writeFileSync(path.join(precious, 'notes.txt'), 'keep me');
+  const aside = CACHE + '.aside-5254';
+  fs.renameSync(CACHE, aside);
+  try {
+    fs.symlinkSync(outside, CACHE);
+    const later = Date.now() + 11 * 60 * 1000;   // old enough that a real folder with no record would go
+    assert.deepEqual(filepreview.sweep({ removal: NOBODY_REMOVED, now: later }), { removed: 0 });
+    assert.ok(fs.existsSync(path.join(precious, 'notes.txt')), 'a sweep through a symlinked cache folder removed a folder outside the data folder');
+  } finally {
+    try { fs.unlinkSync(CACHE); } catch { /* not made */ }
+    fs.renameSync(aside, CACHE);
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+  // CONTROL: the same old folder with no record, inside the real cache folder, is swept.
+  const real = path.join(CACHE, 'e'.repeat(32));
+  fs.mkdirSync(real, { recursive: true });
+  fs.writeFileSync(path.join(real, 'notes.txt'), 'x');
+  filepreview.sweep({ removal: NOBODY_REMOVED, now: Date.now() + 11 * 60 * 1000 });
+  assert.equal(fs.existsSync(real), false, 'CONTROL: an old folder with no record in the real cache stayed');
+});
+
+test('#5254 review 2: a render folder left by a crash (dead or old) is removed with its PDF copy; CONTROL: a live young one protects', () => {
+  const later = Date.now() + 11 * 60 * 1000;
+  const dead = () => { const e = new Error('no such process'); e.code = 'ESRCH'; throw e; };
+  const alive = () => true;
+  // A crash mid first render: no record, a render folder holding a copy of the PDF, from a process that is gone.
+  const crashed = path.join(filepreview.CACHE, 'c'.repeat(32));
+  fs.mkdirSync(path.join(crashed, 'r-999999-aaaaaaaaaaaa'), { recursive: true });
+  fs.writeFileSync(path.join(crashed, 'r-999999-aaaaaaaaaaaa', 'source.pdf'), '%PDF-1.4 private copy');
+  filepreview.sweep({ removal: NOBODY_REMOVED, now: later, kill: dead });
+  assert.equal(fs.existsSync(path.join(crashed, 'r-999999-aaaaaaaaaaaa')), false, 'a dead render folder (a copy of the PDF) stayed');
+  assert.equal(fs.existsSync(crashed), false, 'its folder, with no record and old, stayed');
+  // A live process but an old render folder: past any render's own timeout, so it is not a render in progress.
+  const stuck = path.join(filepreview.CACHE, 'd'.repeat(32));
+  fs.mkdirSync(path.join(stuck, 'r-' + process.pid + '-bbbbbbbbbbbb'), { recursive: true });
+  const longAgo = new Date(Date.now() - 60 * 60 * 1000);   // its own age is read from the real clock
+  fs.utimesSync(path.join(stuck, 'r-' + process.pid + '-bbbbbbbbbbbb'), longAgo, longAgo);
+  filepreview.sweep({ removal: NOBODY_REMOVED, now: later, kill: alive });
+  assert.equal(fs.existsSync(path.join(stuck, 'r-' + process.pid + '-bbbbbbbbbbbb')), false, 'an old render folder of a live process stayed');
+  // CONTROL: a live and young render folder still protects its folder (the round-1 race).
+  const live = path.join(filepreview.CACHE, '9'.repeat(32));
+  fs.mkdirSync(path.join(live, 'r-' + process.pid + '-cccccccccccc'), { recursive: true });
+  filepreview.sweep({ removal: NOBODY_REMOVED, kill: alive });
+  assert.equal(fs.existsSync(path.join(live, 'r-' + process.pid + '-cccccccccccc')), true, 'CONTROL: a live young render was taken');
+  fs.rmSync(live, { recursive: true, force: true });
+});
+
+test('#5254 review 2: an unreadable projects list keeps project pages; CONTROL: an empty list sweeps them', async () => {
+  const p = projects.create({ name: 'Sweep Unreadable 5254', folder: fs.mkdtempSync(path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'sw2-')) });
+  const route = '/api/project/' + encodeURIComponent(p.id) + '/file-preview';
+  fs.writeFileSync(path.join(p.folder, 'brief.pdf'), Buffer.from('%PDF-1.4 brief'));
+  await draw(route, 'brief.pdf');
+  const dir = folderFor(path.join(p.folder, 'brief.pdf'));
+  assert.ok(dir);
+  filepreview.sweep({ removal: NOBODY_REMOVED, projects: { readAll: () => { throw new Error('projects file damaged'); } } });
+  assert.equal(fs.existsSync(dir), true, 'an unreadable projects list was taken as "no projects"');
+  filepreview.sweep({ removal: NOBODY_REMOVED, projects: { readAll: () => [] } });
+  assert.equal(fs.existsSync(dir), false, 'CONTROL: with no project listed, its page stayed');
+  projects.remove(p.id);
 });
 
 test('#5254: a failed render leaves no folder behind (the record is written only beside a page)', async () => {
