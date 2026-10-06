@@ -281,8 +281,9 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   # The C locale for GNU grep (#5420): under a UTF-8 locale it took over 60 s on the first pattern for one 1.5 MB
   # line (each of its four parts alone: under 0.1 s), past the hook's 15 s timeout; in C it took 0.07 s. BSD grep
   # (a Mac) is the other way round, about twice as slow in C, so it keeps the caller's locale. The patterns are
-  # ASCII and the wider whitespace is folded above, so the locale changes speed, not what matches, except that
-  # C also reads an invalid UTF-8 byte as a boundary. BSD grep calls itself "GNU compatible": match the exact name.
+  # ASCII and the wider whitespace is folded above, so the locale changes speed, and what matches only toward
+  # refusing more: in C an invalid UTF-8 byte matches any negated class. BSD grep calls itself "GNU compatible":
+  # match the exact name.
   local _lc="${LC_ALL:-}"
   case "$(grep --version 2>/dev/null)" in *'(GNU grep)'*) _lc=C ;; esac
   if printf '%s' "$_t" | LC_ALL="$_lc" grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"

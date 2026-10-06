@@ -54,8 +54,11 @@ Unicode spaces 4.6 MB 0.91 s on main, 1.10 s here. The difference is the fold.
 - Tests on this Mac: a source pin that every guard grep runs in `LC_ALL="$_lc"`; a fake `grep` first on PATH
   that answers `--version` as GNU or as BSD and records each guard grep's `LC_ALL` (C under GNU, the caller's
   under BSD), with the block decision still real; the Unicode-space tests from earlier rounds (twelve spaces,
-  `code` and `argv`, signal 0 allowed beside one, seven non-ASCII signals still blocked). Mutations, each red:
-  GNU never picked, C always, the fold removed, and a loose `GNU` match that BSD's version line satisfies.
+  `code` and `argv`, signal 0 allowed beside one, seven non-ASCII signals still blocked), each run also in
+  `LC_ALL=C` so this Mac reads them as GNU grep does (in its UTF-8 locale BSD grep already reads 11 of the 12,
+  which left the fold unguarded here; review 7). Mutations, each red:
+  GNU never picked, C always, the fold removed, a loose `GNU` match that BSD's version line satisfies, and
+  the U+00A0 entry alone removed from the fold.
 - Not changed: the awk decode, the 256 KB line, the sed drop. All measured under 0.15 s on Linux.
 
 ## Verification
