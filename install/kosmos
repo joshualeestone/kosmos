@@ -442,7 +442,7 @@ _health_no_answer() {
   # Something took the connection, so something listens. A user's own lsof sees every one of that
   # user's processes, so when lsof RAN and still names no listener, the listener is another account's
   # (on this Mac, non-root lsof sees 13 of 23 listening ports; the rest are root's and other users'):
-  # a stranger, not our busy board. Only a Mac with no lsof at all keeps "cannot tell", which is busy.
+  # a stranger, not our busy board. Only a machine with no lsof at all keeps "cannot tell", which is busy.
   # (A board that exits between the connect and the lsof also lands here, for one probe. That cannot
   # cause a kill: a start then asks lsof again before any reclaim, and finds the port free.)
   if [ "$_HEALTH_OWNER" = unknown ] && _lsof_present; then HEALTH_STATE=stranger; return 0; fi
