@@ -911,7 +911,12 @@ const closeAll = (page) => page.evaluate(() => {
     let before = await gets(page);
     await page.evaluate((e) => { window.__withdraw = { status: 409, body: { reason: 'unsupported', error: e } }; }, UNSUPPORTED);
     await act(page, 'i:inv-lee');
-    await page.waitForTimeout(200);
+    // #5373: wait for the refusal's line under Lee's row, not a fixed 200 ms.
+    await page.waitForFunction(() => {
+      const r = document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-lee"]');
+      const n = r && r.nextElementSibling;
+      return !!n && n.classList.contains('fmsg') && n.textContent !== '';
+    }, null, { timeout: 4000 }).catch(() => {});
     let sent = await page.evaluate(() => window.__withdraws.slice());
     let f = await readFed(page, '#pj-fed-outside');
     const leeAt = f.rows.findIndex((r) => r.key === 'i:inv-lee');
@@ -932,7 +937,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate((e) => { window.__withdraw = { status: 409, body: { reason: 'joined', error: e } }; }, JOINED);
     await setMembers(page, answer(ALL.map((r) => (r === LEE ? Object.assign({}, r, { state: 'joined', edge_id: 'edge-lee', joined_at: D(OCT, 5) }) : r))));
     await act(page, 'i:inv-lee');
-    await page.waitForTimeout(250);
+    // #5373: wait for the joined sentence and Lee's joined row (the list asked again), not a fixed 250 ms.
+    await page.waitForFunction((j) => document.getElementById('pj-fed-outside').textContent.includes(j)
+      && !!document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="e:edge-lee"]'), JOINED, { timeout: 4000 }).catch(() => {});
     f = await readFed(page, '#pj-fed-outside');
     const lee = f.rows.find((r) => r.name === 'Lee Park');
     check('B4 409 joined: its sentence is shown and the list is asked again (Lee is now a joined row with Remove)',
@@ -944,7 +951,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__withdraw = { status: 200, body: { withdrawn: true } }; });
     await setMembers(page, answer(ALL.map((r) => (r === NOLABEL_P ? Object.assign({}, r, { state: 'withdrawn' }) : r))));
     await act(page, 'i:inv-nl');
-    await page.waitForTimeout(250);
+    // #5373: wait for the withdrawn row to go (the list asked again), not a fixed 250 ms.
+    await page.waitForFunction(() => !document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-nl"]'),
+      null, { timeout: 4000 }).catch(() => {});
     f = await readFed(page, '#pj-fed-outside');
     check('B4 Withdraw 200: the list is asked again and the withdrawn row is gone',
       (await gets(page)) > before && !f.rows.some((r) => r.key === 'i:inv-nl'), JSON.stringify(f.rows.map((r) => r.key)));
