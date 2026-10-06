@@ -33,3 +33,19 @@ related tests + guards 1092/1092.
 - [WARNING] synchronous lstat per folder can stall on a hung network drive: documented as a known cost.
 - [NIT] record recreated after a mid-render sweep: FIXED (only beside a page that exists). [NIT] agent names compared
   cleaned: FIXED + test. [NIT] no-record test control: added. [NIT] agent removal waits for the hourly sweep: decided.
+
+## 10-06: rebased onto main after #5119 merged; review 2 (second reviewer)
+- Rebased with --onto past the merged #5119 commits; one conflict in server.js start(): #5247's snapshotWorlds() and
+  this card's sweep both open start(); kept both, snapshot first.
+- Review 2 WARNINGs, all fixed with tests and controls (each new arm fails on the previous filepreview.js):
+  1. A symlinked cache folder: the sweep would remove old record-less folders wherever it pointed. Now sweep() runs only
+     when the cache folder itself is a real folder (lstat).
+  2. A render folder left by a crash shielded its cache folder, and its full copy of the PDF, forever. Now a render
+     folder protects only while its process is alive AND it is younger than YOUNG_MS (by the real clock, not deps.now);
+     otherwise it is removed on the spot and the folder is judged as any other.
+  3. No test for an unreadable projects list. Added: it keeps project pages; CONTROL: an empty list sweeps them.
+- NIT fixed: the unreadable removed-agents test now names the agent, so only skipping the check keeps the page.
+- NITs decided, kept: a PDF reachable by two owners keeps the last viewer as owner (no leak, the other still lists it);
+  a removed agent whose folder remains gets a "could not draw" message for a page swept right after drawing (deleting
+  is right; the wording is a follow-up, not this card).
+- Verified: 55 files (every board-booting test, the preview, download and gate tests, the guards) 1257 pass, 0 fail.
