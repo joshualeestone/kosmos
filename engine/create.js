@@ -5109,16 +5109,22 @@ function createAgentInner(opts) {
     if (jobPlatform === 'linux') {
       const lj = require('./linuxjob');
       if (unload) {
-        try { linuxRun(() => lj.stop(name)); } catch { /* it may never have started */ }
-        try { linuxRun(() => lj.disable(name)); } catch { /* it may never have been enabled */ }
-      }
-      try {
-        const u = lj.unitPath(name);
-        if (fs.existsSync(u)) {
-          fs.unlinkSync(u);
-          linuxRun(() => lj.daemonReload());
+        /* #4918 review 16: linuxjob.remove stops, disables and deletes the unit, and KEEPS the file when systemd
+           refused the stop (a unit still loaded must not lose its file). A refusal is a visible step, not swallowed. */
+        let r = null;
+        try { r = linuxRun(() => lj.remove(name)); } catch { r = null; }
+        if (!r || r.ok !== true) {
+          try { steps.push({ label: 'took its systemd unit back off this computer', ok: false }); } catch { /* steps is a courtesy */ }
         }
-      } catch { /* best effort */ }
+      } else {
+        try {
+          const u = lj.unitPath(name);
+          if (fs.existsSync(u)) {
+            fs.unlinkSync(u);
+            linuxRun(() => lj.daemonReload());
+          }
+        } catch { /* best effort */ }
+      }
       try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
       return;
     }
