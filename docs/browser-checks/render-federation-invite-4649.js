@@ -1727,12 +1727,15 @@ const closeAll = (page) => page.evaluate(() => {
       const words = {};
       for (const plat of ['Win32', 'MacIntel']) {
         const pw = await newPage(1280, SHOW, plat);
-        words[plat] = await pw.page.evaluate(() => ({ word: copyKeysWord(), glyph: copyKeysGlyph() }));
+        words[plat] = await pw.page.evaluate(() => ({ word: copyKeysWord(), glyph: copyKeysGlyph(), all: selectAllKeysWord() }));
         await pw.ctx.close();
       }
       check('C5 Windows names Ctrl C and Ctrl+C; the Mac names Command C and \u2318C (control)',
         words.Win32.word === 'Ctrl C' && words.Win32.glyph === 'Ctrl+C' && words.MacIntel.word === 'Command C' && words.MacIntel.glyph === '\u2318C',
         JSON.stringify(words));
+      // #5275 slice 2 review 3: the select-all keys the moved-focus lines name, per platform (nothing else checks them).
+      check('C5 #5275 Windows names Ctrl A for select-all; the Mac names Command A (control)',
+        words.Win32.all === 'Ctrl A' && words.MacIntel.all === 'Command A', JSON.stringify({ win: words.Win32.all, mac: words.MacIntel.all }));
       // C5b: on a Windows page, the bare Copy's real refusal (clipboard and select-and-copy both failing) renders
       // Windows keys in its button and line, so the sheet's bare Copy going back to a hard-coded Command C fails here.
       // (pjCopyInvite and pjsOwnCopy use the same helper; C5 pins the helper, no arm renders their refusals.)

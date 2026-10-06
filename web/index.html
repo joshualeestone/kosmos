@@ -46129,7 +46129,7 @@ function copyRefusedLine(focused) {
     : 'Kosmos could not copy it. Click the code, press ' + selectAllKeysWord() + ', then ' + copyKeysWord() + '.';
 }
 function selectForCopy(el, btn) {
-  if (copyFocusStillOn(btn)) { el.focus(); el.select(); return true; }
+  if (copyFocusStillOn(btn) || document.activeElement === el) { el.focus(); el.select(); return true; }   // review 3: focus already in the field counts as in
   el.setSelectionRange(0, el.value.length);
   return false;
 }
@@ -68442,7 +68442,9 @@ async function pjCopyInvite() {
     PJ_COPY_TIMER = setTimeout(() => {
       PJ_COPY_TIMER = null;
       btn.textContent = 'Copy';
-      if (status) status.textContent = 'Share this code with the person or agent you are inviting.';
+      // #5275 slice 2 review 3: a refusal's line stays (as the sheet's and the own-account code's do), so a person
+      // looking elsewhere still finds that the copy failed; only "Code copied." goes back to the hint.
+      if (status && ok) status.textContent = 'Share this code with the person or agent you are inviting.';
     }, 2000);
   };
   PJ_COPY_BUSY = text;
@@ -69796,10 +69798,12 @@ async function fedInviteCopy() {
   const ok = await fedCopyText(text, btn, said, 'the code alone');
   if (ok === null) return;
   if (ok) { said(); return; }
-  try { codeEl.select(); } catch { /* the line below says what to do */ }   // ready for the keys named
+  // #5275 slice 2 review 3: selected for the keys named, without pulling focus from a field the person moved on to.
+  let focused = true;
+  try { focused = selectForCopy(codeEl, btn); } catch { /* the line below says what to do */ }
   fedInviteCopyReset();
-  btn.textContent = 'Press ' + copyKeysGlyph() + ' to copy';
-  fedInviteSay('Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.');
+  btn.textContent = focused ? 'Press ' + copyKeysGlyph() + ' to copy' : 'Copy';
+  fedInviteSay(copyRefusedLine(focused));
   // Only the button reverts: the sentence stays, as Copy the invitation's refusal does, so neither can be missed.
   FEDINV_COPY_TIMER = setTimeout(() => { FEDINV_COPY_TIMER = null; btn.textContent = 'Copy'; }, 2000);
 }
