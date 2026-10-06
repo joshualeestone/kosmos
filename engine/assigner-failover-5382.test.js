@@ -604,3 +604,31 @@ test('review 13: a part a person gave the agent while it was already limited sta
     assert.equal(later(w, { records: withGive(new Date(T0 - 60 * 1000).toISOString()) }).toAssign.length, 1, 'control: a give before the limit moves');
   } finally { w.restore(); }
 });
+
+test('review 14: every way a person gives an agent work counts, not only a move (a created task, an added part)', () => {
+  const T = Date.UTC(2026, 9, 6, 10, 0);
+  const at = (m) => new Date(T + m * 60000).toISOString();
+  // A task the person created with the agent on it: one derived part with no stamps of its own.
+  assert.equal(a.personGiveAt({ addedVia: 'screen', createdAt: at(1) }, { who: 'ann' }), T + 60000);
+  // A part the person added with the agent on it.
+  assert.equal(a.personGiveAt({ addedVia: 'process', createdAt: at(-60) }, { who: 'ann', addedVia: 'screen', createdAt: at(2) }), T + 120000);
+  // A person's move.
+  assert.equal(a.personGiveAt({}, { who: 'ann', movedVia: 'screen', movedAt: at(3) }), T + 180000);
+  // CONTROLS: the Assigner's or a process's give is not a person's, whatever the task's own stamp.
+  assert.ok(Number.isNaN(a.personGiveAt({ addedVia: 'screen', createdAt: at(1) }, { who: 'ann', movedVia: 'assigner', movedAt: at(1) })));
+  assert.ok(Number.isNaN(a.personGiveAt({ addedVia: 'process', createdAt: at(1) }, { who: 'ann' })));
+  assert.ok(Number.isNaN(a.personGiveAt({}, { who: 'ann', addedVia: 'process', createdAt: at(1) })));
+});
+
+test('review 14: a task a person CREATED for the agent during its limit stays; one created before the limit moves', () => {
+  const w = world([{ name: 'cglim', paneState: 'rate_limited' }, { name: 'cggem', runner: 'gemini' }]);
+  try {
+    const t = tasks.create(w.pid, { sentence: 'after your reset, write the notes', who: w.key.cglim, made: { via: 'screen' } });
+    const withCreated = (createdAt) => projects.readAll().map((p) => (p.id !== w.pid ? p
+      : { ...p, tasks: p.tasks.map((x) => (x.number === t.number ? { ...x, createdAt } : x)) }));
+    assert.equal(tasks.progressOf(projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === t.number)).parts[0].who, w.key.cglim,
+      'fixture: the created task is not on the agent');
+    assert.equal(later(w, { records: withCreated(new Date(T0 + 60 * 1000).toISOString()) }).toAssign.length, 0, 'moved a task a person created for it during its limit');
+    assert.equal(later(w, { records: withCreated(new Date(T0 - 60 * 1000).toISOString()) }).toAssign.length, 1, 'control: one created before the limit moves');
+  } finally { w.restore(); }
+});

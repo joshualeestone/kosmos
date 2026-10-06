@@ -336,7 +336,7 @@ function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince =
         /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
            after its reset); only work it held before its limit began moves. */
         const since = limitedSince instanceof Map ? limitedSince.get(x.who) : undefined;
-        if (x.movedVia === 'screen' && Number.isFinite(since) && Date.parse(x.movedAt || '') >= since) continue;
+        if (Number.isFinite(since) && personGiveAt(t, x) >= since) continue;
         out.push({ projectId: p.id, n: t.number, partId: x.id, from: x.who, fromRunner: runnerOf.get(x.who) || null,
           due: dueKey(t), age: ageKey(t) });
       }
@@ -344,6 +344,16 @@ function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince =
   }
   out.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
   return out;
+}
+
+/* #5382 (review 14): when a PERSON last gave this part to its holder, epoch ms, else NaN. Every way a person gives
+   work counts, not only a move: a move on the page (movedVia 'screen', movedAt); a part they added with somebody on it
+   (addedVia 'screen', createdAt); a task they created with somebody on it (its one derived part has neither stamp, so
+   the task's addedVia 'screen' and createdAt). A part last moved by anything else (the Assigner, a process) is NaN. */
+function personGiveAt(t, x) {
+  if (x.movedVia) return x.movedVia === 'screen' ? Date.parse(x.movedAt || '') : NaN;
+  if (x.addedVia) return x.addedVia === 'screen' ? Date.parse(x.createdAt || '') : NaN;
+  return t && t.addedVia === 'screen' ? Date.parse(t.createdAt || '') : NaN;
 }
 
 /* #5382: the stalled part this idle agent takes, if any: in a project it belongs to (and is not swarm-off in), held by
@@ -567,4 +577,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, providerOf, limitedCard, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
