@@ -63,7 +63,9 @@ test('unitFor generates valid systemd unit with all parameters', () => {
   assert.match(content, /^\[Service\]/m);
   assert.match(content, /^ExecStart="\/bin\/bash" .* "subzero" .* "\/usr\/bin\/claude" "\/usr\/bin\/tmux" .* "claude-3-5-sonnet-20241022"/m);
   assert.match(content, /^Restart=always/m);
-  assert.match(content, /^RestartSec=30$/m, "agents restart at the Mac plist's ThrottleInterval (#4918 review 9)");
+  assert.match(content, /^RestartSec=5$/m, 'a session that ends comes back quickly (#4918 review 11)');
+  assert.match(content, /^RestartMaxDelaySec=30$/m, 'repeated failures back off to 30 s');
+  assert.match(content, /^SuccessExitStatus=129 130 143$/m, 'the supervisor\'s TERM exit (143) is a clean stop, not a failure');
   assert.match(content, /^Environment="CLAUDE_CONFIG_DIR=\/home\/user\/\.claude-custom"/m);
   assert.match(content, /^Environment="LANG=C\.UTF-8"/m);
   assert.match(content, /^\[Install\]/m);
@@ -236,7 +238,7 @@ test('rewriteAgentJob succeeds on Linux using runnerBin and tmux fields', () => 
     assert.equal(fs.existsSync(unitFile), true);
     const content = fs.readFileSync(unitFile, 'utf8');
     assert.match(content, /claude-3-5-sonnet/);
-    assert.ok(calls.some((c) => c.cmd === 'systemctl' && c.args.includes('daemon-reload')), 'the reload did not go through create\'s runner');
+    assert.equal(calls.filter((c) => c.cmd === 'systemctl').length, 0, 'a rewrite only writes the file, as on the Mac; the restart reloads (#4918 review 11)');
   } finally {
     require('./create').setRunner(null);
     linuxjob.setRunnerForTests(null);

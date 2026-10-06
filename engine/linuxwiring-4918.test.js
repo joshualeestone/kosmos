@@ -273,3 +273,13 @@ test('#4918 review 9: a unit with an incomplete ExecStart is said, never "(undef
   assert.equal(v.job, null);
   assert.equal(v.because, 'its ExecStart line is incomplete');
 });
+
+test('#4918 review 11: the register survey sees a Linux agent\'s systemd unit as its startup job', (t) => {
+  const register = require('./register');
+  const file = linuxjob.unitPath('survlin');
+  const reader = register.jobReader('linux');
+  assert.equal(reader.of('survlin'), false, 'CONTROL: no unit, no job');
+  fs.writeFileSync(file, '[Service]\n');
+  t.after(() => fs.rmSync(file, { force: true }));
+  assert.equal(reader.of('survlin'), true, 'the survey says this agent does not come back after a restart');
+});
