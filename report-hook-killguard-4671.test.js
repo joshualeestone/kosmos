@@ -272,7 +272,7 @@ test('#5420 every grep in the kill guard runs in the locale it picked: C for GNU
 
 test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s locale under BSD grep', () => {
   // A fake grep first on PATH: it answers --version as the flavour asked for, records the LC_ALL each guard
-  // grep (the -Eq -- calls) ran with, and otherwise runs the real grep, so the block decision is real.
+  // grep (the -Eq -- calls) ran with, and otherwise runs the real grep, so every decision is real.
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'fakegrep-'));
   const log = path.join(dir, 'log');
   fs.writeFileSync(path.join(dir, 'grep'), [
@@ -289,9 +289,15 @@ test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s l
     fs.rmSync(log, { force: true });
     const env = { PATH: `${dir}:${process.env.PATH}`, FAKE_GREP_FLAVOUR: flavour, FAKE_GREP_LOG: log, FAKE_GREP_REAL: real, LC_ALL: '' };
     assert.equal(run('Bash', { command: 'KILL -9 N1' }, { env }).code, 2, `${flavour}: still blocks`);
-    const seen = fs.readFileSync(log, 'utf8').trim().split('\n');
-    assert.ok(seen.length >= 1, `${flavour}: the guard's greps went through the fake`);
-    for (const s of seen) assert.equal(s, want, `${flavour}: every guard grep ran with LC_ALL ${want}`);
+    const first = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(first.length, 1, `${flavour}: a blocked command stops at the first guard grep`);
+    assert.equal(first[0], want, `${flavour}: that grep ran with LC_ALL ${want}`);
+    // A benign command runs the guard's other greps too (all but the kword one, which only follows a pgrep hit).
+    fs.rmSync(log, { force: true });
+    assert.equal(run('Bash', { command: 'echo hi' }, { env }).code, 0, `${flavour}: a benign command is allowed`);
+    const all = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(all.length, 5, `${flavour}: five guard greps ran for a benign command`);
+    for (const s of all) assert.equal(s, want, `${flavour}: every guard grep ran with LC_ALL ${want}`);
   }
 });
 
