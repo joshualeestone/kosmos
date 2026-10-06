@@ -75,6 +75,8 @@ const INHERITED_MARKERS = Object.freeze([
 /* The zip's agent command lives here, beside `app\` and `runtime\`
    (tools/build-kosmos-windows.sh stages it). The CLI itself is the marker: the
    shims beside it (kosmos.ps1, kosmos) are per shell, the CLI is always there. */
+const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
+
 const AGENT_CLI_DIR = 'bin';
 const AGENT_CLI_SHIM = 'kosmos-cli.js';
 
@@ -98,18 +100,6 @@ function agentCliDir(root, exists) {
  * 🔑 A PURE FUNCTION OVER AN ENV OBJECT, so the stripping is assertable from a
  * Mac without spawning anything.
  */
-/* #5358: Windows env names are case-insensitive, an env object is not, and Node on Windows sorts the names and keeps
-   the first case-insensitive match. So every name childEnv sets or removes goes through these two: removing takes every
-   spelling, and setting leaves exactly one key (the inherited spelling if there was one). */
-function envDelete(env, name) {
-  for (const k of Object.keys(env)) if (k.toUpperCase() === name.toUpperCase()) delete env[k];
-}
-function envSet(env, name, value) {
-  const variants = Object.keys(env).filter((k) => k.toUpperCase() === name.toUpperCase());
-  for (const k of variants.slice(1)) delete env[k];
-  env[variants[0] || name] = value;
-}
-
 function childEnv(baseEnv, token, configDir, cliDir, runner) {
   const env = Object.assign({}, baseEnv || {});
   for (const k of INHERITED_MARKERS) envDelete(env, k);

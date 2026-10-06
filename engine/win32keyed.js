@@ -309,8 +309,8 @@ function turnEnv(runner, base, configDir, deps) {
   const d = deps || {};
   const env = Object.assign({}, base || {});
   /* childEnv writes CLAUDE_CONFIG_DIR for any named account, a Claude variable a Gemini or
-     Grok agent has no use for (and Grok's claude-compat layer reads). */
-  delete env.CLAUDE_CONFIG_DIR;
+     Grok agent has no use for (and Grok's claude-compat layer reads), in any spelling (#5358). */
+  require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
   /* #4012: every turn here is a whole headless session, so the report bridges must not read its
      SessionStart/SessionEnd as the agent starting and stopping (bin/gemini-report-bridge.js and
      bin/grok-report-bridge.js, reportFor). Only this per-turn path sets it; the Mac pane never does. */
@@ -365,7 +365,7 @@ function turnEnv(runner, base, configDir, deps) {
     Object.assign(env, GROK_COMPAT_OFF);
     let kind = null;
     try { const who = mod.identityOf(dir); kind = who ? who.authMode : null; } catch { kind = null; }
-    if (kind === 'subscription') { delete env.XAI_API_KEY; return env; }
+    if (kind === 'subscription') { require('./win32env').envDelete(env, 'XAI_API_KEY'); return env; }
     const key = firstLine(mod.keyFile(dir));
     if (key) env.XAI_API_KEY = key;
     else if (door) env.XAI_API_KEY = door;

@@ -67,6 +67,18 @@ test('#5358 review 9: every name childEnv removes or sets is matched whatever it
   assert.deepEqual(keysOf(codex, 'CODEX_HOME').map((k) => codex[k]), ['C:\\h\\.codex-w']);
 });
 
+test('#5358 review 11: the shared helpers, and the Gemini/Grok/agy turn env, drop an account folder in any spelling', () => {
+  const { envDelete, envSet } = require('./win32env');
+  assert.deepEqual(envDelete({ Claude_Config_Dir: 'x', KEEP: '1' }, 'CLAUDE_CONFIG_DIR'), { KEEP: '1' });
+  const one = envSet({ claude_config_dir: 'a', CLAUDE_CONFIG_DIR: 'b' }, 'CLAUDE_CONFIG_DIR', 'c');
+  assert.deepEqual(Object.keys(one).filter((k) => k.toUpperCase() === 'CLAUDE_CONFIG_DIR').map((k) => one[k]), ['c']);
+  // A named Gemini account through childEnv keeps one key, and the agy per-turn env then drops the Claude folder.
+  const gem = launcher.childEnv({ gemini_cli_home: 'C:\\old' }, 't', 'C:\\h\\.gemini-w', null, 'gemini');
+  assert.deepEqual(keysOf(gem, 'GEMINI_CLI_HOME').map((k) => gem[k]), ['C:\\h\\.gemini-w'], 'one Gemini home, the named one');
+  const turn = require('./win32agy').turnEnv({ Claude_Config_Dir: 'C:\\engine', PATH: 'x' });
+  assert.deepEqual(keysOf(turn, 'CLAUDE_CONFIG_DIR'), [], 'the agy turn kept an oddly spelled Claude folder');
+});
+
 /* ---------- Windows only: the shells themselves ---------- */
 
 const onWindows = process.platform === 'win32';
@@ -99,8 +111,9 @@ function stageZip() {
 
 /* The runner's own environment with no policy variable in it, so every arm's policy is the one it states. And no
    PSModulePath: the CI step runs under PowerShell 7, whose module path, inherited, stops Windows PowerShell 5.1 loading
-   Microsoft.PowerShell.Security (measured on the runner 10-06: Set-ExecutionPolicy "could not be loaded"). Without it
-   5.1 builds its own, as it does for an agent the board starts. */
+   Microsoft.PowerShell.Security (measured on the runner 10-06: Set-ExecutionPolicy "could not be loaded"). With none,
+   5.1 uses its own default, which is what a board started by Explorer or its logon task passes on. NOT MODELLED: a
+   board started from a PowerShell 7 terminal, which would pass pwsh 7's path to its agents. */
 function baseEnv() {
   const env = { ...process.env };
   for (const k of [...keysOf(env, 'PSExecutionPolicyPreference'), ...keysOf(env, 'PSModulePath')]) delete env[k];
@@ -131,7 +144,9 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
     const z = stageZip();
     const ps = (env, command, flags = []) => run(POWERSHELL, ['-NoProfile', '-NonInteractive', ...flags, '-Command', command], env);
     // If this read fails, the restore writes Undefined (the policy a fresh GitHub runner has at this scope).
-    const was = String(ps(baseEnv(), 'Get-ExecutionPolicy -Scope CurrentUser').stdout || '').trim() || 'Undefined';
+    const read = String(ps(baseEnv(), 'Get-ExecutionPolicy -Scope CurrentUser').stdout || '').trim();
+    if (!read) process.stderr.write('#5358: could not read the CurrentUser policy; it will be restored as Undefined\n');
+    const was = read || 'Undefined';
     let failed = null;
     try {
       const set = ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Restricted -Force');

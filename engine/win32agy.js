@@ -117,8 +117,8 @@ function agyEnv(base, tmp) {
     for (const k of Object.keys(env)) if (k.toUpperCase() === 'TEMP' || k.toUpperCase() === 'TMP') delete env[k];
     env.TEMP = tmp; env.TMP = tmp;
   }
-  // A Claude variable an agy agent has no use for (win32launch.childEnv writes it for a named account).
-  delete env.CLAUDE_CONFIG_DIR;
+  // A Claude variable an agy agent has no use for (win32launch.childEnv writes it for a named account), in any spelling.
+  require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
   return env;
 }
 
@@ -294,7 +294,7 @@ function runAgyTurn(opts) {
  */
 function turnEnv(base) {
   const env = Object.assign({}, base || {});
-  delete env.CLAUDE_CONFIG_DIR;
+  require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
   env.KOSMOS_PER_TURN = '1';
   return env;
 }
