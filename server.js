@@ -18834,7 +18834,7 @@ const server = http.createServer(async (req, res) => {
       let task;
       try {
         if (taskRepeat[3] === 'ran') {
-          task = tasks.recordRun(id, taskRepeat[2], by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined);
+          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen });
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
@@ -19222,7 +19222,7 @@ const server = http.createServer(async (req, res) => {
           try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
           // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
           const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
-          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && String(open[0].id) === String(partAct[3])) {
+          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1
             sendJson(res, 409, { error: 'the person set this task to repeat, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
             return;
           }

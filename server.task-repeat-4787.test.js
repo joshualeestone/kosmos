@@ -89,7 +89,8 @@ test('#4787: the person can set a weekly rule and record a run from the screen; 
   assert.equal(r.json.words, 'every Monday at 9:30am');
   r = await post(`/api/project/${projectId}/task/${n}/ran`, {}, screen);
   assert.equal(r.status, 200);
-  assert.equal(stored(n).lastRunBy, 'operator');
+  assert.equal(stored(n).lastRunByPerson, true, 'the person is a flag (review 5)');
+  assert.equal('lastRunBy' in stored(n), false);
   const mona = sendertoken.mint('mona');
   r = await post(`/api/project/${projectId}/task/${n}/repeat`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
   assert.equal(r.status, 403, 'an agent cannot clear the person\'s rule');
@@ -144,5 +145,16 @@ test('#4787 review 4: an agent may close a non-last part of the person\'s repeat
   assert.equal(r.status, 200, 'a part that leaves another open is just work: allowed ' + JSON.stringify(r.json));
   r = await post(`/api/project/${projectId}/task/${n}/part/${parts[1].id}/close`, {}, { 'x-kosmos-agent-token': mona.token });
   assert.equal(r.status, 409, 'closing the last part would end the person\'s rule');
+  assert.ok(stored(n).repeat);
+});
+
+test('#4787 review 5: a process closing part "01" is the same part 1: the last-part refusal still holds', async () => {
+  const n = newTask('Daily backup check');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '06:00' }, screen);
+  assert.equal(r.status, 200);
+  const parts = tasks.partsOf(stored(n));
+  const mona = sendertoken.mint('mona');
+  r = await post(`/api/project/${projectId}/task/${n}/part/0${parts[0].id}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 409);
   assert.ok(stored(n).repeat);
 });

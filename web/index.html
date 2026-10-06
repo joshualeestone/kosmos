@@ -58409,7 +58409,7 @@ function tskRepeatSentence(t, now) {
   let s = 'Repeats ' + words + '.';
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
-    const who = t.lastRunBy === 'operator' ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';
+    const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
     s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
   } else {
     s += ' No run reported yet.';
@@ -59384,7 +59384,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.by === 'operator' ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -59396,6 +59396,7 @@ function tkActPhrase(ev, p) {
     /* #3951: who marked it built and what was left; and why the mark went. */
     case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
     case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: there is new work on it';
+      if (ev.reason === 'it repeats') return (ev.person ? 'You made it repeat' : 'Made to repeat') + ', so it is no longer built';   // #4787
       const who = ev.person ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }

@@ -82,7 +82,7 @@ test('#4787 review 1: waitingForNextRun: between runs a repeating task holds no 
   assert.equal(r.waitingForNextRun({ sentence: 'one-off' }, now), false, 'CONTROL: a task that does not repeat is never waiting');
 });
 
-test('#4787 review 2: a run reported a little early is that slot\'s run; a run stamped in the future counts from now', () => {
+test('#4787 review 2: a run reported a little early is that slot\'s run; a run stamped in the future makes the task due', () => {
   const base = { repeat: { every: 'day', at: '09:00' }, createdAt: new Date(at(2026, 10, 1, 8, 0)).toISOString() };
   assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 59) + 50000).toISOString() }, at(2026, 10, 6, 9, 5)), true,
     'ran at 08:59:50 for the 09:00 slot: at 09:05 it is waiting for tomorrow, not due again');
@@ -100,4 +100,11 @@ test('#4787 review 3: the grace is for a run, never for when the task was made; 
   assert.equal(r.waitingForNextRun(hourly, at(2026, 10, 6, 10, 1)), false, 'a 09:55 run (late, for 09:00) leaves 10:00 due');
   const early = { ...hourly, lastRunAt: new Date(at(2026, 10, 6, 9, 59) + 50000).toISOString() };
   assert.equal(r.waitingForNextRun(early, at(2026, 10, 6, 10, 1)), true, 'a 09:59:50 run is the 10:00 run: waiting for 11:00');
+});
+
+test('#4787 review 5: a changed rule is measured from when it changed: a slot before the change is not missed', () => {
+  const t = { repeat: { every: 'day', at: '07:00' }, createdAt: new Date(at(2026, 9, 1, 8, 0)).toISOString(),
+    lastRunAt: new Date(at(2026, 10, 5, 9, 0)).toISOString(), repeatSetAt: new Date(at(2026, 10, 6, 8, 0)).toISOString() };
+  assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 8, 30)), true, 'changed to 07:00 at 08:00 today: next is tomorrow 07:00');
+  assert.equal(r.waitingForNextRun(t, at(2026, 10, 7, 7, 30)), false, 'CONTROL: tomorrow\'s 07:00 passes with no run: due');
 });
