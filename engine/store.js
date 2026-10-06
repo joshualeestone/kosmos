@@ -300,9 +300,9 @@ function realDefaultRoot(platform, app) {
    spelling, since store.ROOT is read often (a symlink made later under a cached spelling is not
    seen). Only test processes reach it. */
 const realishSeen = new Map();
-function realish(p, platform) {
+function realish(p, platform, { fresh = false } = {}) {
   const key = platform + '\0' + p;
-  if (realishSeen.has(key)) return realishSeen.get(key);
+  if (!fresh && realishSeen.has(key)) return realishSeen.get(key);
   let head = path.resolve(p); const rest = [];
   let out = null;
   for (;;) {
@@ -316,16 +316,23 @@ function realish(p, platform) {
   realishSeen.set(key, out);
   return out;
 }
-/* Equal to the real root or inside it (a named world hangs off it). */
-function isRealRootInTests(resolved, platform, env, app) {
-  if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
+/* Equal to this account's real root for `app`, or inside it (a named world hangs off it). */
+function isRealRoot(resolved, platform, app) {
   const real = realDefaultRoot(platform, app);
   if (!real) return false;
   const r = realish(real, platform);
   const at = realish(resolved, platform);
   return at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }
+function isRealRootInTests(resolved, platform, env, app) {
+  if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
+  return isRealRoot(resolved, platform, app);
+}
 const TEST_HOME_PREFIX = 'kosmos-test-home-';
+/* Written into every throwaway when it is made: its pid and this machine's host name. The sweep
+   removes only a folder carrying one that names a gone pid on this host, so a folder that merely
+   matches the name pattern, or another machine's (a container sharing this tmp), is kept. */
+const TEST_HOME_MARK = '.kosmos-test-home';
 /* Remove throwaway homes in `dir` whose process is gone: kosmos-test-home-<pid>-XXXXXX where
    signalling <pid> says no such process (ESRCH). A live pid, another user's (EPERM), a name with
    no numeric pid and anything without the prefix are kept. */
@@ -343,6 +350,9 @@ function sweepDeadTestHomes(dir) {
     let st;
     try { st = fs.lstatSync(at); } catch { continue; }
     if (!st.isDirectory() || (typeof process.getuid === 'function' && st.uid !== process.getuid())) continue;
+    let mark = null;
+    try { mark = JSON.parse(fs.readFileSync(path.join(at, TEST_HOME_MARK), 'utf8')); } catch { continue; }
+    if (!mark || mark.pid !== pid || mark.host !== os.hostname()) continue;
     let gone = false;
     try { process.kill(pid, 0); } catch (e) { gone = e && e.code === 'ESRCH'; }
     if (gone) { try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* next time */ } }
@@ -355,6 +365,7 @@ function throwawayRootForThisProcess(platform, app) {
     // The pid is in the name so sweepDeadTestHomes can remove only the ones whose process is gone.
     sweepDeadTestHomes(os.tmpdir());
     testHome = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX + process.pid + '-'));
+    try { fs.writeFileSync(path.join(testHome, TEST_HOME_MARK), JSON.stringify({ pid: process.pid, host: os.hostname() })); } catch { /* unmarked: never swept, removed at exit */ }
     const made = testHome;
     process.on('exit', () => { try { fs.rmSync(made, { recursive: true, force: true }); } catch { /* swept later */ } });
   }
@@ -380,9 +391,10 @@ function root() {
   const env = process.env;
   const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
   // #5418: a throwaway root is not migrated (the migration's own target is the real store), and
-  // neither is a test process that allowed the real root to READ it (KOSMOS_ALLOW_REAL_ROOT).
+  // neither is the REAL root when a test process allowed it only to read it (KOSMOS_ALLOW_REAL_ROOT);
+  // a sandbox in that same process still migrates as usual.
   if (testRoots.has(resolved)) return resolved;
-  if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1') return resolved;
+  if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1' && isRealRoot(resolved, process.platform, APP)) return resolved;
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
@@ -785,7 +797,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

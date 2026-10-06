@@ -112,12 +112,15 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   elsewhere is not recognised, by the store or by test-support/data-root-sandbox.js (one definition now,
   so one known limit rather than two different ones).
 - KOSMOS_ALLOW_REAL_ROOT=1 in a test process allows READING the real root and never runs the legacy
-  migration on it (review 8; pinned in source).
+  migration on it (pinned in source); a sandbox in the same process still migrates (tested).
 - macOS firmlinked spellings (/System/Volumes/Data/Users/...) are not symlinks, so realpath leaves them
   as they are and a sandbox spelled that way into the real root is not matched.
-- The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file. It
-  trusts "no such process": two pid namespaces sharing one tmp and one uid (a container mounting the host's
-  tmp) could see each other's live throwaway as dead.
+- The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file, and
+  only one carrying the marker every throwaway is made with (its pid and this host's name) naming a gone
+  pid on this host: a folder that merely matches the name, or another host's, is kept. Two pid namespaces
+  sharing one tmp, one uid AND one host name could still see each other's live throwaway as dead.
+- test-support/data-root-sandbox.js compares with an uncached realpath; the store's own check caches per
+  spelling (a link made later under a cached spelling is not seen there).
 - A sandbox variable aimed at the real LEGACY folder resolves to a current-leaf folder inside it, which is
   not redirected (only the asked leaf's real root is protected).
 - setup-assistant's guideLegacyRoots stays on dataRootFor while its worlds base goes through the rule, so

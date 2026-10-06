@@ -28,7 +28,7 @@ function realDataRoot() {
 /* Resolve the nearest EXISTING ancestor and re-attach the rest: a root or thread file not yet written has no
    realpath, and comparing its /var spelling with the sandbox's /private/var one would refuse a good sandbox.
    #5418: store.realish, the store's own (case-folded where the volume ignores case). */
-const real = (p) => store.realish(p, process.platform);
+const real = (p) => store.realish(p, process.platform, { fresh: true });   // uncached: a link made since is seen
 const inside = (child, parent) => child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep);
 
 /** Throws unless every path (default: store.ROOT) is inside `sandbox` and none is inside the real data root. */
