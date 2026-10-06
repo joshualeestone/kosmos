@@ -24,6 +24,9 @@ const DEFAULT_BOARD_PORT = 16180;
 
 let systemdDirFn = () => {
   if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
+    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
+    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
   const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
   return path.join(configHome, 'systemd', 'user');
 };
@@ -37,6 +40,9 @@ function setSystemdDirForTests(fn) {
   systemdDirOverridden = typeof fn === 'function';
   systemdDirFn = typeof fn === 'function' ? fn : () => {
     if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
+    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
+    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
     const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
     return path.join(configHome, 'systemd', 'user');
   };
@@ -167,7 +173,7 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
 
   const execLine = execArgs.map((arg) => `"${unitSafe(arg, 'a path in the agent command')}"`).join(' ');
 
-  const home = os.homedir();
+  const home = create.homeDir();   // honours AGENT_WORKFORCE_HOME, as plistFor does (#4918 review 5)
   const binDir = path.dirname(runnerBin);
   const tmuxDir = path.dirname(tmuxBin);
   const pathVal = `${binDir}:${tmuxDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
@@ -279,7 +285,7 @@ function readUnitJob(content) {
 /* #4918 review 3: the runner gate keeps a test process off real systemd commands; this keeps it off the real unit
    folder too. A test must point the folder elsewhere (setSystemdDirForTests or AGENT_WORKFORCE_SYSTEMD_DIR). */
 function refuseRealUnitDirInTests(targetPath) {
-  if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && require('./live-execution').inTestProcess()) {
+  if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH && require('./live-execution').inTestProcess()) {
     throw new Error('a test tried to write a systemd unit into the real folder (' + targetPath + '); call setSystemdDirForTests first');
   }
 }
@@ -331,6 +337,16 @@ function status(name, worldId) {
     active: Boolean(act && act.ok && act.stdout.trim() === 'active'),
     enabled: Boolean(en && en.ok && en.stdout.trim() === 'enabled'),
   };
+}
+
+/* #4918 review 5: whether the agent is switched on, for a world switch's pause. { known:false } when systemd could
+   not answer (a pause then leaves the agent as it was, as on the other platforms). */
+function enabledState(name, worldId) {
+  const r = runner('systemctl', ['--user', 'is-enabled', unitName(name, worldId)]);
+  const out = String((r && r.stdout) || '').trim();
+  if (/^(enabled|enabled-runtime|linked|alias|static)$/.test(out)) return { known: true, enabled: true };
+  if (/^(disabled|masked|masked-runtime)$/.test(out)) return { known: true, enabled: false };
+  return { known: false };
 }
 
 function loaded(name, worldId) {
@@ -388,6 +404,7 @@ module.exports = {
   presence,
   remove,
   enableLinger,
+  enabledState,
   unitSafe,
   escapeUnitNamePart,
   refuseRealUnitDirInTests,

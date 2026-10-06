@@ -51,9 +51,9 @@ const MANUAL = {
   'tools/test-install-gate-control.sh':
     'needs the staged dist/ trees and takes minutes across three gate runs; its own header says "run by hand before changing the gate".',
   'tools/test-board-supervised-linux-4918.sh':
-    'unit-tests Linux systemd supervision detection in install/kosmos; run in linux-systemd-4918 CI workflow.',
+    'unit-tests Linux systemd supervision detection in install/kosmos; run in linux-systemd CI workflow (.github/workflows/linux-systemd.yml).',
   'tools/test-linux-systemd-live-4918.sh':
-    'requires a running Linux systemd user session (loginctl linger and systemd user bus); run in linux-systemd-4918 CI workflow.',
+    'requires a running Linux systemd user session (loginctl linger and systemd user bus); run in linux-systemd CI workflow (.github/workflows/linux-systemd.yml).',
 };
 
 function toolsTests() {

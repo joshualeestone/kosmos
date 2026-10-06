@@ -170,3 +170,29 @@ test('#4918 review 4: disable\'s own "Unit file X.service does not exist" counts
     assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }, 'a unit systemd never had read as stuck');
   } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
 });
+
+test('#4918 review 5: a world switch on Linux asks systemd whether each agent is switched on', () => {
+  const ws = require('./worldstarts');
+  for (const [out, want] of [['enabled\n', 'on'], ['disabled\n', 'off'], ['', 'unknown']]) {
+    answer = (cmd, args) => (args[1] === 'is-enabled' ? { ok: out === 'enabled\n', stdout: out } : { ok: true, stdout: '' });
+    try { assert.equal(ws.jobSwitchState('kenshi', 'linux', null), want, JSON.stringify(out)); } finally { answer = () => ({ ok: true, stdout: '' }); }
+  }
+});
+
+test('#4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH) keeps its units in the sandbox', () => {
+  linuxjob.setSystemdDirForTests(null);
+  const savedDir = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  const launch = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-launch-'));
+  process.env.AGENT_WORKFORCE_LAUNCH = launch;
+  try {
+    assert.ok(linuxjob.systemdDir().startsWith(launch), 'the unit folder is not under the sandbox: ' + linuxjob.systemdDir());
+    linuxjob.writeUnitFile(linuxjob.unitPath('kenshi', 'w1'), '[Service]\n');   // allowed: it is the sandbox
+    assert.equal(fs.existsSync(linuxjob.unitPath('kenshi', 'w1')), true);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    if (savedDir !== undefined) process.env.AGENT_WORKFORCE_SYSTEMD_DIR = savedDir;
+    linuxjob.setSystemdDirForTests(() => unitDir);
+    fs.rmSync(launch, { recursive: true, force: true });
+  }
+});

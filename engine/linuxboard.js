@@ -20,6 +20,9 @@ const DEFAULT_BOARD_PORT = 16180;
 
 let systemdDirFn = () => {
   if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
+    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
+    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
   const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
   return path.join(configHome, 'systemd', 'user');
 };
@@ -33,6 +36,9 @@ function setSystemdDirForTests(fn) {
   systemdDirOverridden = typeof fn === 'function';
   systemdDirFn = typeof fn === 'function' ? fn : () => {
     if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+    // #4918 review 5: a sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its
+    // units in the sandbox, where systemd never reads them, never in the real ~/.config/systemd/user.
+    if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
     const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
     return path.join(configHome, 'systemd', 'user');
   };
@@ -156,7 +162,7 @@ function installBoard(kosmosHome, port) {
   const content = boardUnitFor(kosmosHome, port);
   const target = boardUnitPath(kosmosHome);
   // #4918 review 3: a test process never writes into the real unit folder (as linuxjob.writeUnitFile).
-  if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && require('./live-execution').inTestProcess()) {
+  if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH && require('./live-execution').inTestProcess()) {
     throw new Error('a test tried to write the board unit into the real folder (' + target + '); call setSystemdDirForTests first');
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });

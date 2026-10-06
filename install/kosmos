@@ -875,8 +875,11 @@ SYSTEMCTL="${KOSMOS_SYSTEMCTL:-systemctl}"
 # #4918: the board's systemd user service unit name on Linux.
 _kosmos_board_systemd_unit() {
   local _def _kh
-  _def="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/' 2>/dev/null || tr -s '/')"; _def="${_def%/}"
-  _kh="$(printf '%s' "$KOSMOS_HOME" | /usr/bin/tr -s '/' 2>/dev/null || tr -s '/')"; _kh="${_kh%/}"
+  # #4918 review 5: one pipe into whichever tr exists. The old "| /usr/bin/tr ... || tr ..." ran the fallback
+  # OUTSIDE the pipe, so on a system with no /usr/bin/tr (NixOS, Guix) it read the terminal and hung.
+  local _tr; _tr="$(command -v tr 2>/dev/null || echo /usr/bin/tr)"
+  _def="$(printf '%s' "$HOME/.local/share/kosmos" | "$_tr" -s '/')"; _def="${_def%/}"
+  _kh="$(printf '%s' "$KOSMOS_HOME" | "$_tr" -s '/')"; _kh="${_kh%/}"
   if [ "$_kh" = "$_def" ]; then
     printf 'kosmos-board.service'
   else
