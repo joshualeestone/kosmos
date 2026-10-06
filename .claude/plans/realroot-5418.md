@@ -21,8 +21,8 @@ anchor sits inside the data root, so `anchorDir` takes the rule there (tested in
 A test process is recognised by NODE_TEST_CONTEXT, KOSMOS_TEST_RUN, or live-execution's own
 `inTestProcess()` (`--test*` in execArgv), reused rather than re-derived. The rule:
 - A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
-  `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
-  also reaches its shell tests and whatever they start).
+  `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it exports KOSMOS_TEST_RUN as its own
+  temp folder, which also reaches its shell tests and whatever they start; see below).
 - In a test process, a resolved root equal to the machine's REAL default root, or inside it (a named
   world hangs off it), is never used:
   - with NO sandbox variable set, the store answers ONE throwaway root of that process's own (mkdtemp,
