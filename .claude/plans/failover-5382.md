@@ -29,9 +29,13 @@ to another provider the person had connected; moving it by hand cleared the stal
 - The Settings switch (web). Next PR, with design shots for Mona: until then the flag can only be set by the route's
   screen caller, so the behaviour is unreachable for a person.
 - The one-press "Give its tasks to another agent" on a paused card.
-- (Built after review 7, so no longer out:) the limited agent IS told, once its limit lifts: step sees the
-  rate_limited reading end (pausedSince) and runOnce's `tell` sends one line naming the parts moved during that limit
-  (server.js failoverTell; Antigravity agents get it in agyquota's carry-on line instead). One try per lift.
+- (Built in reviews 7 and 8, so no longer out:) the limited agent IS told. Review 8 moved the obligation onto the part
+  (`owedTell`): a failover move adds its source (a chain A -> B -> C owes A and B), any move drops the new holder, and
+  the mark comes off only when a line naming the part may have reached that agent (tasks.markMoveTold).
+  engine/failovertell.js sweeps after every Assigner tick, whatever the setting, telling idle owed agents (at most 3 a
+  pass); agyquota's carry-on line names the same list for an Antigravity agent at its reset and marks it once reached.
+  So a restart, a setting change, a week-long pause or a missed try still ends in one line (review 7's in-memory
+  version lost each of those).
 - A per-(part, receiver) backoff after a receiver could not be reached: a failover move and its hand-back can repeat
   each minute while that receiver stays unreachable, as the Assigner's ordinary give already does (review 7 NIT).
 
@@ -110,6 +114,13 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   has no provider (red without the check); a refused failover move names the real reason; source pins for the
   readRunner and tell wiring and failoverTell's Antigravity skip and empty-list return.
 - After the rebase onto main: a repeating task between runs (#4787) is not moved (red without the skip).
+
+- Review 8 (blind, opus), each pinned and mutation-checked (b58e4ce99, 2d31a4d69): a chain owes every source (red
+  when the record is not carried over); a hand-back or a person's move to the agent drops it (red when the holder is
+  kept); partsOf carries owedTell (red when dropped); the sweep marks only a line that may have reached the pane (red
+  when it marks a COULD_NOT); a held verdict and an owed holder, on hand-built input (red without each defensive arm);
+  agyquota marks nothing when its line reached nothing (red when it does); failoverRunnerOf ends in null, not claude
+  (source pin, red with the claude floor). Every test file that touches parts, the assigner or agyquota: 854/854.
 
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
