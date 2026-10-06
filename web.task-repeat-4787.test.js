@@ -95,3 +95,33 @@ test('#4787 slice 2 review 5: an open Tasks view reads again once a shown slot p
   assert.ok(stamp > 0 && stamp < load.indexOf('await fetch('), 'review 6: a read stamps readAt when it STARTS, before it fetches');
   assert.equal(load.split('TSK.readAt =').length, 2, 'and only there');
 });
+
+test('#4787 slice 3: the task page\'s reviewer choice: Nobody, Me and the project\'s agents, showing what is stored; hidden for a one-off', () => {
+  const el = (id) => ({ id, hidden: true, textContent: '', value: '', dataset: {}, children: [], disabled: false,
+    appendChild(o) { this.children.push(o); }, set textContent(v) { this._t = v; if (v === '') this.children = []; }, get textContent() { return this._t || ''; } });
+  const els = { 'tk-review-row': el('tk-review-row'), 'tk-review-who': el('tk-review-who'), 'tk-review-msg': el('tk-review-msg') };
+  const doc = { activeElement: null, getElementById: (id) => els[id] || null, createElement: () => ({ value: '', textContent: '' }) };
+  const paint = new Function('document', 'TK_ACT', 'tskAgentName', page.liftAll(SCRIPT, ['tkReviewerOf', 'tkPaintReviewer']) + '\nreturn tkPaintReviewer;')(doc, 'close', (s) => ({ ada: 'Ada', rex: 'Rex' }[s] || s));
+  const p = { id: 'p1', agents: ['ada', 'rex'] };
+  paint(p, { number: 4 });
+  assert.equal(els['tk-review-row'].hidden, true, 'a one-off task has no reviewer choice');
+  const t = { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'rex' };
+  paint(p, t);
+  const sel = els['tk-review-who'];
+  assert.equal(els['tk-review-row'].hidden, false);
+  assert.deepEqual(sel.children.map((o) => o.value + '=' + o.textContent), ['none=Nobody', 'me=Me', 'ada=Ada', 'rex=Rex']);
+  assert.equal(sel.value, 'rex');
+  paint(p, { ...t, repeatReviewer: undefined, repeatReviewerPerson: true });
+  assert.equal(sel.value, 'me');
+  // A stored reviewer who left the project stays listed, so the select never shows a choice that is not stored.
+  paint({ id: 'p1', agents: ['ada'] }, t);
+  assert.equal(sel.value, 'rex');
+  assert.ok(sel.children.some((o) => o.value === 'rex'));
+  // Under the person's own focus it is not repainted; forced (its own answer) it is.
+  doc.activeElement = sel; sel.value = 'ada';
+  paint(p, { ...t, repeatReviewer: 'rex' });
+  assert.equal(sel.value, 'ada', 'not repainted under focus');
+  delete sel.dataset.sig;
+  paint(p, { ...t, repeatReviewer: 'rex' }, true);
+  assert.equal(sel.value, 'rex', 'forced: back to what is stored (a refusal puts it back)');
+});
