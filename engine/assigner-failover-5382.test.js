@@ -241,3 +241,18 @@ test('setting: failover reads off by default and on a file without it; setFailov
   assert.equal(asg.read().failover, false, 'only a real true turns failover on');
   fs.rmSync(asg.FILE, { force: true });
 });
+
+test('Antigravity and the Gemini CLI count as one provider (one Google account can share the quota that stopped the first)', () => {
+  assert.equal(a.providerOf('antigravity'), a.providerOf('gemini'));
+  assert.notEqual(a.providerOf('gemini'), a.providerOf('claude'));
+  assert.equal(a.providerOf(''), 'claude');
+  assert.equal(a.providerOf(undefined), 'claude');
+  const w = world([{ name: 'agylim', paneState: 'rate_limited' }, { name: 'agygem', runner: 'gemini' }]);
+  try {
+    heldTask(w.pid, w.key.agylim, 'write the deploy notes');
+    // The fixture's limited pane is Claude's limit line; the runner tag is set on the card as the supervisor records it.
+    const asAgy = w.cards.map((c) => (c.sessionName === w.key.agylim ? { ...c, runner: 'antigravity' } : c));
+    assert.equal(later(w, {}, asAgy).toAssign.length, 0, 'moved an Antigravity agent\'s part to a Gemini CLI agent');
+    assert.equal(later(w).toAssign.length, 1, 'control: the same part on a Claude agent moves to the Gemini CLI agent');
+  } finally { w.restore(); }
+});

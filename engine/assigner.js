@@ -96,6 +96,13 @@ const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
 const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length === 1 && p.agents[0] === session
   && !!p.made && typeof p.made === 'object' && p.made.by === session;
 
+/* #5382: the provider a runner bills, for the failover's "another provider" test. Antigravity and the Gemini CLI are one:
+   both can run on the same Google account, whose shared quota (#4588) is what stopped the first agent. Empty is claude. */
+function providerOf(runner) {
+  const r = typeof runner === 'string' && runner ? runner : 'claude';
+  return r === 'antigravity' || r === 'gemini' ? 'google' : r;
+}
+
 /* #5382: a card the failover may take work FROM: ours, reading rate_limited, and not about to reset. */
 function limitedCard(a, now) {
   if (!(a && a.sessionName && a.isNamedOurs === true && a.state === 'rate_limited')) return false;
@@ -369,7 +376,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
   const ripe = new Set();
   const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
   for (const a of Array.isArray(roster) ? roster : []) {
-    if (a && a.sessionName) runnerOf.set(a.sessionName, a.runner || 'claude');
+    if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(a.runner));
     if (!limitedCard(a, now)) continue;
     const since = baseLimited.has(a.sessionName) ? baseLimited.get(a.sessionName) : now;
     limitedSince.set(a.sessionName, since);
@@ -527,4 +534,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, limitedCard, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, providerOf, limitedCard, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
