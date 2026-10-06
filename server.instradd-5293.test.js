@@ -4,6 +4,7 @@
  * applies, dismisses or undoes on the page (isViaScreen: an agent token is refused, a browser's headers are required).
  * One pending per target: a second proposal is refused, naming the waiting one.
  */
+require('./test-support/tmpscope');   // #4273: first, so every temp dir this file makes is contained and removed
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -33,7 +34,7 @@ const ADD = 'When a lead goes quiet for two days, write to them once. Do not cha
 test.before(async () => { await start(0); });
 test.after(() => {
   server.closeAllConnections(); server.close();
-  for (const d of [SANDBOX, process.env.HOME, WORKERS]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of [SANDBOX, process.env.HOME, WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
 function board(t) {
