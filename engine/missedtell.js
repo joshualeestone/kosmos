@@ -137,10 +137,16 @@ function sweep(o) {
            cannot take it either. Held with no try spent; it goes on a later minute, once the reviewer is idle. */
         if (!nudgeable(card)) { results.push({ ...item, act: 'held', because: 'the reviewer is not idle, or cannot be typed into' }); continue; }
         if (typedTo.has(item.reviewer)) { results.push({ ...item, act: 'held', because: 'one line to a reviewer per minute' }); continue; }
-        const idle = seen.get(item.reviewer);
-        if (!idle || now - idle.since < SETTLED_MS) { results.push({ ...item, act: 'held', because: 'the reviewer has only just gone idle' }); continue; }
+        /* Review 11, as the reply nudge (review 15 there): judged by WHEN it went idle, from its own idle report
+           (o.idleSince), which also sees a turn taken and finished between two passes. Without a report, the two-pass
+           record above. */
+        let since = null;
+        if (typeof o.idleSince === 'function') { try { since = o.idleSince(item.reviewer); } catch { since = null; } }
+        if (!Number.isFinite(since)) { const idle = seen.get(item.reviewer); since = idle ? idle.since : null; }
+        if (!Number.isFinite(since) || now - since < SETTLED_MS) { results.push({ ...item, act: 'held', because: 'the reviewer has only just gone idle' }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         typedTo.add(item.reviewer);
+        seen.delete(item.reviewer);   // review 11: a line may now be in its pane; its idle starts again from the next sighting
         let state = null;
         let wait = false;
         try { const r = o.deliver(item.reviewer, tellText(item, o.nameOf), o.roster); state = r && r.state; wait = Boolean(r && (r.held === true || r.busy === true)); }
