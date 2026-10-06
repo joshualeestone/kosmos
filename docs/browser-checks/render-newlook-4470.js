@@ -563,17 +563,22 @@ async function listLook(page) {
   const rest = await read();
   let hover = null, hoverGround = null;
   if (rest.found) {
-    /* The board can redraw the list between the hover and the read; the new row is not :hover until the pointer moves,
-       so it reads the resting border (#5298). Wait for the row itself to be under the pointer, re-hovering if it was
-       replaced, and only then read. The wait is on :hover, not on the border, so a missing hover rule still reads red. */
+    /* The board can redraw the list between the hover and the read; a replaced row is probably not :hover until the
+       pointer moves, so it read the resting border (#5298). So the border is read IN THE SAME page turn that sees the row
+       under the pointer, re-hovering a replaced row up to three times. The wait gates on :hover only, never on the
+       border, so a missing hover rule still reads red. */
     const PLAIN = '#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)';
-    for (let i = 0; i < 3; i++) {
-      await page.mouse.move(1, 1); await page.hover(PLAIN);
-      const on = await page.waitForFunction((s) => { const r = document.querySelector(s); return !!r && r.matches(':hover'); }, PLAIN, { timeout: 1000 })
-        .then(() => true, () => false);
-      if (on) break;
+    let seen = null;
+    for (let i = 0; i < 3 && !seen; i++) {
+      await page.mouse.move(1, 1); await page.hover(PLAIN).catch(() => {});
+      seen = await page.waitForFunction((sel) => {
+        const r = document.querySelector(sel);
+        if (!r || !r.matches(':hover')) return false;
+        const cs = getComputedStyle(r);
+        return { border: cs.borderTopColor, groundImg: cs.backgroundImage, groundColor: cs.backgroundColor };
+      }, PLAIN, { timeout: 1000 }).then((hd) => hd.jsonValue(), () => null);
     }
-    const h = await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
+    const h = seen || await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
   }
   /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
   const strokes = await page.evaluate((ratioFn) => {
