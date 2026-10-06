@@ -142,7 +142,7 @@ echo "Killing tmux session $AGENT_NAME..."
 "$TMUX_BIN" kill-session -t "$AGENT_NAME" 2>/dev/null || true
 
 revived=0
-for i in $(seq 1 40); do   # RestartSec=5 plus the supervisor's own start
+for i in $(seq 1 40); do   # RestartSec=10 plus the supervisor's own start
   if "$TMUX_BIN" has-session -t "$AGENT_NAME" 2>/dev/null; then
     revived=1
     ok "agent session revived by systemd after ${i}s"
@@ -225,9 +225,16 @@ if node -e '
   const r = remove.restart(name, "live check", { platform: "linux", startIfDead: true });
   if (r.outcome !== remove.OUTCOME.RESTARTED) { console.error("restart:", JSON.stringify(r)); process.exit(4); }
   const d = remove.remove(name, { platform: "linux" });
-  if (!d || /refused|failed/i.test(String(d.outcome || ""))) { console.error("remove:", JSON.stringify(d)); process.exit(5); }
+  if (!d || d.outcome !== remove.OUTCOME.REMOVED) { console.error("remove:", JSON.stringify(d)); process.exit(5); }
 ' "$LIVE_AGENT" "$MOCK_RUNNER" "$TMUX_BIN"; then
   ok "createAgent, restart and remove run end to end against real systemd"
+  # review 15: and systemd agrees the removed agent is stopped and switched off, not only the outcome word.
+  LIVE_UNIT="$(node -e 'console.log(require("./engine/linuxjob").unitName(process.argv[1]))' "$LIVE_AGENT")"
+  if ! systemctl --user is-active "$LIVE_UNIT" >/dev/null 2>&1 && [ "$(systemctl --user is-enabled "$LIVE_UNIT" 2>/dev/null)" != "enabled" ]; then
+    ok "the removed agent's unit is stopped and not enabled ($LIVE_UNIT)"
+  else
+    bad "the removed agent's unit is still running or enabled ($LIVE_UNIT)"
+  fi
 else
   bad "the create/restart/remove wiring failed against real systemd (exit $?)"
 fi

@@ -3735,6 +3735,7 @@ function installJob(name, opts) {
     }
     let started = false;
     let lingering = true;
+    let atLogin = true;   // #4918 review 15: false when systemd refused the reload or enable (nothing brings it back)
     if (DRY_RUN) {
       started = true;   // #4918 review 1: a dry run starts nothing, as the creation path's Linux arm does
     } else {
@@ -3742,11 +3743,13 @@ function installJob(name, opts) {
         lingering = linuxRun(() => lj.enableLinger()).lingering;
         const r = linuxRun(() => lj.start(clean));
         started = Boolean(r && r.ok === true);
+        if (!started && /did not (enable|reload)/.test(String((r && r.because) || ''))) atLogin = false;
       } catch { started = false; }
     }
     return {
       ok: true,
       started,
+      atLogin,
       model: modelArg,
       guessed: {
         model: modelArg ? null : 'we do not know which model it was set to run on, so it will start on the default',
