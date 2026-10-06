@@ -887,11 +887,13 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
-    /* slice 2: a run reported more than the miss grace after the LATEST slot it could answer is LATE (the row says so).
-       Review 1: measured against the latest due slot at or before the run, never the oldest unanswered one, so after a
-       missed day the next day's on-time run (09:05 for 09:00) is on time. Before its first due slot a run is early, not late. */
-    const latest = taskrepeat.latestAtOrBefore(t.repeat, taskrepeat.dueSlot(t, at), at);
-    if (latest !== null && at >= latest + taskrepeat.missGraceFor(t.repeat)) changed.lastRunLate = true; else delete changed.lastRunLate;
+    /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
+       slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
+       on the rule and the run's time, never on earlier runs.
+       Review 1: the latest slot, never the oldest unanswered one, so after a missed day the next day's 09:05 run is on time.
+       Review 2: a job reporting a few minutes early (08:50 for 09:00) is not late; a second runner in the same minute gets
+       the same answer as the first. */
+    if (taskrepeat.runIsLate(t, at)) changed.lastRunLate = true; else delete changed.lastRunLate;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });

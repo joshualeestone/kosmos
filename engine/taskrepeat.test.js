@@ -206,3 +206,25 @@ test('#4787 slice 2 review 1: latestAtOrBefore is the latest slot at or before a
   assert.equal(r.latestAtOrBefore(rule, null, at(2026, 10, 6, 8, 0)), null);
   assert.equal(r.latestAtOrBefore({ every: 'week', day: 1, at: '09:00' }, at(2026, 9, 7, 9, 0), at(2026, 10, 6, 12, 0)), at(2026, 10, 5, 9, 0), 'weekly, weeks later');
 });
+
+test('#4787 slice 2 review 2: runIsLate depends only on the rule and the run\'s time: early is on time, past the grace is late', () => {
+  const day = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 12, 0)).toISOString() };
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 48)), false, 'a daily job reporting at 08:48 for 09:00 is early, not late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 9, 14)), false, 'inside the grace after its slot');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 9, 15)), true, 'at the grace: late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 16, 0)), true, 'in the afternoon: late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 1, 13, 0)), false, 'before the rule\'s first slot: never late');
+  const hour = { repeat: { every: 'hour', minute: 0 }, repeatSetAt: new Date(at(2026, 10, 1, 0, 30)).toISOString() };
+  for (const m of [45, 50, 57]) assert.equal(r.runIsLate(hour, at(2026, 10, 6, 8, m)), false, 'an hourly job reporting at 8:' + m + ' for 9:00 is early');
+  assert.equal(r.runIsLate(hour, at(2026, 10, 6, 8, 30)), true, 'CONTROL: half past is late for an hourly job');
+  assert.equal(r.runIsLate({ sentence: 'one-off' }, at(2026, 10, 6, 8, 30)), false);
+});
+
+test('#4787 slice 2 review 2: a run made under the OLD rule does not answer the new rule\'s first slot', () => {
+  // Hourly, ran at 08:50; changed to daily 9am at 08:55. The 9am slot is the new rule's, so missing it is a miss.
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 6, 8, 55)).toISOString(),
+    lastRunAt: new Date(at(2026, 10, 6, 8, 50)).toISOString() };
+  assert.deepEqual(r.missedRuns(t, at(2026, 10, 6, 9, 30)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) });
+  // CONTROL: the same run made after the rule changed answers it.
+  assert.equal(r.missedRuns({ ...t, lastRunAt: new Date(at(2026, 10, 6, 8, 56)).toISOString() }, at(2026, 10, 6, 9, 30)), null);
+});
