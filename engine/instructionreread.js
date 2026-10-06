@@ -254,6 +254,10 @@ async function passOnce(o) {
       let v = null;
       // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as communityturn and replynudge read chat.
       try { v = await o.deliver(session, line, fresh); } catch { v = { state: o.DELIVERY && o.DELIVERY.UNCONFIRMED }; }
+      /* #4588 ask 3 (rebase review): a line the Gemini cap or the quota held typed nothing, so it does not spend one of the
+         pass's tries; otherwise held idle Gemini agents at the top of the debts take every try each pass and nobody below
+         them is ever told (the community turn's review-15 defect). Its debt stays owed (settle keeps a held verdict). */
+      if (v && v.held === true) tried -= 1;
       const after = settle(owed, session, v, o.DELIVERY, now);
       if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
       else {
