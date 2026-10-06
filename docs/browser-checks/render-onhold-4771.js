@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat
+// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -132,6 +132,22 @@ function chk(ok, label, extra) {
       await page.click('#pj-one-pause');
       await page.waitForFunction(() => document.getElementById('pj-one-pause').textContent === 'Pause it', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#pj-one-pause') === 'Pause it', `${tag} Resume it resumes the project`, await text(page, '#pj-one-pause'));
+      /* kosmos#5391: the project page's own Pause / Resume, beside the name: one press pauses (it reads Resume and the
+         Paused line shows), the next resumes, through the same call as Settings (the Settings button agrees). */
+      await page.evaluate((pid) => tskGoToProject(pid), winter.id);
+      await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 5000 });
+      chk(/^\s*Pause\s*$/.test(await text(page, '#pj-head-pause') || '') && await page.isHidden('#pj-one-paused'),
+        `${tag} #5391 the project page offers Pause beside its name, and says nothing about pausing yet`, await text(page, '#pj-head-pause'));
+      await page.click('#pj-head-pause');
+      await page.waitForFunction(() => /Resume/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/Resume/.test(await text(page, '#pj-head-pause') || '') && await page.isVisible('#pj-one-paused')
+        && /^Paused: Kosmos is not nudging anyone/.test(await text(page, '#pj-one-paused') || '')
+        && await page.evaluate(() => document.getElementById('pj-one-pause').textContent) === 'Resume it',
+        `${tag} #5391 pressing it pauses the project: it reads Resume, the Paused line shows, and Settings agrees`, await text(page, '#pj-one-paused'));
+      await page.click('#pj-head-pause');
+      await page.waitForFunction(() => /Pause/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/^\s*Pause\s*$/.test(await text(page, '#pj-head-pause') || '') && await page.isHidden('#pj-one-paused'),
+        `${tag} #5391 Resume resumes it, and the Paused line goes`, await text(page, '#pj-head-pause'));
       await openTask(page, launch.id, 1);
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
