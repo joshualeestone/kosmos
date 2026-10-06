@@ -2,8 +2,8 @@
 
 ## Finished means
 Adding a task without --who, from either command (Mac install/kosmos, Windows tools/windows/kosmos-cli.js), tells the
-agent that nobody has it yet, that it waits or Kosmos gives it to an idle agent on the project, and how to choose: a second line naming
-`kosmos task assign <project> <number> <agent>`. Never said for a named owner, for a name that came back unreadable, or
+agent that nobody has it yet, that it waits for someone to take it or Kosmos gives it to an idle agent on the project, and how to choose: a second line naming
+`kosmos task assign <project> <number> <agent> (or me)`. Never said for a named owner, for a name that came back unreadable, or
 for an answer that carries no who at all.
 
 ## Measured first (the card asked: is it guessing, or only unclear?)
@@ -28,13 +28,13 @@ for an answer that carries no who at all.
   an unassigned task is a valid state the Assigner exists to serve.
 - Defaulting --who to the caller: changes who does the work without anyone asking; the report wanted clarity, not a
   different owner.
-- Naming the Assigner by name or checking its setting from the CLI: a second read for one sentence; "may" is accurate.
+- Naming the Assigner by name or checking its setting from the CLI: a second read for one sentence; the sentence is worded to be true either way.
 
 ## Tests
 - cli.task-nobody-5376.test.js (new): both CLIs against a real board (no --who: the line, with the real number and
   project; --who mara: no line), and stand-in answers (no who key: no line; an unreadable name on the Mac: no line; no
   number: `<task-number>`). Control: with main's two CLIs swapped in, all 4 fail.
-- server.task-same-text-5319.test.js: its Mac window widened (the new comment sits between the sentence and the note) and
+- server.task-same-text-5319.test.js: its Mac check now anchors on the note's own lift (`local _note;`) with a 400-character window, so a line added between the sentence and the note cannot push it out of view and
   its Windows arms now expect the line for who null, plus a control that a named owner gets none.
 
 ## Weakest premise
