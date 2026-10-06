@@ -97,10 +97,13 @@ function stageZip() {
   return { root, bin };
 }
 
-/* The runner's own environment with no policy variable in it, so every arm's policy is the one it states. */
+/* The runner's own environment with no policy variable in it, so every arm's policy is the one it states. And no
+   PSModulePath: the CI step runs under PowerShell 7, whose module path, inherited, stops Windows PowerShell 5.1 loading
+   Microsoft.PowerShell.Security (measured on the runner 10-06: Set-ExecutionPolicy "could not be loaded"). Without it
+   5.1 builds its own, as it does for an agent the board starts. */
 function baseEnv() {
   const env = { ...process.env };
-  for (const k of keysOf(env, 'PSExecutionPolicyPreference')) delete env[k];
+  for (const k of [...keysOf(env, 'PSExecutionPolicyPreference'), ...keysOf(env, 'PSModulePath')]) delete env[k];
   return env;
 }
 const agentEnv = (bin, runner) => launcher.childEnv(baseEnv(), null, null, bin, runner);
