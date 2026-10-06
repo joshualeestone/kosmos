@@ -90,7 +90,11 @@ Environment="PATH=${pathVal}"
 Environment="LANG=C.UTF-8"
 Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
-${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}# Stopping the board stops the board only, never a tmux server it may have started (see linuxjob.js).
+${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}# The board writes where install/kosmos says it does (BOARD_LOG = $KOSMOS_HOME/logs/board.log), as on the Mac,
+# never only to the journal: kosmos start sends the person to that file when the board does not come up (review 16).
+StandardOutput=append:${path.join(home, 'logs', 'board.log')}
+StandardError=append:${path.join(home, 'logs', 'board.log')}
+# Stopping the board stops the board only, never a tmux server it may have started (see linuxjob.js).
 KillMode=process
 # on-failure, not always (#4918, measured on GitHub's ubuntu runner): systemd's automatic restart does not re-check
 # ConditionPathExists, and board-run exits 0 when board.stopped is there, so Restart=always restarted a stopped
@@ -107,6 +111,8 @@ WantedBy=default.target
 /* Writes and enables the board's unit. { ok: false, because } when systemd refused either step. */
 function installBoard(kosmosHome, port) {
   const content = boardUnitFor(kosmosHome, port);
+  // systemd's append: needs the folder to exist (review 16).
+  try { fs.mkdirSync(path.join(path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome()), 'logs'), { recursive: true }); } catch { /* the start will say */ }
   const target = boardUnitPath(kosmosHome);
   // #4918 review 3: a test process never writes into the real unit folder (as linuxjob.writeUnitFile).
   if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH && require('./live-execution').inTestProcess()) {
@@ -131,8 +137,8 @@ function installBoard(kosmosHome, port) {
    caller piece D adds can say what did not. A unit systemd does not have counts as stopped. */
 function removeBoard(kosmosHome) {
   const unit = boardUnitName(kosmosHome);
-  const notLoaded = /Unit (file )?\S+ (not loaded|does not exist|not found)/i;
-  const failed = (r) => r && r.ok === false && !notLoaded.test(String(r.stderr || r.because || ''));
+  // The one "not loaded" rule, linuxjob's (review 16: it was written twice).
+  const failed = (r) => Boolean(r) && !require('./linuxjob').stoppedOrNotLoaded(r);
   const st = runner('systemctl', ['--user', 'stop', unit]);
   if (failed(st)) return { ok: false, because: 'systemd could not stop the board: ' + String(st.stderr || st.because || '').trim() };
   const dis = runner('systemctl', ['--user', 'disable', unit]);
