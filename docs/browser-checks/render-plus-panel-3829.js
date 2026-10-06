@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-flow plus-pill plus-chip plus-account plus-switch askcard ask-rows plus-devlist
+// Browser-check-surface: plus-flow plus-pill plus-chip plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly

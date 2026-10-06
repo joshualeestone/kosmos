@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -99,6 +99,51 @@
  *  B9  consolidated layout: the same rows under the project's members in the rail (#alist-fed-outside), with
  *      the "Other Agents" sub-header still after them. Control: B1b's empty answer adds nothing to the rail.
  *
+ * kosmos#4649 slice C: "Copy the invitation" on the code step (Mona's shot 03 button and line, shot 04's text, her
+ * Q-M5 owner name). On origin/main (no invite sheet) the C block fails from its first arm. On slice B (no
+ * #fedinv-copy-all) the C0 arms fail by assertion and the run then crashes in C1, waiting for #fedinv-copy-all;
+ * nothing after that point runs there. The owner's name is the board's "You" name (/api/you, faked below as __you)
+ * and the address is the ACCOUNT's name (owner_name on the owner's members answer, Kitty's follow-up), both read by
+ * the page's own loaders (refreshYouName, fedMembersLoad), not set by hand. It is never this computer's own
+ * address.
+ *  C0  the code step reads as shot 03: "It works once, until Sunday, October 11. You can withdraw it from Members
+ *      until Dana joins.", the Easier box naming Dana, and "Copy the invitation" as the primary (uprime) button
+ *      after Done, with the bare-code Copy still there. A label that is not a name ("my sister") says "they join"
+ *      and "they need". Control: the Dana line, the same code path with a name.
+ *  C1  with the name and the address: Copy the invitation writes EXACTLY shot 04's text, "Maya Chen
+ *      (maya.kosmosplus.com) invited you ...", and says Copied, then reverts. Control: the bare Copy, pressed
+ *      first on the same screen, writes only the code.
+ *  C1b only the owner's members answer names the address: a member's (owner: false) keeps the name alone. Control:
+ *      owner: true prints it.
+ *  C2  with no "You" name the text starts "maya.kosmosplus.com invited you" (and is otherwise the same); with a
+ *      name but no owner_name (or one that is not a Kosmos+ name), "Maya Chen invited you"; with neither,
+ *      "Someone invited you". Control: C1 with both.
+ *  C3  the step words, read OUT OF the copied invitation (not typed again here), each exist as a visible label on
+ *      the page's own path: "+ Add Project" on the Projects list, "Join an external project" on the Add Project
+ *      screen it opens, "Verify" on the join step that opens. A later rename of either side fails here. Control:
+ *      the same finder, given a phrase the page does not have ("Join a shared project"), finds nothing.
+ *  C4  writeText rejecting AND select-and-copy failing: the message line says "Kosmos could not copy the
+ *      invitation. ...", the button keeps its words, the sheet stays open, and nothing throws. Control: C1 says Copied.
+ *  C5  a page loaded as Windows (navigator.platform Win32) names Ctrl C and Ctrl+C in the copy-yourself lines;
+ *      control: the same page loaded as a Mac (MacIntel) names Command C and the Command glyph.
+ *  C5b on a Windows page the bare Copy's real refusal renders "Press Ctrl+C to copy" and "... press Ctrl C.".
+ *  C6  a clipboard that never answers: nothing said while it waits, the bare Copy ignored, the 3 s limit's refusal,
+ *      then the late write lands and the line says Copied.
+ *  C7  a held write landing after a newer, successful copy on the other button: the line says what the clipboard
+ *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
+ *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
+ *      C7d: the other direction: a held bare-code write landing after a newer invitation copy names the code alone.
+ *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
+ *      second Copied.)
+ *  C9e the stubbed select-and-copy fires the copy event as a real one does; the record survives its own event.
+ *  C9  the clipboard-holds record through its real listeners (blur, copy events) and an in-time write, and a held
+ *      write from a closed sheet landing under a new code.
+ *  C8  the sheet's own type inside #panel-projects: its title is the size of another dialog's .rm-title (the add-
+ *      agent dialog's), and its fields carry no hairline (border-top-width 0). Control: a .field outside the sheet
+ *      keeps its hairline.
+ *  C4b writeText rejecting but select-and-copy working (plusCopyViaExec's pattern): the exact invitation is
+ *      selected and copied, and the button says Copied. Control: C4, the same press with the fallback failing.
+ *
  * HERMETIC: web/index.html over file://, every route answered by the stub below (render-pj-clear-2575's
  * pattern: the stub's own /api/projects carries the seeded project, so a late startup poll cannot wipe
  * it; every catch-all reply carries the fixture's gate fields, so a late status poll cannot restamp the
@@ -120,6 +165,8 @@ catch {
 }
 
 const PAGE = 'file://' + nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+// Chromium reports the host's platform, so a check run on a Mac expects the Mac's copy keys (C4's line).
+const ON_MAC = process.platform === 'darwin';
 const SHOW = { sourceChannel: 'prod', federationLive: true, kosmos_plus: true };
 const OFF = { sourceChannel: 'prod', federationLive: false, kosmos_plus: true };
 // Sunday, October 11, 2026, 12:00 UTC (the page runs in UTC, below).
@@ -152,6 +199,24 @@ function initStub(cfg) {
   window.__withdraw = { status: 200, body: { withdrawn: true } };
   window.__withdraws = [];
   window.__answerDelay = 0;
+  window.__computers = null;    // slice C's C2 plants this computer's address here, to prove it is never printed
+  /* Slice C's Copy the invitation tries select-and-copy FIRST. A real execCommand would copy past the stubbed
+     clipboard, so it is stubbed too: it records what it would copy and fails unless an arm sets __execOk. A copy
+     that succeeds fires the copy event first, as a real one does, so the page's copy listener runs in its real
+     order (C9e pins that order). */
+  window.__execOk = false;
+  window.__execTexts = [];
+  document.execCommand = (cmd) => {
+    if (cmd !== 'copy') return false;
+    const a = document.activeElement;
+    window.__execTexts.push(a && typeof a.value === 'string' ? a.value : null);
+    if (window.__execOk !== true) return false;
+    document.dispatchEvent(new Event('copy', { bubbles: true }));
+    return true;
+  };
+  window.__you = null;          // slice C: /api/you's `you` ({ name }); null leaves it to the catch-all (no name)
+  window.__unhandled = [];
+  window.addEventListener('unhandledrejection', (e) => { window.__unhandled.push(String(e.reason && e.reason.message || e.reason)); });
   const a = (s, name) => ({ sessionName: s, name, role: '', running: false, state: 'stopped', context: null });
   window.__agents = [a('ada', 'Ada'), a('basil', 'Basil'), a('cleo', 'Cleo')];
   const enc = (status, o) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
@@ -205,6 +270,8 @@ function initStub(cfg) {
       if (window[key] === 'throw') throw new TypeError('Failed to fetch');   // B18: a dropped connection
       return enc(window[key].status, window[key].body);
     }
+    if (/\/api\/you(\?|$)/.test(u) && window.__you) return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed, { you: window.__you }));
+    if (u.includes('/api/remote/computers') && window.__computers) return enc(200, window.__computers);   // C2's planted address
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
     return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed));
   };
@@ -268,8 +335,10 @@ const closeAll = (page) => page.evaluate(() => {
     console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
     process.exit(1);
   }
-  const newPage = async (width, fed) => {
+  const newPage = async (width, fed, platform) => {
     const ctx = await browser.newContext({ viewport: { width, height: 900 }, timezoneId: 'UTC', locale: 'en-US' });
+    // C5: a page that believes it runs on another platform (MSG_MENU_MAC is read once, at load).
+    if (platform) await ctx.addInitScript((p) => { Object.defineProperty(navigator, 'platform', { configurable: true, get: () => p }); }, platform);
     await ctx.addInitScript(initStub, { fed, code: CODE, expires: EXPIRES });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => check('no page error', false, e.message));
@@ -381,7 +450,10 @@ const closeAll = (page) => page.evaluate(() => {
     check('A5 the title names the label', done.title === 'Invite code for Dana Ruiz', done.title);
     check('A5 Josh\'s sentence, verbatim, the same words as the create form\'s', done.josh === JOSH && done.joshMain === JOSH, JSON.stringify({ josh: done.josh }));
     check('A5 the code is shown', done.code === CODE && done.askHidden, JSON.stringify(done));
-    check('A5 "It works once, until Sunday, October 11." from expires_at', done.until === 'It works once, until Sunday, October 11.', done.until);
+    // This Make chose "Their agent" (A4 above), and only a PERSON is named by first name (slice B's rule, shared through
+    // fedFirstName): an agent invite reads "until they join". C1 covers the person case ("the three steps Dana needs").
+    check('A5 "It works once, until Sunday, October 11." from expires_at, then the withdraw sentence (an agent invite: "they")',
+      done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.', done.until);
     await page.click('#fedinv-copy');
     await page.waitForTimeout(100);
     const copied = await page.evaluate(() => ({ copied: window.__copied.slice(), btn: document.getElementById('fedinv-copy').textContent }));
@@ -1294,7 +1366,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
     await page.click('#mem-go');
     await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => window.__removes.length > 0   // #5373: wait for the row to go, not 300 ms
+      && !document.querySelector('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"]'), null, { timeout: 4000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__removes.slice());
     const rf = await readFed(page, '#alist-fed-outside');
     check('B15g rail: Remove asks the board for Dana\'s connection and her row goes (control: B11a\'s rail Withdraw)',
@@ -1421,6 +1494,460 @@ const closeAll = (page) => page.evaluate(() => {
     check('B15f at 390 every name and sub-line is on one line (control: the rows are on screen, as many as at 1280)',
       oneLine.length === EXPECT.length && oneLine.every((o) => o.nm && o.sub && o.seen), JSON.stringify(oneLine));
     await ctx.close();
+  }
+
+  /* ---------------- slice C: "Copy the invitation" (shot 03 button and line, shot 04 text) ---------------- */
+  {
+    const ADDR = 'maya.kosmosplus.com';
+    const invitation = (who) => who + ' invited you to the project "Spring launch" on Kosmos.\n'
+      + '\n'
+      + '1. Open Kosmos on your computer. If you do not have it yet, get it at installkosmos.com and sign in to Kosmos+.\n'
+      + '2. Go to Projects, press + Add Project, then Join an external project.\n'
+      + '3. Paste this code and press Verify:\n'
+      + '\n'
+      + CODE + '\n'
+      + '\n'
+      + 'The code works once, until Sunday, October 11.';
+    /* Set the "You" name and the owner's members answer (owner_name: the ACCOUNT's name, Kitty's follow-up), then let
+       the page's own loaders read them. The address is never this computer's own (a second computer, or a retired
+       first one, has an address that is not the account's name). */
+    const owner = (page, name, ownerName) => page.evaluate(async (o) => {
+      window.__you = { name: o.name };
+      window.__members = { status: 200, body: Object.assign({ owner: true, sealed: false, invites: [], checked_at: 1791115200 },
+        o.ownerName === null ? {} : { owner_name: o.ownerName }) };
+      await refreshYouName();
+      await fedMembersLoad('k');
+      return { you: YOU_NAME, ownerName: (FED_MEMBERS && FED_MEMBERS.body && FED_MEMBERS.body.owner_name) || '' };
+    }, { name, ownerName });
+    // #5373: wait for the state an arm reads instead of a fixed sleep, which a slow CI runner outran. The assertion
+    // after the wait is unchanged, so a wrong state still fails (after the limit instead of at once).
+    const untilStatus = (page, want, ms = 4000) => page.waitForFunction((w) => {
+      const s = document.getElementById('fedinv-status').textContent;
+      return w.prefix ? s.startsWith(w.text) : s === w.text;
+    }, want, { timeout: ms }).catch(() => {});
+    // A held write is past the 3 s limit: the refusal is up and the busy flag is free.
+    const untilRefused = (page) => page.waitForFunction(() => !FEDINV_COPY_BUSY
+      && document.getElementById('fedinv-status').textContent.startsWith('Kosmos could not copy'), null, { timeout: 8000 }).catch(() => {});
+    const step = (page) => page.evaluate(() => {
+      const all = document.getElementById('fedinv-copy-all');
+      const acts = all ? [...all.parentElement.querySelectorAll('button')].map((b) => b.id) : [];
+      return {
+        until: document.getElementById('fedinv-until').textContent,
+        easier: (document.getElementById('fedinv-easier') || {}).textContent || null,
+        allText: all ? all.textContent : null, allPrime: !!all && all.classList.contains('uprime'),
+        allShown: !!all && all.getClientRects().length > 0, acts,
+        copyText: document.getElementById('fedinv-copy').textContent,
+        status: document.getElementById('fedinv-status').textContent,
+        open: !document.getElementById('fedinv-modal').hidden,
+        copied: window.__copied.slice(), unhandled: window.__unhandled.slice(),
+      };
+    });
+    const makeCode = async (page, label) => {
+      await page.click('#pj-add-member');
+      await page.click('#pj-addmenu-outside');
+      await page.fill('#fedinv-label', label);
+      await page.click('#fedinv-make');
+      await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
+    };
+    const copyAll = async (page) => { await page.click('#fedinv-copy-all'); await page.waitForTimeout(100); };
+
+    const { ctx, page } = await newPage(1280, SHOW);
+    await openProjectIn(page, 'tabs');
+    let o = await owner(page, 'Maya Chen', 'maya');
+    check('C setup: the page read the "You" name and the account name (owner_name) through its own loaders',
+      o.you === 'Maya Chen' && o.ownerName === 'maya', JSON.stringify(o));
+    await makeCode(page, 'Dana Ruiz');
+    let st = await step(page);
+    check('C0 the code step reads as shot 03: the withdraw line names Dana',
+      st.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until Dana joins.', st.until);
+    check('C0 the Easier box names Dana',
+      st.easier === 'Easier: copy the whole invitation. It has the code and the three steps Dana needs, ready to paste into an email or a text.', st.easier);
+    check('C0 "Copy the invitation" is the primary button, after Done, and the bare Copy stays',
+      st.allText === 'Copy the invitation' && st.allPrime && st.allShown && st.acts.join(',') === 'fedinv-ok,fedinv-copy-all' && st.copyText === 'Copy',
+      JSON.stringify({ allText: st.allText, prime: st.allPrime, shown: st.allShown, acts: st.acts, copy: st.copyText }));
+    const c0focus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    check('C0 the code step puts focus on Copy the invitation, the primary', c0focus === 'fedinv-copy-all', 'focus=' + c0focus);
+
+    // C1: the control first, on the same screen: the bare Copy writes only the code.
+    await page.evaluate(() => { window.__copied.length = 0; });
+    await page.click('#fedinv-copy');
+    await untilStatus(page, { text: 'Code copied.' });   // #5373
+    st = await step(page);
+    check('C1 control: the bare Copy writes only the code', st.copied.length === 1 && st.copied[0] === CODE, JSON.stringify(st.copied));
+    await copyAll(page);
+    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
+    st = await step(page);
+    const c1 = st.copied[1];
+    check('C1 Copy the invitation writes shot 04\'s text exactly, with the name and the address',
+      st.copied.length === 2 && c1 === invitation('Maya Chen (' + ADDR + ')'), JSON.stringify(c1));
+    check('C1 it says Copied, and the bare Copy is not left saying Copied', st.allText === 'Copied' && st.copyText === 'Copy' && st.status === 'Invitation copied.',
+      JSON.stringify({ all: st.allText, copy: st.copyText, status: st.status }));
+    await page.waitForTimeout(2300);
+    st = await step(page);
+    check('C1 the button reverts to "Copy the invitation"', st.allText === 'Copy the invitation' && st.status === '', JSON.stringify({ all: st.allText, status: st.status }));
+
+    /* C1b (merged-C review): only the OWNER's members answer names the address. A member's answer (owner: false)
+       carries another account's owner_name, so the invitation keeps the name alone. Control: the same answer with
+       owner: true prints the address. Called through the page's own fedInviteText on this project's code. */
+    const asOwner = (isOwner) => page.evaluate((own) => {
+      const saved = FED_MEMBERS;
+      FED_MEMBERS = Object.assign({}, saved, { body: Object.assign({}, saved.body, { owner: own, owner_name: 'maya' }) });
+      try { return fedInviteText({ code: 'X', expires_at: saved.body.checked_at + 86400, project: 'P', projectId: saved.project }); }
+      finally { FED_MEMBERS = saved; }
+    }, isOwner);
+    const notOwner = await asOwner(false);
+    const yesOwner = await asOwner(true);
+    check('C1b a member\'s answer (owner: false) never names its owner_name as this invitation\'s address',
+      /^Maya Chen invited you/.test(notOwner) && !/kosmosplus\.com/.test(notOwner.split('\n')[0]), notOwner.split('\n')[0]);
+    check('C1b control: the owner\'s answer (owner: true) names the address', yesOwner.startsWith('Maya Chen (' + ADDR + ')'), yesOwner.split('\n')[0]);
+
+    // C3: the step words, read out of the invitation that was just copied.
+    const m2 = /^2\. Go to Projects, press (.+), then (.+)\.$/m.exec(c1 || '');
+    const m3 = /^3\. Paste this code and press (.+):$/m.exec(c1 || '');
+    const words = m2 && m3 ? [m2[1], m2[2], m3[1]] : null;
+    check('C3 setup: the invitation names three step words', !!words && words.length === 3, JSON.stringify(words));
+
+    // C2: no "You" name, then a name and no address, then neither. Each is read by the page's loaders again.
+    const variant = async (name, ownerName) => {
+      const got = await owner(page, name, ownerName);
+      await page.evaluate(() => { window.__copied.length = 0; });
+      await copyAll(page);
+      await page.waitForFunction(() => window.__copied.length > 0, null, { timeout: 4000 }).catch(() => {});   // #5373
+      const s2 = await step(page);
+      return { got, text: s2.copied[0] };
+    };
+    let v = await variant('', 'maya');
+    check('C2 no "You" name: "maya.kosmosplus.com invited you ...", the rest the same (control: C1 with the name)',
+      v.got.you === '' && v.text === invitation(ADDR), JSON.stringify(v));
+    /* No owner_name (a board before Kitty's follow-up): the name alone, never this computer's address. Control: C1
+       with owner_name carries the address. */
+    v = await variant('Maya Chen', null);
+    check('C2 no owner_name: "Maya Chen invited you ...", with no address (control: C1 with owner_name)',
+      v.got.ownerName === '' && v.text === invitation('Maya Chen'), JSON.stringify(v));
+    /* This computer's own address is NEVER printed, even when the board knows it (a second computer's, or a retired
+       first one's, is not the account's name). Planted here through the page's own loader; control: C1, where the
+       account name (owner_name) is printed. */
+    const planted = await page.evaluate(async () => {
+      window.__computers = { ok: true, domain: 'kosmosplus.com', computers: [{ name: 'studio', address: 'maya-studio.kosmosplus.com', this: true, online: true }] };
+      await computersFetch();   // the page's own loader; no typeof guard, so a rename fails here
+      return THIS_COMPUTER_NAME;
+    });
+    v = await variant('Maya Chen', null);
+    check('C2 this computer\'s own address, which the page has read, is not printed (control: C1 prints the account name)',
+      planted === 'studio' && !String(v.text).includes('maya-studio') && v.text === invitation('Maya Chen'), JSON.stringify({ planted, v }));
+    v = await variant('Maya Chen', 'Not A Handle!');
+    check('C2 an owner_name that is not a Kosmos+ name is not printed', v.text === invitation('Maya Chen'), JSON.stringify(v));
+    v = await variant('', null);
+    check('C2 neither: "Someone invited you ..."', v.text === invitation('Someone'), JSON.stringify(v));
+
+    // C4: the clipboard refuses AND the select-and-copy fallback fails. Restore the name and address first.
+    await owner(page, 'Maya Chen', 'maya');
+    await page.evaluate(() => {
+      window.__copied.length = 0;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Write permission denied.'); } } });
+      window.__execOk = false;   // the select-and-copy fails too
+      FEDINV_CLIP_HOLDS = '';    // no earlier copy of this text on record (C2 left one), so the refusal is real
+    });
+    await copyAll(page);
+    await untilStatus(page, { text: 'Kosmos could not copy the invitation.', prefix: true });   // #5373
+    st = await step(page);
+    // The keys are this computer's (Mona: Command C is wrong on Windows), read from the page's one helper.
+    const keys = await page.evaluate(() => copyKeysWord());
+    check('C4 the keys named are this platform\'s', keys === (ON_MAC ? 'Command C' : 'Ctrl C'), 'keys=' + keys);
+    check('C4 a refused clipboard says so in the message line, keeps the button\'s words and the sheet, and throws nothing (control: C1 said Copied)',
+      st.status === 'Kosmos could not copy the invitation. Select the code above and press ' + keys + ' to copy the code alone, then paste it into your message.'
+      && st.allText === 'Copy the invitation' && st.open && st.copied.length === 0 && st.unhandled.length === 0,
+      JSON.stringify({ status: st.status, all: st.allText, open: st.open, unhandled: st.unhandled }));
+    await page.waitForTimeout(2300);
+    st = await step(page);
+    check('C4 the refusal stays on screen (no revert timer clears it)', st.status.startsWith('Kosmos could not copy the invitation.'), st.status);
+    // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
+    await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
+    await copyAll(page);
+    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
+    st = await step(page);
+    const exec = await page.evaluate(() => ({ texts: window.__execTexts.slice(), focus: document.activeElement && document.activeElement.id }));
+    check('C4b select-and-copy (tried first) copies the exact invitation, says Copied, and focus is back on the button (control: C4, failing)',
+      exec.texts.length === 1 && exec.texts[0] === invitation('Maya Chen (' + ADDR + ')') && st.allText === 'Copied'
+      && st.status === 'Invitation copied.' && exec.focus === 'fedinv-copy-all',
+      JSON.stringify({ exec, all: st.allText, status: st.status }));
+    await page.evaluate(() => { window.__execOk = false; });
+    await page.click('#fedinv-ok');
+
+    // C3 continued: walk the page's own path to the join step, finding each word as a visible label.
+    const find = (page, text) => page.evaluate((t) => {
+      const vis = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+      const norm = (el) => el.textContent.replace(/\s+/g, ' ').trim();
+      const root = document.getElementById('panel-projects');
+      const hit = root ? [...root.querySelectorAll('button, label, a')].find((el) => vis(el) && norm(el) === t) : null;
+      document.querySelectorAll('[data-c3-hit]').forEach((el) => el.removeAttribute('data-c3-hit'));
+      if (hit) hit.setAttribute('data-c3-hit', '1');
+      return hit ? (hit.id || hit.tagName + ':' + (hit.querySelector('input') || {}).id) : null;
+    }, text);
+    const found = [];
+    if (words) {
+      await page.evaluate(() => { showTab('projects'); pjView('list'); });   // the Projects list, where step 2 starts
+      await page.waitForTimeout(200);
+      for (const w of words) {
+        const hit = await find(page, w);
+        found.push({ word: w, hit });
+        if (!hit) break;
+        if (found.length === 3) break;   // Verify is found as a label; not pressed (no side effect on the stub)
+        await page.click('[data-c3-hit]');
+        await page.waitForTimeout(200);
+      }
+    }
+    check('C3 each step word is a visible label on the page\'s own path: Projects list, Add Project screen, join step',
+      !!words && found.length === 3 && found.every((f) => f.hit), JSON.stringify(found));
+    const none = await find(page, 'Join a shared project');
+    check('C3 control: the same finder finds nothing for a phrase the page does not have', none === null, String(none));
+    await ctx.close();
+
+    /* C5: the helper names Ctrl C on a Windows page (Mona: Command C is wrong on Windows). Control: a Mac page
+       (MacIntel) names Command C, whatever the runner is. C5b then checks a real refusal line renders it. */
+    {
+      const words = {};
+      for (const plat of ['Win32', 'MacIntel']) {
+        const pw = await newPage(1280, SHOW, plat);
+        words[plat] = await pw.page.evaluate(() => ({ word: copyKeysWord(), glyph: copyKeysGlyph() }));
+        await pw.ctx.close();
+      }
+      check('C5 Windows names Ctrl C and Ctrl+C; the Mac names Command C and \u2318C (control)',
+        words.Win32.word === 'Ctrl C' && words.Win32.glyph === 'Ctrl+C' && words.MacIntel.word === 'Command C' && words.MacIntel.glyph === '\u2318C',
+        JSON.stringify(words));
+      // C5b: on a Windows page, the bare Copy's real refusal (clipboard and select-and-copy both failing) renders
+      // Windows keys in its button and line, so the sheet's bare Copy going back to a hard-coded Command C fails here.
+      // (pjCopyInvite and pjsOwnCopy use the same helper; C5 pins the helper, no arm renders their refusals.)
+      const pw = await newPage(1280, SHOW, 'Win32');
+      await openProjectIn(pw.page, 'tabs');
+      await makeCode(pw.page, 'Dana Ruiz');
+      await pw.page.evaluate(() => {
+        window.__execOk = false;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } });
+      });
+      await pw.page.click('#fedinv-copy');
+      await pw.page.waitForTimeout(100);
+      const win = await step(pw.page);
+      check('C5b a Windows page\'s bare Copy refusal says Ctrl+C and Ctrl C (control: C5\'s Mac page names Command C)',
+        win.copyText === 'Press Ctrl+C to copy' && win.status === 'Kosmos could not copy it. Select the code and press Ctrl C.',
+        JSON.stringify({ copy: win.copyText, status: win.status }));
+      await pw.ctx.close();
+    }
+
+    /* C6: the clipboard that never answers. Select-and-copy fails, the clipboard is held: the line says nothing for the
+       first 3 s, the bare Copy is ignored while it waits (one answer at a time), then the 3 s limit says it could not
+       copy; when the held write finally lands, the line says Copied (plusCopyAddress's rule). */
+    {
+      const pc = await newPage(1280, SHOW);
+      await openProjectIn(pc.page, 'tabs');
+      await owner(pc.page, 'Maya Chen', 'maya');
+      await makeCode(pc.page, 'Dana Ruiz');
+      await pc.page.evaluate(() => {
+        window.__execOk = false;
+        window.__copied.length = 0;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (txt) => new Promise((ok) => { window.__releaseClip = () => { window.__copied.push(txt); ok(); }; }) } });
+      });
+      await pc.page.click('#fedinv-copy-all');
+      await pc.page.waitForTimeout(300);
+      const waiting = await step(pc.page);
+      await pc.page.click('#fedinv-copy');   // ignored while Copy the invitation waits
+      await pc.page.waitForTimeout(100);
+      const bareWhileBusy = await step(pc.page);
+      await pc.page.waitForTimeout(3200);   // ~600 ms past the 3 s limit, for a loaded runner
+      const limit = await step(pc.page);
+      await pc.page.evaluate(() => window.__releaseClip());
+      await pc.page.waitForTimeout(150);
+      const late = await step(pc.page);
+      check('C6 a held clipboard: nothing said while it waits, the bare Copy ignored, the 3 s limit says it could not copy, a late write says Copied',
+        waiting.status === '' && waiting.allText === 'Copy the invitation'
+        && bareWhileBusy.status === 'One moment: Kosmos is still copying. Press again in a few seconds.' && bareWhileBusy.copyText === 'Copy'
+        && limit.status.startsWith('Kosmos could not copy the invitation.')
+        && late.status === 'Invitation copied.' && late.allText === 'Copied' && late.copied.length === 1 && late.copied[0] === invitation('Maya Chen (' + ADDR + ')'),
+        JSON.stringify({ waiting: waiting.status, bare: [bareWhileBusy.status, bareWhileBusy.copyText], limit: limit.status, late: [late.status, late.allText, late.copied.length] }));
+      await pc.ctx.close();
+    }
+
+    /* C7: the cross-button case. The invitation's clipboard is held past the 3 s limit (refusal shown), then the bare
+       Copy succeeds by select-and-copy ("Code copied."), then the held invitation write lands and replaces the code.
+       The line must say what the clipboard now holds, not leave "Code copied." standing. Control: C6, the same late
+       write with no newer press, says "Invitation copied.". */
+    {
+      const p7 = await newPage(1280, SHOW);
+      await openProjectIn(p7.page, 'tabs');
+      await makeCode(p7.page, 'Dana Ruiz');
+      await p7.page.evaluate(() => {
+        window.__execOk = false;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (txt) => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
+      });
+      await p7.page.click('#fedinv-copy-all');
+      await untilRefused(p7.page);   // past the limit: the refusal is up and the busy flag is free
+      await p7.page.evaluate(() => { window.__execOk = true; });
+      await p7.page.click('#fedinv-copy');
+      await untilStatus(p7.page, { text: 'Code copied.' });
+      const newer = await step(p7.page);
+      await p7.page.evaluate(() => window.__releaseClip());
+      await untilStatus(p7.page, { text: 'An earlier copy finished late, so the clipboard now holds the invitation. Press Copy to copy the code alone.' });
+      const after = await step(p7.page);
+      check('C7 a held write that lands after a newer copy says the clipboard now holds the invitation (control: C6 without a newer press)',
+        newer.status === 'Code copied.'
+        && after.status === 'An earlier copy finished late, so the clipboard now holds the invitation. Press Copy to copy the code alone.',
+        JSON.stringify({ newer: newer.status, after: after.status }));
+      // C7b: the same button twice (same text): the stale write changes nothing, so the newer "Copied" stands.
+      await p7.page.evaluate(() => {
+        FEDINV_CLIP_HOLDS = '';   // C7's late write recorded the invitation; each arm starts with no copy on record
+        window.__execOk = false;
+        window.__holds = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__holds.push(ok); }) } });
+      });
+      await p7.page.click('#fedinv-copy-all');
+      await untilRefused(p7.page);
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForFunction(() => window.__holds.length === 2, null, { timeout: 4000 }).catch(() => {});
+      await p7.page.evaluate(() => window.__holds[1]());   // the newer press lands first
+      await untilStatus(p7.page, { text: 'Invitation copied.' });
+      await p7.page.evaluate(() => window.__holds[0]());   // then the stale one, same text
+      await p7.page.waitForTimeout(150);
+      const same = await step(p7.page);
+      check('C7b a stale write of the same text leaves the newer "Invitation copied." standing (control: C7 with the other button)',
+        same.status === 'Invitation copied.', JSON.stringify({ status: same.status }));
+      // C7c: the same button twice, BOTH refused (both held past the limit), then the stale write lands: it did copy
+      // the invitation, so the refusal gives way to "Invitation copied." (control: C7b, where the newer press said so).
+      await p7.page.evaluate(() => { window.__holds = []; FEDINV_CLIP_HOLDS = ''; });   // no copy on record: both presses refused
+      await p7.page.click('#fedinv-copy-all');
+      await untilRefused(p7.page);
+      await p7.page.click('#fedinv-copy-all');
+      await p7.page.waitForFunction(() => FEDINV_COPY_BUSY, null, { timeout: 4000 }).catch(() => {});   // its own write is in flight
+      await untilRefused(p7.page);
+      const refused = await step(p7.page);
+      await p7.page.evaluate(() => window.__holds[0]());   // the stale write, same text, lands
+      await untilStatus(p7.page, { text: 'Invitation copied.' });
+      const landed = await step(p7.page);
+      check('C7c a stale same-text write after a refused newer press says "Invitation copied."',
+        refused.status.startsWith('Kosmos could not copy the invitation.') && landed.status === 'Invitation copied.',
+        JSON.stringify({ refused: refused.status, landed: landed.status }));
+      await p7.ctx.close();
+    }
+    /* C7d: the other direction. The bare Copy's clipboard is held past the limit, then Copy the invitation succeeds by
+       select-and-copy, then the held code write lands and replaces the invitation: the line says the clipboard holds
+       the code alone. Control: C7, the same race the other way round, names the invitation. */
+    {
+      const p7d = await newPage(1280, SHOW);
+      await openProjectIn(p7d.page, 'tabs');
+      await makeCode(p7d.page, 'Dana Ruiz');
+      await p7d.page.evaluate(() => {
+        FEDINV_CLIP_HOLDS = '';
+        window.__execOk = false;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((ok) => { window.__releaseClip = () => ok(); }) } });
+      });
+      await p7d.page.click('#fedinv-copy');
+      await untilRefused(p7d.page);
+      await p7d.page.evaluate(() => { window.__execOk = true; });
+      await p7d.page.click('#fedinv-copy-all');
+      await untilStatus(p7d.page, { text: 'Invitation copied.' });
+      const newer = await step(p7d.page);
+      await p7d.page.evaluate(() => window.__releaseClip());
+      await untilStatus(p7d.page, { text: 'An earlier copy finished late, so the clipboard now holds the code alone. Press Copy the invitation to copy the invitation.' });
+      const after = await step(p7d.page);
+      check('C7d a held code write that lands after a newer invitation copy says the clipboard now holds the code alone (control: C7)',
+        newer.status === 'Invitation copied.'
+        && after.status === 'An earlier copy finished late, so the clipboard now holds the code alone. Press Copy the invitation to copy the invitation.',
+        JSON.stringify({ newer: newer.status, after: after.status }));
+      await p7d.ctx.close();
+    }
+
+    /* C8: the sheet's type (Mona's NIT 4): title size equals the add-agent dialog's .rm-title; fields have no hairline. */
+    {
+      const p8 = await newPage(1280, SHOW);
+      await openProjectIn(p8.page, 'tabs');
+      await p8.page.click('#pj-add-member');
+      await p8.page.click('#pj-addmenu-outside');
+      const css = await p8.page.evaluate(() => {
+        const px = (el) => el ? parseFloat(getComputedStyle(el).fontSize) : null;
+        const ref = document.querySelector('#am-modal .rm-title');
+        const fields = [...document.querySelectorAll('#fedinv-modal .field')].map((f) => getComputedStyle(f).borderTopWidth);
+        const outside = [...document.querySelectorAll('.field')].find((f) => !f.closest('#fedinv-modal') && parseFloat(getComputedStyle(f).borderTopWidth) > 0);
+        return { title: px(document.getElementById('fedinv-t')), ref: px(ref), fields, outside: !!outside };
+      });
+      check('C8 the sheet title is the size of the add-agent dialog\'s .rm-title, and its fields carry no hairline (control: a .field elsewhere does)',
+        css.ref !== null && css.title === css.ref && css.fields.length > 0 && css.fields.every((w) => parseFloat(w) === 0) && css.outside,
+        JSON.stringify(css));
+      await p8.ctx.close();
+    }
+
+    /* C9: the clipboard-holds record through its REAL listeners, and a write that lands after the sheet was reopened.
+       (a) an in-time clipboard write, then a refused press of the same text: Copied (the record);
+       (b) the same with a window blur in between: refused (control for a); (c) with a copy event in between: refused;
+       (d) a held write from a closed sheet lands while a new code is on screen: the line says so. */
+    {
+      const p9 = await newPage(1280, SHOW);
+      await openProjectIn(p9.page, 'tabs');
+      await makeCode(p9.page, 'Dana Ruiz');
+      const setClip = (page, mode) => page.evaluate((m) => {
+        window.__execOk = false;
+        const w = m === 'ok' ? async () => {} : m === 'no' ? async () => { throw new Error('denied'); } : () => new Promise((ok) => { window.__releaseClip = ok; });
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: w } });
+      }, mode);
+      // #5373: wait for the press's own answer (the line changed and no write is in flight), not a fixed 120 ms, which a
+      // slow CI runner outran. These clipboards settle at once, so an answer is always coming; the 3 s limit is a ceiling.
+      const press = async (page) => {
+        const before = (await step(page)).status;
+        await page.click('#fedinv-copy-all');
+        await page.waitForFunction((b) => {
+          const s = document.getElementById('fedinv-status').textContent;
+          return s !== '' && s !== b && !FEDINV_COPY_BUSY;
+        }, before, { timeout: 3000 }).catch(() => {});
+        return (await step(page)).status;
+      };
+      const run = async (between) => {
+        await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
+        await setClip(p9.page, 'ok');
+        await press(p9.page);
+        await p9.page.waitForTimeout(2100);   // past the Copied revert
+        if (between === 'blur') await p9.page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        if (between === 'copy') await p9.page.evaluate(() => document.dispatchEvent(new Event('copy')));
+        await setClip(p9.page, 'no');
+        return press(p9.page);
+      };
+      const a = await run(null), b = await run('blur'), cc = await run('copy');
+      // (e) the same as (a) by select-and-copy, whose copy event fires inside the press: the record is set AFTER it,
+      // so the sheet's own copy survives its own event. Recording BEFORE the copy fails here; recording after a later
+      // await would still land after the event, so this arm does not catch that.
+      await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
+      await setClip(p9.page, 'no');
+      await p9.page.evaluate(() => { window.__execOk = true; });
+      const eFirst = await press(p9.page);
+      await p9.page.waitForTimeout(2100);
+      await setClip(p9.page, 'no');   // both ways refuse now
+      const e = await press(p9.page);
+      check('C9e a select-and-copy survives its own copy event: a refused press of the same text after it says Copied (control: c, a copy event after)',
+        eFirst === 'Invitation copied.' && e === 'Invitation copied.', JSON.stringify({ eFirst, e }));
+      check('C9 a refused press after an in-time copy of the same text says Copied; after a blur or a copy event it is refused (controls)',
+        a === 'Invitation copied.' && b.startsWith('Kosmos could not copy the invitation.') && cc.startsWith('Kosmos could not copy the invitation.'),
+        JSON.stringify({ a, b, cc }));
+      // (d): hold a write, close the sheet, make a new code, then let the old write land.
+      await setClip(p9.page, 'hold');
+      await p9.page.click('#fedinv-copy-all');
+      await p9.page.waitForTimeout(100);
+      await p9.page.click('#fedinv-ok');
+      await makeCode(p9.page, 'Lee Park');
+      await p9.page.evaluate(() => window.__releaseClip());
+      await p9.page.waitForTimeout(150);
+      const d = (await step(p9.page)).status;
+      check('C9 a held write from a closed sheet that lands under a new code says the clipboard holds that one (control: the same sheet path, C6)',
+        d === 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation for this code.', d);
+      await p9.ctx.close();
+    }
+
+    // C0 with a label that is not a name: they/their, never "my's".
+    const p2 = await newPage(1280, SHOW);
+    await openProjectIn(p2.page, 'tabs');
+    await makeCode(p2.page, 'my sister');
+    st = await step(p2.page);
+    check('C0 a label that is not a name: "until they join" and "the three steps they need" (control: the Dana lines)',
+      st.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.'
+      && st.easier === 'Easier: copy the whole invitation. It has the code and the three steps they need, ready to paste into an email or a text.',
+      JSON.stringify({ until: st.until, easier: st.easier }));
+    await p2.ctx.close();
   }
 
   await browser.close();
