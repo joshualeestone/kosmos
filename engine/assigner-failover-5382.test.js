@@ -358,3 +358,19 @@ test('a task closed as a whole (parts still open) refuses a failover move; reope
     assert.equal(ok.ok, true, 'control: the same move on the reopened task was refused: ' + JSON.stringify(ok));
   } finally { w.restore(); }
 });
+
+test('a repeating task between runs is not moved (#4787: it holds no work then); one that is due again is', () => {
+  const w = world([{ name: 'replim', paneState: 'rate_limited' }, { name: 'repgem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.replim, 'post the morning report');
+    const at = T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS);
+    const withRun = (lastRunAt) => projects.readAll().map((p) => (p.id !== w.pid ? p
+      : { ...p, tasks: p.tasks.map((x) => (x.number === h.n ? { ...x, repeat: { every: 'day', at: '09:00' }, lastRunAt,
+        // The fixture task was made at real time (2026) and T0 is in 2001; a repeat is never due before its rule was set.
+        repeatSetAt: new Date(at - 4 * 24 * 3600 * 1000).toISOString() } : x)) }));
+    assert.equal(later(w, { records: withRun(new Date(at - 60 * 1000).toISOString()) }).toAssign.length, 0,
+      'moved a repeating task that ran a minute ago and waits for tomorrow');
+    assert.equal(later(w, { records: withRun(new Date(at - 3 * 24 * 3600 * 1000).toISOString()) }).toAssign.length, 1,
+      'control: a repeating task due again moves');
+  } finally { w.restore(); }
+});

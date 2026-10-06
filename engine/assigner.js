@@ -317,12 +317,13 @@ function askText(item) {
 /* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
    may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
    those out, #1307). `runnerOf` maps session -> provider. */
-function stalledParts(projects, ripe, runnerOf) {
+function stalledParts(projects, ripe, runnerOf, now = Date.now()) {
   const out = [];
   for (const p of projects) {
     if (require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') continue;
+      if (require('./taskrepeat').waitingForNextRun(t, now)) continue;   // #4787: between runs a repeating task holds no work
       const prog = tasks.progressOf(t);
       if (prog.closed) continue;
       for (const x of prog.parts) {
@@ -395,7 +396,7 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     limitedSince.set(a.sessionName, since);
     if (now - since >= FAILOVER_MS) ripe.add(a.sessionName);
   }
-  const stalled = setting.failover === true && ripe.size ? stalledParts(projects, ripe, runnerOf) : [];
+  const stalled = setting.failover === true && ripe.size ? stalledParts(projects, ripe, runnerOf, now) : [];
   const movedParts = new Set();
   for (const a of Array.isArray(roster) ? roster : []) {
     if (!idleCard(a)) continue;
