@@ -465,8 +465,15 @@ function composeWhy(chatgptWhy, short) {
   return [whatReads(process.platform, { chatgpt: false }), own, short, ANY_PROVIDER].filter(Boolean).join(' ');
 }
 /* The no-reader sentence after a read by `reader` could not run (only Claude and Codex report that, when their
-   program is gone): after a ChatGPT read, why, and not ChatGPT again. */
-const noModelAfter = (reader) => (reader && reader.kind === 'codex' ? composeWhy(require('./orgchartcodex').WHY_NO_CODEX) : NO_MODEL);
+   program is gone): after a ChatGPT read, why, and not ChatGPT again; after another read, a ChatGPT account here that
+   cannot be used is said the same way (the sentence would otherwise offer it). */
+function noModelAfter(reader) {
+  const codex = require('./orgchartcodex');
+  if (reader && reader.kind === 'codex') return composeWhy(codex.WHY_NO_CODEX);
+  let sub = { offWhy: null };
+  try { sub = codex.pickWithWhy(); } catch { sub = { offWhy: null }; }
+  return sub.offWhy ? composeWhy(sub.offWhy) : NO_MODEL;
+}
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).

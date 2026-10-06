@@ -495,7 +495,6 @@ test('#5346 step 2 review 5: Windows with no Codex says Windows, not "install Co
     assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
   } finally { Object.defineProperty(process, 'platform', real); c.setBin(() => fake); }
   assert.ok(noChatgptAfterClaude(o.noModelAfter({ kind: 'codex', dir: acct })), o.noModelAfter({ kind: 'codex', dir: acct }));
-  assert.equal(o.noModelAfter({ kind: 'claude' }), o.NO_MODEL, 'control: after any other reader, the usual sentence');
 });
 
 test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex version mismatch, and a Gemini key)', () => {
@@ -527,4 +526,14 @@ test('#5346 step 2 review 6: every refusal ends with ANY_PROVIDER, which current
   const whys = Object.keys(c).filter((k) => /^WHY_/.test(k) && typeof c[k] === 'string');
   assert.ok(whys.length >= 6, 'control: the scan finds the refusals: ' + whys.join(','));
   for (const k of whys) assert.ok(c[k].endsWith(' ' + c.ANY_PROVIDER), k + ' does not end with ANY_PROVIDER, so the composed reason would say it twice');
+});
+
+test('#5346 step 2 review 8: after a Claude read could not run, a refused ChatGPT here is said, not offered', () => {
+  c.setVersion(() => '9.9.9');
+  try {
+    const after = o.noModelAfter({ kind: 'claude' });
+    assert.match(after, /Kosmos has checked only version/, after);
+    assert.ok(noChatgptAfterClaude(after), after);
+  } finally { c.setVersion(() => PINNED); }
+  assert.equal(o.noModelAfter({ kind: 'claude' }), o.NO_MODEL, 'control: a usable ChatGPT here: the usual sentence (ChatGPT does read)');
 });
