@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: failover-5382
-diff_hash: 5b2bbcdc848b8150628bedebc8a2d2d3072764be529941dad1522c5d2f0d55bc
-validation: pending (full suite and FULL browser checks queued at this head)
+diff_hash: e1f89523ea2aef0f07e6d55dc57233cd11700dcc2971e3b45437a519cb6d7cb3
+validation: pending (the first full run at 246842fff failed only fixture-discipline on one hand-built roster in this branch's own test; fixed; full suite and FULL browser checks requeued)
 subdir_audit: passed
 timestamp: 2026-10-06T14:45:15Z
 iterations: 16
