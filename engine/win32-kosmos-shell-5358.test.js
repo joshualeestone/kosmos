@@ -38,6 +38,9 @@ test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives i
     const upper = launcher.childEnv({ PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
     assert.deepEqual(keysOf(upper, 'PSExecutionPolicyPreference'), ['PSEXECUTIONPOLICYPREFERENCE'], runner + ': uppercase');
     assert.equal(upper.PSEXECUTIONPOLICYPREFERENCE, 'Bypass', runner + ': uppercase');
+    const two = launcher.childEnv({ psexecutionpolicypreference: 'RemoteSigned', PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
+    assert.equal(keysOf(two, 'PSExecutionPolicyPreference').length, 1, runner + ': two spellings in, one key out');
+    assert.equal(two[keysOf(two, 'PSExecutionPolicyPreference')[0]], 'Bypass', runner + ': two spellings in');
     const same = launcher.childEnv({ PSExecutionPolicyPreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
     assert.deepEqual(keysOf(same, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': the usual spelling');
     assert.equal(same.PSExecutionPolicyPreference, 'Bypass', runner);
@@ -101,12 +104,13 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
     } finally { fs.rmSync(z.root, { recursive: true, force: true }); }
   });
 
-test('#5358 Windows: under a Restricted policy, PowerShell with Claude Code\'s flags runs kosmos; codex\'s needs the agent\'s variable',
+test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and runs with Claude Code\'s flags; codex\'s PowerShell needs the agent\'s variable',
   // Its own timeout: several PowerShell starts, past the runner script's 60 s per test default.
   { timeout: 240000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
     const z = stageZip();
     const ps = (env, command, flags = []) => run(POWERSHELL, ['-NoProfile', '-NonInteractive', ...flags, '-Command', command], env);
     const was = String(ps(baseEnv(), 'Get-ExecutionPolicy -Scope CurrentUser').stdout || '').trim() || 'Undefined';
+    let failed = null;
     try {
       const set = ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Restricted -Force');
       assert.equal(set.status, 0, 'could not set the CurrentUser policy: ' + set.stderr);
@@ -122,13 +126,19 @@ test('#5358 Windows: under a Restricted policy, PowerShell with Claude Code\'s f
       const refused = ps(bare, 'kosmos --version');
       assert.doesNotMatch(String(refused.stdout), STUB, 'control: a Restricted policy did not stop kosmos.ps1');
       // PowerShell's English wording: the runner is en-US.
-      assert.match(String(refused.stderr) + String(refused.stdout), /scripts is disabled|cannot be loaded/i, 'control: refused for another reason: ' + said(refused));
+      assert.match(String(refused.stderr) + String(refused.stdout), /scripts is disabled|UnauthorizedAccess|PSSecurityException/i, 'control: refused for another reason: ' + said(refused));
       const codex = agentEnv(z.bin, 'codex');
       assert.equal(codex.PSExecutionPolicyPreference, 'Bypass', 'the policy must come from childEnv (baseEnv carries none)');
       const ran = ps(codex, 'kosmos --version');
       assert.match(String(ran.stdout), STUB, 'codex\'s PowerShell with the agent\'s variable: ' + said(ran));
-    } finally {
-      ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy ' + (/^[A-Za-z]+$/.test(was) ? was : 'Undefined') + ' -Force');
+    } catch (e) { failed = e; throw e; } finally {
+      const back = ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy ' + (/^[A-Za-z]+$/.test(was) ? was : 'Undefined') + ' -Force');
       fs.rmSync(z.root, { recursive: true, force: true });
+      // A policy left Restricted would turn later Windows tests red for no reason of their own: say so loudly, and fail
+      // here unless this arm already failed (its own reason comes first).
+      if (back.status !== 0) {
+        process.stderr.write('#5358: COULD NOT RESTORE the CurrentUser script policy to ' + was + '; later reds in this job may be this.\n' + said(back) + '\n');
+        if (!failed) assert.fail('could not restore the CurrentUser script policy: ' + said(back));
+      }
     }
   });

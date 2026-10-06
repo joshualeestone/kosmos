@@ -164,7 +164,9 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
   if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
     // ONE KEY, WHATEVER ITS CASE: Node on Windows sorts env names and keeps the first case-insensitive match, so an
     // inherited PSEXECUTIONPOLICYPREFERENCE would win over a Bypass added beside it (#5358).
-    env[Object.keys(env).find((k) => k.toUpperCase() === 'PSEXECUTIONPOLICYPREFERENCE') || 'PSExecutionPolicyPreference'] = 'Bypass';
+    const variants = Object.keys(env).filter((k) => k.toUpperCase() === 'PSEXECUTIONPOLICYPREFERENCE');
+    for (const k of variants.slice(1)) delete env[k];
+    env[variants[0] || 'PSExecutionPolicyPreference'] = 'Bypass';
   }
   return env;
 }
