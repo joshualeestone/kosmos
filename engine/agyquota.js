@@ -155,15 +155,15 @@ function plan(report, entry, now, heldBackUntil) {
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
 
-/* #5382: the carry-on line, plus the parts the Assigner's failover gave to other agents while this one was paused
-   (movedAway(session, since) -> ["task N in \"P\" (now X's)"], injected), so it does not carry on with work that is
-   now somebody else's. Looks back MAX_AGE_MS, the longest pause this module resumes. A movedAway that throws adds nothing. */
-function nudgeText(session, now, movedAway) {
-  let gone = [];
-  if (typeof movedAway === 'function') { try { gone = movedAway(session, now - MAX_AGE_MS) || []; } catch { gone = []; } }
-  if (!Array.isArray(gone) || !gone.length) return NUDGE_TEXT;
-  return NUDGE_TEXT + ' While you were paused, Kosmos gave ' + gone.join(', ') + ' to another agent: leave '
-    + (gone.length === 1 ? 'it' : 'those') + ' to them.';
+/* #5382: the carry-on line, plus the parts the Assigner's failover gave to other agents that this one has not been told
+   about (`gone`: items from engine/failovertell.js owedFor, each with a `phrase`, or plain strings), so it does not
+   carry on with work that is now somebody else's. Review 8: the list is the part's own owedTell record, not a time
+   window, so a week-long pause still names a move made in its first hour and a second pause does not repeat the first's. */
+function nudgeText(gone) {
+  const said = (Array.isArray(gone) ? gone : []).map((g) => (typeof g === 'string' ? g : g && g.phrase)).filter((x) => typeof x === 'string' && x);
+  if (!said.length) return NUDGE_TEXT;
+  return NUDGE_TEXT + ' While you were paused, Kosmos gave ' + said.join(', ') + ' to another agent: leave '
+    + (said.length === 1 ? 'it' : 'those') + ' to them.';
 }
 
 /*
@@ -205,7 +205,11 @@ function sweepOnce(o) {
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
     const d = due[0];
     let state = null;
-    try { const r = o.deliver(d.session, nudgeText(d.session, now, o.movedAway), o.roster); state = r && r.state; }
+    /* #5382: the parts owed a line (o.movedAway(session) -> owedFor items), marked told (o.movedTold) once the line may
+       have reached the pane. A lookup that throws names nothing, and the failover sweep tells it later. */
+    let gone = [];
+    if (typeof o.movedAway === 'function') { try { gone = o.movedAway(d.session) || []; } catch { gone = []; } }
+    try { const r = o.deliver(d.session, nudgeText(gone), o.roster); state = r && r.state; }
     catch (err) { state = 'threw: ' + String((err && err.message) || err); }
     const D = o.DELIVERY || {};
     const delivered = D.PLACED != null && state === D.PLACED;
@@ -214,6 +218,7 @@ function sweepOnce(o) {
     book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, lastTryAt: now, delivery: state });
     // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
     if (mayHaveReached) book.set(LAST, now);
+    if (mayHaveReached && Array.isArray(gone) && gone.length && typeof o.movedTold === 'function') { try { o.movedTold(d.session, gone); } catch { /* told again later */ } }
     const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
     const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
       because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left idle with its turn unfinished until someone messages it' : d.because, waiting: due.length - 1 };
@@ -235,7 +240,7 @@ function makeTick(deps) {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log });
     } catch { return null; }
   };
 }

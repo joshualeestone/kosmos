@@ -202,7 +202,7 @@ function pick(session, projects, taken) {
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
   return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map(),
-    limitedSince: new Map(), pausedSince: new Map() };
+    limitedSince: new Map() };
 }
 
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
@@ -392,16 +392,6 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
   const runnerOf = new Map();
   const ripe = new Set();
   const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
-  /* #5382 (review 7): when each of our agents started reading rate_limited at all (dated or not), so the moment it stops
-     is seen: an agent whose parts the failover gave away is then told, once (runOnce's `tell`), whatever its runner. */
-  const pausedSince = new Map();
-  const released = [];
-  const basePaused = base.pausedSince instanceof Map ? base.pausedSince : new Map();
-  for (const a of Array.isArray(roster) ? roster : []) {
-    if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    if (a.state === 'rate_limited') pausedSince.set(a.sessionName, basePaused.has(a.sessionName) ? basePaused.get(a.sessionName) : now);
-    else if (basePaused.has(a.sessionName)) released.push({ session: a.sessionName, since: basePaused.get(a.sessionName) });
-  }
   /* `runners` (session -> runner or null) is the board's own derivation, passed in by tick (review 6: a card's runner of
      'claude' can be a default, not a fact). Without it, the card's own field. */
   for (const a of Array.isArray(roster) ? roster : []) {
@@ -456,8 +446,7 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  return { toAssign, toAsk, released: setting.failover === true ? released : [],
-    next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, pausedSince } };
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince } };
 }
 
 /**
@@ -465,18 +454,8 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
  * charge back off the budget, so a refusal does not spend an hour's allowance.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY, runners, tell }) {
+function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY, runners }) {
   const out = step({ prev, roster, setting, records, commitments, goals, now, runners });
-  /* #5382 (review 7): an agent whose limit just lifted is told which of its parts the failover gave away during it
-     (tell(session, since) does the lookup and the line, and sends nothing when none were). One try per lift. */
-  const told = [];
-  if (typeof tell === 'function') {
-    for (const r of out.released || []) {
-      let v = null;
-      try { v = tell(r.session, r.since); } catch { v = null; }
-      told.push({ session: r.session, result: v });
-    }
-  }
   /* #5161: an ask that did not land must not record the project as asked-about-in-this-state, or a pane that refused
      once would silence that project until something changed. */
   const unrecord = (item) => {
@@ -532,7 +511,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
     }
     asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
   }
-  return { next: out.next, acted, asks, told };
+  return { next: out.next, acted, asks };
 }
 
 /**
@@ -548,7 +527,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
  *   ask(session, text, roster), DELIVERY
  * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
-function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY, readRunner, tell }) {
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY, readRunner }) {
   const setting = readSetting();
   const roster = setting && setting.on === true ? readRoster() : null;
   const records = setting && setting.on === true ? readRecords() : [];
@@ -578,7 +557,6 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     }
   }
   return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY, runners,
-    tell: typeof tell === 'function' ? (session, since) => tell(session, since, roster) : undefined,
     give: (projectId, n, partId, who, from) => give(projectId, n, partId, who, roster, from),
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }

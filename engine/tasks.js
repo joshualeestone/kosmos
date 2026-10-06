@@ -525,9 +525,17 @@ function assignPart(projectId, n, partId, who, made) {
       if (hookNo) throw new Error(hookNo);
       if (!moved) return x;
       const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
-      /* #5382: who a failover move took the part from, so that agent can be told when it resumes (agyquota's carry-on
-         line) and nobody reads it as never started. Any other move clears it. */
-      if (made && made.failover === true && x.who) y.movedFrom = x.who; else delete y.movedFrom;
+      /* #5382: `movedFrom`, who a failover move took the part from (the receiver's line names it; any other move clears it).
+         `owedTell`, every agent the failover took this part from that has not yet been TOLD (engine/failovertell.js), kept
+         on the part so the obligation survives a restart, a setting change and a long pause (review 8). A failover move
+         adds its source; any move drops the new holder (it is theirs again, nothing to tell); finishing it ends the
+         need (the sweep reads open parts only). A chain A -> B -> C owes both A and B. */
+      const owed = (Array.isArray(x.owedTell) ? x.owedTell : []).filter((s) => typeof s === 'string' && s !== whoKey);
+      if (made && made.failover === true && x.who) {
+        y.movedFrom = x.who;
+        if (!owed.includes(x.who)) owed.push(x.who);
+      } else delete y.movedFrom;
+      if (owed.length) y.owedTell = owed; else delete y.owedTell;
       return y;
     });
   }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
@@ -540,6 +548,23 @@ function assignPart(projectId, n, partId, who, made) {
   if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
   recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
+}
+
+/* #5382 (review 8): `session` was told this part was given away; it leaves the part's owedTell. Records nothing
+   else and is a no-op when the session is not owed (a told mark is never a move). */
+function markMoveTold(projectId, n, partId, session) {
+  let found = false;
+  try {
+    writeParts(projectId, n, (parts) => parts.map((x) => {
+      if (Number(x.id) !== Number(partId) || !Array.isArray(x.owedTell) || !x.owedTell.includes(session)) return x;
+      found = true;
+      const rest = x.owedTell.filter((s) => s !== session);
+      const y = { ...x };
+      if (rest.length) y.owedTell = rest; else delete y.owedTell;
+      return y;
+    }));
+  } catch { return { ok: false }; }   // the task or project went away: nothing left to tell about
+  return { ok: found };
 }
 
 /** Finish a part, or put it back. The parent's state follows from its parts. */
@@ -1007,6 +1032,7 @@ function partsOf(task) {
       /* #5382: who a failover move took the part from. Carried like the provenance above: without it every reader
          (server movedAwayFrom) saw nothing, and the next write to the task erased it from the store. */
       ...(part.movedFrom ? { movedFrom: part.movedFrom } : {}),
+      ...(Array.isArray(part.owedTell) && part.owedTell.length ? { owedTell: part.owedTell.filter((s) => typeof s === 'string') } : {}),
     }));
   }
   return [{
@@ -1450,6 +1476,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, recordRun };

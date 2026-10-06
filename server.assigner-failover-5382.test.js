@@ -121,15 +121,20 @@ test('a failover move tells the receiver where the part came from; an ordinary g
   } finally { s.board.restore(); }
 });
 
-/* Review 7: the Assigner runner's two failover reads are wiring nothing else exercises: pin them in source. */
-test('review 7: the runner passes readRunner (non-claude card value, else the recorded runner) and tell (failoverTell)', () => {
+/* Review 8: the runner's failover wiring is nothing else exercises: pin it in source. */
+test('review 8: readRunner is failoverRunnerOf (null when nothing recorded); the tell sweep runs after every tick; agyquota uses the part record', () => {
   const SRC = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
   const tickCall = SRC.slice(SRC.indexOf('const out = assigner.tick({'), SRC.indexOf('assignerPrev = out.next;'));
   assert.ok(tickCall.length > 100, 'fixture: the assigner.tick call was not found');
-  assert.match(tickCall, /readRunner: \(card\) => \(card && card\.runner && card\.runner !== 'claude' \? card\.runner : create\.recordedRunner\(card\.sessionName\)\)/);
-  assert.match(tickCall, /tell: \(session, since, roster\) => failoverTell\(session, since, roster\)/);
-  const fn = SRC.slice(SRC.indexOf('function failoverTell('), SRC.indexOf('function givePart('));
-  assert.match(fn, /card\.runner === 'antigravity'\) return null/, 'failoverTell no longer leaves Antigravity to its carry-on line');
-  assert.match(fn, /movedAwayFrom\(session, since\)/);
-  assert.match(fn, /if \(!gone\.length\) return null/, 'failoverTell types a line when nothing was moved');
+  assert.match(tickCall, /readRunner: \(card\) => failoverRunnerOf\(card\)/);
+  const fn = SRC.slice(SRC.indexOf('function failoverRunnerOf('), SRC.indexOf('function givePart('));
+  assert.match(fn, /card\.runner && card\.runner !== 'claude'\) return card\.runner/);
+  assert.match(fn, /create\.readJob\(card\.sessionName\)/);
+  assert.match(fn, /return null;\s*}\s*$/, 'failoverRunnerOf does not end in null (an unrecorded agent read as claude)');
+  assert.doesNotMatch(fn, /recordedRunner/, 'recordedRunner floors at claude');
+  const after = SRC.slice(SRC.indexOf('assignerPrev = out.next;'), SRC.indexOf('assignerSaved = assigner.saveMemory'));
+  assert.match(after, /require\('\.\/engine\/failovertell'\)\.sweepOnce\(/, 'the tell sweep is not run after the tick');
+  assert.match(after, /markTold: tasks\.markMoveTold/);
+  assert.match(SRC, /movedAway: \(session\) => require\('\.\/engine\/failovertell'\)\.owedFor\(session, projects\.readAll\(\)\)/);
+  assert.match(SRC, /movedTold: \(session, items\) => require\('\.\/engine\/failovertell'\)\.markAll\(session, items, tasks\.markMoveTold\)/);
 });

@@ -266,7 +266,7 @@ test('Antigravity and the Gemini CLI count as one provider (one Google account c
   } finally { w.restore(); }
 });
 
-test('a limit Kosmos cannot date is not acted on (an old line on an idle screen); a vendor reset on the line, or a Codex limit, is', () => {
+test('a limit Kosmos cannot date is not acted on (an old line on an idle screen, an undated Codex or Gemini CLI limit); a vendor reset still ahead is', () => {
   const w = world([{ name: 'udlim', paneState: 'rate_limited', undated: true }, { name: 'udgem', runner: 'gemini' }]);
   try {
     heldTask(w.pid, w.key.udlim, 'write the deploy notes');
@@ -399,27 +399,6 @@ test('review 7: tick reads each card\'s runner through readRunner, not the card\
   } finally { w.restore(); }
 });
 
-test('review 7: when a limit lifts, runOnce tells that agent (once), with when its limit began; not with failover off', () => {
-  const w = world([{ name: 'rllim', paneState: 'rate_limited' }, { name: 'rlgem', runner: 'gemini' }]);
-  try {
-    const base = { setting: ON, records: projects.readAll(), commitments: w.states(), give: () => ({ ok: true }) };
-    const told = [];
-    const tell = (session, since) => { told.push({ session, since }); return { state: 'placed' }; };
-    const s1 = a.runOnce({ ...base, roster: w.cards, prev: undefined, now: T0, tell });
-    const s2 = a.runOnce({ ...base, roster: w.cards, prev: s1.next, now: T0 + 60000, tell });
-    assert.deepEqual(told, [], 'told while still limited');
-    const lifted = w.cards.map((c) => (c.sessionName === w.key.rllim ? { ...c, state: 'idle' } : c));
-    const s3 = a.runOnce({ ...base, roster: lifted, prev: s2.next, now: T0 + 120000, tell });
-    assert.deepEqual(told, [{ session: w.key.rllim, since: T0 }]);
-    a.runOnce({ ...base, roster: lifted, prev: s3.next, now: T0 + 180000, tell });
-    assert.equal(told.length, 1, 'told again on the next tick');
-    const off = [];
-    const o1 = a.runOnce({ ...base, setting: { on: true }, roster: w.cards, prev: undefined, now: T0, tell: (x) => off.push(x) });
-    a.runOnce({ ...base, setting: { on: true }, roster: lifted, prev: o1.next, now: T0 + 60000, tell: (x) => off.push(x) });
-    assert.deepEqual(off, [], 'told with failover off');
-  } finally { w.restore(); }
-});
-
 test('review 7: a refused failover move says the work changed, not that the part left its owner', () => {
   const w = world([{ name: 'whylim', paneState: 'rate_limited' }, { name: 'whygem', runner: 'gemini' }]);
   try {
@@ -430,5 +409,92 @@ test('review 7: a refused failover move says the work changed, not that the part
     assert.match(r.because, /finished, closed, built or put on hold/);
     const r2 = tasks.assignPart(w.pid, h.n, h.partId, w.key.whygem, { via: 'assigner', onlyIfWho: 'somebody-else', failover: true });
     assert.match(r2.because, /no longer on somebody-else/, 'control: a part not on that agent still says so');
+  } finally { w.restore(); }
+});
+
+/* ---- review 8: the obligation to tell lives on the part (owedTell) and engine/failovertell.js tells it ---- */
+const ft = require('./failovertell');
+const FAIL = { via: 'assigner', failover: true };
+const move = (w, h, from, to) => tasks.assignPart(w.pid, h.n, h.partId, to, { ...FAIL, onlyIfWho: from });
+const partNow = (w, h) => tasks.progressOf(projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === h.n)).parts
+  .find((q) => Number(q.id) === Number(h.partId));
+
+test('review 8: a failover move owes its source a line; a chain owes every source; a hand-back or a person\'s move to that agent drops it', () => {
+  const w = world([{ name: 'owa' }, { name: 'owb' }, { name: 'owc' }]);
+  try {
+    const h = heldTask(w.pid, w.key.owa, 'write the deploy notes');
+    assert.ok(move(w, h, w.key.owa, w.key.owb).ok);
+    assert.deepEqual(partNow(w, h).owedTell, [w.key.owa]);
+    assert.ok(move(w, h, w.key.owb, w.key.owc).ok);
+    assert.deepEqual(partNow(w, h).owedTell, [w.key.owa, w.key.owb], 'a chain forgot its first source');
+    // The Assigner hands it back to owb (the receiver could not be told): owb is no longer owed, owa still is.
+    assert.ok(tasks.assignPart(w.pid, h.n, h.partId, w.key.owb, { via: 'assigner', onlyIfWho: w.key.owc }).ok);
+    assert.deepEqual(partNow(w, h).owedTell, [w.key.owa]);
+    // A person gives it back to owa: nothing left to tell.
+    assert.ok(tasks.assignPart(w.pid, h.n, h.partId, w.key.owa, { via: 'screen' }).ok);
+    assert.equal(partNow(w, h).owedTell, undefined);
+    // CONTROL: an ordinary move never owes anybody.
+    assert.ok(tasks.assignPart(w.pid, h.n, h.partId, w.key.owc, { via: 'screen' }).ok);
+    assert.equal(partNow(w, h).owedTell, undefined);
+  } finally { w.restore(); }
+});
+
+test('review 8: owedFor lists only open parts the agent is owed and does not hold; markMoveTold ends it and survives other writes', () => {
+  const w = world([{ name: 'ofa' }, { name: 'ofb' }]);
+  try {
+    const h = heldTask(w.pid, w.key.ofa, 'write the deploy notes');
+    assert.deepEqual(ft.owedFor(w.key.ofa, projects.readAll()), [], 'owed before any move');
+    assert.ok(move(w, h, w.key.ofa, w.key.ofb).ok);
+    const items = ft.owedFor(w.key.ofa, projects.readAll());
+    assert.equal(items.length, 1);
+    assert.match(items[0].phrase, new RegExp('task ' + h.n + ' in ".*" \\(now ' + w.key.ofb + '\'s\\)'));
+    assert.deepEqual(ft.owedFor(w.key.ofb, projects.readAll()), [], 'the holder is owed a line about its own part');
+    tasks.addPart(w.pid, h.n, { sentence: 'a second step', made: { via: 'screen' } });
+    assert.equal(ft.owedFor(w.key.ofa, projects.readAll()).length, 1, 'another write to the task dropped the record');
+    tasks.setPartClosed(w.pid, h.n, h.partId, new Date().toISOString());
+    assert.deepEqual(ft.owedFor(w.key.ofa, projects.readAll()), [], 'a finished part is still owed');
+    tasks.setPartClosed(w.pid, h.n, h.partId, null);
+    assert.equal(tasks.markMoveTold(w.pid, h.n, h.partId, w.key.ofa).ok, true);
+    assert.deepEqual(ft.owedFor(w.key.ofa, projects.readAll()), [], 'told, still owed');
+    assert.equal(tasks.markMoveTold(w.pid, h.n, h.partId, w.key.ofa).ok, false, 'a second mark found something to mark');
+    assert.equal(tasks.markMoveTold('no-such-project', 1, 1, w.key.ofa).ok, false, 'a missing task threw or claimed a mark');
+  } finally { w.restore(); }
+});
+
+test('review 8: the sweep tells an idle owed agent once, marks only what reached it, and skips one not idle', () => {
+  const w = world([{ name: 'swa' }, { name: 'swb' }]);
+  try {
+    const h = heldTask(w.pid, w.key.swa, 'write the deploy notes');
+    assert.ok(move(w, h, w.key.swa, w.key.swb).ok);
+    const D = require('./chat').DELIVERY;
+    const run = (deliverState, isIdle = () => true) => {
+      const sent = [];
+      const out = ft.sweepOnce({ roster: w.cards, records: projects.readAll(), DELIVERY: D, isIdle, markTold: tasks.markMoveTold,
+        deliver: (s, text) => { sent.push({ s, text }); return deliverState; } });
+      return { sent, out };
+    };
+    assert.deepEqual(run({ state: D.PLACED }, () => false).sent, [], 'typed into an agent that is not idle');
+    const missed = run({ state: D.COULD_NOT });
+    assert.equal(missed.sent.length, 1);
+    assert.equal(ft.owedFor(w.key.swa, projects.readAll()).length, 1, 'a line that reached nothing marked it told');
+    const held = run({ state: D.COULD_NOT, held: true });
+    assert.equal(ft.owedFor(w.key.swa, projects.readAll()).length, 1, 'a held line marked it told');
+    assert.equal(held.sent.length, 1);
+    const ok = run({ state: D.PLACED });
+    assert.deepEqual(ok.sent.map((x) => x.s), [w.key.swa]);
+    assert.match(ok.sent[0].text, /while you were at your usage limit, task \d+ in .* was given to another agent\. Leave it to them/);
+    assert.deepEqual(run({ state: D.PLACED }).sent, [], 'told twice');
+  } finally { w.restore(); }
+});
+
+test('review 8: the sweep sends at most MAX_PER_PASS lines a pass', () => {
+  const names = ['mpa', 'mpb', 'mpc', 'mpd', 'mpz'];
+  const w = world(names.map((name) => ({ name })));
+  try {
+    for (const n of names.slice(0, 4)) { const h = heldTask(w.pid, w.key[n], 'work of ' + n); assert.ok(move(w, h, w.key[n], w.key.mpz).ok); }
+    const sent = [];
+    ft.sweepOnce({ roster: w.cards, records: projects.readAll(), DELIVERY: require('./chat').DELIVERY, isIdle: () => true,
+      markTold: tasks.markMoveTold, deliver: (s) => { sent.push(s); return { state: 'placed' }; } });
+    assert.equal(sent.length, ft.MAX_PER_PASS);
   } finally { w.restore(); }
 });
