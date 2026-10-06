@@ -3934,7 +3934,10 @@ cmd_task() {
           *) say "Say how often: hourly, daily or weekly. $_rusage"; exit 2 ;;
         esac
       done
-      [ -z "$_rwant" ] || { say "--at, --on and --reviewer each need a value. $_rusage"; exit 2; } ;;
+      [ -z "$_rwant" ] || { say "--at, --on and --reviewer each need a value. $_rusage"; exit 2; }
+      # slice 3 review 2: --at and --on belong to a frequency; without one they would be dropped without a word.
+      case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
+        *" --at "*|*" --on "*) say "--at and --on go with how often: hourly, daily or weekly. $_rusage"; exit 2 ;; esac ;;
     ran)
       local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\")"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_ranusage"; exit 2; }

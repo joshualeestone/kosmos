@@ -116,3 +116,16 @@ test('#4787 slice 3 review 1: a rule and a reviewer together say both (Mac and W
   const w = await runWin(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00', '--reviewer', 'ada'], () => ({ body: JSON.stringify(OK) }));
   assert.match(w.out, /now repeats every day at 9am\. ada will be told when it misses a run\./);
 });
+
+test('#4787 slice 3 review 2: --at or --on with no frequency is refused before the board, never dropped (Mac and Windows)', async () => {
+  await withBoard(() => [200, OK], async (env, hits) => {
+    const r = await runCli(['task', 'repeat', 'p1', '3', '--reviewer', 'ada', '--at', '10:00'], env);
+    assert.equal(r.code, 2, r.stdout + r.stderr);
+    assert.match(r.stdout + r.stderr, /--at and --on go with how often/);
+    assert.equal(hits.length, 0);
+  });
+  const w = await runWin(['task', 'repeat', 'p1', '3', '--reviewer', 'ada', '--on', 'mon'], () => ({ body: '{}' }));
+  assert.equal(w.code, 2);
+  assert.match(w.err, /--at and --on go with how often/);
+  assert.equal(w.calls.length, 0);
+});

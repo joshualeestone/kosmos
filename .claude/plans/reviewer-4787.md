@@ -13,6 +13,8 @@ Built:
 
 Review 1 (fixed): a quota-held or busy delivery spends no try (as the nudge and the reply nudge); a line placed in this process is never typed again even when its told mark cannot be saved (the book keeps 'told', pruned after a week); a reviewer taken off the project is held, not typed into (#5034's boundary); a held task or a paused project is never put on the person; a reviewer sent with a rule is checked before the rule is stored (tasks.reviewerProblem), so nothing is half-applied; the person's choice is theirs including Nobody, and choosing what an agent named makes it theirs; the history names the missed slot; focus returns to the choice after a save, and the task the person moved to is repainted; the CLI line names the reviewer beside the rule.
 
+Review 2 (fixed): a process cannot stop a task whose reviewer the person chose (stopping it cleared the person's choice, and the process could then name its own after setting the rule again); a rule and reviewer for a task that does not exist answers 404 as the rule alone does; --at and --on with no frequency are refused, never dropped. Left: an archived project's person-reviewed miss is not excluded from the Tasks route's waitingOnPerson (the Tasks view leaves archived projects out, except a project door's own).
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.

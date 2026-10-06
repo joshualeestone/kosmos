@@ -230,3 +230,8 @@ test('#4787 slice 3 review 1: a rule sent with a refused reviewer leaves the rul
   const after = (await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json()).tasks.find((t) => t.number === n);
   assert.equal(after.state, 'held');
 });
+
+test('#4787 slice 3 review 2: a rule and reviewer for a task that does not exist answers 404, as the rule alone does', async () => {
+  const r = await post(`/api/project/${projectId}/task/99999/repeat`, { every: 'daily', at: '09:00', reviewer: 'fixture' }, screen);
+  assert.equal(r.status, 404, JSON.stringify(r.json));
+});

@@ -19030,7 +19030,9 @@ const server = http.createServer(async (req, res) => {
           /* Review 1: a reviewer sent WITH a rule is checked first, so a refused reviewer leaves the rule as it was. */
           if (rule !== null && body.every !== undefined && body.reviewer !== undefined) {
             const proj = projects.readAll().find((x) => x && x.id === id) || null;
-            const problem = proj ? tasks.reviewerProblem(proj, tasks.byNumber(proj, taskRepeat[2]), body.reviewer, { person: viaScreen }) : null;
+            const cur = proj ? tasks.byNumber(proj, taskRepeat[2]) : null;
+            // Review 2: no such project or task: setRepeat below answers that (404), not this check.
+            const problem = cur ? tasks.reviewerProblem(proj, cur, body.reviewer, { person: viaScreen }) : null;
             if (problem) throw new Error(problem);
           }
           if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
