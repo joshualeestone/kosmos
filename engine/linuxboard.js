@@ -28,7 +28,9 @@ function systemdDir() {
   return systemdDirFn();
 }
 
+let systemdDirOverridden = false;
 function setSystemdDirForTests(fn) {
+  systemdDirOverridden = typeof fn === 'function';
   systemdDirFn = typeof fn === 'function' ? fn : () => {
     if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
     const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
@@ -149,6 +151,10 @@ WantedBy=default.target
 function installBoard(kosmosHome, port) {
   const content = boardUnitFor(kosmosHome, port);
   const target = boardUnitPath(kosmosHome);
+  // #4918 review 3: a test process never writes into the real unit folder (as linuxjob.writeUnitFile).
+  if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && require('./live-execution').inTestProcess()) {
+    throw new Error('a test tried to write the board unit into the real folder (' + target + '); call setSystemdDirForTests first');
+  }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content, 'utf8');
   const reload = runner('systemctl', ['--user', 'daemon-reload']);
@@ -159,17 +165,24 @@ function installBoard(kosmosHome, port) {
   return { ok: true };
 }
 
+/* Stops, disables and deletes the board's unit. { ok } is true only when every step held (#4918 review 3), so the
+   caller piece D adds can say what did not. A unit systemd does not have counts as stopped. */
 function removeBoard(kosmosHome) {
   const unit = boardUnitName(kosmosHome);
-  runner('systemctl', ['--user', 'stop', unit]);
-  runner('systemctl', ['--user', 'disable', unit]);
+  const notLoaded = /Unit \S+ (not loaded|does not exist|not found)/i;
+  const failed = (r) => r && r.ok === false && !notLoaded.test(String(r.stderr || r.because || ''));
+  const st = runner('systemctl', ['--user', 'stop', unit]);
+  if (failed(st)) return { ok: false, because: 'systemd could not stop the board: ' + String(st.stderr || st.because || '').trim() };
+  const dis = runner('systemctl', ['--user', 'disable', unit]);
   const target = boardUnitPath(kosmosHome);
   try {
-    if (fs.existsSync(target)) {
-      fs.unlinkSync(target);
-      runner('systemctl', ['--user', 'daemon-reload']);
-    }
-  } catch {}
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+  } catch (err) {
+    return { ok: false, because: 'the board unit could not be deleted: ' + ((err && err.message) || String(err)) };
+  }
+  runner('systemctl', ['--user', 'daemon-reload']);
+  if (failed(dis)) return { ok: false, because: 'the board unit is gone, but systemd could not disable it: ' + String(dis.stderr || dis.because || '').trim() };
+  return { ok: true };
 }
 
 /* #4918 review 2: read the unit's MainPID and state with `systemctl show`, the machine-readable form, never the

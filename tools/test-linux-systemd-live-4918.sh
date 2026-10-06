@@ -283,6 +283,15 @@ if [ -n "$AFTER_PID" ] && [ "$AFTER_PID" != "$STOP_PID" ] && kill -0 "$AFTER_PID
 else
   ok "board.stopped held: no new board within 12s of the crash, with the unit still installed"
 fi
+# #4918 review 3: the stub board-run also exits on the marker, so the pid check alone passes without the Condition.
+# What ConditionPathExists decides is whether systemd starts the unit at all: after the crash it schedules one
+# restart, and the start is refused (ConditionResult=no). Without the Condition every 5s start succeeds and exits.
+COND="$(systemctl --user show -p ConditionResult --value "$BOARD_UNIT" 2>/dev/null || true)"
+if [ "$COND" = "no" ]; then
+  ok "systemd refused to start the board while board.stopped exists (ConditionResult=no)"
+else
+  bad "systemd did not refuse the start on board.stopped (ConditionResult=$COND): the unit would restart every 5s"
+fi
 node -e '
   const linuxboard = require("./engine/linuxboard");
   linuxboard.removeBoard(process.argv[1]);

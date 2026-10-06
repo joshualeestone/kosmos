@@ -32,7 +32,9 @@ function systemdDir() {
   return systemdDirFn();
 }
 
+let systemdDirOverridden = false;
 function setSystemdDirForTests(fn) {
+  systemdDirOverridden = typeof fn === 'function';
   systemdDirFn = typeof fn === 'function' ? fn : () => {
     if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
     const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
@@ -274,7 +276,16 @@ function readUnitJob(content) {
   };
 }
 
+/* #4918 review 3: the runner gate keeps a test process off real systemd commands; this keeps it off the real unit
+   folder too. A test must point the folder elsewhere (setSystemdDirForTests or AGENT_WORKFORCE_SYSTEMD_DIR). */
+function refuseRealUnitDirInTests(targetPath) {
+  if (!systemdDirOverridden && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && require('./live-execution').inTestProcess()) {
+    throw new Error('a test tried to write a systemd unit into the real folder (' + targetPath + '); call setSystemdDirForTests first');
+  }
+}
+
 function writeUnitFile(targetPath, content) {
+  refuseRealUnitDirInTests(targetPath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content, 'utf8');
 }
@@ -335,11 +346,14 @@ function presence(name, worldId) {
 /* Stops, disables and deletes the unit. { ok: true } only when the unit file is gone AND the stop did not fail for a
    reason other than the unit not being loaded (#4918 review 2: with the user bus unreachable, a deleted file leaves
    the loaded unit running and restarting from memory). */
-const NOT_LOADED = /not loaded|does not exist|no such file|not found/i;
+// systemd's own wording for a unit it does not have. Not "no such file": that is also the bus failure
+// ("Failed to connect to bus: No such file or directory"), which must stay a failure (#4918 review 3).
+const NOT_LOADED = /Unit \S+ (not loaded|does not exist|not found)/i;
 function remove(name, worldId) {
   const st = stop(name, worldId);
   const stopFailed = st && st.ok === false && !NOT_LOADED.test(String(st.stderr || st.because || ''));
-  disable(name, worldId);
+  const dis = disable(name, worldId);
+  const disableFailed = dis && dis.ok === false && !NOT_LOADED.test(String(dis.stderr || dis.because || ''));
   if (stopFailed) {
     return { ok: false, because: 'systemd could not stop it, so it may still be running: ' + String(st.stderr || st.because || '').trim() };
   }
@@ -350,7 +364,9 @@ function remove(name, worldId) {
     return { ok: false, because: 'the unit file could not be deleted: ' + ((err && err.message) || String(err)) };
   }
   daemonReload();
-  return fs.existsSync(file) ? { ok: false, because: 'the unit file is still there' } : { ok: true };
+  if (fs.existsSync(file)) return { ok: false, because: 'the unit file is still there' };
+  // A failed disable can leave its default.target.wants link behind; say so rather than report a clean removal.
+  return disableFailed ? { ok: false, because: 'the unit file is gone, but systemd could not disable it: ' + String(dis.stderr || dis.because || '').trim() } : { ok: true };
 }
 
 module.exports = {
@@ -373,6 +389,8 @@ module.exports = {
   enableLinger,
   unitSafe,
   escapeUnitNamePart,
+  refuseRealUnitDirInTests,
+  systemdDirIsOverridden: () => systemdDirOverridden,
   runner,
   setRunnerForTests,
 };

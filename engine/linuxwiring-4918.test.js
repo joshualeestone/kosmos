@@ -109,3 +109,51 @@ test('#4918 review 2: a stop systemd refused (bus unreachable) makes remove not 
   answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to stop x.service: Unit x.service not loaded.' } : { ok: true, stdout: '' });
   try { assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }); } finally { answer = () => ({ ok: true, stdout: '' }); }
 });
+
+test('#4918 review 3: the bus failure ("No such file or directory") is a failure, not "not loaded"', () => {
+  const file = linuxjob.unitPath('kenshi', 'w1');
+  fs.writeFileSync(file, '[Service]\n');
+  answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' });
+  try {
+    const r = linuxjob.remove('kenshi', 'w1');
+    assert.equal(r.ok, false, 'an unreachable bus read as a unit that was never loaded');
+    assert.equal(fs.existsSync(file), true);
+  } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
+});
+
+test('#4918 review 3: a test process cannot write a unit into the real systemd folder', () => {
+  linuxjob.setSystemdDirForTests(null);
+  const saved = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  try {
+    assert.throws(() => linuxjob.writeUnitFile(linuxjob.unitPath('kenshi', 'w1'), '[Service]\n'), /real folder/);
+  } finally {
+    if (saved !== undefined) process.env.AGENT_WORKFORCE_SYSTEMD_DIR = saved;
+    linuxjob.setSystemdDirForTests(() => unitDir);
+  }
+  // CONTROL: with the folder pointed at a sandbox, the write goes through.
+  linuxjob.writeUnitFile(linuxjob.unitPath('kenshi', 'w1'), '[Service]\n');
+  assert.equal(fs.existsSync(linuxjob.unitPath('kenshi', 'w1')), true);
+  fs.rmSync(linuxjob.unitPath('kenshi', 'w1'), { force: true });
+});
+
+test('#4918 review 3: removeBoard reports a refused stop and keeps the unit', () => {
+  const linuxboard = require('./linuxboard');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-home-'));
+  linuxboard.setSystemdDirForTests(() => unitDir);
+  const target = linuxboard.boardUnitPath(home);
+  fs.writeFileSync(target, '[Service]\n');
+  linuxboard.setRunnerForTests((cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' }));
+  try {
+    const r = linuxboard.removeBoard(home);
+    assert.equal(r.ok, false);
+    assert.equal(fs.existsSync(target), true, 'the board unit was deleted while systemd may still run it');
+    linuxboard.setRunnerForTests(() => ({ ok: true, stdout: '' }));
+    assert.deepEqual(linuxboard.removeBoard(home), { ok: true }, 'CONTROL: a clean removal is ok');
+    assert.equal(fs.existsSync(target), false);
+  } finally {
+    linuxboard.setRunnerForTests(null);
+    linuxboard.setSystemdDirForTests(null);
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
