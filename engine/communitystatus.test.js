@@ -257,7 +257,17 @@ test('--replies with only a queued post says it is waiting to go out, not "no po
 
 /* #5415: an item in the community prints where it can be seen; nothing else does. */
 const RID = '5f0e8c1a-1111-4222-8333-444455556666';
-test('#5415: a sent post prints its public link on its own line; a queued one prints none', () => {
+/* The test runner points the community address at an unreachable local one (tools/run-tests.sh), where no link is
+   printed by design; these tests name the real site, and the ON period is recorded under it (records are kept per
+   address). */
+function onSite(t) {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com';
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+}
+test('#5415: a sent post prints its public link on its own line; a queued one prints none', (tc) => {
+  onSite(tc);
   post('ava', 'Queued one');
   const b = post('ava', 'Sent one');
   writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID, sentAt: '2026-10-01T20:00:00Z' } });
@@ -269,7 +279,8 @@ test('#5415: a sent post prints its public link on its own line; a queued one pr
   assert.equal((t.match(/see it at /g) || []).length, 1, 'more than the one sent post was linked:\n' + t);
 });
 
-test('#5415: a sent comment links to the post it is on; an unsent comment does not', () => {
+test('#5415: a sent comment links to the post it is on; an unsent comment does not', (tc) => {
+  onSite(tc);
   const c = comment('ava', 'A sent comment.');
   comment('ava', 'A queued comment.');
   writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'sent', agent: 'ava', remoteId: 'c-remote-1', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
@@ -279,7 +290,8 @@ test('#5415: a sent comment links to the post it is on; an unsent comment does n
   assert.equal((t.match(/on the post at /g) || []).length, 1);
 });
 
-test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed and refused do not', () => {
+test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed and refused do not', (tc) => {
+  onSite(tc);
   const a = post('ava', 'Sent then refused');
   const b = post('ava', 'Taken down');
   const c = post('ava', 'Unconfirmed');
@@ -297,7 +309,8 @@ test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed a
   for (const t of ['Taken down', 'Unconfirmed', 'Refused']) assert.equal(by[t].link, undefined, t + ' was given a link (state ' + by[t].state + ')');
 });
 
-test('#5415: an id that is not a plain id is never printed', () => {
+test('#5415: an id that is not a plain id is never printed', (tc) => {
+  onSite(tc);
   const b = post('ava', 'Odd id');
   writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: 'x\u001b[2J/../evil' } });
   assert.equal(status.itemsFor('ava')[0].state, 'sent', 'fixture');
