@@ -1025,8 +1025,9 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    comment above justifies membership by matching the field ABOVE; this one
    sits beside `#d-provider` in the same .frow, and that sibling is NOT in this
    rule and sizes intrinsically. It is here so an account name does not render
-   as a stub next to it, and the known cost is that the row wraps. */
-#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }   /* #5429: the switch's model sits beside its account */
+   as a stub next to it, and the known cost is that the row wraps. #5429: `#d-provider-model`, the switch's model,
+   sits beside it on the same terms. */
+#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -50317,7 +50318,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            reachable state: when the menu shows, the page sends the visible row; when
            it is hidden, the COMPUTER's default applies, not the provider's. */
          ? 'Its ' + fromWord + ' model and account choices do not cross: '
-           + ((() => { const pm = switchModelPicked(); return pm ? 'it starts on ' + pm.label + ', ' : 'OpenAI picks its own model, '; })())   // #5429
+           + (switchModelPicked() ? 'it starts on ' + switchModelPicked().label + ', ' : 'OpenAI picks its own model, ')   // #5429: the model picked with the switch, named
            + ((() => {
              const on = switchAcctShown();
              if (on) return 'and it will run on ' + on + '.';
