@@ -15,6 +15,8 @@ Review 1 (fixed): every path of the menu sets `disabled` (a Claude menu shown af
 
 Review 2 (fixed): a PARTIAL switch (the picked Claude account could not be applied) still wrote the model but its answer did not say so, so Runs on said Claude's default while the agent ran the picked model; it now carries `model` and names it (tested by marking a real switch partial). Opening another agent bumps the menu's generation guard, so an OpenAI list still loading for the agent before never lands on the next one (the guard is a `var`, since paintProviderPicker is defined earlier in the script).
 
+Review 3 (nit, fixed): while Claude's list loads, the menu is hidden, so another provider's choices are never on screen (a Switch in that moment sends no model).
+
 Decided:
 - The default is preselected and sent, as the create form does (the create form pins the default model too). Leaving the menu untouched therefore pins Claude Sonnet 5, where the old switch left the model empty (Claude's own default). Weakest premise: that pinning the create form's default is what the person wants; if Claude's own default should stay unpinned, a first "Claude's default" option with value "" would restore that.
 - Gemini, Grok and Antigravity show no menu: Kosmos has no list of their models (the agent page says the same).
