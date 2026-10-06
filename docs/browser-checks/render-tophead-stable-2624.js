@@ -224,11 +224,11 @@ async function measure(page, view, notice, name) {
     await page.close();
   }
 
-  // #5379: a board that boots in consolidated is measured there too. The header pads by --scrollbar-width only once
-  // data-scrollbar-measured is set, and before #5379 the measurer returned early in consolidated, so a person whose
-  // layout is consolidated never got the padding and the header jumped on the first flip where scrollbars take width.
-  // Over file:// the board always boots in the tab view, so this clears the measurement, enters consolidated, and
-  // measures there. On an overlay-scrollbar machine the width is 0 and only the attribute arm can red.
+  // #5379: the measurer runs in consolidated too. Before #5379 it returned early there, so a width that changed while
+  // in consolidated (a zoom, another display, a scrollbar-mode change) stayed stale until a flip out, and the header
+  // padded by it sat off by the difference. This clears the measurement, enters consolidated and measures there; a
+  // real page never clears it, the clearing is what lets an early return show. On an overlay-scrollbar machine the
+  // width is 0 and only the attribute arm can red.
   {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto('file://' + PAGE);
@@ -242,10 +242,10 @@ async function measure(page, view, notice, name) {
     });
     const cons = await measure(page, 'consolidated', false);
     const tabs = await measure(page, 'tabs', false);
-    if (!got.measured) problems.push('1440px booted in consolidated: the scrollbar width is not measured there, so its header never gets the #5379 padding');
-    else console.log(`  PASS  1440px booted in consolidated: the scrollbar width is measured there (${got.width})`);
+    if (!got.measured) problems.push('1440px measured in consolidated: the scrollbar width is not measured there, so a width that changes in consolidated stays stale');
+    else console.log(`  PASS  1440px measured in consolidated: the scrollbar width is measured there (${got.width})`);
     for (const k of ['youX', 'tabsX']) {
-      if (cons[k] !== tabs[k]) problems.push(`1440px booted in consolidated: ${k} is ${cons[k]} in consolidated and ${tabs[k]} in the tab view (scrollbar width ${got.width})`);
+      if (cons[k] !== tabs[k]) problems.push(`1440px measured in consolidated: ${k} is ${cons[k]} in consolidated and ${tabs[k]} in the tab view (scrollbar width ${got.width})`);
     }
     await page.close();
   }

@@ -11684,24 +11684,24 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
-  /* #5379: measured in the consolidated layout too. It reserves no gutter, so its header is padded by this width
-     instead (see the #5379 rule), to sit where the tab view's header sits beside its reserved gutter. */
+  /* #5379: measured in the consolidated layout too, so the width its header is padded by (the #5379 rule) follows a
+     zoom, a move to another display or a scrollbar-mode change made while in consolidated. */
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
-  /* #5379: consolidated reserves no gutter, so forcing one narrows the page and its rails and panes reflow for one
-     layout; put back every inner scroller that was scrolled. (The tab view already reserves it: nothing moves.) */
   var scrolled = [];
-  if (root.getAttribute('data-layout') === 'consolidated') {
-    document.querySelectorAll('body *').forEach(function (el) {
-      if (el.scrollTop || el.scrollLeft) scrolled.push([el, el.scrollTop, el.scrollLeft]);
-    });
-  }
   var vw = null;
   try {
     /* A WebKit older than scrollbar-gutter (the Mac floor is 13.5) never reserved the #1309 gutter,
        so there is nothing to drop and padding the Talk header would itself move it (A1s). */
     if (!(window.CSS && CSS.supports && CSS.supports('scrollbar-gutter', 'stable'))) return;
+    /* #5379: consolidated reserves no gutter, so forcing one narrows the page and its rails and panes reflow for one
+       layout; put back every inner scroller that was scrolled. (The tab view already reserves it: nothing moves.) */
+    if (root.getAttribute('data-layout') === 'consolidated') {
+      document.querySelectorAll('body *').forEach(function (el) {
+        if (el.scrollTop || el.scrollLeft) scrolled.push([el, el.scrollTop, el.scrollLeft]);
+      });
+    }
     /* Forced and read in one task, so nothing paints in between. */
     root.style.scrollbarGutter = 'stable';
     root.style.overflow = 'hidden';
@@ -11737,7 +11737,16 @@ window.kosmosMeasureScrollbarWidth();
 /* A window drag fires resize many times a second; one measurement per frame is plenty. */
 (function () {
   var queued = false;
+  /* #5379: in consolidated a measurement reflows the whole page (it reserves no gutter), so a drag there measures
+     once, when it has stopped for SCROLLBAR_RESIZE_SETTLE_MS, not every frame. */
+  var SCROLLBAR_RESIZE_SETTLE_MS = 200;
+  var settle = 0;
   window.addEventListener('resize', function () {
+    if (document.documentElement.getAttribute('data-layout') === 'consolidated') {
+      clearTimeout(settle);
+      settle = setTimeout(window.kosmosMeasureScrollbarWidth, SCROLLBAR_RESIZE_SETTLE_MS);
+      return;
+    }
     if (queued) return;
     queued = true;
     requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
