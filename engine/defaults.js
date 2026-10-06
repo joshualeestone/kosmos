@@ -430,6 +430,16 @@ const BLOCK = [
   '',
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
+  '**Work that comes back on a schedule is one task that repeats,** not a new task',
+  'each time: a report every morning, a check every hour. Add it as above, then',
+  'set when it runs:',
+  '',
+  '`kosmos task repeat <project-id> <task-number> daily --at 09:00`',
+  '',
+  '(or `hourly`, or `weekly --on mon --at 09:00`). After each run, say what it',
+  'found: `kosmos task ran <project-id> <task-number> "what this run found"`. A',
+  'repeating task is never marked built; it stops when someone closes it.',
+  '',
   'A question, a quick answer or small talk is not a task. If you are on no',
   'project, or the work belongs to none of yours, do not guess another: write the',
   'checks in your reply before you start, and say how each went when you finish.',
@@ -901,8 +911,12 @@ function block() {
  *     every project 1/1 filed none (whether its reply held checks the stand-in cannot see). Claude only.
  *     WEAKEST PREMISE, NAMED: Codex and Gemini agents were not measured, and nothing yet lets the person edit the
  *     checks (the editable-checks slice waits until after the beta).
+ *  25. kosmos#4787 slice 1b: under `### Put the work on a task first`, a paragraph for work that comes back on a
+ *     schedule: one task that repeats (`kosmos task repeat`, slice 1, #5389), a `kosmos task ran` after each run, and
+ *     never marked built (the board refuses that for a repeating task). SAME HEADING, so it reaches existing agents
+ *     through doctrine-past's earlier-version match, as v23 set up. MEASUREMENT: see below.
  */
-const DOCTRINE_VERSION = 24;
+const DOCTRINE_VERSION = 25;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
