@@ -4,9 +4,10 @@
  * Kosmos's own launch path is meant to make it work in every shell an agent uses (engine/win32launch.childEnv puts
  * <zip>\bin first on PATH, and gives the PowerShell runners the process-scope policy, #3380). Until now that was
  * measured by hand on one box; these arms measure it on the Windows CI runner, so a red names which half broke:
- *   - Git Bash (Claude Code's Bash tool): a login shell finds `kosmos` on the agent's PATH;
- *   - Claude Code's PowerShell tool, with the flags it passes itself (measured in #570): runs kosmos.ps1 under a
- *     Restricted policy;
+ *   - Git Bash, as Claude Code's Bash tool runs it (`bash -c`, measured in #570's cli-verbs plan): finds `kosmos` on
+ *     the agent's PATH;
+ *   - PowerShell with the flags Claude Code's tool passes (a premise from #570, not measured here): finds and runs
+ *     kosmos.ps1 under a Restricted policy;
  *   - Codex's `powershell -Command`: refused under Restricted WITHOUT the variable (the control), runs WITH it.
  * Plus pure arms (any OS) for the one fix this card makes: the policy variable is ONE key whatever case it arrives in.
  *
@@ -32,6 +33,11 @@ test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives i
     assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['psexecutionpolicypreference'], runner + ': two keys');
     assert.equal(env.psexecutionpolicypreference, 'Bypass', runner);
     assert.equal(launcher.childEnv({}, 't', null, 'C:\\K\\bin', runner).PSExecutionPolicyPreference, 'Bypass', runner + ' (no key before)');
+    // Node on Windows sorts env names and keeps the first case-insensitive match, so an inherited UPPERCASE key used to
+    // win over the Bypass this added beside it.
+    const upper = launcher.childEnv({ PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
+    assert.deepEqual(keysOf(upper, 'PSExecutionPolicyPreference'), ['PSEXECUTIONPOLICYPREFERENCE'], runner + ': uppercase');
+    assert.equal(upper.PSEXECUTIONPOLICYPREFERENCE, 'Bypass', runner + ': uppercase');
     const same = launcher.childEnv({ PSExecutionPolicyPreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
     assert.deepEqual(keysOf(same, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': the usual spelling');
     assert.equal(same.PSExecutionPolicyPreference, 'Bypass', runner);
@@ -80,18 +86,20 @@ const agentEnv = (bin, runner) => launcher.childEnv(baseEnv(), null, null, bin, 
 const run = (cmd, args, env) => spawnSync(cmd, args, { env, encoding: 'utf8', timeout: 30000 });
 const said = (r) => 'status ' + r.status + '\nstdout ' + r.stdout + '\nstderr ' + r.stderr;
 
-test('#5358 Windows: in a Git Bash login shell (Claude Code\'s Bash tool), a bare kosmos is found on the agent\'s PATH',
-  { skip: !onWindows ? 'Windows only' : !GIT_BASH ? 'no Git Bash on this machine' : false }, () => {
+test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -c), a bare kosmos is found on the agent\'s PATH',
+  // On the CI runner a missing Git Bash FAILS rather than skipping: a skip there would read as green with no evidence.
+  { skip: !onWindows ? 'Windows only' : !GIT_BASH && !onCi ? 'no Git Bash on this machine' : false }, () => {
+    assert.ok(GIT_BASH, 'no Git Bash on the CI runner, so this arm measured nothing');
     const z = stageZip();
     try {
-      const r = run(GIT_BASH, ['-lc', 'kosmos --version'], agentEnv(z.bin, 'claude'));
+      const r = run(GIT_BASH, ['-c', 'kosmos --version'], agentEnv(z.bin, 'claude'));
       assert.match(String(r.stdout), STUB, said(r));
-      const none = run(GIT_BASH, ['-lc', 'kosmos --version'], baseEnv());
+      const none = run(GIT_BASH, ['-c', 'kosmos --version'], baseEnv());
       assert.doesNotMatch(String(none.stdout), STUB, 'control: kosmos was found without the agent\'s PATH');
     } finally { fs.rmSync(z.root, { recursive: true, force: true }); }
   });
 
-test('#5358 Windows: under a Restricted policy, Claude Code\'s PowerShell runs kosmos; codex\'s needs the agent\'s variable',
+test('#5358 Windows: under a Restricted policy, PowerShell with Claude Code\'s flags runs kosmos; codex\'s needs the agent\'s variable',
   // Its own timeout: several PowerShell starts, past the runner script's 60 s per test default.
   { timeout: 240000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
     const z = stageZip();
@@ -102,7 +110,8 @@ test('#5358 Windows: under a Restricted policy, Claude Code\'s PowerShell runs k
       assert.equal(set.status, 0, 'could not set the CurrentUser policy: ' + set.stderr);
       assert.equal(String(ps(baseEnv(), 'Get-ExecutionPolicy').stdout || '').trim(), 'Restricted',
         'control: this runner\'s effective policy is not Restricted (a higher scope sets it), so no arm here can show a refusal');
-      // Claude Code's PowerShell tool, as measured in #570: it passes its own process-scope policy.
+      // Claude Code's PowerShell tool passes its own process-scope policy (#570's measurement, taken as a premise here):
+      // this checks that PATH and the shim work under it, not the flag itself.
       const claude = ps(agentEnv(z.bin, 'claude'), 'kosmos --version', ['-ExecutionPolicy', 'Bypass']);
       assert.match(String(claude.stdout), STUB, 'Claude Code\'s PowerShell: ' + said(claude));
       // Codex's `powershell -Command`, without and with what childEnv gives a codex agent.

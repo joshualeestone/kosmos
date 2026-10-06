@@ -162,7 +162,8 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      PowerShell shell), so their `kosmos reply` meets the same policy. */
   /* #3568: Antigravity too; its shell tool on Windows is PowerShell's (UNPROVEN until a real turn). */
   if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
-    // ONE KEY, WHATEVER ITS CASE, for the reason given for PATH above.
+    // ONE KEY, WHATEVER ITS CASE: Node on Windows sorts env names and keeps the first case-insensitive match, so an
+    // inherited PSEXECUTIONPOLICYPREFERENCE would win over a Bypass added beside it (#5358).
     env[Object.keys(env).find((k) => k.toUpperCase() === 'PSEXECUTIONPOLICYPREFERENCE') || 'PSExecutionPolicyPreference'] = 'Bypass';
   }
   return env;
