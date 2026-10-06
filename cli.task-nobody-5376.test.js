@@ -77,7 +77,7 @@ async function win(argv, url = base) {
   return { code, out: out.join('\n'), err: err.join('\n') };
 }
 
-const NOBODY = /Nobody has it yet, so an idle agent on the project may be given it\. To choose who does it: kosmos task assign (\S+) (\S+) <agent>/;
+const NOBODY = /Nobody has it yet: it waits for someone to take it, or Kosmos gives it to an idle agent on the project\. To choose who does it: kosmos task assign (\S+) (\S+) <agent> \(or me\)/;
 
 test('Windows: no --who, the real board says nobody, and the line names the real number and how to choose', async () => {
   const r = await win(['task', 'add', projectId, 'Win: nobody yet']);
@@ -102,7 +102,7 @@ test('Windows: no line for an answer without a who, and <task-number> when the b
   const nonum = await fakeBoard('{"task":{"who":null}}');
   try {
     const r = await win(['task', 'add', 'p1', 'x'], `http://127.0.0.1:${nonum.address().port}`);
-    assert.match(r.out, /kosmos task assign p1 <task-number> <agent>/, r.out);
+    assert.match(r.out, /kosmos task assign p1 <task-number> <agent> \(or me\)/, r.out);
   } finally { nonum.close(); }
 });
 
@@ -148,6 +148,6 @@ test('Mac: never says nobody for an unreadable name or an answer without a who; 
   const srv = await fakeBoard('{"task":{"who":null}}');
   try {
     const r = await mac(['task', 'add', 'p1', 'x'], srv.address().port);
-    assert.match(r.out, /kosmos task assign p1 <task-number> <agent>/, r.out);
+    assert.match(r.out, /kosmos task assign p1 <task-number> <agent> \(or me\)/, r.out);
   } finally { srv.close(); }
 });

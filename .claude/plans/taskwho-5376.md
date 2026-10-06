@@ -2,7 +2,7 @@
 
 ## Finished means
 Adding a task without --who, from either command (Mac install/kosmos, Windows tools/windows/kosmos-cli.js), tells the
-agent that nobody has it yet, that an idle agent on the project may be given it, and how to choose: a second line naming
+agent that nobody has it yet, that it waits or Kosmos gives it to an idle agent on the project, and how to choose: a second line naming
 `kosmos task assign <project> <number> <agent>`. Never said for a named owner, for a name that came back unreadable, or
 for an answer that carries no who at all.
 
@@ -20,7 +20,8 @@ for an answer that carries no who at all.
   "nobody"; the line keys on null, not on an empty name.
 - Keep the first line unchanged (scripts and the #5175/#4887 tests read it); the new line follows it, before the #5319
   same-text note.
-- "may be given it": true whether or not the person has the Assigner on (it is on by default; off, nothing assigns it).
+- Wording true whether or not the Assigner is on (review WARNING): "it waits for someone to take it, or Kosmos gives it
+  to an idle agent on the project". The hint offers `me` too, since task assign takes it.
 
 ## Rejected
 - Making the board refuse a task with no --who: the screen and webhooks add unassigned tasks on purpose (#1307), and
