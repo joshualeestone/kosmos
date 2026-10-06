@@ -29,6 +29,8 @@ Review 8 (fixed): a reviewer whose swarm is switched off in this project is held
 
 Review 9 (fixed): a BLOCKER. The line was typed into a reviewer whatever its state, so into a pane stopped on a permission prompt, where "...and Enter" can approve a tool call nobody saw (also rate-limited and signed-out sessions). It now takes the nudge's whole card rule (idle, ours, not switched off), held with no try spent until the reviewer is idle. The line's words are cleaned as the nudge's (plainWords), so a sentence with a control character is never refused by the typing path.
 
+Review 10 (fixed): a BLOCKER, round 9's harm through another path: one sweep typed a line for every owed task, so several tasks reviewed by one agent put lines in back to back, each judged idle from the same roster read; a later Enter could answer a prompt the first line raised. Now one line per reviewer per pass, the rest held with no try spent. And a line is typed only after the reviewer has been seen idle on two passes about a minute apart (kept across passes in MISSED_TELL_IDLE; a gap of more than 90 s breaks the run), as the nudge and the reply nudge wait for an idle that has lasted.
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.
