@@ -20838,6 +20838,13 @@ function start(port = PORT) {
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
       const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
+      /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
+         so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
+      chat.setMovedTell({
+        owed: (session) => require('./engine/failovertell').owedFor(session, projects.readAll()),
+        note: (items) => require('./engine/failovertell').noteFor(items),
+        told: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
+      });
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in

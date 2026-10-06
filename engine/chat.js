@@ -234,6 +234,7 @@ function resetForTests() {
   channel = null;
   DRY_RUN = true;
   deliveryQueues.clear();
+  MOVED_TELL = null;   // #5400
 }
 
 /**
@@ -1694,6 +1695,43 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   return finishSubmit();
 }
 
+/* #5400: the failover's "your part was moved" notice rides on WHATEVER Kosmos next types into an owed agent. A person
+   usually resumes a Claude agent themselves (a message at the reset), so the agent would carry on with a moved part
+   before the idle sweep (engine/failovertell.js) ever reads it idle. The hook (server.js) answers which parts this
+   session is owed (owed), the words (note) and marks them told (told), only once the line may have reached the pane
+   (the sweep's reading: not COULD_NOT, not held). A part the line already names (the sweep's own line, agyquota's
+   carry-on line) is not added again. In FRONT of the message, so an attached file's path stays with its words. If the
+   note would push the message over the limit, the message goes as it was and the note waits for the next line.
+   Enter pressed on Claude Code's own limit menu reaches no Kosmos line: that stays the idle sweep's.
+   Weakest premise: that the agent reads a bracketed note above a person's message as Kosmos's, not the person's. */
+let MOVED_TELL = null;
+function setMovedTell(h) {
+  MOVED_TELL = h && typeof h.owed === 'function' && typeof h.note === 'function' && typeof h.told === 'function' ? h : null;
+}
+function movedNoteFor(sessionName, raw) {
+  if (!MOVED_TELL || typeof raw !== 'string' || !raw.trim()) return null;
+  let items = [];
+  try { items = MOVED_TELL.owed(sessionName) || []; } catch { items = []; }
+  items = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.phrase === 'string' && i.phrase && !raw.includes(i.phrase));
+  if (!items.length) return null;
+  let note = '';
+  try { note = String(MOVED_TELL.note(items) || ''); } catch { return null; }
+  if (!note) return null;
+  const text = note + '\n\n' + raw;
+  if (messageProblem(text)) return null;
+  return { text, items };
+}
+function movedToldAfter(sessionName, m, v) {
+  if (!m) return v;
+  const mark = (x) => {
+    if (x && x.held !== true && x.state != null && x.state !== DELIVERY.COULD_NOT) {
+      try { MOVED_TELL && MOVED_TELL.told(sessionName, m.items); } catch { /* the next line or the sweep tells again */ }
+    }
+    return x;
+  };
+  return v && typeof v.then === 'function' ? v.then(mark) : mark(v);
+}
+
 function deliver(sessionName, raw, roster, envelope, trailer) {
   const card = resolveCard(roster, sessionName);
   const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
@@ -1705,7 +1743,8 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
-  return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);
+  const m = card && card.isNamedOurs === true ? movedNoteFor(sessionName, raw) : null;   // #5400
+  return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
 }
 
 /**
@@ -1771,9 +1810,11 @@ async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
   }
   const target = paneTarget(card);
   const before = deliveryQueues.get(target) || Promise.resolve();
-  const delivery = before.catch(() => {}).then(() => deliverWithGap(
-    sessionName, raw, roster, envelope, trailer, true,
-  ));
+  // #5400: the note is worked out when this line's turn to be typed comes, so two queued lines cannot both carry it.
+  const delivery = before.catch(() => {}).then(() => {
+    const m = movedNoteFor(sessionName, raw);
+    return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, true));
+  });
   deliveryQueues.set(target, delivery);
   try {
     return await delivery;
@@ -3512,6 +3553,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
+  setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
