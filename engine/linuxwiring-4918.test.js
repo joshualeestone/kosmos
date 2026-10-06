@@ -283,3 +283,18 @@ test('#4918 review 11: the register survey sees a Linux agent\'s systemd unit as
   t.after(() => fs.rmSync(file, { force: true }));
   assert.equal(reader.of('survlin'), true, 'the survey says this agent does not come back after a restart');
 });
+
+test('#4918 review 12: installBoard ensures linger and says whether it is on, read back', (t) => {
+  const linuxboard = require('./linuxboard');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-board-'));
+  linuxboard.setSystemdDirForTests(() => unitDir);
+  t.after(() => { linuxboard.setRunnerForTests(null); linuxboard.setSystemdDirForTests(null); fs.rmSync(home, { recursive: true, force: true }); });
+  for (const [out, on] of [['Linger=yes\n', true], ['Linger=no\n', false]]) {
+    const seen = [];
+    linuxboard.setRunnerForTests((cmd, args) => { seen.push([cmd, ...args]); return cmd === 'loginctl' && args[0] === 'show-user' ? { ok: true, stdout: out } : { ok: true, stdout: '' }; });
+    const r = linuxboard.installBoard(home, 17001);
+    assert.equal(r.ok, true);
+    assert.equal(r.lingering, on, out.trim());
+    assert.ok(seen.some((c) => c[0] === 'loginctl' && c[1] === 'enable-linger'), 'linger was never asked for');
+  }
+});
