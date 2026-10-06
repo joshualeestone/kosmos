@@ -3228,8 +3228,9 @@ function blockBody(projects, sessionName) {
   ].join('\n');
 }
 
-/* The block's standing rules: every line of it that is not a project or a task line. kosmos#5320 owes a running agent
-   a re-read when these change, and only then (rulesChangedIn). */
+/* The block's standing rules, the part kosmos#5320 compares (rulesChangedIn). NOT included: the commands taught on each
+   project's own lines (post, its tasks, --parent, --who me), which carry the project's id, so a change to those owes
+   no re-read. */
 function blockRules(sessionName, cliShown) {
   return {
     intro: [
@@ -3266,11 +3267,13 @@ function blockRules(sessionName, cliShown) {
   };
 }
 
-/* kosmos#5320: does the new block carry a standing rule the old block did not? `oldText` and `newText` are the file
-   before and after the write. Only additions count: a rule taken out needs no re-read. False when there was no block
-   (joining is announced by its own line, membershipLine) or none is left (nothing to read). Project and task lines are
-   not rules (the agent's own task close changes those). The tasks rules count only when the old block listed a task:
-   a first task is announced where it is assigned. */
+/* kosmos#5320: does the new block carry a standing rule the old block did not, or a changed hold on a task it already
+   listed? `oldText` and `newText` are the file before and after the write. Only added rules count: a rule taken out
+   needs no re-read. False when there was no block (joining is announced by its own line, membershipLine) or none is
+   left (nothing to read). A task arriving or closing is not a change here (the agent's own task close changes those
+   lines). A pause or hold set or lifted on the screen is: the room is not told of a screen pause, so the re-read is how
+   a running agent learns it. The tasks rules count only when the old block listed a task in today's spelling
+   (`task <n> of`, #779): a first task is announced where it is assigned. */
 function rulesChangedIn(oldText, newText, sessionName) {
   if (!sessionName) return false;
   const oldAt = findBlock(oldText || '');
@@ -3282,7 +3285,21 @@ function rulesChangedIn(oldText, newText, sessionName) {
   const rules = blockRules(sessionName, kosmosCliShown());
   const pieces = [rules.intro, rules.member];
   if (TASK_LINE.test(old)) pieces.push(rules.tasks);
-  return pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')));
+  if (pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')))) return true;
+  const holds = holdsOf(old);
+  for (const [task, hold] of holdsOf(now)) if (holds.has(task) && holds.get(task) !== hold) return true;
+  return false;
+}
+
+/* A block's task lines as task -> its hold marker ('' for none). The key is the line without the marker. */
+function holdsOf(block) {
+  const out = new Map();
+  for (const line of String(block).split('\n')) {
+    if (!/^ {2}- task \d+ of /.test(line)) continue;
+    const m = / \[on hold: [^\]]*\]$/.exec(line);
+    out.set(m ? line.slice(0, m.index) : line, m ? m[0] : '');
+  }
+  return out;
 }
 
 /* Exact to permit (#3932 shares it with tellAgent): our card for this exact name, or null. A roster

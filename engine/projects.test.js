@@ -916,6 +916,35 @@ test('#5320: the tasks rules are owed only when both the old and the new block l
   assert.equal(owed(), undefined, 'rules the new block does not carry were owed');
 });
 
+test('#5320: a pause set or lifted on the screen marks the agent\'s open task, and that is owed as a re-read', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  const p = projects.create({ name: 'Henderson lease', folder: folder('pause-5320'), agents: ['mara'] });
+  const edit = (fn) => { const all = projects.readAll(); fn(all.find((x) => x.id === p.id)); projects.writeAll(all); };
+  edit((x) => { x.tasks = [{ number: 1, sentence: 'draft the renewal letter', who: 'mara' }]; });
+  projects.syncAgent('mara', ROSTER);
+  edit((x) => { x.paused = true; x.pausedByPerson = true; });
+  clear();
+  const paused = projects.syncAgent('mara', ROSTER);
+  assert.equal(paused.changed, true, 'fixture: the pause must mark the task line');
+  assert.equal(paused.rulesChanged, true);
+  assert.deepEqual(owed(), ['projects'], 'a screen pause on an open task was not owed');
+  edit((x) => { delete x.paused; delete x.pausedByPerson; });
+  clear();
+  const resumed = projects.syncAgent('mara', ROSTER);
+  assert.equal(resumed.changed, true, 'fixture: resuming must unmark the task line');
+  assert.deepEqual(owed(), ['projects'], 'a resume on an open task was not owed');
+  // CONTROL: the task's own words changing, with no hold, is not a hold change.
+  edit((x) => { x.tasks[0].sentence = 'draft and send the renewal letter'; });
+  clear();
+  const reworded = projects.syncAgent('mara', ROSTER);
+  assert.equal(reworded.changed, true, 'fixture: rewording must change the task line');
+  assert.equal(owed(), undefined, 'a reworded task was owed as a hold change');
+});
+
 test('an agent with no worker folder is recorded as a member we COULD NOT tell', () => {
   reset();
   // ⚠️ Not hypothetical: measured on this machine 2026-08-11, `claudebot` — the
