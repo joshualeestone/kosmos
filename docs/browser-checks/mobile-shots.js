@@ -379,6 +379,24 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
   } },
+  /* #5407: AI Models with a login inside the notice's window (warning edge, its line, Sign in again as the gold main
+     action), an ended one, and a good one (green, the control), as the server sends them; only the account list is
+     stubbed, with example.com accounts. */
+  { name: 'settings-accounts-expiring', owner: 'Renet Tilley', go: async (page) => {
+    const DAY = 86400000;
+    const row = (email, dir, conn) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
+      organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+      connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null, ...conn } });
+    const accounts = [
+      row('soon@example.com', '/home/.claude-soon', { observedFrom: 'agent', observedAgeMs: 30000, loginExpiresInDays: 2, loginExpiresAt: Date.now() + 2 * DAY + 3600000 }),
+      row('ended@example.com', '/home/.claude-ended', { badge: 'signed_in_unverified', loginEnded: true }),
+      row('fine@example.com', '/home/.claude-fine', { observedFrom: 'login', loginValidUntil: Date.now() + 20 * DAY }),
+    ];
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#set-accounts .acct-box.acct-expiring', { state: 'visible', timeout: 12000 });
+  } },
   /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
      that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).
      This board runs server.js's real start, which arms live execution, so the Recommender's
