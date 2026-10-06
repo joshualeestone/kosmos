@@ -59,8 +59,9 @@ const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account
 const REVOKED_REFUSAL = /that connection has been revoked/i;   // the connector's FINAL_REFUSALS phrase, not any 'revoked'
 const REVOKED_NOTE = 'The owner removed this computer from the project. Ask them for a new code to join again.';
 /* #5404: a member learns of its removal only at its next edge check or the connector's refusal, so a post it
-   sends in between goes out, and the other boards may refuse it (an old-key post past the grace). Each seat keeps
-   when its posts went (SENT_LOG_MAX, SENT_LOG_MS), and on the removal the room is told how many went at or after
+   sends in between goes out, and the other boards may refuse it (an old-key post past the grace). Each member seat
+   keeps when its posts went (SENT_LOG_MAX entries, pruned past SENT_LOG_MS when a post goes), and on the removal the
+   room is told how many went at or after
    the coordinator's revoked_at, less REVOKE_SENT_SKEW_MS for the two clocks and the whole-second stamp. Said as
    "may not": during the grace some can still open (REVOKE_GRACE_MS). */
 const SENT_LOG_MAX = 64;
@@ -204,7 +205,18 @@ function handleEvent(projectId, line, heldAt) {
     // earlier 'ended' line on this live seat): never two, never two that disagree (round 2).
     if (s.endedNoted) return;
     s.endedNoted = true;
-    if (REVOKED_REFUSAL.test(s.ended)) { say(projectId, REVOKED_NOTE); return; }
+    if (REVOKED_REFUSAL.test(s.ended)) {
+      say(projectId, REVOKED_NOTE);
+      // #5404: the refusal carries no time, and it can come before the edge check finds the revoke (a cached
+      // answer from before it). So ask once more, refusing any answer asked before now, for revoked_at.
+      if (deps && link.edge_id && s.sentLog && s.sentLog.length) {
+        sharedEdges(Date.now(), mono()).promise.then((r) => {
+          const e = r && r.ok && r.data && Array.isArray(r.data.as_member) ? r.data.as_member.find((x) => x && x.id === link.edge_id) : null;
+          if (e && e.status === 'revoked') noteSentAfterRevoke(projectId, s, e.revoked_at);
+        }).catch(() => {});
+      }
+      return;
+    }
     say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
     return;
   }
@@ -1491,7 +1503,8 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
     if (heldAt) holdPost(projectId, s, msg, '', '', heldAt);   // a held post whose write threw stays held
     return false;
   }
-  {
+  const sentLink = safeLink(projectId);
+  if (sentLink && sentLink.role === 'member') {
     // #5404: when this post went, for noteSentAfterRevoke.
     const now = Date.now();
     s.sentLog = (s.sentLog || []).filter((t) => now - t < SENT_LOG_MS).slice(-(SENT_LOG_MAX - 1));

@@ -502,10 +502,26 @@ test('#5404 control: posts sent before the revoke (beyond the clock margin) are 
   const id = 'proj-5404-before';
   const h = await memberRoom(id);
   // The revoke is stamped later than these posts by more than REVOKE_SENT_SKEW_MS.
-  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: Math.ceil((Date.now() + fedseats.REVOKE_SENT_SKEW_MS + 2000) / 1000) }];
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: Math.ceil((Date.now() + fedseats.REVOKE_SENT_SKEW_MS + 30000) / 1000) }];
   assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'before' }), true);
   await settle();
   assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193], JSON.stringify(h.notes));
+});
+
+test('#5404: when the connector\'s refusal comes first (the check answered from before the revoke), the post is still named', async () => {
+  const id = 'proj-5404-connfirst';
+  const h = await memberRoom(id);
+  h.memberEdges = [{ id: 'edge-' + id, status: 'active' }];
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'went out' }), true);
+  await settle();
+  assert.strictEqual(fedseats.statusOf(id), 'connected', 'the active answer ended the seat');
+  // The revoke lands now; the shared answer from just before it still says active, so only the connector can tell.
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 3 }];
+  const asked = h.asked;
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
+  await settle();
+  assert.ok(h.asked > asked, 'no fresh edges answer was asked for');
+  assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193, GAP_ONE_5404], JSON.stringify(h.notes));
 });
 
 test('#5404: with no revoked_at in the answer, nothing is claimed about the posts', async () => {
