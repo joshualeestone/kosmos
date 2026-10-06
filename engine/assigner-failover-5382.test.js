@@ -120,16 +120,21 @@ test('does not move before FAILOVER_MS of reading rate_limited, and a card that 
   try {
     heldTask(w.pid, w.key.earlim, 'write the deploy notes');
     const base = { roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states() };
-    const s0 = a.step({ prev: undefined, ...base, now: T0 });
-    const early = a.step({ prev: s0.next, ...base, now: T0 + a.FAILOVER_MS - 1 });
+    const cleared = w.cards.map((c) => (c.sessionName === w.key.earlim ? { ...c, state: 'idle' } : c));
+    // The receiver's idle clock starts at T0 while the limited card does not yet read rate_limited, so by L0 the
+    // receiver has been idle for IDLE_MS and only the failover period can hold the move back.
+    const s0 = a.step({ prev: undefined, ...base, roster: cleared, now: T0 });
+    const L0 = T0 + a.IDLE_MS;
+    const s1 = a.step({ prev: s0.next, ...base, now: L0 });
+    assert.equal(s1.toAssign.length, 0, 'moved the moment the card read rate_limited');
+    const early = a.step({ prev: s1.next, ...base, now: L0 + a.FAILOVER_MS - 1 });
     assert.equal(early.toAssign.length, 0, 'moved before the failover period');
     // The limited card reads idle for one tick: its clock is dropped, so the period starts over.
-    const cleared = w.cards.map((c) => (c.sessionName === w.key.earlim ? { ...c, state: 'idle' } : c));
-    const gap = a.step({ prev: early.next, ...base, roster: cleared, now: T0 + a.FAILOVER_MS - 1 });
+    const gap = a.step({ prev: early.next, ...base, roster: cleared, now: L0 + a.FAILOVER_MS - 1 });
     assert.equal(gap.next.limitedSince.has(w.key.earlim), false);
-    const again = a.step({ prev: gap.next, ...base, now: T0 + a.FAILOVER_MS });
+    const again = a.step({ prev: gap.next, ...base, now: L0 + a.FAILOVER_MS });
     assert.equal(again.toAssign.length, 0, 'the clock did not restart after the card stopped reading rate_limited');
-    const ripe = a.step({ prev: again.next, ...base, now: T0 + 2 * a.FAILOVER_MS });
+    const ripe = a.step({ prev: again.next, ...base, now: L0 + 2 * a.FAILOVER_MS });
     assert.equal(ripe.toAssign.length, 1, 'control: FAILOVER_MS after it started reading rate_limited again, the part moves');
   } finally { w.restore(); }
 });
