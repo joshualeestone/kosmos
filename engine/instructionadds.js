@@ -130,12 +130,14 @@ function propose(agent, text, askedBy, now) {
     return { ok: false, code: 'bad', because: 'the addition holds an HTML comment (<!-- or -->), which Kosmos uses for its own markers in instructions; take it out and propose again' };
   }
   /* Review 12: a line in Kosmos's own heading format would name an asker who asked for nothing. */
-  /* Review 14: any line starting "Added on", whatever its markup (an underlined heading is a heading too). */
-  if (/^\s*(#{1,6}\s*)?Added on /im.test(body)) {
-    return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
-  }
   if (Buffer.byteLength(body, 'utf8') > MAX_TEXT_BYTES) {
     return { ok: false, code: 'bad', because: `the addition is too long (at most ${MAX_TEXT_BYTES / 1024} KB)` };
+  }
+  /* Review 14: any line starting "Added on", whatever its markup (an underlined heading is a heading too). Review 15:
+     whatever the space between the words (a tab, two spaces, a no-break space), and "Added on" alone on its line.
+     After the size check, so the scan is over at most 16 KB. */
+  if (/^[ \t]*(#{1,6}[ \t]*)?Added\s+on(\s|$)/im.test(body)) {
+    return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
   }
   const who = String(askedBy == null ? '' : askedBy).trim();
   if (!who) return { ok: false, code: 'bad', because: 'we could not tell which agent is asking' };
@@ -206,7 +208,7 @@ function apply(agent, now) {
      it), it is only recorded now, never added a second time. Review 9: where the addition stands is read from the FILE
      (whereIs); if its id line is there but the addition is not there exactly as written (edited, copied), it is neither
      added again nor recorded. */
-  const w = whereIs(curText, { block });
+  const w = whereIs(curText.replace(/\r\n/g, '\n'), { block });   // review 15: LF view, as readText
   if (w === 'changed') {
     return { ok: false, code: 'edited', because: 'this addition is already in the instructions but was changed or copied there, so Kosmos will not add it again. Remove it by hand if you want it gone, or Dismiss it' };
   }
@@ -291,7 +293,10 @@ function whereIs(text, last) {
 function readText(agent) {
   let cur = null;
   try { cur = instructions.read(agent); } catch { cur = null; }
-  return { cur, text: cur && cur.exists ? String(cur.text == null ? '' : cur.text) : null };
+  const raw = cur && cur.exists ? String(cur.text == null ? '' : cur.text) : null;
+  /* Review 15: read with LF line ends, so a file an editor turned to CRLF still shows the addition where it is; `crlf`
+     says to write CRLF back (Undo), so the person's line ends are kept. */
+  return { cur, text: raw === null ? null : raw.replace(/\r\n/g, '\n'), crlf: raw !== null && raw.includes('\r\n') };
 }
 function publicLast(agent, last) {
   if (!last) return null;
@@ -317,13 +322,14 @@ function undo(agent) {
   if (!last) return { ok: false, code: 'none', because: 'there is no addition to undo' };
   /* Review 9: from the file, as the page reads it: taken out just as written, whatever else changed (Kosmos's own block
      refreshes since #5297, the person's edits elsewhere); refused when the addition itself changed. */
-  const { cur, text } = readText(agent);
+  const { cur, text, crlf } = readText(agent);
   const w = whereIs(text, last);
   if (w === 'gone') return { ok: false, code: 'none', because: 'that addition is no longer in the instructions' };
   if (w === 'unread') return { ok: false, because: (cur && cur.because) || 'these instructions could not be read' };
   if (w === 'changed') return { ok: false, code: 'edited', because: 'the addition was edited after it was added, so it cannot be undone here' };
   try {
-    instructions.write(agent, withoutSpan(text, last), cur.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
+    const out = withoutSpan(text, last);
+    instructions.write(agent, crlf ? out.replace(/\n/g, '\r\n') : out, cur.version, undefined, { who: 'person', because: `You took out the section ${last.askedBy} asked for` });
   } catch (e) {
     return { ok: false, because: (e && e.message) || 'the instructions could not be saved' };
   }

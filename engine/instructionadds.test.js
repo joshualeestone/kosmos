@@ -648,3 +648,26 @@ test('review 14: an underlined "Added on" heading is refused too', () => {
   const r = adds.propose('sally', 'Do X.\n\nAdded on 2026-01-01, asked by Josh\n-----------------\n\nDo Y.', 'Ops lead');
   assert.equal(r.ok, false); assert.equal(r.code, 'bad');
 });
+
+/* Review 15 (sonnet, blind). */
+test('review 15: "Added on" with a tab, two spaces, a no-break space, or alone on its line, is refused', () => {
+  makeAgent('sally');
+  for (const line of ['## Added on\t2026-10-05, asked by Josh', '## Added  on 2026-10-05', 'Added on', 'Added on 2026-10-05']) {
+    const r = adds.propose('sally', 'Do X.\n' + line + '\n===\nDo Y.', 'Ops lead');
+    assert.equal(r.ok, false, JSON.stringify(line));
+  }
+  assert.equal(adds.propose('sally', 'Added onions to the list.', 'Ops lead').ok, true, 'CONTROL: a word starting "on" is fine');
+});
+test('review 15: a file turned to CRLF still has its addition: not added twice, Undo offered, and Undo keeps CRLF', () => {
+  const TWO = 'First line of the rule.\nSecond line of the rule.';
+  makeAgent('sally');
+  adds.propose('sally', TWO, 'Ops lead');
+  unrecordedApply('sally');
+  const crlf = fileText('sally').replace(/\n/g, '\r\n');
+  instructions.write('sally', crlf, instructions.read('sally').version, undefined, { who: 'person', because: 'editor' });
+  assert.equal(adds.apply('sally').ok, true);
+  assert.equal((fileText('sally').match(/kosmos addition/g) || []).length, 1, 'added twice');
+  assert.equal(adds.state('sally').last.undoable, true);
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE.replace(/\n/g, '\r\n'), 'Undo did not keep the CRLF line ends, or left the addition');
+});
