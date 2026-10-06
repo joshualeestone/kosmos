@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recurring-4787
-diff_hash: 23f46e2afa5a837717af72f951d0a7148216be8b90900ca1a281aac5a2cf53bf
+diff_hash: f536ebef0f1a1b98f629fc2dc566a8c95b1f5fc0f6a7d2425dbd90e15754d82b
 validation: not run locally (suite queue). Run instead after every round: every task-related test (36 files) plus taskrepeat, tasks.repeat-4787, server.task-repeat-4787, web.task-repeat-4787, agentnudge, assigner, the CLI parity/flag/token tests and the two lints: 562/562 at the last round; the page script parses; surface gate rc=0. render-tasks-view-3559's new repeat arm is queued in the light lane (7 ahead at 06:02); CI's browser-checks runs it on the PR.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-06T11:01:45Z
@@ -36,3 +36,6 @@ converged: true
 - [MEDIUM] an agent named operator read as the person --> FIXED (lastRunByPerson flag); [LOW] a changed rule was due at once --> FIXED (max with repeatSetAt); [LOW] part "01" bypassed the refusal --> FIXED (Number compare); [LOW] the unbuilt line lost its reason --> FIXED; a test title --> FIXED
 #### Iteration 6 (sonnet)
 - NO NEW ISSUES.
+
+#### After convergence: CI's node suite
+- Two pins I had not run: server.agent-token-sender-570 (AGENT_TOKEN_ROUTE_PATTERNS now names repeat|ran; the handler check is written in the test's comment) and tools.windows-kosmos-cli-570 (the unknown task verb lists ten). Updated deliberately; 52/52 locally.
