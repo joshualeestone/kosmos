@@ -184,7 +184,8 @@ function check(name, pass, detail) {
 }
 
 // #5373: a wait that times out still falls through to its assertion; this prints the line it was called from, so a
-// wait aimed at the wrong thing shows in the run output rather than passing as a silent 4 s sleep.
+// wait aimed at the wrong thing shows in the run output rather than passing as a silent 4 s sleep. Call it inline, as
+// the catch's argument: it names the line that calls it.
 function waitNote() {
   const at = (new Error().stack.split('\n')[2] || '').trim().replace(/^.*[\\/]/, '').replace(/\)$/, '');
   return () => console.log('NOTE  a wait timed out and the arm read anyway: ' + at);
@@ -1593,10 +1594,11 @@ const closeAll = (page) => page.evaluate(() => {
     const untilStatus = (page, want, ms = 4000) => page.waitForFunction((w) => {
       const s = document.getElementById('fedinv-status').textContent;
       return w.prefix ? s.startsWith(w.text) : s === w.text;
-    }, want, { timeout: ms }).catch(() => {});
+    }, want, { timeout: ms }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilStatus ' + JSON.stringify(want.text)));
     // A held write is past the 3 s limit: the refusal is up and the busy flag is free.
     const untilRefused = (page) => page.waitForFunction(() => !FEDINV_COPY_BUSY
-      && document.getElementById('fedinv-status').textContent.startsWith('Kosmos could not copy'), null, { timeout: 8000 }).catch(() => {});
+      && document.getElementById('fedinv-status').textContent.startsWith('Kosmos could not copy'), null, { timeout: 8000 })
+      .catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilRefused'));
     const step = (page) => page.evaluate(() => {
       const all = document.getElementById('fedinv-copy-all');
       const acts = all ? [...all.parentElement.querySelectorAll('button')].map((b) => b.id) : [];
@@ -1773,9 +1775,10 @@ const closeAll = (page) => page.evaluate(() => {
     if (words) {
       await page.evaluate(() => { showTab('projects'); pjView('list'); });   // the Projects list, where step 2 starts
       await page.waitForTimeout(200);
-      // #5373: each word is looked for until it shows (4 s at most), not once after a fixed 200 ms. A word that never
-      // shows ends the walk with null. The walk does not prove the screen changed between words: the three labels
-      // differ, and the second (a radio label) stays on screen after it is pressed.
+      // #5373: each word is looked for until it shows (4 s at most), after a 200 ms settle following each press. The
+      // settle is kept because no signal says a press's screen has finished changing (the second label is a radio that
+      // stays on screen), and a word matched on the screen being left would be clicked as it is taken away. A word that
+      // never shows ends the walk with null.
       const findSoon = async (w) => {
         const end = Date.now() + 4000;
         let h = await find(page, w);
@@ -1788,6 +1791,7 @@ const closeAll = (page) => page.evaluate(() => {
         if (!hit) break;
         if (found.length === 3) break;   // Verify is found as a label; not pressed (no side effect on the stub)
         await page.click('[data-c3-hit]');
+        await page.waitForTimeout(200);   // the settle from before #5373, kept: see the comment above
       }
     }
     check('C3 each step word is a visible label on the page\'s own path: Projects list, Add Project screen, join step',

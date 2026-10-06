@@ -20,7 +20,8 @@ Each site waits for the state its assertion reads, through a page-side signal, w
   focus after; B15i reads focus after, but asserts only that it is not <body>, and fedRemoveDone places it on the
   Members "+" synchronously. B14 also waits for #fed-live (fedSay, 50 ms timer).
 - Make: the list's re-ask (__memberUrls) and the new row; a limit line past the in-flight text.
-- Copy: untilStatus on the line; C9d the late write's line; C3 polls each step word.
+- Copy: untilStatus on the line; C9d the late write's line. C3 polls each step word and keeps its 200 ms settle
+  after each press (nothing says a press's screen has finished changing).
 Kept: synchronous opens, deliberate mid-flight reads, the ignored-while-busy press, copyAll's 100 ms.
 
 ## Trap
