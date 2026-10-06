@@ -375,8 +375,8 @@ function todayUtc() {
  * ACCUMULATION work for days already on disk, not the I/O.
  * #5363: since then, a transcript last written more than an hour before the first missing day is not read at all (a
  * row is appended when it is written, so it holds none in the missing days); a skipped top-level one is head-read for
- * its first cwd only when a subagent of it is read. With every past day frozen (the usual open) that is today's files;
- * just after UTC midnight, yesterday's and today's.
+ * its first cwd only when a subagent of it is read. With every past day frozen (the usual open) that is the files
+ * written since an hour before today began (UTC); just after UTC midnight, since an hour before yesterday began.
  * A stats page polling this on a live schedule still costs real time and
  * disk I/O on every call: the files written since the first missing day
  * (measured on the fleet Mac, about 4 to 6 seconds). What this DOES
