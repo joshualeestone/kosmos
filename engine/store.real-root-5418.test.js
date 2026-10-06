@@ -165,7 +165,10 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
   const store = require('./store');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweep5418-'));
   try {
-    const dead = path.join(tmp, store.TEST_HOME_PREFIX + deadPid() + '-AAAAAA');
+    const dpid = deadPid();
+    const dead = path.join(tmp, store.TEST_HOME_PREFIX + dpid + '-AAAAAA');
+    const unmarked = path.join(tmp, store.TEST_HOME_PREFIX + dpid + '-UUUUUU');   // the name pattern, no marker
+    const elsewhere = path.join(tmp, store.TEST_HOME_PREFIX + dpid + '-HHHHHH');  // marked by another host
     // A live process this test started itself, signalled successfully (so the arm proves "live", not EPERM).
     const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'ignore' });
     process.kill(child.pid, 0);
@@ -175,10 +178,14 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
     fs.symlinkSync(target, link, 'dir');   // a link with a dead pid's name, to a scratch folder: never followed, never removed
     const junk = path.join(tmp, store.TEST_HOME_PREFIX + 'notapid');
     const other = path.join(tmp, 'other-folder');
-    for (const d of [dead, live, junk, other]) fs.mkdirSync(path.join(d, 'Library'), { recursive: true });
+    for (const d of [dead, live, junk, other, unmarked, elsewhere]) fs.mkdirSync(path.join(d, 'Library'), { recursive: true });
+    const mark = (d, pid, host) => fs.writeFileSync(path.join(d, store.TEST_HOME_MARK), JSON.stringify({ pid, host }));
+    mark(dead, dpid, os.hostname()); mark(live, child.pid, os.hostname()); mark(elsewhere, dpid, os.hostname() + '-other');
     try { store.sweepDeadTestHomes(tmp); } finally { child.kill(); }
     assert.equal(fs.existsSync(dead), false, 'the dead process\'s throwaway was kept');
     assert.ok(fs.lstatSync(link).isSymbolicLink(), 'a link was removed');
+    assert.equal(fs.existsSync(unmarked), true, 'a folder with no marker was removed');
+    assert.equal(fs.existsSync(elsewhere), true, 'another host\'s throwaway was removed');
     assert.ok(fs.existsSync(path.join(target, 'keep')), 'the sweep followed a link into its target');
     assert.equal(fs.existsSync(live), true, 'a live process\'s throwaway was removed');
     assert.equal(fs.existsSync(junk), true, 'a name with no pid was removed');
@@ -195,7 +202,7 @@ test('#5418: a test process that allows the real root to READ it never runs the 
   const src = fs.readFileSync(STORE, 'utf8');
   const at = src.indexOf('function root() {');
   const body = src.slice(at, src.indexOf('\n}', at) + 2);
-  const skip = body.search(/isTestProcess\(env\)\s*&&\s*env\.KOSMOS_ALLOW_REAL_ROOT\s*===\s*'1'\)\s*return/);
+  const skip = body.search(/env\.KOSMOS_ALLOW_REAL_ROOT\s*===\s*'1'\s*&&\s*isRealRoot\(resolved[^)]*\)\)\s*return/);
   const migrate = body.search(/maybeMigrateLegacyStore\(\)/);
   assert.ok(skip > -1 && migrate > -1 && skip < migrate, 'root() can migrate the real store for a test that only allowed reading it');
 });
@@ -210,5 +217,21 @@ test('#5418: node --test --test-isolation=none (no NODE_TEST_CONTEXT) is a test 
     assert.ok(line, r.stdout + r.stderr);
     assert.ok(line.includes(require('./store').TEST_HOME_PREFIX), line);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5418: a SANDBOX in a test process that also allows the real root still migrates as usual', { skip: process.platform === 'win32' && 'the sandbox below is built with the macOS leaf' }, () => {
+  const store = require('./store');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-mig-'));
+  try {
+    const legacy = path.join(home, 'Library', 'Application Support', store.LEGACY_APP);
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'seed.txt'), 'x');
+    const env = childEnv({ NODE_TEST_CONTEXT: 'child-v8', KOSMOS_ALLOW_REAL_ROOT: '1', AGENT_WORKFORCE_HOME: home });
+    delete env.KOSMOS_NO_LEGACY_MIGRATION;
+    const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(require(' + JSON.stringify(STORE) + ').ROOT)'], { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, path.join(home, 'Library', 'Application Support', store.APP));
+    assert.ok(fs.existsSync(path.join(r.stdout, 'seed.txt')), 'the sandbox was not migrated');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
