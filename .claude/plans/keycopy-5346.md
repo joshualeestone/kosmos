@@ -1,7 +1,7 @@
 # #5346 step 2: the no-reader sentences stop telling people they need an API key
 
-Stacked on PR #5361 (codexread-5346 @ 88fe5f615). Rebase onto main (cherry-pick this branch's own commits) once
-#5361 squash-merges; the review loop and proof run after that, on a diff of only these files.
+Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squash-merged as c60c9e29 (10-06
+05:40). The review loop and proof run on a diff of only these files.
 
 ## Calls
 - `NO_MODEL` (engine/orgchartfile.js) and Gemini's off-reason (engine/orgchartkeys.js) lead with Claude, name
