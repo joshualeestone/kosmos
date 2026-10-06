@@ -3528,6 +3528,12 @@ function syncAgent(sessionName, roster) {
   const key = String(sessionName || '');
   const mine = readAll().filter((p) => (p.agents || []).includes(key));
   const verdict = tellAgent(key, mine, roster);
+  /* kosmos#5320: an agent reads this file only when its session starts, so a running agent kept the projects block it
+     started with (a 0.7.22 report: no `project pause`, so a pause said in the room never reached the board). A write
+     that CHANGED the block owes it a re-read line; an unchanged one owes nothing. Never fails the write. */
+  if (verdict && verdict.changed === true && verdict.state === TOLD.TOLD) {
+    try { require('./instructionreread').oweNow(key, 'projects'); } catch { /* it reads the block at its next start */ }
+  }
   const all = readAll();
   for (const p of all) {
     if (!(p.agents || []).includes(key)) continue;
