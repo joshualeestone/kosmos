@@ -213,10 +213,17 @@ test('#4787 slice 2 review 2: runIsLate depends only on the rule and the run\'s 
   assert.equal(r.runIsLate(day, at(2026, 10, 6, 9, 14)), false, 'inside the grace after its slot');
   assert.equal(r.runIsLate(day, at(2026, 10, 6, 9, 15)), true, 'at the grace: late');
   assert.equal(r.runIsLate(day, at(2026, 10, 6, 16, 0)), true, 'in the afternoon: late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 44)), false, 'review 3: 16 minutes early is still early, not late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 20, 0)), true, 'CONTROL: 8pm is nearer this morning\'s 9am than tomorrow\'s, so late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 1, 0)), false, '1am is nearer the coming 9am: early');
+  const week = { repeat: { every: 'week', day: 1, at: '09:00' }, repeatSetAt: new Date(at(2026, 9, 1, 12, 0)).toISOString() };
+  assert.equal(r.runIsLate(week, at(2026, 10, 4, 9, 0)), false, 'review 3: a weekly Monday job a day early (Sunday) is early');
+  assert.equal(r.runIsLate(week, at(2026, 10, 6, 9, 0)), true, 'CONTROL: a day after its Monday is late');
   assert.equal(r.runIsLate(day, at(2026, 10, 1, 13, 0)), false, 'before the rule\'s first slot: never late');
   const hour = { repeat: { every: 'hour', minute: 0 }, repeatSetAt: new Date(at(2026, 10, 1, 0, 30)).toISOString() };
   for (const m of [45, 50, 57]) assert.equal(r.runIsLate(hour, at(2026, 10, 6, 8, m)), false, 'an hourly job reporting at 8:' + m + ' for 9:00 is early');
   assert.equal(r.runIsLate(hour, at(2026, 10, 6, 8, 30)), true, 'CONTROL: half past is late for an hourly job');
+  assert.equal(r.runIsLate(hour, at(2026, 10, 6, 9, 44)), false, 'review 3: 9:44 is nearer 10:00, so early');
   assert.equal(r.runIsLate({ sentence: 'one-off' }, at(2026, 10, 6, 8, 30)), false);
 });
 
