@@ -235,10 +235,10 @@ from a night in this codebase, kosmos#2616.)
    throwaway data root instead, so a missing sandbox no longer writes to a person's data root (the
    workers, projects and per-account roots are not covered), but it
    also no longer reads your fixtures: sandbox first. `KOSMOS_ALLOW_REAL_ROOT=1` lets a test read
-   the real root on purpose (`test-support/real-root-allowed.js`). The marker is inherited: a
-   board, supervisor or CLI started from inside a test (or from a shell that exported
-   `KOSMOS_TEST_RUN=1`) also gets a throwaway data root (its workers, projects and per-account
-   roots are not covered). `engine/worldenv.js`'s
+   the real root on purpose (`test-support/real-root-allowed.js`). It is inherited: a node
+   board or CLI started from inside a test also gets a throwaway data root. Not covered: the
+   workers, projects and per-account roots, and shell code that derives the root itself
+   (`bin/agent-supervisor.sh`; #5428). `engine/worldenv.js`'s
    header enumerates ~26 frozen modules (an incomplete list; #5418's grep found about forty) across both capture shapes (`const BASE =
    store.ROOT` and `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988)
    documents the require-ordering trap for consumers; `engine/store.js` owns the

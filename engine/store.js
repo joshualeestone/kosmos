@@ -256,9 +256,10 @@ function maybeMigrateLegacyStore() {
    Two outcomes, measured on the full suite before choosing them (about 60 test files set no
    sandbox at all and only load modules that freeze the root):
    - NO sandbox variable set: the store answers ONE throwaway root of this process's own, which is
-     what a CI runner's empty real root already gives those tests. It is the store's alone: no
-     environment variable is set, so nothing else in the process (agystatus, accounts, the
-     workers root) changes, and a test that sets HOME later is honoured from then on. A child
+     what a CI runner's empty real root already gives those tests. The store sets no environment
+     variable, so nothing else in the process (agystatus, accounts, the workers root) changes, and
+     a test that sets HOME later is honoured from then on. (worlds.applyWorldEnv, given a named
+     world, does export that world's path under the throwaway, as it would under any root.) A child
      process the test starts is a test process too and gets a throwaway of its own. Removed at
      exit, best effort; a process that was killed leaves it, and the next test process to make a
      throwaway removes the ones whose process is gone (sweepDeadTestHomes, any platform). The
@@ -283,7 +284,17 @@ function maybeMigrateLegacyStore() {
    live-execution's inTestProcess, reused rather than re-derived (updating.js's second-derivation
    rule). */
 function isTestProcess(env) {
-  return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1' || require('./live-execution').inTestProcess();
+  return !!env.NODE_TEST_CONTEXT || inThisTestRun(env) || require('./live-execution').inTestProcess();
+}
+/* tools/run-tests.sh sets KOSMOS_TEST_RUN to its own private temp folder. It counts only for a
+   process whose temp folder is that one or inside it, so the variable alone, left in a shell
+   whose temp folder is the usual one, does not turn a real board into a test. */
+function inThisTestRun(env) {
+  const run = env.KOSMOS_TEST_RUN;
+  if (!run || !path.isAbsolute(run)) return false;
+  const r = realish(run, process.platform, { fresh: true });
+  const t = realish(os.tmpdir(), process.platform, { fresh: true });
+  return t === r || t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }
 let accountHome;   // os.userInfo().homedir, looked up once per process ('' when it cannot be)
 function realDefaultRoot(platform, app) {
@@ -316,17 +327,24 @@ function realish(p, platform, { fresh = false } = {}) {
   realishSeen.set(key, out);
   return out;
 }
-/* Equal to this account's real root for `app`, or inside it (a named world hangs off it). */
-function isRealRoot(resolved, platform, app) {
-  const real = realDefaultRoot(platform, app);
-  if (!real) return false;
-  const r = realish(real, platform);
+/* Equal to or inside this account's real root, current leaf or legacy, whichever leaf was asked
+   for (a named world hangs off the current one; a sandbox variable can aim into the legacy one). */
+function isRealRoot(resolved, platform) {
   const at = realish(resolved, platform);
-  return at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  for (const leaf of [APP, LEGACY_APP]) {
+    const real = realDefaultRoot(platform, leaf);
+    if (!real) continue;
+    const r = realish(real, platform);
+    if (at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) return true;
+  }
+  return false;
 }
-function isRealRootInTests(resolved, platform, env, app) {
+/* Only this machine's own platform: another platform's path (a Mac asking what Windows would use)
+   cannot be this machine's real root, and the host's realpath cannot judge it. */
+function isRealRootInTests(resolved, platform, env) {
+  if (platform !== process.platform) return false;
   if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
-  return isRealRoot(resolved, platform, app);
+  return isRealRoot(resolved, platform);
 }
 const TEST_HOME_PREFIX = 'kosmos-test-home-';
 /* Written into every throwaway when it is made: its pid and this machine's host name. The sweep
@@ -383,7 +401,7 @@ function throwawayRootForThisProcess(platform, app) {
 function resolveDataRoot(platform, home, env, app = APP) {
   const e = env || process.env;
   const resolved = dataRootFor(platform, home, e, app);
-  if (!isRealRootInTests(resolved, platform, process.env, app)) return resolved;
+  if (!isRealRootInTests(resolved, platform, process.env)) return resolved;
   return throwawayRootForThisProcess(platform, app);
 }
 
@@ -394,7 +412,7 @@ function root() {
   // neither is the REAL root when a test process allowed it only to read it (KOSMOS_ALLOW_REAL_ROOT);
   // a sandbox in that same process still migrates as usual.
   if (testRoots.has(resolved)) return resolved;
-  if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1' && isRealRoot(resolved, process.platform, APP)) return resolved;
+  if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1' && isRealRoot(resolved, process.platform)) return resolved;
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();

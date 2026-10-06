@@ -48,7 +48,9 @@ function runJs(src, extra) {
 const within = (p, dir) => { const rel = path.relative(dir, p); return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel); };
 const underTmp = (p) => within(p, os.tmpdir()) || within(p, fs.realpathSync(os.tmpdir()));
 
-for (const [label, marker] of [['node --test (NODE_TEST_CONTEXT)', { NODE_TEST_CONTEXT: 'child-v8' }], ['tools/run-tests.sh (KOSMOS_TEST_RUN=1)', { KOSMOS_TEST_RUN: '1' }]]) {
+/* tools/run-tests.sh's marker: KOSMOS_TEST_RUN names the run's own temp folder, which is the child's. */
+const RUN_MARKER = { KOSMOS_TEST_RUN: os.tmpdir() };
+for (const [label, marker] of [['node --test (NODE_TEST_CONTEXT)', { NODE_TEST_CONTEXT: 'child-v8' }], ['tools/run-tests.sh (KOSMOS_TEST_RUN = its temp folder)', RUN_MARKER]]) {
   test('#5418: a ' + label + ' process with no sandbox gets a throwaway store root, never the real one, and no variable is set', () => {
     const { root, home } = runJs('process.stdout.write(JSON.stringify({ root: s.ROOT, home: process.env.AGENT_WORKFORCE_HOME ?? null }))', marker);
     assert.notEqual(root, realRoot());
@@ -161,7 +163,7 @@ function deadPid() {
   throw new Error('no free pid found for the dead-process arm');
 }
 
-test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a live one, a malformed name and anything else', { skip: !CAN_SYMLINK && 'this machine does not allow a directory symlink here' }, () => {
+test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a live one, a malformed name and anything else', () => {
   const store = require('./store');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweep5418-'));
   try {
@@ -173,9 +175,6 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
     const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'ignore' });
     process.kill(child.pid, 0);
     const live = path.join(tmp, store.TEST_HOME_PREFIX + child.pid + '-BBBBBB');
-    const link = path.join(tmp, store.TEST_HOME_PREFIX + deadPid() + '-LLLLLL');
-    const target = path.join(tmp, 'link-target'); fs.mkdirSync(path.join(target, 'keep'), { recursive: true });
-    fs.symlinkSync(target, link, 'dir');   // a link with a dead pid's name, to a scratch folder: never followed, never removed
     const junk = path.join(tmp, store.TEST_HOME_PREFIX + 'notapid');
     const other = path.join(tmp, 'other-folder');
     for (const d of [dead, live, junk, other, unmarked, elsewhere]) fs.mkdirSync(path.join(d, 'Library'), { recursive: true });
@@ -183,10 +182,8 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
     mark(dead, dpid, os.hostname()); mark(live, child.pid, os.hostname()); mark(elsewhere, dpid, os.hostname() + '-other');
     try { store.sweepDeadTestHomes(tmp); } finally { child.kill(); }
     assert.equal(fs.existsSync(dead), false, 'the dead process\'s throwaway was kept');
-    assert.ok(fs.lstatSync(link).isSymbolicLink(), 'a link was removed');
     assert.equal(fs.existsSync(unmarked), true, 'a folder with no marker was removed');
     assert.equal(fs.existsSync(elsewhere), true, 'another host\'s throwaway was removed');
-    assert.ok(fs.existsSync(path.join(target, 'keep')), 'the sweep followed a link into its target');
     assert.equal(fs.existsSync(live), true, 'a live process\'s throwaway was removed');
     assert.equal(fs.existsSync(junk), true, 'a name with no pid was removed');
     assert.equal(fs.existsSync(other), true, 'a folder outside the prefix was removed');
@@ -233,5 +230,39 @@ test('#5418: a SANDBOX in a test process that also allows the real root still mi
     assert.equal(r.stdout, path.join(home, 'Library', 'Application Support', store.APP));
     assert.ok(fs.existsSync(path.join(r.stdout, 'seed.txt')), 'the sandbox was not migrated');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('#5418: the sweep never removes or follows a link named like a dead throwaway', { skip: !CAN_SYMLINK && 'this machine does not allow a directory symlink here' }, () => {
+  const store = require('./store');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweep5418-link-'));
+  try {
+    const dpid = deadPid();
+    const target = path.join(tmp, 'link-target');
+    fs.mkdirSync(path.join(target, 'keep'), { recursive: true });
+    fs.writeFileSync(path.join(target, store.TEST_HOME_MARK), JSON.stringify({ pid: dpid, host: os.hostname() }));
+    const link = path.join(tmp, store.TEST_HOME_PREFIX + dpid + '-LLLLLL');
+    fs.symlinkSync(target, link, 'dir');
+    store.sweepDeadTestHomes(tmp);
+    assert.ok(fs.lstatSync(link).isSymbolicLink(), 'a link was removed');
+    assert.ok(fs.existsSync(path.join(target, 'keep')), 'the sweep followed a link into its target');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('#5418 control: KOSMOS_TEST_RUN left in a shell (not the run\'s temp folder) does not make a real board a test', () => {
+  for (const value of ['1', path.join(os.tmpdir(), 'not-this-run-5418')]) {
+    assert.equal(rootIn({ KOSMOS_TEST_RUN: value }), 'ROOT=' + realRoot(), value);
+  }
+});
+
+test('#5418: a sandbox variable aimed into the real LEGACY folder gets the throwaway too', () => {
+  const store = require('./store');
+  const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_DATA: store.realDefaultRoot(process.platform, store.LEGACY_APP) });
+  assert.ok(throwaway(out), out);
+});
+
+test('#5418: asking about another platform never throws and never gets a throwaway (it cannot be this machine\'s root)', () => {
+  const other = process.platform === 'win32' ? 'darwin' : 'win32';
+  const got = runJs('process.stdout.write(JSON.stringify({ r: s.resolveDataRoot(' + JSON.stringify(other) + ', require("node:os").userInfo().homedir, {}) }))', { NODE_TEST_CONTEXT: 'child-v8' });
+  assert.ok(!got.r.includes(require('./store').TEST_HOME_PREFIX), got.r);
 });
 
