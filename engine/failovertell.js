@@ -12,7 +12,8 @@
  * Antigravity agent at its quota reset (engine/agyquota.js nudgeText), which marks what it named once that line has
  * reached the pane. The sweep runs whatever the failover setting says, because the parts were already moved. It skips
  * an Antigravity agent only while agyquota will still resume it (agyquota.resumePending, review 11), and tells it
- * plainly otherwise; it never tells anybody to carry on.
+ * plainly otherwise. Its line starts a turn like any typed line does, so it asks for a one-word reply and nothing
+ * more (review 12; see lineFor).
  *
  * Pure apart from the injected deliver and markTold; never throws.
  */
@@ -61,20 +62,26 @@ function owedFor(session, records) {
         if (!owes(p, x, session)) continue;
         const done = Boolean(x.closedAt || prog.closed);
         const where = String(p.name || p.id).replace(/[\r\n"]/g, ' ');
-        out.push({ projectId: p.id, n: t.number, partId: x.id, who: x.who, done,
-          phrase: 'task ' + t.number + ' in "' + where + '" (' + (done ? 'finished by ' + x.who : 'now ' + x.who + '\'s') + ')' });
+        // Review 12: "finished by B" only when the PART was finished; a task closed as a whole may not have been B's doing.
+        const state = x.closedAt ? 'finished by ' + x.who : prog.closed ? 'closed' : 'now ' + x.who + '\'s';
+        out.push({ projectId: p.id, n: t.number, partId: x.id, who: x.who, done, phrase: 'task ' + t.number + ' in "' + where + '" (' + state + ')' });
       }
     }
   }
   return out;
 }
 
-/* The sweep's line, naming every owed part. It never tells an agent to carry on (review 11): resuming is agyquota's,
-   behind its own switch, and an Antigravity agent whose resume is still due is left to that line (the caller's skip). */
+/* The sweep's line, naming every owed part. Review 12: ANY typed line starts a turn, and an agent cut off mid-work will
+   usually carry on in it, so a bare notice would itself be an unrequested resume (on a Claude account, which Kosmos
+   never resumes, or past agyquota's operator brake). So the line asks for a one-word reply and nothing else: the turn
+   it starts costs one word, and the agent's own work waits for the person or its next instruction. Not telling it at
+   all was rejected: an untold agent is the one that later redoes somebody else's part.
+   Weakest premise: that the agent obeys "reply with one word". */
 function lineFor(items) {
   const one = items.length === 1;
   return '[Kosmos: while you were at your usage limit, ' + items.map((i) => i.phrase).join(', ') + (one ? ' was' : ' were')
-    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.]';
+    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.'
+    + ' This needs no work from you: reply with one word and wait for your next instruction.]';
 }
 
 /* Did a delivery verdict (maybe) reach the pane? Anything but COULD_NOT, and never a held line (the quota or the Gemini

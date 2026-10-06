@@ -439,7 +439,7 @@ test('review 8: a failover move owes its source a line; a chain owes every sourc
   } finally { w.restore(); }
 });
 
-test('review 8: owedFor lists only open parts the agent is owed and does not hold; the record survives other writes; markMoveTold ends it', () => {
+test('review 8/10: owedFor lists the parts the agent is owed and does not hold, finished ones included; the record survives other writes; markMoveTold ends it', () => {
   const w = world([{ name: 'ofa' }, { name: 'ofb' }]);
   try {
     const h = heldTask(w.pid, w.key.ofa, 'write the deploy notes');
@@ -578,4 +578,14 @@ test('review 10/11: the line names finished parts as finished, and never tells a
   const line = ft.lineFor(items);
   assert.match(line, /task 2 in "P" \(finished by bob\) were given to another agent\. Leave those to them/);
   assert.doesNotMatch(line, /carry on/i, 'the tell resumes the agent (resuming is agyquota\'s, behind its own switch)');
+  // Review 12: any typed line starts a turn, so the line asks for one word and nothing else.
+  assert.match(line, /This needs no work from you: reply with one word and wait for your next instruction\.\]$/);
+});
+
+test('review 12: "finished by B" only for a part B finished; a task closed as a whole says "closed"', () => {
+  const rec = (part, task = {}) => [{ id: 'p1', name: 'P', agents: ['ann', 'bob'],
+    tasks: [{ number: 1, sentence: 's', ...task, parts: [{ id: 1, sentence: 's', who: 'bob', owedTell: ['ann'], ...part }] }] }];
+  assert.match(ft.owedFor('ann', rec({ closedAt: '2026-10-06T00:00:00Z' }))[0].phrase, /\(finished by bob\)$/);
+  assert.match(ft.owedFor('ann', rec({}, { closedAt: '2026-10-06T00:00:00Z' }))[0].phrase, /\(closed\)$/, 'a whole-task close was credited to bob');
+  assert.match(ft.owedFor('ann', rec({}))[0].phrase, /\(now bob's\)$/);
 });

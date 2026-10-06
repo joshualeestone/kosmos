@@ -158,8 +158,8 @@ function plan(report, entry, now, heldBackUntil) {
 /* #5382 (review 11): will this module still type its carry-on line into this agent for its CURRENT pause? True only
    while the resume is switched on (resumeEnabled, live execution and the operator brake) and plan() says nudge or
    wait. The failover tell sweep leaves such an agent to that line (which names the same moved parts) and tells it
-   plainly otherwise, so the sweep never resumes anybody itself (it once added "carry on", which ignored the brake and
-   could resume an agent twice). o = { book, now, env, allowed, readReport? }. Never throws. */
+   plainly otherwise (it once added "carry on", which ignored the brake and could resume an agent twice; its plain line
+   still starts a turn, so it asks for a one-word reply, review 12). o = { book, now, env, allowed, readReport? }. Never throws. */
 function resumePending(session, o = {}) {
   try {
     if (!resumeEnabled(o.allowed === true, o.env)) return false;
