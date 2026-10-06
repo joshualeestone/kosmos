@@ -3,7 +3,7 @@
 Card: kosmos#5418 (found by Renet on a fleet Mac, 2026-10-06). Owner: April. Claimed 2026-10-06 15:10 CDT (claim log, 20:10:48Z).
 
 ## Mechanism (measured)
-About forty engine modules freeze `store.ROOT` at require time (`const DIR = path.join(store.ROOT, ...)`;
+38 module-level captures in 35 files freeze `store.ROOT` at require time (measured 2026-10-06; see the store.js comment for the grep) (`const DIR = path.join(store.ROOT, ...)`;
 sendertoken.js:58 is the one the card's records came from). `store.ROOT` itself is lazy (#1443), but a
 test that requires any of those modules before setting its sandbox gets the REAL root frozen into that
 module for the rest of the process, and every write lands in the operator's store.
@@ -47,7 +47,7 @@ A test process is recognised by NODE_TEST_CONTEXT, KOSMOS_TEST_RUN, or live-exec
   test runner.
 
 ## Rejected
-- Making each of the ~40 modules resolve lazily: whack-a-mole, and the next module re-freezes it.
+- Making each of the 35 files resolve lazily: whack-a-mole, and the next module re-freezes it.
 - Exporting a sandbox AGENT_WORKFORCE_DATA from run-tests.sh for every test: trips the board's #634
   "half-sandboxed" refusal, and does nothing for an agent's direct `node --test` run.
 
@@ -114,6 +114,10 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   so one known limit rather than two different ones).
 - KOSMOS_ALLOW_REAL_ROOT=1 in a test process allows READING the real root and never runs the legacy
   migration on it (pinned in source); a sandbox in the same process still migrates (tested).
+- Windows 8.3 short names (RUNNER~1) are not expanded by realpath, so a real home spelled short and long
+  can compare unequal (fails open, like the redirected-AppData case).
+- The sweep keys on os.hostname(); a Mac whose name changed with its network leaves its earlier
+  throwaways unswept (only temp folders, and it keeps rather than removes).
 - macOS firmlinked spellings (/System/Volumes/Data/Users/...) are not symlinks, so realpath leaves them
   as they are and a sandbox spelled that way into the real root is not matched.
 - The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file, and
