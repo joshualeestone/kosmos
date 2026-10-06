@@ -215,8 +215,9 @@ const LINUX_LAUNCHD_TEMP = process.platform === 'linux'
    (Linux, or a Mac sandbox off /var) they cannot reach the case they test. */
 function plistFolderHasSecondSpelling() {
   try {
-    const dir = nodePath.dirname(create.plistPath('spelling-probe-4919'));
-    fs.mkdirSync(dir, { recursive: true });
+    // Read only: resolve the nearest folder on the path that already exists, so loading this file creates nothing.
+    let dir = nodePath.dirname(create.plistPath('spelling-probe-4919'));
+    while (!fs.existsSync(dir) && nodePath.dirname(dir) !== dir) dir = nodePath.dirname(dir);
     return fs.realpathSync.native(dir) !== dir;
   } catch { return true; }   // cannot tell: run the test, whose own premise assert then says why
 }
