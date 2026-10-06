@@ -26,8 +26,14 @@ which would have made Copy hand out the account view and the buy fallback
   its Copy expectation (the home) is unchanged and acts as the control.
 
 ## Merge gate
-Do NOT merge until `https://login.kosmosplus.com/account` returns 200 live. At 11:0x it
-returned 404 (same as a made-up path), so shipping first would send View account to a 404.
+Do NOT merge until the account view is live. At 11:0x `/account` returned 404, the same as a
+made-up path, so shipping first would send View account to a 404.
+
+The PR opens as a DRAFT with HOLD in its title, so an agent following the merge-when-green
+rule cannot merge it by accident. Lift the hold only when all three hold, measured live:
+- `https://login.kosmosplus.com/account` returns 200;
+- its body shows Sign out everywhere and Delete account (a 200 alone could be a catch-all page);
+- a made-up path on the same host still returns 404 (the control that the 200 means something).
 
 ## Weakest premise
 That the relay ships the account view at exactly `/account`. If it lands elsewhere, follow it.
