@@ -76,16 +76,31 @@ test('#5418: every caller that derives the root agrees: store.ROOT, create.suppo
   assert.equal(got.base, got.root);
 });
 
-test('#5418: a sandbox variable aimed INSIDE the real root (a named world under it) is refused', () => {
+const throwaway = (out) => out.startsWith('ROOT=') && out.includes(require('./store').TEST_HOME_PREFIX);
+
+test('#5418: a named world\'s DATA an agent inherits (inside the real root) gets the throwaway, not a refusal', () => {
   const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_DATA: path.join(realRoot(), 'worlds', 'w5418') });
-  assert.match(out, /^THREW=store: a test process resolved this machine's REAL data root/, out);
+  assert.ok(throwaway(out), out);
 });
 
-test('#5418: a sandbox variable that still points at the real store is refused by name', () => {
-  const realParent = path.dirname(realRoot());
-  const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_DATA: realParent });
-  assert.match(out, /^THREW=store: a test process resolved this machine's REAL data root/, out);
-  assert.match(out, /#5418/);
+test('#5418: a sandbox variable that still points at the real store gets the throwaway', () => {
+  const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_DATA: path.dirname(realRoot()) });
+  assert.ok(throwaway(out), out);
+});
+
+test('#5418: the LEGACY leaf (boardauth\'s old token) is never the real one in a test process', () => {
+  const got = runJs('process.stdout.write(JSON.stringify({ legacy: s.resolveDataRoot(process.platform, require("node:os").homedir(), process.env, s.LEGACY_APP) }))', { NODE_TEST_CONTEXT: 'child-v8' });
+  const realLegacy = require('./store').dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA }, require('./store').LEGACY_APP);
+  assert.notEqual(got.legacy, realLegacy);
+  assert.ok(got.legacy.includes(require('./store').TEST_HOME_PREFIX), got.legacy);
+  assert.equal(path.basename(got.legacy), require('./store').LEGACY_APP, 'the throwaway is not the legacy leaf: ' + got.legacy);
+  /* The behaviour that matters is boardauth reading its old token through this, not around it. Pinned in
+     source: proving it by behaviour would need a token planted in the real legacy folder. */
+  const src = fs.readFileSync(path.join(__dirname, 'boardauth.js'), 'utf8');
+  const at = src.indexOf('function legacyTokenPath()');
+  const body = src.slice(at, src.indexOf('\n}', at) + 2);
+  assert.match(body, /store\.resolveDataRoot\(process\.platform, home, process\.env, store\.LEGACY_APP\)/);
+  assert.doesNotMatch(body, /store\.dataRootFor\(/);
 });
 
 test('#5418: a sandboxed test process gets its sandbox (AGENT_WORKFORCE_DATA, or AGENT_WORKFORCE_HOME)', () => {
@@ -107,12 +122,13 @@ test('#5418: a test that sandboxes by pointing HOME elsewhere keeps ITS sandbox 
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('#5418: the real home reached through a symlink is still the real root, and refused', { skip: process.platform === 'win32' && 'a directory symlink needs Developer Mode on Windows' }, () => {
+test('#5418: the real home reached through a symlink is still the real root, and gets the throwaway', { skip: process.platform === 'win32' && 'a directory symlink needs Developer Mode on Windows' }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-link-'));
   const link = path.join(dir, 'home');
   try {
     fs.symlinkSync(os.userInfo().homedir, link);
-    assert.match(rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_HOME: link }), /^THREW=/);
+    const out = rootIn({ NODE_TEST_CONTEXT: 'child-v8', AGENT_WORKFORCE_HOME: link });
+    assert.ok(throwaway(out), out);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

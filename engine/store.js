@@ -262,27 +262,33 @@ function maybeMigrateLegacyStore() {
      process the test starts is a test process too and gets a throwaway of its own. Removed at
      exit, best effort (a killed process leaves it; tools/run-tests.sh sweeps old ones). The
      legacy migration is skipped for it, since its own target would be the real store.
-   - A sandbox variable IS set and still resolves to the real root or inside it (a symlink to the
-     real home, a DATA aimed at the real root's parent, a named world under it): that is a
-     misconfiguration, and it throws.
-   Every caller that derives the root goes through resolveDataRoot below, not only this file.
-   What is protected is this account's OS-default root; a store a shell's inherited
-   AGENT_WORKFORCE_DATA/HOME names is not (the shell side is #5428). */
+   - A sandbox variable that still resolves to the real root or inside it (a symlink to the real
+     home, a named world's DATA an agent inherits from its world) gets the same throwaway. It is
+     not refused: an inherited world variable cannot be told from a test's own, and a refusal
+     would fail every unsandboxed test an agent in a named world runs.
+   Every caller that derives the current or legacy root to READ or WRITE it goes through
+   resolveDataRoot below (create.supportDir, worlds.baseRoot, boardauth's legacy token, the
+   silence monitor). Not routed: setup-assistant's deny-rule paths (named, never read),
+   win32uninstall (its own explicit home) and install/setup.sh's consult (an installer).
+   Protected is this account's OS-default root (the user database's home), equal or inside; a
+   store a shell's inherited non-default AGENT_WORKFORCE_DATA/HOME names is not (the shell side
+   is #5428). With no user-database home (os.userInfo throws) the rule is off. */
 function isTestProcess(env) {
   return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
 }
-function realDefaultRoot(platform) {
+function realDefaultRoot(platform, app) {
   let home;
   try { home = os.userInfo().homedir; } catch { return null; }
   if (!home) return null;
   // No APPDATA from the environment (a test may point it at a sandbox): on Windows the real root is
   // the account home's AppData\Roaming. A machine whose AppData is redirected elsewhere is not seen.
-  return dataRootFor(platform, home, {});
+  return dataRootFor(platform, home, {}, app);
 }
 /* The nearest existing ancestor's realpath with the rest re-attached, so two spellings of one
    directory (a symlinked /var, a home reached through a link) compare equal even before the
    root exists; lower-cased where the default volume ignores case (macOS, Windows). Cached per
-   spelling, since store.ROOT is read often. Only test processes reach it. */
+   spelling, since store.ROOT is read often (a symlink made later under a cached spelling is not
+   seen). Only test processes reach it. */
 const realishSeen = new Map();
 function realish(p, platform) {
   const key = platform + '\0' + p;
@@ -301,24 +307,27 @@ function realish(p, platform) {
   return out;
 }
 /* Equal to the real root or inside it (a named world hangs off it). */
-function isRealRootInTests(resolved, platform, env) {
+function isRealRootInTests(resolved, platform, env, app) {
   if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
-  const real = realDefaultRoot(platform);
+  const real = realDefaultRoot(platform, app);
   if (!real) return false;
   const r = realish(real, platform);
   const at = realish(resolved, platform);
   return at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }
 const TEST_HOME_PREFIX = 'kosmos-test-home-';
-const testRoots = new Map();   // platform -> this process's throwaway root
-function throwawayRootForThisProcess(platform) {
-  if (!testRoots.has(platform)) {
-    // The pid is in the name so tools/run-tests.sh can sweep only the ones whose process is gone.
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX + process.pid + '-'));
-    testRoots.set(platform, dataRootFor(platform, home, {}));
-    process.on('exit', () => { try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* swept later */ } });
+let testHome = null;            // this process's one throwaway home
+const testRoots = new Set();     // the throwaway roots handed out, so root() can skip migrating them
+function throwawayRootForThisProcess(platform, app) {
+  if (!testHome) {
+    // The pid is in the name so tools/sweep-test-homes.sh can sweep only the ones whose process is gone.
+    testHome = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX + process.pid + '-'));
+    const made = testHome;
+    process.on('exit', () => { try { fs.rmSync(made, { recursive: true, force: true }); } catch { /* swept later */ } });
   }
-  return testRoots.get(platform);
+  const r = dataRootFor(platform, testHome, {}, app);
+  testRoots.add(r);
+  return r;
 }
 /**
  * #5418: the data root with the test-process rule applied and NO migration. Every caller that
@@ -327,22 +336,18 @@ function throwawayRootForThisProcess(platform) {
  * `env` supplies the sandbox variables (worlds passes the launch's original env); whether this
  * is a test process is always read from process.env.
  */
-function resolveDataRoot(platform, home, env) {
+function resolveDataRoot(platform, home, env, app = APP) {
   const e = env || process.env;
-  const resolved = dataRootFor(platform, home, e);
-  if (!isRealRootInTests(resolved, platform, process.env)) return resolved;
-  if (e.AGENT_WORKFORCE_DATA || e.AGENT_WORKFORCE_HOME) {
-    throw new Error('store: a test process resolved this machine\'s REAL data root (' + resolved + ') '
-      + 'through its own sandbox variable. Point AGENT_WORKFORCE_DATA (or AGENT_WORKFORCE_HOME) somewhere else. #5418');
-  }
-  return throwawayRootForThisProcess(platform);
+  const resolved = dataRootFor(platform, home, e, app);
+  if (!isRealRootInTests(resolved, platform, process.env, app)) return resolved;
+  return throwawayRootForThisProcess(platform, app);
 }
 
 function root() {
   const env = process.env;
   const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
   // #5418: a throwaway root is not migrated (the migration's own target is the real store).
-  if (testRoots.get(process.platform) === resolved) return resolved;
+  if (testRoots.has(resolved)) return resolved;
   /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
