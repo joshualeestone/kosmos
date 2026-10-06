@@ -765,3 +765,186 @@ test('#1760 scrub survives a multi-MB degenerate assignment run without throwing
   assert.equal(threw, null, 'scrub threw on a large run: ' + threw);
   assert.ok(ms < SCRUB_CPU_BOUND_MS, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
 });
+
+/* kosmos#5294: sendNow, for `kosmos feedback write`: send NOW and say what happened. Same gates as sendDailyOnce. */
+
+test('#5294 sendNow sends the scrubbed contract payload once and reports sent; the delivered hash is recorded', async () => {
+  feedback.write('the task verbs were missing', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  const seen = [];
+  feedbacksend.setSender((url, init) => { seen.push({ url, body: JSON.parse(init.body) }); return Promise.resolve({ ok: true }); });
+  const r = await feedbacksend.sendNow('2026-09-04', 1000);
+  assert.equal(r.state, 'sent');
+  assert.equal(seen.length, 1, 'expected exactly one POST');
+  assert.deepEqual(Object.keys(seen[0].body).sort(), ['body', 'consent', 'date', 'generated_at', 'install'], 'not the #2246 contract');
+  assert.equal(seen[0].body.date, '2026-09-04');
+  const st = feedbacksend.read();
+  assert.equal(st.sent, '2026-09-04'); assert.equal(st.sentAt, 1000);
+  assert.ok(st.sentHash, 'the delivered hash was not recorded, so the next sweep would send it again');
+});
+
+test('#5294 sendNow again with the same body is "already": no second POST', async () => {
+  feedback.write('same words', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'sent');
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 2000)).state, 'already');
+  assert.equal(calls, 1);
+});
+
+test('#5294 a CHANGED report within 3 h is "later" (the #4766 floor), and goes after it', async () => {
+  feedback.write('first version', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'sent');
+  feedback.write('second, longer version', { date: '2026-09-04' });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + 60 * 1000)).state, 'later');
+  assert.equal(calls, 1, 'a changed report went out inside the 3 h floor');
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + 3 * 60 * 60 * 1000)).state, 'sent');   // CONTROL
+  assert.equal(calls, 2);
+});
+
+test('#5294 sending switched off: "off", and nothing is POSTed or marked', async () => {
+  feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(false);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'off');
+  assert.equal(calls, 0);
+  assert.equal(feedbacksend.read().sent, null);
+});
+
+test('#5294 no report for the day: "none", nothing POSTed', async () => {
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'none');
+  assert.equal(calls, 0);
+});
+
+test('#5294 the collector refuses (4xx) or the network throws: "failed", the attempt marked, no hash recorded', async () => {
+  for (const sender of [() => Promise.resolve({ ok: false }), () => Promise.reject(new Error('down'))]) {
+    fresh();
+    feedback.write('body', { date: '2026-09-04' });
+    feedbacksend.setOn(true);
+    feedbacksend.setSender(sender);
+    assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+    const st = feedbacksend.read();
+    assert.equal(st.sent, '2026-09-04', 'the attempt was not marked, so the sweep could re-POST every hour');
+    assert.equal(st.sentHash, null, 'a failed send was recorded as delivered');
+  }
+});
+
+test('#5294 review 1: after a FAILED send, writing again retries at once (no 3 h wait when nothing was delivered)', async () => {
+  feedback.write('first try', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let ok = false; let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+  ok = true;
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + 60 * 1000)).state, 'sent', 'a failed send could not be retried for 3 h');
+  assert.equal(calls, 2);
+});
+
+test('#5294 review 1: "later" only after a version was DELIVERED today, never after a failed attempt', async () => {
+  feedback.write('v1', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  feedbacksend.setSender(() => Promise.resolve({ ok: false }));
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+  feedback.write('v2', { date: '2026-09-04' });
+  const r = await feedbacksend.sendNow('2026-09-04', 1000 + feedbacksend.RETRY_MIN_MS);
+  assert.equal(r.state, 'failed', '"later" (or anything but a retry) after a send that never reached the team');
+});
+
+test('#5294 review 2: a retry under a minute after a FAILED send is "soon", and nothing is POSTed (no flood)', async () => {
+  feedback.write('v1', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: false }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'failed');
+  feedback.write('v2', { date: '2026-09-04' });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + 10 * 1000)).state, 'soon');
+  assert.equal(calls, 1, 'a retry 10 s after a failure hit the collector again');
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000 + feedbacksend.RETRY_MIN_MS)).state, 'failed');   // CONTROL
+  assert.equal(calls, 2);
+});
+
+test('#5294 review 2: a data root under the temp directory counts as a test, even without the runner', () => {
+  // This file's data root is a mkdtemp sandbox, like every fixture's. With the runner signal removed, the temp-folder
+  // rule alone must still say sandboxed, so a CLI test file run directly cannot reach installkosmos.com.
+  const prev = process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_CONTEXT;
+  try {
+    assert.equal(feedbacksend.underTest(), false, 'setup: the runner signal is still set');
+    assert.equal(feedbacksend.sandboxed(), true, 'a temp-folder data root was not treated as a test');
+  } finally { if (prev !== undefined) process.env.NODE_TEST_CONTEXT = prev; }
+});
+
+test('#5294 review 1: an unreadable setting file is "unreadable", not "off", and nothing is sent', async () => {
+  feedback.write('body', { date: '2026-09-04' });
+  fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
+  fs.writeFileSync(feedbacksend.FILE, 'not json{');
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'unreadable');
+  assert.equal(calls, 0);
+});
+
+test('#5294 the marker cannot be saved: "unsent", and nothing is POSTed (the sweep\'s rule)', async () => {
+  feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  // A directory where the settings file's temp file must go makes the write fail; reading still says on.
+  fs.mkdirSync(feedbacksend.FILE + '.tmp', { recursive: true });
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
+  try {
+    assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'unsent');
+    assert.equal(calls, 0, 'a send went out with no marker, so every sweep would repeat it');
+  } finally { fs.rmSync(feedbacksend.FILE + '.tmp', { recursive: true, force: true }); }
+});
+
+test('#5294 a test run never phones home: a real endpoint is "blocked"; only loopback may be reached', async () => {
+  feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  feedbacksend.setSender(null);
+  assert.equal(feedbacksend.underTest(), true, 'the runner signal is gone, so this test proves nothing');
+  let reached = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => { reached += 1; return Promise.resolve({ ok: true }); };
+  const prev = process.env.AGENT_WORKFORCE_FEEDBACK_URL;
+  try {
+    delete process.env.AGENT_WORKFORCE_FEEDBACK_URL;   // the default, installkosmos.com
+    assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'blocked');
+    assert.equal(reached, 0, 'a test run reached the real collector');
+    process.env.AGENT_WORKFORCE_FEEDBACK_URL = 'http://127.0.0.1:9/api/feedback';   // CONTROL: loopback is allowed
+    assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'sent');
+    assert.equal(reached, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_FEEDBACK_URL; else process.env.AGENT_WORKFORCE_FEEDBACK_URL = prev;
+  }
+});
+
+test('#5294 every state has its own sentence; only sent, already and later say a version reached the team', () => {
+  const states = ['sent', 'already', 'later', 'off', 'unreadable', 'none', 'failed', 'soon', 'unsent', 'blocked'];
+  for (const s of states) assert.ok(feedbacksend.writeMessage(s) && feedbacksend.writeMessage(s).startsWith('Saved'), s);
+  assert.equal(new Set(states.map((s) => feedbacksend.writeMessage(s))).size, states.length, 'two states share a sentence');
+  assert.match(feedbacksend.writeMessage('sent'), /sent it to the Kosmos team \(installkosmos\.com\)/);
+  for (const s of states.filter((x) => x !== 'sent' && x !== 'already' && x !== 'later')) {
+    assert.doesNotMatch(feedbacksend.writeMessage(s), /sent it to/, s + ' claims a send that did not happen');
+  }
+  assert.doesNotMatch(Object.values(feedbacksend.WRITE_MESSAGES).join(' '), /\u2014/, 'an em dash in user-facing copy');
+});
+
+test('#5294 review 3: a REAL data root (not a temp folder, no test runner) is NOT sandboxed, so real installs send', () => {
+  // A child with its data root outside every fixed temp root, and no NODE_TEST_CONTEXT, must read sandboxed() false.
+  // Pins the other direction of the rule above: a sandboxed() that degraded to always-true would block every real send.
+  const cp = require('node:child_process');
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: '/nonexistent-kosmos-5294-root', TMPDIR: '/' };
+  delete env.NODE_TEST_CONTEXT;
+  const out = cp.execFileSync(process.execPath, ['-e', 'process.stdout.write(String(require(process.argv[1]).sandboxed()))',
+    nodePath.join(__dirname, 'feedbacksend.js')], { env, encoding: 'utf8' });
+  assert.equal(out, 'false', 'a real data root (with TMPDIR=/, the review-3 case) was treated as a test run');
+});

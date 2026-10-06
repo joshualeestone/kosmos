@@ -517,10 +517,120 @@ function markSent(date, hash, at) {
   return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null });
 }
 
+// #5294 review 2: a FAILED send (nothing delivered today) may be retried by writing again, but not sooner than this,
+// so an agent looping on `feedback write` against a down or rate-limiting collector cannot flood it.
+const RETRY_MIN_MS = 60 * 1000;
+/* #5294 review 2: a test harness is not always under `node --test` (a file run directly is not), so the runner signal
+   alone let a CLI test POST a real report. Fixtures keep their data in a temp folder and a real install never does, so
+   a data root under a FIXED temp root counts as a test too. Review 3: never os.tmpdir(), which follows the caller's
+   TMPDIR/TEMP: a runner that sets TMPDIR=/ would make every real install look like a test. On Windows none of these
+   roots resolve, so only the runner signal applies there. This gates sendNow only; the board's sweep (maybeSend,
+   sendDailyOnce) keeps its runner-only guard. */
+function sandboxed() {
+  if (underTest()) return true;
+  try {
+    const roots = ['/tmp', '/private/tmp', '/var/folders', '/private/var/folders'].map((r) => { try { return fs.realpathSync(r); } catch { return r; } });
+    let base = BASE; try { base = fs.realpathSync(BASE); } catch { /* not created yet: compare as given */ }
+    return roots.some((r) => base === r || base.startsWith(r.endsWith(path.sep) ? r : r + path.sep));
+  } catch { return false; }
+}
+/** A loopback endpoint: the only kind a sandboxed sendNow may POST to. */
+function loopback(url) {
+  try { return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(new URL(url).hostname); } catch { return false; }
+}
+
+/**
+ * kosmos#5294: send a day's report NOW and say what happened, for `kosmos feedback write`. The day-one report: an
+ * agent read "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), believed its report
+ * never reached the team, and posted it in the community instead. The board's hourly sweep did send it, later.
+ *
+ * The gates sendDailyOnce uses, with two differences (review 1 of #5294): the person's opt-out (an UNREADABLE setting is
+ * its own state, never called "off"); unchanged-since-delivered; then the #4766 floor (a CHANGED report waits
+ * RESEND_MIN_MS) applies ONLY when a version was actually DELIVERED today (`sentHash` set). With nothing delivered,
+ * the person's write is the retry, so a failed send can be retried by writing again, instead of being told to wait for
+ * a board sweep that only covers today and only after the floor. Then the mark, persisted BEFORE the POST; then the
+ * POST; and the delivered hash only after the collector accepted it. The test guard comes after the opt-out and the
+ * report checks; it still blocks before anything is marked. Same payload, scrub, endpoint and timeout as maybeSend.
+ *
+ * Resolves (never rejects) to { state }, one of:
+ *   sent     the collector accepted it          already  delivered today, and unchanged since
+ *   later    changed, but a version was DELIVERED < 3 h ago   off   the person switched sending off
+ *   unreadable  the setting file cannot be read, so nothing is sent (the safe direction)
+ *   soon     nothing delivered today, and a send was started under a minute ago (RETRY_MIN_MS): failed, or in flight
+ *   none     no report for that day             failed   not confirmed: refused, unreachable, or timed out (may have landed)
+ *   unsent   the marker could not be saved, so nothing was sent (the sweep's own rule)
+ *   blocked  a test (under the runner, or with its data in a temp folder) aimed at a real address: loopback only
+ */
+function sendNow(date, now) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (state) => { if (!settled) { settled = true; resolve({ state }); } };
+    try {
+      const d = date || feedback.today();
+      const t = Number.isFinite(now) ? now : Date.now();
+      const st = read();
+      if (!st.ok) return done('unreadable');
+      if (!st.on) return done('off');
+      const body = feedback.readBody(d);
+      if (body == null) return done('none');
+      if (!sender && sandboxed() && !loopback(endpoint())) return done('blocked');
+      const h = bodyHash(body);
+      const age = st.sentAt == null ? Infinity : t - st.sentAt;
+      if (st.sent === d && st.sentHash) {   // a version was DELIVERED today
+        if (st.sentHash === h) return done('already');
+        if (age >= 0 && age < RESEND_MIN_MS) return done('later');
+      } else if (st.sent === d && age >= 0 && age < RETRY_MIN_MS) {
+        return done('soon');                // review 2: a failed attempt under a minute ago; do not hammer the collector
+      }
+      const data = payload(d);
+      if (!data) return done('none');
+      const keep = st.sent === d ? st.sentHash : null;
+      if (!markSent(d, keep, t).ok) return done('unsent');
+      const post = sender || ((url, init) => fetch(url, init));
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 5000);
+      Promise.resolve(post(endpoint(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: ctl.signal,
+        // review 1: under test a loopback stub could redirect to a real host; refuse redirects there.
+        ...(sandboxed() ? { redirect: 'error' } : {}),
+      })).then((res) => {
+        if (res && res.ok === false) return done('failed');
+        const cur = read();
+        if (cur.ok && cur.sent === d && cur.sentAt === t) write({ sentHash: h });
+        done('sent');
+      }).catch(() => done('failed'))
+        .finally(() => clearTimeout(timer));
+    } catch { done('failed'); }
+  });
+}
+
+/**
+ * kosmos#5294: the one sentence `kosmos feedback write` prints after saving, per sendNow state. Both CLIs (install/
+ * kosmos and tools/windows/kosmos-cli.js) print THIS, so they cannot drift. Each says where the report is and, when
+ * it left the computer, where it went and what was taken out first.
+ */
+const WRITE_MESSAGES = Object.freeze({
+  sent: 'Saved today\'s product-feedback report and sent it to the Kosmos team (installkosmos.com), with home paths and the names and keys Kosmos recognises taken out first. A copy stays on this computer.',
+  already: 'Saved today\'s product-feedback report. It is the same as the one already sent to the Kosmos team today, so nothing new was sent.',
+  later: 'Saved today\'s product-feedback report. An earlier version from today already reached the Kosmos team, and Kosmos sends an updated one at most every three hours, so this version has not been sent yet.',
+  off: 'Saved today\'s product-feedback report on this computer only. Sending feedback to the Kosmos team is switched off (Settings, Automation), so it was not sent.',
+  unreadable: 'Saved today\'s product-feedback report on this computer only. Kosmos could not read its feedback-sending setting, so it did not send it.',
+  none: 'Saved today\'s product-feedback report on this computer.',
+  failed: 'Saved today\'s product-feedback report on this computer, but Kosmos could not confirm it reached the Kosmos team just now. Kosmos may try again later today while it is running; to be sure, write the same report again with kosmos feedback write in a few minutes.',
+  soon: 'Saved today\'s product-feedback report on this computer. A send started less than a minute ago has not been confirmed yet, so this one waits: write it again with kosmos feedback write in a minute.',
+  unsent: 'Saved today\'s product-feedback report on this computer, but it could not be sent: Kosmos could not record the send. It was not sent.',
+  blocked: 'Saved today\'s product-feedback report on this computer. Not sent: this is a test run (or its data is in a temporary folder).',
+});
+function writeMessage(state) { return WRITE_MESSAGES[state] || WRITE_MESSAGES.none; }
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 
 module.exports = {
   FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
+  sendNow, writeMessage, WRITE_MESSAGES, loopback, sandboxed, RETRY_MIN_MS,   // kosmos#5294
 };

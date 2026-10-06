@@ -3644,8 +3644,8 @@ fi
 # store is local, so this works with no board running and no token round-trip.
 # The body/date ride ENV VARS into node, never the -e script, so a report with
 # quotes/newlines/backslashes cannot break out of a shell-quoted argument.
-# LOCAL ONLY: this writes to disk and sends nothing. Transmission is a separate
-# slice (engine/feedbacksend.js), DEFAULT-ON / opt-out per #2013, not opt-in.
+# kosmos#5294: `write` saves locally, then sends at once through engine/feedbacksend.sendNow (DEFAULT-ON / opt-out
+# per #2013, the same gates as the board's hourly sweep) and says what happened. show/list/triage/pull stay local.
 cmd_feedback() {
   local sub="${1:-}"; shift 2>/dev/null || true
   # write/show/list all shell out to node against the local engine. On a broken
@@ -3670,11 +3670,30 @@ cmd_feedback() {
         say "Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin)."
         exit 2
       fi
-      KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
-        const fb = require(process.argv[1] + "/engine/feedback");
-        process.stdout.write(fb.write(process.env.KOSMOS_FEEDBACK_BODY || "").date);
-      ' "$KOSMOS_HOME/app" >/dev/null || { say "We could not save that report."; exit 1; }
-      say "Saved today's product-feedback report. It stays on this computer."
+      # kosmos#5294: save, then send NOW (engine/feedbacksend.sendNow: the same opt-out, scrub, collector and 3 h
+      # floor as the board's hourly sweep) and print the one sentence for what happened. Before this it printed
+      # "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), and a user's agent took
+      # that to mean the report never reached the team. Exit 3 is "not saved"; anything after the save cannot be.
+      local fb_msg fb_rc
+      fb_msg="$(KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
+        const app = process.argv[1];
+        let d;
+        try { d = require(app + "/engine/feedback").write(process.env.KOSMOS_FEEDBACK_BODY || "").date; } catch { process.exit(3); }
+        if (!d) process.exit(3);
+        process.stdout.write("SAVED\n");   /* review 3: proof of the save; without it the CLI says not saved */
+        let fbs;
+        try { fbs = require(app + "/engine/feedbacksend"); } catch { process.stdout.write("Saved the product-feedback report on this computer. Kosmos could not check whether it was sent."); process.exit(0); }
+        fbs.sendNow(d).then((r) => process.stdout.write(fbs.writeMessage(r && r.state)),
+          () => process.stdout.write(fbs.writeMessage("failed")));
+      ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?   # under set -e, a plain `; fb_rc=$?` would never run (see :392)
+      # review 3: SAVED on the first line is the only proof of the save (a node that cannot run, or a throw before the
+      # write, prints nothing). Without it: not saved, the safe direction. With it, a later failure is said as such.
+      case "$fb_msg" in
+        SAVED|SAVED$'\n'*) fb_msg="${fb_msg#SAVED}"; fb_msg="${fb_msg#$'\n'}" ;;
+        *) say "We could not save that report."; exit 1 ;;
+      esac
+      { [ "$fb_rc" -ne 0 ] || [ -z "$fb_msg" ]; } && fb_msg="Saved the product-feedback report on this computer. Kosmos could not check whether it was sent."
+      say "$fb_msg"
       exit 0
       ;;
     show)
