@@ -59957,7 +59957,9 @@ function tkPaintRepeat(p, t) {
   /* Review 2: the controls follow the stored rule unless the person has an unsaved choice (what they show differs from
      what was last painted as stored); another task always repaints. Judged by the choice, not by focus, which can sit on
      a control long after the person has finished. */
-  const edited = JSON.stringify(tkRepeatChoice()) !== every.dataset.stored;
+  const choiceNow = JSON.stringify(tkRepeatChoice());
+  if (choiceNow === stored) every.dataset.stored = stored;   // review 3: choosing what is stored now is nothing unsaved
+  const edited = choiceNow !== every.dataset.stored;
   if (newTask || (every.dataset.stored !== stored && !edited)) {
     if (!newTask && msg && msg.dataset.task === key) msg.textContent = '';   // review 2: a rule changed elsewhere retires the Saved line
     const c = tkRepeatStoredChoice(t);

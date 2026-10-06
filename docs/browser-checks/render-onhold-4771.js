@@ -154,14 +154,14 @@ function chk(ok, label, extra) {
       chk(/^Repeats every Tuesday at 10:30am\. No run reported yet\. Next /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save'),
         `${tag} #4787 Save sets the rule: the board's sentence shows and Save goes off again`, await text(page, '#tk-repeat-line'));
       /* Review 2: an unsaved choice survives a refresh EVEN WHEN the stored rule changes under it (the rule moves to hourly
-         elsewhere while the person has Every day chosen); once their choice matches what was stored, the controls follow. */
+         elsewhere while the person has Every day chosen); once they choose what is stored now, the controls follow again. */
       const setRule = (body) => page.evaluate(([id, b]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.status), [winter.id, body]);
       await page.selectOption('#tk-repeat-every', 'day');
       chk(await setRule({ every: 'hour' }) === 200, `${tag} #4787 the rule changes elsewhere (setup)`);
       await page.evaluate(async () => { await pjReload(); });
       chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.isEnabled('#tk-repeat-save') && /^Repeats every hour/.test(await text(page, '#tk-repeat-line') || ''),
         `${tag} #4787 an unsaved choice survives a refresh that changed the stored rule; the line says the stored rule`, await page.inputValue('#tk-repeat-every'));
-      await page.selectOption('#tk-repeat-every', 'week');   // back to what was last painted as stored (the Tuesday rule): no unsaved choice
+      await page.selectOption('#tk-repeat-every', 'hour');   // review 3: choosing what is stored NOW (hourly) is nothing unsaved
       chk(await setRule({ every: 'day', at: '07:45' }) === 200, `${tag} #4787 the rule changes again (setup)`);
       await page.evaluate(async () => { await pjReload(); });
       await page.waitForFunction(() => document.getElementById('tk-repeat-every').value === 'day', null, { timeout: 5000 }).catch(() => {});
