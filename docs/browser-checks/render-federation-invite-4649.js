@@ -1801,7 +1801,7 @@ const closeAll = (page) => page.evaluate(() => {
       const untilLine = (how, v) => ps.page.waitForFunction(({ id, how, v }) => {
         const t = document.getElementById(id).textContent;
         return how === 'not' ? t !== v : how === 'starts' ? t.startsWith(v) : t === v;
-      }, { id: scr.line, how, v }, { timeout: 6000 }).catch(() => {});
+      }, { id: scr.line, how, v }, { timeout: 6000 }).then(() => true, () => false);   // false: the line never got there (the read says what it was)
 
       await setUp({ code: 'CODE-5275-A', exec: true, clip: 'ok' });
       await press();
@@ -1867,7 +1867,7 @@ const closeAll = (page) => page.evaluate(() => {
       await ps.page.evaluate(() => window.__releaseClip());
       await untilLine('is', 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.');
       const older = await read();
-      check(`#5275 S5 ${scr.name}: a new code copies while an old code's press is held, and the old write landing later says so (control: S4)`,
+      check(`#5275 S5 ${scr.name}: a new code copies while an old code's press is held, and the old write landing INSIDE its limit says the clipboard holds an older code (S4 covers after the limit)`,
         newer.line === 'Code copied.' && newer.execs.length === 2 && newer.execs[1] === 'CODE-5275-B'
         && older.line === 'An earlier copy finished late, so the clipboard now holds an older code. Press Copy again.' && older.unhandled.length === 0,
         JSON.stringify({ newer: [newer.line, newer.execs], older: older.line }));
