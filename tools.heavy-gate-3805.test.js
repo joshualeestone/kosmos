@@ -231,8 +231,7 @@ function hasZsh() {
 }
 
 test('sourced in bash or zsh it refuses with 2 and leaves the caller\'s shell alive (control: run, it answers)', () => {
-  const shells = hasZsh() ? ['bash', 'zsh'] : ['bash'];
-  for (const sh of shells) {
+  for (const sh of ['bash', 'zsh']) {
     const r = spawnSync(sh, ['-c', `. '${TOOL}'; echo "rc=$? still-alive"`], {
       encoding: 'utf8',
       env: { ...process.env, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: FREE },
