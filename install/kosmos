@@ -4008,6 +4008,10 @@ cmd_task() {
             # only a whole number: the digits must end the value (1.5 or 12e3 would otherwise read as 1 or 12)
             case "${body#\{\"task\":\{\"number\":$_num}" in ,*|\}*) ;; *) _num="" ;; esac ;; esac
           say "Task${_num:+ $_num} added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}"
+          # #5376: with no --who the task is given to nobody, and the board's Assigner may later hand it to an idle agent
+          # on the project, which read as Kosmos guessing. Say so, only when the board's answer says nobody ("who":null
+          # as the task's first who), never when a name was there but unreadable (_for empty for that reason too).
+          case "$_rest" in null*) say "Nobody has it yet, so an idle agent on the project may be given it. To choose who does it: kosmos task assign ${project:-<project-id>} ${_num:-<task-number>} <agent>" ;; esac
           # #5319: open tasks with the same text, named by the board (server.js; the note holds no double quote or
           # backslash, and it is the answer's last key, so the greedy match is the board's own note).
           local _note; _note=$(printf '%s' "$body" | sed -n 's/.*"note":"\([^"]*\)".*/\1/p')
