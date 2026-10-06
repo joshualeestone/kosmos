@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linklost-5333
-diff_hash: 04aa990a3eaba13a1b68c21e6c678d14ac3bb21a5aa3c5fa918d545cf57847b1
+diff_hash: 3e747658e868a52acad8f93a4f8eec31795b09b80c254a26df813791a6f95e70
 validation: not run locally (the machine's suite queue was deep all day; earlier runs gave up at 2700s). Run instead on head 326f660b8: every engine test that touches sendertoken 652/652 (incl. win32launch, win32roster, supervisor, status.linklost-5333 6/6); each round 8 and 9 fix has a test that FAILS on the old code (controls run). Page tests 2454/2454 and render-agent-pill-3958 all passed on 047029d; the round 9 page change (d-linklost-msg) was syntax-checked and its new browser-check arm was NOT run locally (the box was held by another agent's full browser-check run until 16:30). CI runs the node, shell, windows and browser-check suites on the PR head.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-05T21:04:59Z
@@ -40,3 +40,6 @@ iteration N" (a0da6fa36, c00f7035c, 3a098387d, 76c1f051c, 8e8f577ca, 047029dd9; 
 
 #### Second rebase onto main (23:15 CDT)
 - 52 commits over the first rebase. One conflict: web/index.html CSS beside #5327's .rxn-copy rules; kept main's two lines and added #d-linklost's colour rule. After: 1013/1013 (token, status, roster, golden card, lints), page tests naming the notice 8/8, page script parses. No logic changed.
+
+#### Third rebase onto main (00:17 CDT)
+- Onto 42c8b3e05 (Baron's #5374, which fixed main's red #5304 test that had failed this PR's node suite). No conflicts. #5304 test 7/7 on the branch; token/status/roster/golden-card/lints re-run (below in the commit). No logic changed.
