@@ -69614,6 +69614,8 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
 
 /* kosmos#5391: the project page's own Pause / Resume, beside the title, and the line under it that says it is paused.
    Painted with the page from the same state Settings reads (p.paused, p.pausedByPerson). */
+/* kosmos#5391 review 3: one press at a time across BOTH pause buttons (header and Settings). */
+let PJ_PAUSE_BUSY = false;
 function paintHeadPause(p) {
   const btn = document.getElementById('pj-head-pause');
   const line = document.getElementById('pj-one-paused');
@@ -69624,7 +69626,7 @@ function paintHeadPause(p) {
   btn.hidden = !live;
   // review 1: never act on a state the board could not just read (a press could undo an agent's pause it cannot see).
   // Review 2: nor re-enable it under a press still waiting for its answer.
-  btn.disabled = PJ_READ_FAILED === true || btn.dataset.busy === '1';
+  btn.disabled = PJ_READ_FAILED === true || PJ_PAUSE_BUSY === true;
   const word = paused ? 'Resume' : 'Pause';
   const t = btn.querySelector('.pj-head-pause-t');
   if (t.textContent !== word) {
@@ -69647,13 +69649,13 @@ function paintHeadPause(p) {
    button and Settings' button, so the two cannot drift; each says a failure on its own line. */
 async function pjTogglePause(btn, msg) {
   const p = pjById(PJ_CURRENT);
-  if (!p || PJ_READ_FAILED === true) return;   // review 2: never act on a state the board could not just read
+  if (!p || PJ_READ_FAILED === true || PJ_PAUSE_BUSY === true) return;   // review 2/3: a state just read, one press at a time
   // review 1: one press, one answer: both lines start clear, so neither keeps a failure the other press has moved past.
   for (const id of ['pj-one-pause-msg', 'pj-head-pause-msg']) { const m = document.getElementById(id); if (m) m.textContent = ''; }
   msg.textContent = '';
   msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
   btn.disabled = true;
-  btn.dataset.busy = '1';
+  PJ_PAUSE_BUSY = true;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -69665,8 +69667,10 @@ async function pjTogglePause(btn, msg) {
   } catch {
     msg.textContent = 'we could not reach Kosmos to change that project';
   } finally {
-    delete btn.dataset.busy;
-    btn.disabled = PJ_READ_FAILED === true;   // review 2: a failed re-read after the press keeps it off
+    PJ_PAUSE_BUSY = false;
+    /* review 3: only the header button stays off after a failed re-read (paintHeadPause turns it back on when reads
+       recover); Settings' button is re-enabled as it always was, since nothing in Settings would ever turn it back on. */
+    btn.disabled = btn.id === 'pj-head-pause' && PJ_READ_FAILED === true;
   }
 }
 document.getElementById('pj-one-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-one-pause'), document.getElementById('pj-one-pause-msg')));
