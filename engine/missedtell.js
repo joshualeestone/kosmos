@@ -45,6 +45,8 @@ function owed(projects, now = Date.now()) {
         slot: missed.lastAt, count: missed.count, more: missed.more, words: taskrepeat.whenWords(missed.lastAt, now),
         reviewer: t.repeatReviewerPerson === true ? null : t.repeatReviewer, person: t.repeatReviewerPerson === true,
         /* Review 4: who RUNS it now: holders of an open part (as the nudge's openParts), never one whose part is done. */
+        // Review 8: a reviewer whose swarm is switched off in THIS project is held, as the nudge and the reply nudge do.
+        swarmOff: t.repeatReviewer ? require('./projects').isSwarmOff(p, t.repeatReviewer) : false,
         owners: [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))], members: Array.isArray(p.agents) ? p.agents.slice() : [],
       });
     }
@@ -67,7 +69,11 @@ function tellText(item, nameOf = (s) => s) {
 function personReviewMissed(t, now = Date.now()) {
   if (!t || t.repeatReviewerPerson !== true || !t.repeat || t.projectPaused === true) return false;
   if (require('./tasks').isOnHold(t)) return false;
-  return Boolean(taskrepeat.missedRuns(t, now));
+  const missed = taskrepeat.missedRuns(t, now);
+  if (!missed) return false;
+  /* Review 8: as owed(), a miss from before the person asked to be told is not put on them. */
+  const named = Date.parse(t.repeatReviewerSetAt || '');
+  return !(Number.isFinite(named) && missed.lastAt < named);
 }
 
 /* Store that `slot` was told about, and record it in the task's history. */
@@ -109,6 +115,7 @@ function sweep(o) {
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
         // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
         if (!item.members.includes(item.reviewer)) { results.push({ ...item, act: 'held', because: 'the reviewer is no longer on the project' }); continue; }
+        if (item.swarmOff) { results.push({ ...item, act: 'held', because: 'the reviewer is switched off in this project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         const card = cards.get(item.reviewer);
         if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }

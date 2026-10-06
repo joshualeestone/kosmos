@@ -25,6 +25,8 @@ Review 6 (fixed): a finished task hides the reviewer row (tkPaintRepeat's early 
 
 Review 7 (fixed, nits only): the reviewer row's "Saved." line clears when the row hides; the roster is not read for a reviewer taken off the project.
 
+Review 8 (fixed): a reviewer whose swarm is switched off in this project is held, as the nudge and the reply nudge do (and its roster is not read); a miss from before the person chose "Me" is not put on them (personReviewMissed reads repeatReviewerSetAt, as owed() does).
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.
