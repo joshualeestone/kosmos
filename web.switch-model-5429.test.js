@@ -40,7 +40,7 @@ function world({ provider, current = 'google', account = '', models = [], openai
     if (url === '/api/roles') return { ok: true, json: async () => ({ models }) };
     return { ok: false };
   };
-  const ctx = { CURRENT: { sessionName: 'ada', provider: current }, CREATE_MODELS: [] };
+  const ctx = { CURRENT: { provider: current }, CREATE_MODELS: [] };   // fillSwitchModel reads only the provider (through providerOf)
   const src = page.liftAll(SCRIPT, ['fillSwitchModel', 'switchModelPicked']);
   const api = new Function('document', 'fetch', 'esc', 'providerOf', 'ctx',
     'let SWITCH_MODEL_GEN = 0; let CURRENT = ctx.CURRENT; let CREATE_MODELS = ctx.CREATE_MODELS;\n' + src + '\nreturn { fillSwitchModel, switchModelPicked };')(
