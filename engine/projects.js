@@ -3287,19 +3287,24 @@ function rulesChangedIn(oldText, newText, sessionName) {
   if (TASK_LINE.test(old)) pieces.push(rules.tasks);
   if (pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')))) return true;
   const holds = holdsOf(old);
-  for (const [task, hold] of holdsOf(now)) if (holds.has(task) && holds.get(task) !== hold) return true;
+  for (const [task, marks] of holdsOf(now)) {
+    const had = holds.get(task);
+    if (had && had.length === marks.length && had.join('\n') !== marks.join('\n')) return true;
+  }
   return false;
 }
 
-/* A block's task lines as "task <n> of <project>" -> its hold marker ('' for none), so a task reworded in the same
-   write is still the same task. blockBody appends the marker last. */
+/* A block's task lines as "task <n> of <project>" -> the sorted hold markers on lines with that key ('' for none), so a
+   task reworded in the same write is still the same task. A key can be shared (two projects with one name, or a name
+   containing ": "), so the markers are a list, compared only when both blocks have as many (a task arriving or closing
+   under a shared key is not a hold change). blockBody appends the marker last. */
 function holdsOf(block) {
   const out = new Map();
   for (const line of String(block).split('\n')) {
     const task = /^ {2}- (task \d+ of .*?): /.exec(line);
     if (!task) continue;
     const m = / \[on hold: [^\]]*\]$/.exec(line);
-    out.set(task[1], m ? m[0] : '');
+    out.set(task[1], [...(out.get(task[1]) || []), m ? m[0] : ''].sort());
   }
   return out;
 }
