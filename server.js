@@ -6128,20 +6128,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /* #5393: one view across worlds. Every Kosmos's count of tasks nobody is on (read from its own projects.json,
-     engine/worldview.js), and each provider's state for the Kosmos this board is running (from its live cards,
-     removed agents left out as /api/status does). Read-only and token-gated like GET /api/worlds. */
+     engine/worldview.js), and each provider's state for the Kosmos this board is running (from safeRoster()).
+     Read-only and token-gated like GET /api/worlds. */
   if (pathname === '/api/worlds/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
     let base;
     try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
-    let cards = null;   // null = the cards could not be read, said on the row; never an empty list
+    const cards = safeRoster();   // null when the cards could not be read
     try {
-      const removedRecs = removal.removedAgents();
-      const gone = new Set(removedRecs.filter((r) => removal.hidesCard(r)).map((r) => r.name));
-      const snap = snapshot();
-      if (snap && Array.isArray(snap.agents)) cards = snap.agents.filter((a) => a && !gone.has(a.sessionName));   // sessionName, as /api/status filters
-    } catch (_e) { cards = null; }
-    try {
-      const runningId = require('./engine/worldenv').bootedWorld() || worlds.activeWorld(base).id;
+      const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
       sendJson(res, 200, { worlds: worldview.overview({ base, runningId, cards }) });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });

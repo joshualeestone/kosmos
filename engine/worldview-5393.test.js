@@ -116,3 +116,28 @@ test('#5393 overview: the running world has providers, the others say why not; a
   assert.equal(s2.providers, null, 'unreadable cards are not "no providers"');
   assert.match(s2.providersBecause, /cannot read the agents/);
 });
+
+test('#5393 overview: a task the counter cannot read is said on its own world, never a 500 for every world', () => {
+  const worlds = require('./worlds');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-part-'));
+  const broken = worlds.createWorld(base, 'Broken');
+  fs.writeFileSync(path.join(base, worldview.PROJECTS_FILE), JSON.stringify([{ id: 'd', tasks: [open(1)] }]));
+  // A hand-damaged part: parses as JSON, then throws inside the count.
+  fs.writeFileSync(path.join(worlds.worldStoreRoot(base, broken), worldview.PROJECTS_FILE),
+    JSON.stringify([{ id: 'b', tasks: [{ number: 1, sentence: 't1', parts: [null] }] }]));
+  assert.throws(() => worldview.unassignedIn([{ id: 'b', tasks: [{ number: 1, parts: [null] }] }]), 'CONTROL: the count itself throws on it');
+
+  const view = worldview.overview({ base, runningId: worlds.DEFAULT_ID, cards: [] });
+  const by = Object.fromEntries(view.map((w) => [w.id, w]));
+  assert.equal(by[broken.id].unassigned, null, 'never a zero');
+  assert.match(by[broken.id].unassignedBecause, /cannot read the projects/);
+  assert.deepEqual(by[worlds.DEFAULT_ID].unassigned, { waiting: 1, held: 0 }, 'the healthy world still counts');
+});
+
+test('#5393 unassignedIn is wider than the Assigner: webhook and unnumbered tasks nobody is on count as waiting', () => {
+  const records = [{ id: 'a', tasks: [
+    open(1, { addedVia: 'webhook' }),    // the Assigner never hands this out; nobody is on it
+    { sentence: 'no number' },           // the Assigner skips a task with no number
+  ] }];
+  assert.deepEqual(worldview.unassignedIn(records), { waiting: 2, held: 0 });
+});

@@ -10,9 +10,10 @@
  * gates every projects write in the world this board is running, and a read of ANOTHER world's file must not be
  * able to switch writes off here. An unreadable or damaged file is said, never counted as zero.
  *
- * 🔑 "NOBODY IS ON IT" IS THE ASSIGNER'S RULE (engine/assigner.js pick): open, no part given to anyone, not
- * marked built, in a live (not archived) project. Of those, a task on hold or in a paused project is `held`:
- * nothing hands it out until a person lifts the hold, so it is counted apart from the work that is `waiting`.
+ * 🔑 "NOBODY IS ON IT": open, no part given to anyone, not marked built, in a live (not archived) project. Of
+ * those, a task on hold or in a paused project is `held`; the rest are `waiting`. This is wider than what the
+ * Assigner hands out (engine/assigner.js pick also skips webhook tasks, tasks with no number, and projects
+ * with no agents or a paused swarm): those tasks still have nobody on them, so they are counted as waiting.
  *
  * 🔑 PROVIDER STATE IS ONLY KNOWN FOR THE WORLD THIS BOARD IS RUNNING. It comes from the live agent cards. A
  * world that is not open has no cards, so its providers are reported as not known, never guessed.
@@ -88,17 +89,26 @@ function providersFrom(cards) {
 }
 
 /* The whole view. `base` is the registry base (server.js worldBase()), `runningId` the world this board booted
-   into, `cards` its live cards (null when they could not be read, which is said, never shown as no providers). A world's read failing is said on that world's row and never stops the others. */
+   into, `cards` its live cards (null when they could not be read, which is said, never shown as no providers). */
 function overview({ base, runningId, cards }) {
   return worlds.listWorlds(base).map((w) => {
-    const read = readProjectsAt(worlds.worldStoreRoot(base, w));
+    let count = null;
+    let because = null;
+    try {
+      const read = readProjectsAt(worlds.worldStoreRoot(base, w));
+      if (read.ok) count = unassignedIn(read.records);
+      else because = read.because;
+    } catch (_e) {
+      count = null;
+      because = 'we cannot read the projects in this Kosmos right now';
+    }
     const running = w.id === runningId;
     return {
       id: w.id,
       name: w.name,
       running,
-      unassigned: read.ok ? unassignedIn(read.records) : null,
-      unassignedBecause: read.ok ? null : read.because,
+      unassigned: count,
+      unassignedBecause: because,
       providers: running && Array.isArray(cards) ? providersFrom(cards) : null,
       providersBecause: !running ? 'known only while this Kosmos is open'
         : Array.isArray(cards) ? null : 'we cannot read the agents in this Kosmos right now',
