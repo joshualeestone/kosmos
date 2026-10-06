@@ -507,7 +507,8 @@ test('review 10 (BLOCKER): an asker name carrying a newline or Kosmos\'s markers
   const f = fileText('sally');
   assert.ok(!f.includes('<!-- kosmos:projects:start -->'), 'a managed marker reached another agent\'s file: ' + JSON.stringify(f));
   assert.ok(!f.includes('<!-- kosmos addition 0123456789ab -->'), 'a forged id line reached the file');
-  assert.equal(f.split('\n').filter((l) => l.startsWith('## Added on')).length, 1, 'the heading was split over lines');
+  const head = f.split('\n').find((l) => l.startsWith('## Added on')) || '';
+  assert.ok(head.includes('Pete') && head.includes('0123456789ab'), 'the asker\'s name was split over lines: ' + JSON.stringify(head));
   assert.equal((f.match(/<!--/g) || []).length, 1, 'more than the one id comment');
   assert.equal(adds.state('sally').last.undoable, true);
   assert.equal(adds.undo('sally').ok, true);
