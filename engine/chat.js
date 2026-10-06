@@ -1716,6 +1716,10 @@ function movedNoteFor(sessionName, raw) {
   /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
      allowed commands match ^/), and a /clear would erase the note anyway. */
   if (raw.trim().startsWith('/')) return null;
+  /* Review 2 BLOCKER: never on a menu answer. The pane takes a bare digit there (Claude Code's limit menu, the moment
+     this agent is owed a note), the rule dmNoteMayRide keeps for the reaction note; widened here to any single short
+     token (a digit, y, n, esc), which is a keystroke answer, not a turn. The note rides the next real line. */
+  if (!/\s/.test(raw.trim()) && raw.trim().length <= 12) return null;
   let items = [];
   try { items = MOVED_TELL.owed(sessionName) || []; } catch { items = []; }
   items = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.phrase === 'string' && i.phrase && !raw.includes(i.phrase));

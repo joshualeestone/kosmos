@@ -71,8 +71,8 @@ test('CONTROL: an agent owed nothing gets exactly its message', () => {
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const told = hook([]);
     const tmux = arm([ok(), ok()]);
-    chat.deliver('casey', 'Hello.', board.agents);
-    assert.equal(tmux.pastedText(), 'Hello.');
+    chat.deliver('casey', 'Hello there.', board.agents);
+    assert.equal(tmux.pastedText(), 'Hello there.');
     assert.equal(told.length, 0);
   });
 });
@@ -92,7 +92,7 @@ test('a line that did not land marks nothing told', () => {
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const told = hook([ITEM]);
     arm([refused(), refused(), refused(), refused()]);
-    const v = chat.deliver('casey', 'Hello.', board.agents);
+    const v = chat.deliver('casey', 'Hello there.', board.agents);
     assert.equal(v.state, chat.DELIVERY.COULD_NOT, 'fixture: the paste was not refused: ' + JSON.stringify(v));
     assert.equal(told.length, 0);
   });
@@ -115,7 +115,7 @@ test('two lines queued for one agent: only the first carries the note', async ()
   try {
     const told = hook([ITEM]);
     const tmux = arm([]);
-    const [a, b] = await Promise.all([chat.deliverAsync('casey', 'First.', board.agents), chat.deliverAsync('casey', 'Second.', board.agents)]);
+    const [a, b] = await Promise.all([chat.deliverAsync('casey', 'First line here.', board.agents), chat.deliverAsync('casey', 'Second line here.', board.agents)]);
     assert.equal(a.state, chat.DELIVERY.PLACED); assert.equal(b.state, chat.DELIVERY.PLACED);
     const typed = tmux.pastedText();
     assert.equal(typed.split(ITEM.phrase).length - 1, 1, 'the note went out twice: ' + JSON.stringify(typed));
@@ -126,8 +126,8 @@ test('two lines queued for one agent: only the first carries the note', async ()
 test('CONTROL: with no hook installed (resetForTests), nothing is added', () => {
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const tmux = arm([ok(), ok()]);
-    chat.deliver('casey', 'Hello.', board.agents);
-    assert.equal(tmux.pastedText(), 'Hello.');
+    chat.deliver('casey', 'Hello there.', board.agents);
+    assert.equal(tmux.pastedText(), 'Hello there.');
   });
 });
 
@@ -147,8 +147,8 @@ test('review 1: a line typed while the note is on its way (a sync send in an asy
   try {
     const told = hook([ITEM]);
     const tmux = arm([]);
-    const first = chat.deliverAsync('casey', 'First.', board.agents);   // takes the note; settles later
-    const second = chat.deliver('casey', 'Second.', board.agents);       // bypasses the queue
+    const first = chat.deliverAsync('casey', 'First line here.', board.agents);   // takes the note; settles later
+    const second = chat.deliver('casey', 'Second line here.', board.agents);       // bypasses the queue
     await first;
     // What keeps them apart: a window with a line still being placed refuses another line ("busy").
     assert.equal(second.state, chat.DELIVERY.COULD_NOT, JSON.stringify(second));
@@ -164,12 +164,42 @@ test('review 1: an UNCONFIRMED line does not count as told; the note rides again
     const told = hook([ITEM]);
     const timedOut = { ran: false, spawnFailed: false, status: null, out: '', err: 'timed out' };
     arm([ok(), timedOut, timedOut, timedOut]);
-    const v = chat.deliver('casey', 'Hello.', board.agents);
+    const v = chat.deliver('casey', 'Hello there.', board.agents);
     assert.equal(v.state, chat.DELIVERY.UNCONFIRMED, 'fixture: not unconfirmed: ' + JSON.stringify(v));
     assert.equal(told.length, 0, 'an unconfirmed line counted as told');
     const tmux = arm([ok(), ok()]);
-    chat.deliver('casey', 'Again.', board.agents);
+    chat.deliver('casey', 'Again, please.', board.agents);
     assert.ok(tmux.pastedText().includes(ITEM.phrase), 'the note did not ride again');
     assert.equal(told.length, 1);
+  });
+});
+
+/* Review 2 (sonnet, blind). */
+test('review 2 BLOCKER: a menu answer (a bare digit, y, esc) is typed exactly; the note waits for the next real line', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    for (const key of ['2', ' 1 ', 'y', 'esc']) {
+      const tmux = arm([ok(), ok()]);
+      chat.deliver('casey', key, board.agents);
+      assert.equal(tmux.pastedText(), key.trim() === key ? key : tmux.pastedText(), 'fixture');
+      assert.ok(!tmux.pastedText().includes(ITEM.phrase), 'the note went in front of ' + JSON.stringify(key));
+    }
+    assert.equal(told.length, 0);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'Thanks, carry on now.', board.agents);
+    assert.ok(tmux.pastedText().includes(ITEM.phrase), 'the note did not ride the next real line');
+    assert.equal(told.length, 1);
+  });
+});
+test('review 2 NIT: a line naming one owed part carries the note for the other only, and marks only that one', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const OTHER = { ...ITEM, n: 4, partId: 2, phrase: 'task 4 in "Launch" (now zed\'s)' };
+    const told = hook([ITEM, OTHER]);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'About ' + ITEM.phrase + ': thanks.', board.agents);
+    const typed = tmux.pastedText();
+    assert.equal(typed.split(ITEM.phrase).length - 1, 1, 'the named part was repeated: ' + JSON.stringify(typed));
+    assert.ok(typed.includes(OTHER.phrase));
+    assert.deepEqual(told, [['casey', [OTHER.phrase]]]);
   });
 });
