@@ -174,7 +174,10 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   /* #5300 added `role`, a WRITE: its handler identifies the caller with processCaller (token, else pane), sets only that
      agent's own role, and refuses an agent not on the project (projects.setRoleHere), measured in
      server.project-role-5300.test.js. */
-  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
+  /* kosmos#4787 added `repeat` and `ran`, both WRITES: the handler identifies the caller from the header token first
+     (senderFromAgentToken, else the pane), refuses an agent not on the project (projectHasAgent) and refuses a caller it
+     cannot name (403), measured in server.task-repeat-4787.test.js. */
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign|repeat|ran)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every WRITE a pattern admits must identify its caller from the header token, and every read of people\'s work must be narrowed to the caller\'s own projects (agentTokenOnlyCaller)');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
