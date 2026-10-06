@@ -1571,10 +1571,11 @@ const closeAll = (page) => page.evaluate(() => {
     // C1: the control first, on the same screen: the bare Copy writes only the code.
     await page.evaluate(() => { window.__copied.length = 0; });
     await page.click('#fedinv-copy');
-    await page.waitForTimeout(100);
+    await untilStatus(page, { text: 'Code copied.' });   // #5373
     st = await step(page);
     check('C1 control: the bare Copy writes only the code', st.copied.length === 1 && st.copied[0] === CODE, JSON.stringify(st.copied));
     await copyAll(page);
+    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
     st = await step(page);
     const c1 = st.copied[1];
     check('C1 Copy the invitation writes shot 04\'s text exactly, with the name and the address',
@@ -1611,6 +1612,7 @@ const closeAll = (page) => page.evaluate(() => {
       const got = await owner(page, name, ownerName);
       await page.evaluate(() => { window.__copied.length = 0; });
       await copyAll(page);
+      await page.waitForFunction(() => window.__copied.length > 0, null, { timeout: 4000 }).catch(() => {});   // #5373
       const s2 = await step(page);
       return { got, text: s2.copied[0] };
     };
@@ -1647,6 +1649,7 @@ const closeAll = (page) => page.evaluate(() => {
       FEDINV_CLIP_HOLDS = '';    // no earlier copy of this text on record (C2 left one), so the refusal is real
     });
     await copyAll(page);
+    await untilStatus(page, { text: 'Kosmos could not copy the invitation.', prefix: true });   // #5373
     st = await step(page);
     // The keys are this computer's (Mona: Command C is wrong on Windows), read from the page's one helper.
     const keys = await page.evaluate(() => copyKeysWord());
