@@ -92,3 +92,13 @@ engine/usage.test.js still passes (29/29 across both files).
   - a cold cache (seven missing days) cuts at the first missing day and still counts, and freezes, a past row from a
     file written inside the window;
   - a file from before the window is not read.
+
+## Review round 3 (opus)
+- [W] FIXED: nothing pinned the wiring (dailyUsageByModel passing mtimeCut). The cold-cache test now holds a file
+  written two hours before the cut with an in-window row (40 tokens), which must not be counted. Control: with
+  `mtimeCut: true` removed from dailyUsageByModel, it goes red.
+- [W] FIXED: "frozen as counted" could not tell a freeze from a rescan. The fixture is deleted (the cache kept)
+  before the second call, so only the frozen day can still give 5.
+- [N] FIXED: dailyUsageByModel's docblock no longer says the read is not saved, that it costs "hundreds of
+  transcripts" every call, or that mtime proves nothing for "today" only.
+- [N] noted: the dedup test's mtimeCut has no effect (both files are fresh); it is dedup coverage, not cut coverage.
