@@ -141,8 +141,7 @@ function chk(ok, label, extra) {
       await page.click('#pj-head-pause');
       await page.waitForFunction(() => /Resume/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/Resume/.test(await text(page, '#pj-head-pause') || '') && await page.isVisible('#pj-one-paused')
-        && /^Paused: Kosmos is not nudging anyone/.test(await text(page, '#pj-one-paused') || '')
-
+        && /^Paused: Kosmos is not nudging anyone/.test(await text(page, '#pj-one-paused') || ''),
         `${tag} #5391 pressing it pauses the project: it reads Resume and the Paused line shows`, await text(page, '#pj-one-paused'));
       // Review 1: Settings repaints only while it is open, so it is opened to read its agreement, then left.
       await openSettings(page, winter.id);
