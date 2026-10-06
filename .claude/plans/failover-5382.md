@@ -122,6 +122,12 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   agyquota marks nothing when its line reached nothing (red when it does); failoverRunnerOf ends in null, not claude
   (source pin, red with the claude floor). Every test file that touches parts, the assigner or agyquota: 854/854.
 
+- Review 9 (blind, opus), each pinned and mutation-checked (841eb7f4a): the line is said only about a part somebody
+  else holds, in a live project the agent is still on and not switched off in (4 arms, each red when removed); only
+  lines that may have landed count toward the cap, a card must read idle at two passes running, and skip(card) is
+  honoured (3 arms, each red); the server reads no roster unless a part is owed, and leaves Antigravity agents to
+  agyquota while its resume is on (source pins); markMoveTold changes owedTell only.
+
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
 - `limitedSince` is not saved across a board restart, so a restart restarts the 15 minutes (the waiting direction).
