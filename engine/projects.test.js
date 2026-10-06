@@ -832,24 +832,53 @@ test('telling an agent writes the block into its real instruction file', () => {
   assert.equal(projects.get(p.id, []).agents[0].told.state, projects.TOLD.TOLD, 'and the verdict is recorded');
 });
 
-test('#5320: a CHANGED projects block owes the running agent a re-read; an unchanged write owes none', () => {
+test('#5320: only a change to the block\'s standing rules owes the running agent a re-read', () => {
   reset();
   const ir = require('./instructionreread');
   const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
-  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
-  projects.create({ name: 'Henderson lease', folder: folder('henderson-5320'), agents: ['mara'] });
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  const file = path.join(agent('mara', '# Mara\n\nYou are the executive assistant.\n'), 'CLAUDE.md');
+  const p = projects.create({ name: 'Henderson lease', folder: folder('henderson-5320'), agents: ['mara'] });
+  const setTasks = (tasks) => { const all = projects.readAll(); all.find((x) => x.id === p.id).tasks = tasks; projects.writeAll(all); };
+  // Joining: there was no block, and joining is announced by its own line (membershipLine), so nothing is owed.
   clear();
-  const first = projects.syncAgent('mara', ROSTER);
-  assert.equal(first.state, projects.TOLD.TOLD);
-  assert.equal(first.changed, true, 'fixture: the first write must change the block, or this test proves nothing');
-  assert.deepEqual((ir.readOwed().mara || {}).sections, ['projects'], 'a changed block was not owed as a re-read');
+  const joined = projects.syncAgent('mara', ROSTER);
+  assert.equal(joined.state, projects.TOLD.TOLD);
+  assert.equal(joined.changed, true, 'fixture: the first write must add the block');
+  assert.equal(owed(), undefined, 'joining owed a second line');
+  // A block written by an older Kosmos, without the pause rule: the rewrite brings the rule, and that is owed.
+  const PAUSE = 'When your person asks to pause a whole project, pause it';
+  const before = fs.readFileSync(file, 'utf8');
+  assert.ok(before.includes(PAUSE), 'fixture: the block carries the pause rule');
+  fs.writeFileSync(file, before.split('\n').filter((l) => !l.startsWith(PAUSE)).join('\n'));
+  clear();
+  const upgraded = projects.syncAgent('mara', ROSTER);
+  assert.equal(upgraded.state, projects.TOLD.TOLD);
+  assert.equal(upgraded.rulesChanged, true);
+  assert.deepEqual(owed(), ['projects'], 'a new standing rule was not owed as a re-read');
   // CONTROL: the same write again changes nothing, and owes nothing.
   clear();
   const again = projects.syncAgent('mara', ROSTER);
-  assert.equal(again.state, projects.TOLD.TOLD);
   assert.notEqual(again.changed, true, 'fixture: the second write must be unchanged');
-  assert.equal(ir.readOwed().mara, undefined, 'an unchanged write owed a re-read');
-  assert.equal(ir.SECTIONS.projects, 'the section headed "Your projects"');
+  assert.equal(owed(), undefined, 'an unchanged write owed a re-read');
+  // Its own task arriving and then closing changes the block's task lines, not its rules: nothing owed.
+  setTasks([{ number: 1, sentence: 'draft the renewal letter', who: 'mara' }]);
+  clear();
+  const assigned = projects.syncAgent('mara', ROSTER);
+  assert.equal(assigned.changed, true, 'fixture: a task must change the block');
+  assert.equal(owed(), undefined, 'a task arriving owed a re-read');
+  setTasks([{ number: 1, sentence: 'draft the renewal letter', who: 'mara', closedAt: Date.now() }]);
+  clear();
+  const closed = projects.syncAgent('mara', ROSTER);
+  assert.equal(closed.changed, true, 'fixture: closing the task must change the block');
+  assert.equal(owed(), undefined, 'the agent closing its own task owed a re-read');
+  // Leaving its last project removes the block: there is no section left to read, so nothing is owed.
+  projects.removeAgent(p.id, 'mara');
+  clear();
+  const left = projects.syncAgent('mara', ROSTER);
+  assert.equal(left.changed, true, 'fixture: leaving must remove the block');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('## Your projects'), 'fixture: the block is gone');
+  assert.equal(owed(), undefined, 'a removed block owed a re-read of a section that is gone');
 });
 
 test('an agent with no worker folder is recorded as a member we COULD NOT tell', () => {
