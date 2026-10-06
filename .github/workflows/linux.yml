@@ -4,6 +4,13 @@
 # it is on main. Not on every pull request: until the rest of the port lands (#4916 pieces B and D) the
 # Linux suite is expected to fail, and a required-looking red on every PR would cost every PR a slot on
 # the shared runners. Part of the Linux port (#4916, umbrella #4903).
+#
+# ⚠️ RED BY DESIGN for now, and it has no list of which reds are expected (unlike tools/windows-tests.js's
+# KNOWN_RED), so read the failing FILES, not the colour. Expected on 2026-10-06 (run 37523489451, before
+# #4919's Linux-only skips): the installer tests (install.*: #4920), the Claude Code and runner download
+# tests (engine/runners, engine/connect*, server.runners, engine/muserun: #5419), and
+# report-hook-killguard-4671's awk fallback (#5420). Anything else red is new. A known-red list is a
+# follow-up once those land (#4919).
 
 name: linux
 
@@ -25,14 +32,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: start the clock
-        run: echo "SUITE_T0=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+      - name: which node is this
+        run: node --version
       - name: install system dependencies
         run: |
           sudo apt-get update -qq

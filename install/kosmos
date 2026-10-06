@@ -356,7 +356,6 @@ _text_args() {
 _lsof_cmd() {
   if [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then printf '/usr/sbin/lsof'; return 0; fi
   if [ -f /usr/bin/lsof ] && [ -x /usr/bin/lsof ]; then printf '/usr/bin/lsof'; return 0; fi
-  if command -v lsof >/dev/null 2>&1; then command -v lsof; return 0; fi
   return 1
 }
 _lsof_present() { _lsof_cmd >/dev/null 2>&1; }

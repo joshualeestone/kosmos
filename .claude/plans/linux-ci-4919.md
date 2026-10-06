@@ -14,7 +14,7 @@ that is true on Linux, or carried by a named card. No test is skipped to make th
 |---|---|---|---|
 | installer: install.reachable-1662 39, install.claude-gate 9, install.uninstall-litter-1547 3, install.uninstall-watchdog-2955 1 | 52 | setup.sh is Mac-only (stops with "Kosmos runs on macOS"); the tests run it under `set -euo pipefail`, which Ubuntu's dash refuses | piece D, #4920 / PR #4985 (Kitty) |
 | downloads and runners: engine/runners 22, engine/connect 17, connect.install-997 16, server.runners 4, connect.nobinary-1580 4, muserun 2, connect.hookwiring-1569 1 | 66 | the board refuses to download Claude Code or any runner on Linux | new card #5419 (product gap; stays red, nothing skipped) |
-| engine/create #4279 leftover-job tests | 6 | fixtures are a macOS temp-folder plist and its /private spelling; launchd only | Mac-only, skipped on Linux only (Linux agent jobs are systemd units, #4918) |
+| engine/create #4279 leftover-job tests | 6 (5 skipped, 1 narrowed to its temp arm) | fixtures are a macOS temp-folder plist and its /private spelling; launchd only | Mac-only, skipped on Linux only (Linux agent jobs are systemd units, #4918) |
 | engine/status unrecognised-tmux-error test | 1 | measured: Linux tmux answers a plain file at the socket path with "no server running", so the probe cannot make the connect error | Mac-only premise, skipped on Linux only, with that reason |
 | report-hook-killguard-4671 awk fallback | 1 | took 20.2 s on Linux; the production hook times out at 15 s | new card #5420 (real Linux bug; bound NOT widened) |
 
@@ -24,8 +24,13 @@ Baseline before A merged (run 37001432347, 10-02): 146 fail of 14,207.
 - Workflow triggers: on demand + linux-ci-* pushes, not every PR (expected red until B/D land; runners backed up).
 - report-hook-killguard-4671 kept at main's bounds (widening hid #5420).
 - The tmux test's skip reason replaced by the measured one, and limited to Linux.
-- New skips use `process.platform === 'linux'`, never `!== 'darwin'`, so Windows coverage is unchanged
-  (create.test.js runs on the Windows job).
+- The skips this takeover added use `process.platform === 'linux'`, so Windows coverage is unchanged (create.test.js
+  runs on the Windows job). Two kept from the PR use `!== 'darwin'` (codexsession, projects.open-why-1199); neither
+  file runs on the Windows job.
+- Review 1: the leftoverJob test now skips only its temp-folder arm on Linux; the preview test runs everywhere and
+  asserts the answer the disk gives (adopt on a case-insensitive disk, make on a case-sensitive one).
+- install/kosmos lsof lookup: the two absolute paths only (no PATH fallback: it added trust and no coverage).
+- Known gap: the lane has no expected-red list; its header names the expected failures. Follow-up after B/D.
 
 ## Kept from the PR
 Case-sensitivity probe for the case-insensitive-volume tests; /tmp-symlink and /usr/bin/open Mac-only skips;

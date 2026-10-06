@@ -1741,7 +1741,7 @@ test('an over-long name on the default path meets the SAME sentence the preview 
     /longer than a project name should be/);
 });
 
-test('the previewed path IS the path the act produces, case correction included', { skip: !caseInsensitiveFS() && 'case correction requires case-insensitive filesystem' }, () => {
+test('the previewed path IS the path the act produces, case correction included', () => {
   // ⚠️ Volume-portable on purpose, the same lesson create.test.js records: on
   // a case-insensitive disk `lease` beside an existing `Lease` ADOPTS that
   // folder, on a case-sensitive one they are two entries -- so the assertion
@@ -1756,7 +1756,9 @@ test('the previewed path IS the path the act produces, case correction included'
   // The act distinction travels with the path: this folder existed, so the
   // screen must say ADOPT, and a fresh name must say MAKE (round 17: the
   // preview claimed "make" over a folder adoption).
-  assert.equal(previewed.exists, true, 'an existing folder previews as existing');
+  // #4919: on a case-insensitive disk `lease` IS the existing `Lease` (adopt); on a case-sensitive one it is a new
+  // folder (make). Either way the preview must say what the act did.
+  assert.equal(previewed.exists, caseInsensitiveFS(), 'the preview said ' + previewed.exists + ' about an act that ' + (caseInsensitiveFS() ? 'adopted' : 'made') + ' the folder');
   const fresh = projects.folderPathPreview('Never previewed into being');
   assert.strictEqual(fresh.exists, false, 'a fresh name previews as not existing');
   assert.ok(!fs.existsSync(fresh.path),
