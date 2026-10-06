@@ -247,6 +247,18 @@ async function measure(page, view, notice, name) {
     for (const k of ['youX', 'tabsX']) {
       if (cons[k] !== tabs[k]) problems.push(`1440px measured in consolidated: ${k} is ${cons[k]} in consolidated and ${tabs[k]} in the tab view (scrollbar width ${got.width})`);
     }
+    // A 15px width set by hand, so this Mac (overlay scrollbars, width 0) can see the padding at all: each view pads its
+    // header by it (the tab view's rule less what the page gives up, 0 here), so the right cluster and the centred tabs
+    // still land on the same pixels, 15px and 7.5px left of where they sit at width 0. CONTROL: the controls really
+    // moved, so equal numbers are not two views ignoring the width alike.
+    await page.evaluate(() => document.documentElement.style.setProperty('--scrollbar-width', '15px'));
+    const cons15 = await measure(page, 'consolidated', false);
+    const tabs15 = await measure(page, 'tabs', false);
+    for (const k of ['youX', 'tabsX']) {
+      if (cons15[k] !== tabs15[k]) problems.push(`1440px with a 15px scrollbar width: ${k} is ${cons15[k]} in consolidated and ${tabs15[k]} in the tab view`);
+    }
+    if (!(cons15.youX !== null && cons.youX !== null && Math.abs((cons.youX - cons15.youX) - 15) < 0.6)) problems.push(`CONTROL failed: 1440px consolidated: a 15px scrollbar width moved the right controls from ${cons.youX} to ${cons15.youX}, not 15px left`);
+    else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${cons15.youX}, tabs at ${cons15.tabsX})`);
     await page.close();
   }
 

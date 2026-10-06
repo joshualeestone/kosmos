@@ -11676,12 +11676,14 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
    the window edge, and wide headers are padded by this less what the page gives up (consolidated's by
-   all of it, #5379), so the header does not move between views. Read off the root itself, not a scrolling element: a runner that hides
-   scrollbars still reserves the root's gutter, and an element probe then reads 0 against a 15px
-   gutter. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar rule changes
-   the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
-   second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
-   plugged in, which fires no resize, and the press that opens an agent then measures first. */
+   all of it, #5379), so the header does not move between views. Read off the root itself, not a
+   scrolling element: a runner that hides scrollbars still reserves the root's gutter, and an element
+   probe then reads 0 against a 15px gutter. Measured at load, again once applyPlatformCopy stamps
+   Windows (its scrollbar rule changes the width), on resize (a zoom, a move to another display), on a
+   pointer press (at most once a second), focus and return to the tab: a Mac set to "Automatic"
+   switches scrollbars when a mouse is plugged in, which fires no resize, and the press that opens an
+   agent then measures first. In consolidated (#5379) a resize measures once the drag settles and a
+   press does not measure, since a measurement there reflows the page. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
   /* #5379: measured in the consolidated layout too, so the width its header is padded by (the #5379 rule) follows a

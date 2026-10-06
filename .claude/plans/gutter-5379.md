@@ -23,5 +23,6 @@ Rejected:
 ## Not measured
 - Windows WebView2 itself (the product's classic-scrollbar platform): the runner's Chromium is the proxy.
 - Whether the one-layout reflow in consolidated is visible on a classic-scrollbar platform (it is forced and restored in one task, so nothing should paint between).
-- Scroll events: if scroll anchoring moves an inner scroller during the forced layout, restoring it still queues a scroll event, so a position-reading scroll handler may run once per measurement in consolidated (load, settled resize, focus, a return to the tab). Not observed either way.
+- Scroll events: if scroll anchoring moves an inner scroller during the forced layout, the move and the restore each queue a scroll event, so a position-reading scroll handler may run once per measurement in consolidated (load, settled resize, focus, a return to the tab). Not observed either way.
+- The scroll restore itself: on an overlay-scrollbar machine nothing reflows, so no local check can red without it; only a classic-scrollbar run exercises it.
 - The classic-scrollbar CI result is recorded on card #5379, not here: this file is written before it lands.
