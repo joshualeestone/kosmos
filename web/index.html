@@ -6362,8 +6362,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
-@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
