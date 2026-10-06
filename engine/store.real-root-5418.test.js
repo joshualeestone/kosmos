@@ -1,8 +1,9 @@
 'use strict';
 /**
  * kosmos#5418: a test process never gets this machine's real data root. Each arm runs a child
- * node with a controlled environment and only reads store.ROOT (nothing is written; the legacy
- * migration is off in every arm).
+ * node with a controlled environment and reads store.ROOT; the legacy migration is off in every
+ * arm. A child that makes a throwaway also sweeps dead-pid throwaways from the temp folder, as
+ * every test process does (sweepDeadTestHomes); nothing else is written outside its own scratch.
  *
  *   node --test engine/store.real-root-5418.test.js
  */
@@ -14,6 +15,13 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const STORE = path.join(__dirname, 'store.js');
+/* Whether this machine lets this process make a directory symlink (Windows needs Developer Mode or admin). */
+const CAN_SYMLINK = (() => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-probe-'));
+  try { fs.mkdirSync(path.join(d, 't')); fs.symlinkSync(path.join(d, 't'), path.join(d, 'l'), 'dir'); return true; }
+  catch { return false; }
+  finally { fs.rmSync(d, { recursive: true, force: true }); }
+})();
 const SANDBOX_VARS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT'];
 
 /* A child's env: no sandbox and no test marker unless the arm adds them, the real HOME, and no
@@ -125,7 +133,7 @@ test('#5418: a test that sandboxes by pointing HOME elsewhere keeps ITS sandbox 
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('#5418: the real home reached through a symlink is still the real root, and gets the throwaway', { skip: process.platform === 'win32' && 'a directory symlink needs Developer Mode on Windows' }, () => {
+test('#5418: the real home reached through a symlink is still the real root, and gets the throwaway', { skip: !CAN_SYMLINK && 'this machine does not allow a directory symlink here' }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-link-'));
   const link = path.join(dir, 'home');
   try {
@@ -149,7 +157,7 @@ function deadPid() {
   throw new Error('no free pid found for the dead-process arm');
 }
 
-test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a live one, a malformed name and anything else', () => {
+test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a live one, a malformed name and anything else', { skip: !CAN_SYMLINK && 'this machine does not allow a directory symlink here' }, () => {
   const store = require('./store');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweep5418-'));
   try {
@@ -160,7 +168,7 @@ test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a 
     const live = path.join(tmp, store.TEST_HOME_PREFIX + child.pid + '-BBBBBB');
     const link = path.join(tmp, store.TEST_HOME_PREFIX + deadPid() + '-LLLLLL');
     const target = path.join(tmp, 'link-target'); fs.mkdirSync(path.join(target, 'keep'), { recursive: true });
-    fs.symlinkSync(target, link);   // a link with a dead pid's name, to a scratch folder: never followed, never removed
+    fs.symlinkSync(target, link, 'dir');   // a link with a dead pid's name, to a scratch folder: never followed, never removed
     const junk = path.join(tmp, store.TEST_HOME_PREFIX + 'notapid');
     const other = path.join(tmp, 'other-folder');
     for (const d of [dead, live, junk, other]) fs.mkdirSync(path.join(d, 'Library'), { recursive: true });
@@ -186,5 +194,17 @@ test('#5418: a test process that allows the real root to READ it never runs the 
   const skip = body.indexOf("if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1') return resolved;");
   const migrate = body.indexOf('maybeMigrateLegacyStore();');
   assert.ok(skip > -1 && migrate > -1 && skip < migrate, 'root() can migrate the real store for a test that only allowed reading it');
+});
+
+test('#5418: node --test --test-isolation=none (no NODE_TEST_CONTEXT) is a test process too', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr5418-iso-'));
+  try {
+    const file = path.join(dir, 'probe.test.js');
+    fs.writeFileSync(file, "require('node:test')('p', () => { process.stdout.write('ROOT=' + require(" + JSON.stringify(STORE) + ").ROOT + '\\n'); });\n");
+    const r = spawnSync(process.execPath, ['--test', '--test-isolation=none', '--test-reporter=tap', file], { env: childEnv({}), encoding: 'utf8' });
+    const line = (r.stdout.split('\n').find((l) => l.startsWith('ROOT=')) || '');
+    assert.ok(line, r.stdout + r.stderr);
+    assert.ok(line.includes(require('./store').TEST_HOME_PREFIX), line);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

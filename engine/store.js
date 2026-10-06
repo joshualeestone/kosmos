@@ -277,8 +277,10 @@ function maybeMigrateLegacyStore() {
    Protected is this account's OS-default root (the user database's home), equal or inside; a
    store a shell's inherited non-default AGENT_WORKFORCE_DATA/HOME names is not (the shell side
    is #5428). With no user-database home (os.userInfo throws) the rule is off. */
+/* `node --test --test-isolation=none` runs the files in this very process and sets no
+   NODE_TEST_CONTEXT (measured, node 26.8.1), but its own execArgv carries --test. */
 function isTestProcess(env) {
-  return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
+  return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1' || process.execArgv.includes('--test');
 }
 let accountHome;   // os.userInfo().homedir, looked up once per process ('' when it cannot be)
 function realDefaultRoot(platform, app) {

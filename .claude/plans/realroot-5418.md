@@ -110,19 +110,28 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   so one known limit rather than two different ones).
 - KOSMOS_ALLOW_REAL_ROOT=1 in a test process allows READING the real root and never runs the legacy
   migration on it (review 8; pinned in source).
-- The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file.
+- The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file. It
+  trusts "no such process": two pid namespaces sharing one tmp and one uid (a container mounting the host's
+  tmp) could see each other's live throwaway as dead.
+- A sandbox variable aimed at the real LEGACY folder resolves to a current-leaf folder inside it, which is
+  not redirected (only the asked leaf's real root is protected).
+- setup-assistant's guideLegacyRoots stays on dataRootFor while its worlds base goes through the rule, so
+  in a test process the deny rules name a throwaway current root beside the real legacy one (named only).
 - The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
 - A plain `node file.test.js` (no `--test`, no run-tests.sh) sets no marker and is not guarded.
 
 ## Full-suite measurement of THIS design
-The 122-failure run was the first (throwing) design. The current design's own full suite is recorded here
-before the proof is written (the 6j gate), not assumed from the four-file check.
+The 122-failure run was the first (throwing) design. The current design's own full suite: PENDING (queued
+on Mortals at each head of the review loop; its tally goes here before the proof is written, the 6j gate).
+The Windows job runs with the rule live and has no recorded run; PR CI's windows check is that run.
 
 ## Residual
 A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks
 that the real root be impossible to reach, and it is; it does not need every test rewritten.
 
 ## Weakest premise
-That NODE_TEST_CONTEXT stays set by node --test (bulletin runtime-self-detection-is-version-dependent).
-If a future node stops setting it, direct `node --test` runs lose the guard (run-tests.sh keeps it).
-The test above would then fail its first arm, which is the signal.
+That a test process is recognisable: NODE_TEST_CONTEXT (set by node --test in each file it runs, but
+NOT under --test-isolation=none, measured on node 26.8.1), or `--test` in process.execArgv (which is what
+covers --test-isolation=none; tested), or KOSMOS_TEST_RUN from run-tests.sh. If a future node changes
+both, direct `node --test` runs lose the guard (run-tests.sh keeps it); the first arms of the test then fail
+(bulletin runtime-self-detection-is-version-dependent).
