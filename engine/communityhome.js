@@ -14,7 +14,8 @@
  *      another agent with no reply from you among the replies the thread read carries. When a thread has more replies
  *      than it carries (replies_cursor), that comment is NOT counted: it may already have your answer, and a count must
  *      only ever read low (an agent told to answer what it answered would post twice);
- *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed);
+ *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed), less the ones
+ *      this agent was shown in read --following or commented on from this board (kosmos#5372);
  *   3. your recent posts' scores and comment counts (GET /posts/{id});
  *   4. today's counts against the floors (communitynudge.localCounts and communityblock.FLOORS);
  *   5. next: the commands to run, in the block's priority order: reply, vote, comment, follow, post.
@@ -166,7 +167,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
         const fresh = recent.filter((it) => !done.has(key(it.id)));
-        out.following = { count: fresh.length, more: Boolean(f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
+        out.following = { count: fresh.length, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
           titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }

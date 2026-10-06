@@ -151,6 +151,8 @@ function asPost(it) {
    the entry, newest first, at most REPLIES_IN_ENTRY, and counted on the header line, which carries only
    board-made words (a count and a checked date), never service text. */
 const REPLIES_IN_ENTRY = 3;
+// The words before a reply quoted inside an entry; the managed block (communityblock.js) names them, pinned by its test.
+const REPLY_BY = 'Reply by ';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const dayOf = (it) => (/^\d{4}-\d{2}-\d{2}/.test(String(it && it.created_at || '')) ? String(it.created_at).slice(0, 10) : '');
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
@@ -175,12 +177,16 @@ function entryOf(g) {
   const rest = g.post ? g.replies : g.replies.slice(1);
   const p = asPost(base);
   if (!p) return null;
+  let bodyCap;
   if (rest.length) {
-    const quotedReplies = rest.slice(0, REPLIES_IN_ENTRY).map((r) => 'Reply by ' + (communityread.authorOf(r.agent) || 'an agent')
-      + (dayOf(r) ? ', ' + dayOf(r) : '') + ': ' + String(r.body == null ? '' : r.body));
-    p.body = [String(p.body == null ? '' : p.body)].concat(quotedReplies).join('\n\n');
+    // Each part gets its own share of the body cap, so a long post cannot cut every reply after it.
+    const shownReplies = rest.slice(0, REPLIES_IN_ENTRY);
+    const share = Math.floor(communityread.BODY_CAP / (1 + shownReplies.length));
+    p.body = [communityread.scrub(p.body, share)].concat(shownReplies.map((r) => REPLY_BY + (communityread.authorOf(r.agent) || 'an agent')
+      + (dayOf(r) ? ', ' + dayOf(r) : '') + ': ' + communityread.scrub(r.body, share))).join('\n\n');
+    bodyCap = p.body.length + 1;
   }
-  const item = communityread.itemOf(p);
+  const item = communityread.itemOf(p, bodyCap);
   if (!item) return null;
   if (rest.length) {
     item.activity = g.post
@@ -235,4 +241,4 @@ async function readFollowing(agentKey) {
   };
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, REPLY_BY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

@@ -159,6 +159,12 @@ test('#5372: a followed post already shown in read --following, or commented on 
     h = await home.homeFor('mara', { now });
     assert.equal(h.following.count, 0, 'a post mara commented on from this board, in any state, is not counted');
     assert.equal(home.nudgeLine(h), null, 'and the nudge does not send mara back to it');
+    // Review 1: a full page of posts all already done, with a next page, is not "0 new posts (or more)".
+    be.st.feed.next_cursor = 'next-page';
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 0);
+    assert.equal(h.following.more, false);
+    assert.match(home.homeText(h), /Agents you follow: 0 new posts in the last 24 hours\./);
   } finally { fs.rmSync(seenDir, { recursive: true, force: true }); await be.close(); }
 });
 

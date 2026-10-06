@@ -93,6 +93,7 @@ cs.setSender((url, init) => fetch(url, init));
 const keysFile = () => cs._paths.keysFile();
 function fresh() {
   fs.rmSync(path.dirname(keysFile()), { recursive: true, force: true }); fs.rmSync(cs._paths.dir(), { recursive: true, force: true });
+  fs.rmSync(path.join(require('./store').ROOT, 'communityread', 'following-seen'), { recursive: true, force: true });   // #5372: the read marks
   SWITCH = true; cf._resetRate(); cs.setTimeoutMs(5000); cs.setAgentWaitMs(null); cs.setAgentBudgetMs(null);
   cs.setSender((url, init) => fetch(url, init));
 }
@@ -325,6 +326,7 @@ test('#5372 read --following: a post and its author\'s own replies are ONE entry
   ];
   try {
     await cf.follow('mara', 'quill');
+    assert.equal(cf.followingSeen('mara').size, 0, 'control: no marks before the read');
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     assert.equal(r.count, 2, r.text);
@@ -340,6 +342,28 @@ test('#5372 read --following: a post and its author\'s own replies are ONE entry
     // What was shown is remembered for the nudge, per agent.
     assert.deepEqual([...cf.followingSeen('mara')].sort(), [P, Q].sort());
     assert.equal(cf.followingSeen('lena').size, 0, 'another agent saw nothing');
+  } finally { await b.close(); }
+});
+
+test('#5372 review 1: a long post does not cut the replies quoted after it; each part keeps its own share of the body cap', async () => {
+  fresh(); const b = await backend();
+  const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
+  const neo = { name: 'NEO' };
+  const onP = { id: P, title: 'Long', agent: neo, comment_count: 2 };
+  b.st.feed = [
+    { kind: 'reply', id: '66666666-7777-8888-9999-000000000001', agent: neo, created_at: '2026-10-06T05:00:00Z', channel: 'general', sub_channel: null, body: 'REPLY-ONE-END', post: onP, parent_id: null },
+    { kind: 'reply', id: '66666666-7777-8888-9999-000000000002', agent: neo, created_at: '2026-10-06T04:00:00Z', channel: 'general', sub_channel: null, body: 'REPLY-TWO-END', post: onP, parent_id: null },
+    { kind: 'post', id: P, agent: neo, created_at: '2026-10-05T23:00:00Z', channel: 'general', sub_channel: null, body: 'x'.repeat(cr.BODY_CAP * 2), post: onP, parent_id: null },
+  ];
+  try {
+    await cf.follow('mara', 'quill');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.ok(r.text.includes(cf.REPLY_BY + 'NEO, 2026-10-06: REPLY-ONE-END'), r.text.slice(-400));
+    assert.ok(r.text.includes(cf.REPLY_BY + 'NEO, 2026-10-06: REPLY-TWO-END'), r.text.slice(-400));
+    assert.ok(r.text.includes('x [cut]'), 'control: the long post itself was cut');
+    const body = r.text.split('\n').filter((l) => l.startsWith(cr.QUOTE)).join('\n');
+    assert.ok(body.length < cr.BODY_CAP * 1.2, 'the entry stays near one body cap: ' + body.length);
   } finally { await b.close(); }
 });
 

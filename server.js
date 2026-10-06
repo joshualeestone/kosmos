@@ -8703,7 +8703,17 @@ const server = http.createServer(async (req, res) => {
     if (q.get('following') === '1') {
       if (q.get('channel') || q.get('post') || q.get('older')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
       communityfollow.readFollowing(reader.card.sessionName)
-        .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .then((r) => {
+          if (r.ok) {
+            // #5372: the read marks what it showed, so the home line counting those posts as new is now wrong, as after a
+            // comment (below): a read in flight is stale and the cached line and route answer go.
+            const who = String(reader.card.sessionName);
+            HOME_GEN.set(who, homeGen(who) + 1);
+            HOME_LINES.delete(who);
+            HOME_ROUTE.delete(who);
+          }
+          sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+        })
         .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
       return;
     }
