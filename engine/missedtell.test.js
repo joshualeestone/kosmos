@@ -132,7 +132,7 @@ test('#4787 slice 3: server.js runs the sweep on its own minute timer, outside t
   assert.match(body, /deliver: \(session, text, ro\) => chat\.deliverAutomatic\(/);
   assert.match(body, /const allowed = agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\);/, 'the nudge\'s gate: live execution and the brake');
   assert.match(body, /missedtell\.sweep\(\{[\s\S]*\ballowed,/, 'and it is what the sweep is given');
-  assert.match(body, /const r = allowed && owed\.some\(\(x\) => !x\.person && x\.members\.includes\(x\.reviewer\)\)/, 'reviews 6 and 7: no roster read while nothing can be typed');
+  assert.match(body, /const r = allowed && owed\.some\(\(x\) => !x\.person && !x\.swarmOff && x\.members\.includes\(x\.reviewer\)\)/, 'reviews 6 to 8: no roster read while nothing can be typed');
   assert.equal((src.match(/missedtell\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });
 
@@ -209,4 +209,16 @@ test('#4787 slice 3 review 6: a capped count is recorded as more, so the history
   const ev = taskchat.read(id, n).find((e) => e.kind === 'missed');
   assert.equal(ev.count, 99);
   assert.equal(ev.more, true);
+});
+
+test('#4787 slice 3 review 8: a reviewer switched off in this project is held; a miss before the person asked is not put on them', () => {
+  const off = fixture('ada');
+  projects.mutate(off.id, (x) => ({ ...x, swarmOff: ['ada'] }));
+  assert.equal(projects.isSwarmOff(projects.readAll().find((x) => x.id === off.id), 'ada'), true, 'precondition: the fixture switches ada off the way projects reads it');
+  const r = mt.sweep({ projects: only(off.id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, deliver: () => { throw new Error('typed'); } });
+  assert.equal(r.results[0].act, 'held');
+  assert.match(r.results[0].because, /switched off/);
+  const me = fixture('me', { repeatReviewerSetAt: new Date(at(2026, 10, 6, 9, 30)).toISOString() });
+  assert.equal(mt.personReviewMissed(stored(me.id, me.n), NOW), false, 'the 9am miss came before "Me" was chosen at 9:30');
+  assert.equal(mt.personReviewMissed(stored(me.id, me.n), at(2026, 10, 7, 10, 0)), true, 'CONTROL: the next day\'s miss is theirs');
 });
