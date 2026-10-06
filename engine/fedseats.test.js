@@ -40,7 +40,7 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     },
     recordExternal: (projectId, msg) => recorded.push({ projectId, ...msg }),
     onStatus: (projectId, status) => statuses.push([projectId, status]),
-    enrolled: () => enrolled,
+    enrolled: () => (typeof enrolled === 'function' ? enrolled() : enrolled),   // a function lets a test sign out midway
     projectExists: (projectId) => exists(projectId),
     externalKeptOn: keptOn,
     projectCreatedAt: (projectId) => createdAt(projectId),
@@ -366,12 +366,61 @@ test('an owner edge refused for good is not tried again', async () => {
   assert.strictEqual(h.spawned.length, 1, 'no second spawn on the refused edge');
 });
 
-test('while an owner waits for someone to join, a post says exactly that', async () => {
+test('while an owner waits for someone to join, a post says exactly that (#5285: after one check that nobody just joined)', async () => {
   federation.recordLink('proj-wait', { role: 'owner', ref: 'ref-wait' });
   const h = harness({ edges: [] });
   assert.strictEqual(await fedseats.ensure('proj-wait'), 'waiting');
+  const askedBefore = h.asked;
   assert.strictEqual(fedseats.post('proj-wait', { from: 'Josh', kind: 'person', text: 'anyone?' }), false);
-  assert.match(h.notes[0].text, /nobody outside has joined/);
+  await tick(); await tick(); await tick();
+  assert.strictEqual(h.asked, askedBefore + 1, 'the post did not ask whether someone had just joined');
+  const said = h.notes.filter((n) => n.projectId === 'proj-wait').map((n) => n.text);
+  assert.match(said[said.length - 1], /nobody outside has joined/, JSON.stringify(said));
+});
+
+test('#5285: within a check\'s window a post waits for the next check (never refused at once), and a member who joined meanwhile gets it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  federation.recordLink('proj-win', { role: 'owner', ref: 'ref-win' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-win');
+  fedseats.post('proj-win', { from: 'Josh', kind: 'person', text: 'anyone?' });
+  await settle();
+  const askedAfterFirst = h.asked;
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-win').map((n) => n.text);
+  assert.match(said()[said().length - 1], /nobody outside has joined/, 'CONTROL: the first check found nobody');
+  // A member joins three seconds later; the owner posts inside the 10 s window.
+  t.mock.timers.tick(3000);
+  h.edges = [{ id: 'edge-win', project_ref: 'ref-win', status: 'active' }];
+  fedseats.post('proj-win', { from: 'Josh', kind: 'person', text: 'there you are' });
+  await settle();
+  assert.strictEqual(h.asked, askedAfterFirst, 'a post inside the window asked at once');
+  assert.strictEqual(said().filter((x) => /nobody outside has joined/.test(x)).length, 1, 'the post inside the window was refused: ' + JSON.stringify(said()));
+  // The window ends: one check, which finds the member and brings the seat up.
+  t.mock.timers.tick(7000);
+  await settle();
+  assert.strictEqual(h.asked, askedAfterFirst + 1, 'no check when the window ended');
+  const seat = h.spawned.find((c) => c.edge === 'edge-win');
+  assert.ok(seat, 'the seat did not come up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /there you are/, 'the post made inside the window was not sent');
+});
+
+test('#5285: an owner\'s post right after someone joins, before the seat noticed, is held and sent once the seat connects', async () => {
+  federation.recordLink('proj-gap', { role: 'owner', ref: 'ref-gap' });
+  const h = harness({ edges: [] });
+  assert.strictEqual(await fedseats.ensure('proj-gap'), 'waiting', 'CONTROL: nobody had joined at the last pass');
+  // Someone joins now; the seat would only notice on the next pass, up to a minute away.
+  h.edges = [{ id: 'edge-gap', project_ref: 'ref-gap', status: 'active' }];
+  assert.strictEqual(fedseats.post('proj-gap', { from: 'Josh', kind: 'person', text: 'welcome!' }), false);
+  await tick(); await tick(); await tick();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap').map((n) => n.text);
+  assert.ok(!said().some((t) => /nobody outside has joined/.test(t)), 'the post was refused as if nobody had joined: ' + JSON.stringify(said()));
+  assert.strictEqual(h.spawned.length, 1, 'the post did not bring the seat up at once');
+  assert.strictEqual(h.spawned[0].edge, 'edge-gap');
+  say(h.spawned[0], { event: 'connected', room: 'r', expires_at: 9 });
+  await tick(); await tick();
+  assert.match(h.spawned[0].written.join(''), /welcome!/, 'the held post was not sent once the seat connected: ' + JSON.stringify(said()));
 });
 
 test('a seat that ends says why in the room, once, and a later post says it has ended', async () => {
@@ -3267,4 +3316,311 @@ test('#5192: a post held for another reason after a behind hold ran out goes lik
   const out = lines(seat).map((f) => fedseal.open({ 0: k0 }, 'room-5192-anyold', f)).filter(Boolean);
   assert.deepStrictEqual(out.map((x) => x.m.text), ['held for the room name'], 'a post held for the room name was dropped like one held while behind');
   assert.ok(h.notes.some((n) => /under the key this computer has/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('#5285: two quick posts in the gap share one check, and both go once the seat connects', async () => {
+  federation.recordLink('proj-gap2', { role: 'owner', ref: 'ref-gap2' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap2');
+  h.edges = [{ id: 'edge-gap2', project_ref: 'ref-gap2', status: 'active' }];
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const askedBefore = h.asked;
+  fedseats.post('proj-gap2', { from: 'Josh', kind: 'person', text: 'one' });
+  fedseats.post('proj-gap2', { from: 'Josh', kind: 'person', text: 'two' });
+  await tick();
+  assert.strictEqual(h.asked, askedBefore + 1, 'two posts made two checks');
+  release(); h.gate = null;
+  await tick(); await tick(); await tick();
+  say(h.spawned[0], { event: 'connected', room: 'r', expires_at: 9 });
+  await tick(); await tick();
+  const out = h.spawned[0].written.join('');
+  assert.ok(/one/.test(out) && /two/.test(out) && out.indexOf('one') < out.indexOf('two'), 'not both sent, in order: ' + out);
+});
+
+test('#5285: when the check cannot ask, the post stays held; the next pass that finds nobody says so', async () => {
+  federation.recordLink('proj-gap3', { role: 'owner', ref: 'ref-gap3' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap3');
+  h.edges = null;   // Kosmos+ cannot be asked
+  fedseats.post('proj-gap3', { from: 'Josh', kind: 'person', text: 'hello?' });
+  await tick(); await tick(); await tick();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap3').map((n) => n.text);
+  assert.ok(!said().some((t) => /nobody outside has joined/.test(t)), 'a check that could not ask said nobody joined: ' + JSON.stringify(said()));
+  h.edges = [];   // the next pass can ask, and still nobody
+  await fedseats.ensureAll();
+  await tick();
+  assert.match(said()[said().length - 1], /nobody outside has joined/, 'the pass did not settle the held post: ' + JSON.stringify(said()));
+});
+
+test('#5285: in a SEALED room the gap post waits for the member\'s key and leaves only sealed', async () => {
+  const inv = newInvite('gs');
+  fedseal.stashInvite('ref-gap-s', inv);
+  federation.recordLink('proj-gap-s', { role: 'owner', ref: 'ref-gap-s' });
+  const h = harness({ edges: [] });
+  assert.strictEqual(await fedseats.ensure('proj-gap-s'), 'waiting');
+  h.edges = [{ id: 'edge-inv-gs', project_ref: 'ref-gap-s', status: 'active', invite_id: inv.invite }];
+  fedseats.post('proj-gap-s', { from: 'Josh', kind: 'person', text: 'sealed welcome' });
+  await settle();
+  const seat = h.spawned[0];
+  assert.ok(seat, 'the post did not bring the seat up');
+  say(seat, { event: 'connected', room: 'room-gs', expires_at: 9 });
+  await settle();
+  assert.ok(!seat.written.join('').includes('sealed welcome'), 'the post left in the clear before the member had a key');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-gs') });
+  await settle();
+  const out = lines(seat);
+  const share = out.find((l) => l.t === 'key-share');
+  const got = fedseal.openShare(inv.s, inv.code, member, share, 'room-gs');
+  const sealedPost = out.filter((l) => fedseal.isSealed(l)).pop();
+  assert.ok(sealedPost, 'the held post was never sent: ' + JSON.stringify(h.notes.map((n) => n.text)));
+  assert.strictEqual(fedseal.open({ [got.epoch]: got.roomKey }, 'room-gs', sealedPost).m.text, 'sealed welcome');
+  assert.ok(!h.notes.some((n) => /nobody outside has joined/.test(n.text)), JSON.stringify(h.notes.map((n) => n.text)));
+});
+
+test('#5285: a post whose check could not ask (a pass already under way) stays held, and so does the next post', async () => {
+  federation.recordLink('proj-gap4', { role: 'owner', ref: 'ref-gap4' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap4');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const passDone = fedseats.ensureAll();   // the pass is asking; its request waits on the gate
+  await tick();
+  fedseats.post('proj-gap4', { from: 'Josh', kind: 'person', text: 'first' });   // its check finds the pass under way
+  await tick(); await tick();
+  fedseats.post('proj-gap4', { from: 'Josh', kind: 'person', text: 'second' });
+  await tick();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap4').map((n) => n.text);
+  assert.ok(!said().some((x) => /nobody outside has joined/.test(x)), 'a check that never asked was taken as "nobody joined": ' + JSON.stringify(said()));
+  h.edges = [{ id: 'edge-gap4', project_ref: 'ref-gap4', status: 'active' }];
+  release(); h.gate = null;
+  await passDone; await settle();
+  // Found by its edge: a pass also seats other tests' projects.
+  const seat = h.spawned.find((c) => c.edge === 'edge-gap4');
+  assert.ok(seat, 'the seat did not come up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  const out = seat.written.join('');
+  assert.ok(/first/.test(out) && /second/.test(out), 'not both sent once the seat connected: ' + out);
+});
+
+test('#5285: once someone joined, a post re-held for the key is not later released as "nobody joined"', async () => {
+  const inv = newInvite('gk');
+  fedseal.stashInvite('ref-gap-k', inv);
+  federation.recordLink('proj-gap-k', { role: 'owner', ref: 'ref-gap-k' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap-k');
+  h.edges = [{ id: 'edge-inv-gk', project_ref: 'ref-gap-k', status: 'active', invite_id: inv.invite }];
+  fedseats.post('proj-gap-k', { from: 'Josh', kind: 'person', text: 'for the key' });
+  await settle();
+  say(h.spawned[0], { event: 'connected', room: 'room-gk', expires_at: 9 });
+  await settle();
+  // The edge is refused for good before the member's hello: the seat falls back to waiting, and a pass finds nobody.
+  h.spawned[0].emit('exit', 3);
+  await settle();
+  assert.strictEqual(await fedseats.ensure('proj-gap-k'), 'waiting', 'CONTROL: the seat is waiting again');
+  await fedseats.ensureAll(); await settle();
+  assert.ok(!h.notes.some((n) => /nobody outside has joined/.test(n.text)), 'a post held after someone joined was released as nobody joined: ' + JSON.stringify(h.notes.map((n) => n.text)));
+});
+
+test('#5285: a check releases only posts held before it asked; a post made after waits for the next answer', async () => {
+  federation.recordLink('proj-gap5', { role: 'owner', ref: 'ref-gap5' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gap5');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  fedseats.post('proj-gap5', { from: 'Josh', kind: 'person', text: 'before' });   // its check asks now
+  await tick();
+  await new Promise((r) => setTimeout(r, 5));   // a later millisecond
+  fedseats.post('proj-gap5', { from: 'Josh', kind: 'person', text: 'after' });   // held on the check in flight
+  release(); h.gate = null;
+  await settle();
+  const said = () => h.notes.filter((n) => n.projectId === 'proj-gap5').map((n) => n.text);
+  assert.strictEqual(said().filter((x) => /nobody outside has joined/.test(x)).length, 1, 'not exactly the earlier post released: ' + JSON.stringify(said()));
+  // The member is there by the next pass: the later post goes.
+  h.edges = [{ id: 'edge-gap5', project_ref: 'ref-gap5', status: 'active' }];
+  await fedseats.ensureAll(); await settle();
+  const seat5 = h.spawned.find((c) => c.edge === 'edge-gap5');
+  assert.ok(seat5, 'the seat did not come up');
+  say(seat5, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  const out = seat5.written.join('');
+  assert.ok(/after/.test(out) && !/before/.test(out), 'expected only the later post to be sent: ' + out);
+});
+
+test('#5285: another project\'s fresh "nobody" answer is not reused for a post made after this project\'s member joined', async () => {
+  federation.recordLink('proj-gapA', { role: 'owner', ref: 'ref-gapA' });
+  federation.recordLink('proj-gapB', { role: 'owner', ref: 'ref-gapB' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-gapA');
+  await fedseats.ensure('proj-gapB');
+  fedseats.post('proj-gapA', { from: 'Josh', kind: 'person', text: 'A?' });   // asks; the answer is "nobody"
+  await settle();
+  await new Promise((r) => setTimeout(r, 5));
+  h.edges = [{ id: 'edge-gapB', project_ref: 'ref-gapB', status: 'active' }];   // B's member joins
+  fedseats.post('proj-gapB', { from: 'Josh', kind: 'person', text: 'B welcome' });
+  await settle();
+  assert.ok(!h.notes.some((n) => n.projectId === 'proj-gapB' && /nobody outside has joined/.test(n.text)), 'B reused A\'s older answer: ' + JSON.stringify(h.notes.map((n) => n.text)));
+  const seatB = h.spawned.find((c) => c.edge === 'edge-gapB');
+  assert.ok(seatB, 'B\'s seat did not come up');
+});
+
+test('#5285: a post held while a check is out gets its own follow-up check, not the 60 s pass', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 2_000_000 });
+  federation.recordLink('proj-fu', { role: 'owner', ref: 'ref-fu' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-fu');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  fedseats.post('proj-fu', { from: 'Josh', kind: 'person', text: 'early' });   // its check asks now
+  await tick();
+  t.mock.timers.tick(5);
+  fedseats.post('proj-fu', { from: 'Josh', kind: 'person', text: 'later' });   // held while that check is out
+  release(); h.gate = null;
+  await settle();
+  h.edges = [{ id: 'edge-fu', project_ref: 'ref-fu', status: 'active' }];   // the member is there now
+  t.mock.timers.tick(10000);   // the window ends: the follow-up check runs (no ensureAll here)
+  await settle();
+  const seat = h.spawned.find((c) => c.edge === 'edge-fu');
+  assert.ok(seat, 'no follow-up check brought the seat up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /later/);
+});
+
+test('#5285: a stopped seat\'s scheduled check never runs', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 3_000_000 });
+  federation.recordLink('proj-stp', { role: 'owner', ref: 'ref-stp' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-stp');
+  fedseats.post('proj-stp', { from: 'Josh', kind: 'person', text: 'one' });
+  await settle();
+  fedseats.post('proj-stp', { from: 'Josh', kind: 'person', text: 'two' });   // inside the window: a check is scheduled
+  await settle();
+  const asked = h.asked;
+  fedseats.stop('proj-stp');
+  t.mock.timers.tick(15000);
+  await settle();
+  assert.strictEqual(h.asked, asked, 'a stopped seat still asked');
+});
+
+test('#5285: a lone post whose check found a start already under way gets its own follow-up check', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 4_000_000 });
+  federation.recordLink('proj-lone', { role: 'owner', ref: 'ref-lone' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-lone');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  const busy = fedseats.ensure('proj-lone');   // a seat check already asking (as a pass would)
+  await tick();
+  fedseats.post('proj-lone', { from: 'Josh', kind: 'person', text: 'alone' });   // its check returns without asking
+  await tick(); await tick();
+  release(); h.gate = null;
+  await busy; await settle();
+  h.edges = [{ id: 'edge-lone', project_ref: 'ref-lone', status: 'active' }];
+  t.mock.timers.tick(10000);   // the follow-up, not the 60 s pass
+  await settle();
+  const seat = h.spawned.find((c) => c.edge === 'edge-lone');
+  assert.ok(seat, 'the lone post got no follow-up check');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /alone/);
+});
+
+test('#5285: signed out of Kosmos+ while waiting, the held post is released at once with why, not held for the hour', async () => {
+  federation.recordLink('proj-out', { role: 'owner', ref: 'ref-out' });
+  let signedIn = true;
+  const h = harness({ edges: [], enrolled: () => signedIn });
+  assert.strictEqual(await fedseats.ensure('proj-out'), 'waiting');
+  signedIn = false;
+  fedseats.post('proj-out', { from: 'Josh', kind: 'person', text: 'hello?' });
+  await settle();
+  const said = h.notes.filter((n) => n.projectId === 'proj-out').map((n) => n.text);
+  assert.match(said[said.length - 1] || '', /stayed on this computer: the connection to .* is not up right now/, JSON.stringify(said));
+  assert.ok(!said.some((x) => /nobody outside has joined/.test(x)), 'it claimed nobody joined: ' + JSON.stringify(said));
+});
+
+test('#5285: a post too long to ever send asks nothing; a clock set back does not stretch the check window', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
+  federation.recordLink('proj-hyg', { role: 'owner', ref: 'ref-hyg' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-hyg');
+  const asked0 = h.asked;
+  fedseats.post('proj-hyg', { from: 'Josh', kind: 'person', text: 'x'.repeat(fedseats.MAX_POST_LINE + 10) });
+  await settle();
+  assert.strictEqual(h.asked, asked0, 'a post that could never go spent a request');
+  fedseats.post('proj-hyg', { from: 'Josh', kind: 'person', text: 'first' });   // asks now
+  await settle();
+  const asked1 = h.asked;
+  t.mock.timers.setTime(5_000_000 - 60_000);   // the clock is set back a minute
+  fedseats.post('proj-hyg', { from: 'Josh', kind: 'person', text: 'second' });   // waits for the window
+  await settle();
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.strictEqual(h.asked, asked1 + 1, 'the window was stretched by the clock step');
+});
+
+test('#5285: when Kosmos+ cannot answer the check, a follow-up asks again at the window\'s end', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 6_000_000 });
+  federation.recordLink('proj-fail', { role: 'owner', ref: 'ref-fail' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-fail');
+  h.edges = null;   // Kosmos+ answers with a failure
+  fedseats.post('proj-fail', { from: 'Josh', kind: 'person', text: 'after a failure' });
+  await settle();
+  const heldLines = () => h.notes.filter((n) => n.projectId === 'proj-fail' && /held on this computer until Kosmos\+ can be reached/.test(n.text)).length;
+  assert.strictEqual(heldLines(), 1, 'an outage left the person no line: ' + JSON.stringify(h.notes.map((n) => n.text)));
+  // A second failed answer: asked again, but the line is not repeated.
+  const asked0 = h.asked;
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.ok(h.asked > asked0, 'no follow-up after the first failed answer');
+  assert.strictEqual(heldLines(), 1, 'the outage line was repeated on the second failure');
+  // A second post in the same outage is not left silent: the seat is reconnecting, and says so (as before #5285).
+  fedseats.post('proj-fail', { from: 'Josh', kind: 'person', text: 'and another' });
+  await settle();
+  const last = h.notes.filter((n) => n.projectId === 'proj-fail').pop().text;
+  assert.match(last, /stayed on this computer: the connection to .* is not up right now/, 'a second post in the outage got no line');
+  assert.strictEqual(heldLines(), 1);
+  const asked = h.asked;
+  h.edges = [{ id: 'edge-fail', project_ref: 'ref-fail', status: 'active' }];
+  t.mock.timers.tick(10000);
+  await settle();
+  assert.ok(h.asked > asked, 'no follow-up after a failed answer');
+  assert.strictEqual(heldLines(), 1, 'the outage line was said more than once');
+  const seat = h.spawned.find((c) => c.edge === 'edge-fail');
+  assert.ok(seat, 'the follow-up did not bring the seat up');
+  say(seat, { event: 'connected', room: 'r', expires_at: 9 });
+  await settle();
+  assert.match(seat.written.join(''), /after a failure/);
+  assert.strictEqual(heldLines(), 1, 'the outage line was said again after recovery');
+});
+
+test('#5285: a check still out when its seat is stopped does nothing when it answers', async () => {
+  federation.recordLink('proj-stop2', { role: 'owner', ref: 'ref-stop2' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-stop2');
+  let release;
+  h.gate = new Promise((r) => { release = r; });
+  fedseats.post('proj-stop2', { from: 'Josh', kind: 'person', text: 'gone soon' });
+  await tick();
+  const notesBefore = h.notes.length;
+  const spawnedBefore = h.spawned.length;
+  fedseats.stop('proj-stop2');
+  h.edges = [{ id: 'edge-stop2', project_ref: 'ref-stop2', status: 'active' }];
+  release(); h.gate = null;
+  await settle();
+  assert.strictEqual(h.notes.length, notesBefore, 'a stopped seat\'s check said something: ' + JSON.stringify(h.notes.slice(notesBefore)));
+  assert.ok(!h.spawned.slice(spawnedBefore).some((c) => c.edge === 'edge-stop2' && c.written.join('').includes('gone soon')), 'a stopped seat\'s post was sent');
+});
+
+test('#5285: the owner sees ONE line per outcome: nothing while the check runs, then "nobody joined"', async () => {
+  federation.recordLink('proj-one', { role: 'owner', ref: 'ref-one' });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-one');
+  fedseats.post('proj-one', { from: 'Josh', kind: 'person', text: 'hi' });
+  await settle();
+  const said = h.notes.filter((n) => n.projectId === 'proj-one').map((n) => n.text);
+  assert.deepStrictEqual(said, ['That message stayed on this computer: nobody outside has joined this shared project yet.'], JSON.stringify(said));
 });

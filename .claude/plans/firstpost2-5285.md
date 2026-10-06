@@ -1,0 +1,57 @@
+# firstpost-5285: an owner's post right after someone joins is held, not dropped (kosmos#5285)
+
+Built on main + #5253 (local merge) because both touch engine/fedseats.js; it is cherry-picked onto main once
+#5253 merges (a stacked branch breaks under a squash merge).
+
+## Cause
+sendPost refused an owner's post while the seat was 'waiting' with no key ("nobody outside has joined"), and the
+seat only noticed a join on the next ensureAll pass (60 s). A post in that gap was lost.
+
+## Change (engine/fedseats.js)
+- Owner, seat 'waiting', no key: hold the post (#5192's bounded outbox, marked joinWait). Never refused at once.
+- scheduleJoinCheck: ask now, or when the last check's 10 s window ends (one timer per seat); a check already
+  out asks again when it ends, for posts held after it asked. At most one check per seat per 10 s.
+- The check uses the Mac's shared edges request (sharedEdges, #5193) with notBefore = the hold time, so an older
+  answer (another project's) is never reused. An ensure that returned without asking answers nothing.
+- Only an answer ASKED at or after a post was held may release it ("nobody outside has joined"); the 60 s pass
+  releases only on an answer it asked for itself.
+- A connect clears joinWait (someone joined): a post re-held for the key waits as any held post (key, hour).
+- A key present (someone was in before) keeps the immediate "nobody else is in now" (#5194).
+- stop() clears the timer (tidiness; the timer's callback already refuses a stopped or replaced seat).
+
+## Tests (engine/fedseats.test.js), each red without its guard (mutants, scratch copy)
+gap post held and sent on connect; nobody joined says so after one check; inside the window a post waits and a
+member who joined meanwhile gets it; two quick posts share one check; a check that cannot ask keeps the post until
+a pass settles it; sealed room: the post waits for the member's key and leaves only sealed; only posts held
+before a check are released by it; another project's answer is not reused; a re-held post is not released after
+the edge is refused; a follow-up check for a post held while one was out; a stopped seat's check never runs.
+Review 3 settled the design once (one rule for every exit, not one patch per finding):
+- "held before this answer was asked" is ordered on a monotonic clock (process.hrtime), so a time sync cannot
+  make a post look older than an ask, and nothing ties within a millisecond;
+- every check that yields no usable answer (it did not ask, or could not reach Kosmos+) schedules a follow-up at
+  the window's end, so a lone post never falls back to the 60 s pass;
+- a seat with nothing to check (signed out of Kosmos+) releases its posts at once with "the connection ... is not
+  up right now", not after the hour;
+- the window is capped (a clock set back cannot stretch it); a post holdPost refused schedules nothing.
+Decided: one check per owner room per 10 s, triggered only by posting, may mean several requests when several
+rooms are busy; a pass never multiplies it. Rejected: one Mac-wide request for all posting rooms (it would need a
+shared hold time across rooms and gains little at this scale).
+Reasoned, not measured: the 60 s pass's own "did not ask" guard. The staging review 3 sketched does not order
+deterministically: the pass blocks on its first request, and by the time it reaches the room the room's own check
+has resolved and the seat is no longer 'waiting'.
+
+Review 4 (0 blockers): a failed answer comes back from ensure as 'reconnecting', not a throw, so it now also
+schedules the follow-up (and the follow-up runs while 'reconnecting'); the hold is quiet, so the owner sees one
+line per outcome ("nobody outside has joined", or the post's "was sent"), as before this change; #5191's comment
+now states the join check's exception. Tests: follow-up after a failed answer; a check out when its seat stops does
+nothing; one line per outcome.
+
+Review 5 (0 blockers): the quiet hold left the person no line during a real outage (up to the hour); a check that
+cannot reach Kosmos+ now says once per outage "held ... Kosmos+ cannot be reached right now to check who has joined",
+reset on connect or release. Accepted and stated in #5191's comment: in an outage N waiting rooms ask up to N times
+per window, each for at most the hour.
+
+Review 6 (0 blockers): the seat-level "said once" flag had exits of its own (it stuck when a post aged out). Replaced
+by a mark on each held post, so nothing needs resetting. The outage sentence now claims only what is true: "held on
+this computer until Kosmos+ can be reached to say whether anyone has joined" (the old wording promised a send that a
+"nobody joined" answer would not make). A new post during the outage gets the seat's existing "not up right now".
