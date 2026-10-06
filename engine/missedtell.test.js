@@ -1,0 +1,122 @@
+'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273: CI fails a run that leaves them)
+
+/**
+ * kosmos#4787 slice 3: a repeating task's named reviewer is told once per missed slot (engine/missedtell.js).
+ *
+ * ⚠️ SANDBOX BOTH ROOTS BEFORE REQUIRING anything that reads them.
+ *
+ *   node --test engine/missedtell.test.js
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mt-data-'));
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mt-proj-'));
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const projects = require('../engine/projects');
+const tasks = require('../engine/tasks');
+const taskchat = require('../engine/taskchat');
+const mt = require('../engine/missedtell');
+
+const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
+const NOW = at(2026, 10, 6, 10, 0);   // the 9am slot is missed (grace 15 minutes)
+const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', NOT_FOUND: 'not-found' };
+
+/* A project with one daily-9am task whose rule and reviewer were set two days ago, and no run since. */
+function fixture(reviewer, extra = {}) {
+  const p = projects.create({ name: 'Watch ' + Math.random().toString(36).slice(2) });
+  const n = tasks.create(p.id, { sentence: 'Morning report' }).number;
+  const ago = new Date(NOW - 2 * 86400000).toISOString();
+  projects.mutate(p.id, (x) => ({
+    ...x, agents: ['ada', 'rex'],
+    tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeat: { every: 'day', at: '09:00' }, repeatSetAt: ago, lastRunAt: ago,
+      parts: [{ n: 1, sentence: 'Morning report', who: 'rex', createdAt: ago }],
+      ...(reviewer === 'me' ? { repeatReviewerPerson: true } : reviewer ? { repeatReviewer: reviewer } : {}),
+      ...(reviewer ? { repeatReviewerSetAt: ago } : {}), ...extra } : t)),
+  }));
+  return { id: p.id, n };
+}
+const stored = (id, n) => tasks.byNumber(projects.readAll().find((x) => x.id === id), n);
+const only = (id) => projects.readAll().filter((x) => x.id === id);
+const roster = [{ sessionName: 'ada', name: 'Ada' }, { sessionName: 'rex', name: 'Rex' }];
+
+test('#4787 slice 3: an agent reviewer is told once per missed slot, with the task, the run and its owner', () => {
+  const { id, n } = fixture('ada');
+  const sent = [];
+  const deliver = (s, text) => { sent.push({ s, text }); return { state: 'placed' }; };
+  const o = () => ({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), deliver, DELIVERY, nameOf: (s) => (s === 'rex' ? 'Rex' : s) });
+  mt.sweep(o());
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].s, 'ada');
+  assert.match(sent[0].text, /task #\d+ in Watch \w+, "Morning report", missed .*today at 9am\. You review its results; Rex runs it\./);
+  assert.ok(stored(id, n).missToldAt, 'the told slot is stored');
+  mt.sweep(o());
+  assert.equal(sent.length, 1, 'the same slot is never told twice');
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'missed');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].told, 'ada');
+  assert.equal(ev[0].reached, true);
+  // The next day's slot, missed too, is told once more.
+  mt.sweep({ ...o(), projects: only(id), now: NOW + 86400000 });
+  assert.equal(sent.length, 2, 'a newer missed slot is told');
+});
+
+test('#4787 slice 3: the person as reviewer is told by the task itself (history; Needs Your Decision while missed), nothing typed', () => {
+  const { id, n } = fixture('me');
+  const sent = [];
+  const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), deliver: (s, t) => { sent.push(t); return { state: 'placed' }; }, DELIVERY });
+  assert.equal(sent.length, 0);
+  assert.equal(r.results[0].act, 'person');
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'missed' && e.person === true).length, 1);
+  assert.equal(mt.personReviewMissed(stored(id, n), NOW), true);
+  const ranYesterday = { ...stored(id, n), lastRunAt: new Date(at(2026, 10, 5, 9, 0)).toISOString() };
+  assert.equal(mt.personReviewMissed(ranYesterday, at(2026, 10, 6, 9, 10)), false, 'ran yesterday, today\'s slot inside its grace: not yet');
+  assert.equal(mt.personReviewMissed(ranYesterday, at(2026, 10, 6, 9, 15)), true, 'and at the grace, it is');
+  const agentTask = fixture('ada');
+  assert.equal(mt.personReviewMissed(stored(agentTask.id, agentTask.n), NOW), false, 'CONTROL: an agent reviewer never puts it on the person');
+});
+
+test('#4787 slice 3: nobody is told without a reviewer, before the reviewer was named, in a paused project or on a held task', () => {
+  assert.equal(mt.owed(only(fixture(null).id), NOW).length, 0, 'no reviewer');
+  const late = fixture('ada', { repeatReviewerSetAt: new Date(at(2026, 10, 6, 9, 30)).toISOString() });
+  assert.equal(mt.owed(only(late.id), NOW).length, 0, 'the 9am slot passed before the reviewer was named');
+  const paused = fixture('ada');
+  projects.mutate(paused.id, (x) => ({ ...x, paused: true }));
+  assert.equal(mt.owed(only(paused.id), NOW).length, 0, 'paused project');
+  const held = fixture('ada', { onHold: true });
+  assert.equal(tasks.isOnHold(stored(held.id, held.n)), true, 'precondition: the fixture is held the way tasks.isOnHold reads it');
+  assert.equal(mt.owed(only(held.id), NOW).length, 0, 'held task');
+  assert.equal(mt.owed(only(fixture('ada').id), NOW).length, 1, 'CONTROL: the same task otherwise is owed');
+});
+
+test('#4787 slice 3: a line that reaches nothing is tried again, then recorded as not reached after MAX_TRIES', () => {
+  const { id, n } = fixture('ada');
+  const book = new Map();
+  let calls = 0;
+  const deliver = () => { calls += 1; return { state: 'not-found' }; };
+  for (let i = 0; i < mt.MAX_TRIES; i += 1) mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book, deliver, DELIVERY });
+  assert.equal(calls, mt.MAX_TRIES);
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'missed');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].reached, false);
+  mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book, deliver, DELIVERY });
+  assert.equal(calls, mt.MAX_TRIES, 'given up on: never tried again for that slot');
+});
+
+test('#4787 slice 3: held, not spent, while Kosmos cannot type, the reviewer is not running, or the hour\'s limit is reached', () => {
+  const { id, n } = fixture('ada');
+  const deliver = () => { throw new Error('must not be called'); };
+  const base = { projects: only(id), now: NOW, limit: { on: false }, book: new Map(), deliver, DELIVERY };
+  assert.equal(mt.sweep({ ...base, roster, allowed: false, sent: [] }).results[0].act, 'held');
+  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'rex' }], allowed: true, sent: [] }).results[0].act, 'held');
+  assert.equal(mt.sweep({ ...base, roster, allowed: true, limit: { on: true, perHour: 1 }, sent: [NOW - 1000] }).results[0].act, 'held');
+  assert.equal(stored(id, n).missToldAt, undefined, 'nothing is marked told while held');
+  // CONTROL: the same task, allowed and running, is told.
+  const r = mt.sweep({ ...base, roster, allowed: true, sent: [], deliver: () => ({ state: 'placed' }) });
+  assert.equal(r.results[0].act, 'tell');
+  assert.equal(r.results[0].reached, true);
+});

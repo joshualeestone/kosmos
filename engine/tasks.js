@@ -843,6 +843,8 @@ function setRepeat(projectId, n, rule, opts = {}) {
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
+      // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
+      delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.repeatReviewerByPerson; delete changed.repeatReviewerSetAt; delete changed.missToldAt;
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -852,6 +854,46 @@ function setRepeat(projectId, n, rule, opts = {}) {
     taskchat.record(projectId, changed.number, next
       ? { kind: 'repeat-set', every: next.every, words: taskrepeat.describe(next), via: person ? 'screen' : 'agent' }
       : { kind: 'repeat-cleared', via: person ? 'screen' : 'agent' });
+  }
+  return changed;
+}
+
+/**
+ * kosmos#4787 slice 3: name who reviews a repeating task's results: the person (`who` 'me'), an agent on the project (its
+ * session name), or nobody (null / 'none'). When a run is missed, the reviewer is told once (engine/missedtell.js).
+ * Only the person can name themselves, and a reviewer the person chose is theirs: a process cannot change or clear it
+ * (as the person's rule, setRepeat). An agent must be on the project, checked inside the same read that stores it.
+ */
+function setReviewer(projectId, n, who, opts = {}) {
+  const person = opts.person === true;
+  const raw = who === undefined || who === null ? 'none' : String(who).trim();
+  const toPerson = raw === 'me';
+  const none = raw === '' || raw === 'none';
+  if (toPerson && !person) throw new Error('only the person can name themselves as the reviewer');
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (!t.repeat) throw new Error('that task does not repeat; set how often first, then who reviews its results');
+    if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    if (!toPerson && !none && !(p.agents || []).includes(raw)) throw new Error('that agent is not on this project, so it cannot review this task');
+    const before = t.repeatReviewerPerson === true ? 'me' : (t.repeatReviewer || 'none');
+    const after = toPerson ? 'me' : none ? 'none' : raw;
+    if (!person && t.repeatReviewerByPerson === true && before !== after) throw new Error('the person chose who reviews this task, so only they can change it');
+    didChange = before !== after;
+    changed = { ...t };
+    if (!didChange) return p;
+    delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.repeatReviewerByPerson; delete changed.missToldAt;
+    if (after === 'me') changed.repeatReviewerPerson = true;
+    else if (after !== 'none') changed.repeatReviewer = after;
+    if (after === 'none') delete changed.repeatReviewerSetAt; else changed.repeatReviewerSetAt = new Date().toISOString();
+    if (person && after !== 'none') changed.repeatReviewerByPerson = true;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, changed.repeatReviewerPerson === true ? { kind: 'reviewer-set', person: true }
+      : changed.repeatReviewer ? { kind: 'reviewer-set', who: changed.repeatReviewer } : { kind: 'reviewer-cleared', ...(person ? { person: true } : {}) });
   }
   return changed;
 }
@@ -1447,4 +1489,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, recordRun };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, recordRun };
