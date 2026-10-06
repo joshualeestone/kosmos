@@ -1731,7 +1731,10 @@ function movedNoteFor(sessionName, raw, opts, card) {
      token (a digit, y, n, esc), which is a keystroke answer, not a turn. The note rides the next real line. */
   if (!/\s/.test(raw.trim()) && raw.trim().length <= 12) return null;
   let items = [];
-  try { items = MOVED_TELL.owed(sessionName) || []; } catch { items = []; }
+  /* Review 7: asked by the card's own session name, as the records hold it; the caller may have passed another casing
+     (a URL), which resolveCard accepts and owedFor, an exact match, would not. */
+  const key = (card && typeof card.sessionName === 'string' && card.sessionName) || sessionName;
+  try { items = MOVED_TELL.owed(key) || []; } catch { items = []; }
   items = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.phrase === 'string' && i.phrase && !raw.includes(i.phrase));
   if (!items.length) return null;
   let note = '';
@@ -1739,7 +1742,7 @@ function movedNoteFor(sessionName, raw, opts, card) {
   if (!note) return null;
   const text = note + '\n\n' + raw;
   if (messageProblem(text)) return null;
-  return { text, items };
+  return { text, items, key };
 }
 function movedToldAfter(sessionName, m, v) {
   if (!m) return v;
@@ -1748,7 +1751,7 @@ function movedToldAfter(sessionName, m, v) {
      harmless where a note lost is not. */
   const mark = (x) => {
     if (x && x.state === DELIVERY.PLACED) {
-      try { MOVED_TELL && MOVED_TELL.told(sessionName, m.items); } catch { /* the next line or the sweep tells again */ }
+      try { MOVED_TELL && MOVED_TELL.told(m.key || sessionName, m.items); } catch { /* the next line or the sweep tells again */ }
     }
     return x;
   };

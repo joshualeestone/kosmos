@@ -282,6 +282,10 @@ test('review 5: server.js installs the hook with the note that asks for nothing,
   assert.match(block, /note: \(items\) => require\('\.\/engine\/failovertell'\)\.noteFor\(items\)/, 'the note is not noteFor (lineFor asks every person\'s message for a one-word reply)');
   assert.match(block, /told: \(session, items\) => \{ movedRecs\.recs = null;/, 'told keeps a stale read, so the next lines repeat the note');
   assert.match(block, /markAll\(session, items, tasks\.markMoveTold\)/);
+  // Review 7: and owed asks the records for THIS session, and the read is at most 5 s old.
+  assert.match(block, /return ft\.anyOwed\(recs\) \? ft\.owedFor\(session, recs\) : \[\];/, 'owed could answer nothing for everybody, and the feature would be off');
+  const cache = src.slice(src.lastIndexOf('const movedRecords', at), at);
+  assert.match(cache, /Date\.now\(\) - movedRecs\.at > 5000/, 'the records may be read once and kept far longer than a few seconds');
 });
 test('review 6: an agent whose card reads needs-you (a permission or question prompt) gets no note either', () => {
   const board = fleet.install([fleet.agent('casey', { state: 'needs_you' })]);
@@ -294,4 +298,26 @@ test('review 6: an agent whose card reads needs-you (a permission or question pr
     assert.ok(!tmux.pastedText().includes(ITEM.phrase), 'the note went into a prompt');
     assert.equal(told.length, 0);
   } finally { board.restore(); }
+});
+
+/* Review 7 (opus, blind). */
+test('review 7: a short real sentence ("ok go ahead") carries the note: the short-token rule is about ONE token', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'ok go ahead', board.agents);
+    assert.ok(tmux.pastedText().includes(ITEM.phrase), JSON.stringify(tmux.pastedText()));
+    assert.equal(told.length, 1);
+  });
+});
+test('review 7: a caller passing another casing of the name still finds what the agent is owed, and marks it under the real name', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const real = board.agents.find((c) => c.sessionName.startsWith('casey')).sessionName;
+    const told = [];
+    chat.setMovedTell({ owed: (s) => (s === real ? [ITEM] : []), note: (items) => ft.noteFor(items), told: (s, items) => told.push(s) });
+    const tmux = arm([ok(), ok()]);
+    chat.deliver(real.toUpperCase(), 'Your limit has reset; carry on.', board.agents);
+    assert.ok(tmux.pastedText().includes(ITEM.phrase), 'the note was skipped for a mis-cased name');
+    assert.deepEqual(told, [real]);
+  });
 });
