@@ -179,11 +179,11 @@ let enabled = { ...ENABLED_DEFAULT };
 function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
 /* #5346: as orgchartfile.noModelFor, Claude first and ChatGPT only where it reads. */
 function googleOffWhyFor(platform) {
-  return 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. '
-    + 'Claude can read a picture or PDF, connected in Settings, AI Models'
+  return 'Claude can read a picture or PDF, connected in Settings, AI Models'
     + (platform === 'win32' ? ', and so can OpenAI or Grok connected with a key (Grok a PNG or JPG picture only)'
       : ', and ChatGPT, connected the same way, a PNG or JPG picture (so can OpenAI or Grok connected with a key, and an OpenAI key also reads a PDF)')
-    + '; a CSV or Excel export works with any provider, and so does typing the list.';
+    + '. Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
+    + ' A CSV or Excel export works with any provider, and so does typing the list.';
 }
 /* #5346: the same, in one sentence, for when another reason comes first (orgchartfile currentReader). */
 const OFF_SHORT = {

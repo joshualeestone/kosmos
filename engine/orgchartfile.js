@@ -442,12 +442,10 @@ const MODEL_TYPES = {
 };
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
-/* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). #5346: Claude
-   first, then what else reads, and never "you need an API key". ChatGPT only where it reads (not on Windows yet:
-   orgchartcodex WHY_WINDOWS). */
-/* opts.chatgpt: true or false only (anything else is false); left out, ChatGPT is named where it reads. */
-const ANY_PROVIDER = 'A CSV or Excel export works with any provider, and so does typing the list.';
-/* What reads, Claude first, without the closing CSV sentence. */
+/* The closing sentence every no-reader answer ends with (orgchartcodex's refusals end with it too). */
+const ANY_PROVIDER = require('./orgchartcodex').ANY_PROVIDER;
+/* What reads, Claude first, without the closing CSV sentence. opts.chatgpt: true or false only (anything else is
+   false); left out, ChatGPT is named where it reads (not on Windows yet: orgchartcodex WHY_WINDOWS). */
 function whatReads(platform, opts) {
   const chatgpt = opts && opts.chatgpt !== undefined ? opts.chatgpt === true : platform !== 'win32';
   return 'Claude reads a picture or PDF, connected in Settings, AI Models. '
@@ -456,11 +454,13 @@ function whatReads(platform, opts) {
     + ' (an OpenAI key also reads a PDF).';
 }
 function noModelFor(platform, opts) { return whatReads(platform, opts) + ' ' + ANY_PROVIDER; }
+/* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). #5346: Claude
+   first, then what else reads, and never "you need an API key". */
 const NO_MODEL = noModelFor(process.platform);
 /* #5346: when the person's own ChatGPT cannot be used: Claude first (what reads, not ChatGPT again), then their
    ChatGPT's reason, then a switched-off key provider's in one sentence (`short`), then the closing sentence. */
 function composeWhy(chatgptWhy, short) {
-  const any = ' ' + require('./orgchartcodex').ANY_PROVIDER;
+  const any = ' ' + ANY_PROVIDER;
   const own = chatgptWhy.endsWith(any) ? chatgptWhy.slice(0, -any.length) : chatgptWhy;
   return [whatReads(process.platform, { chatgpt: false }), own, short, ANY_PROVIDER].filter(Boolean).join(' ');
 }
@@ -469,11 +469,16 @@ function composeWhy(chatgptWhy, short) {
    cannot be used is said the same way (the sentence would otherwise offer it). */
 function noModelAfter(reader) {
   const codex = require('./orgchartcodex');
-  if (reader && reader.kind === 'codex') return composeWhy(codex.WHY_NO_CODEX);
+  let got = { offWhy: null, offShort: null };
+  try { got = require('./orgchartkeys').pick(); } catch { got = { offWhy: null, offShort: null }; }
+  if (reader && reader.kind === 'codex') return composeWhy(codex.WHY_NO_CODEX, got.offShort);
   let sub = { offWhy: null };
   try { sub = codex.pickWithWhy(); } catch { sub = { offWhy: null }; }
-  return sub.offWhy ? composeWhy(sub.offWhy) : NO_MODEL;
+  return whyFrom(sub, got) || NO_MODEL;
 }
+/* The reason for no reader, from one look at the ChatGPT account (`sub`) and the key accounts (`got`): shared by
+   currentReader and noModelAfter so the same accounts get the same words. */
+function whyFrom(sub, got) { return sub.offWhy ? composeWhy(sub.offWhy, got.offShort) : got.offWhy; }
 const MAX_WHY = 200;
 /* 110 s, under the Kosmos+ relay's 120 s wait for a board answer, as the key read is (orgchartkeys TIMEOUT_MS,
    which says why that holds only when the upload itself is quick). At 120 s it equalled the relay's (#4560 round 2).
@@ -654,7 +659,7 @@ function currentReader(name) {
   // null-shaped answer the caller can read, from the same look at the accounts (see whyNoReader).
   // #5346 step 2: a person whose own ChatGPT account cannot be used hears why, then what does read (Claude first, and
   // not ChatGPT again); with no ChatGPT account, a switched-off key provider's reason.
-  lastWhy = sub.offWhy ? composeWhy(sub.offWhy, got.offShort) : got.offWhy;
+  lastWhy = whyFrom(sub, got);
   return got.reader ? { kind: 'key', ...got.reader } : null;
 }
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */

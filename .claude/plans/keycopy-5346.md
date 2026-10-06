@@ -51,6 +51,15 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - "(an OpenAI key also reads a PDF)": ChatGPT is OpenAI too and does not read a PDF.
 - Not an issue (round 6): a key read never reports unavailable (only Claude and Codex do, when their program is gone).
 
+## Review rounds 8-9 (calls)
+- The Gemini sentence leads with Claude too (its refusal comes second), and a test anchors both sentences to start
+  with Claude on both platforms.
+- One `whyFrom(sub, got)` gives the reason for no reader before consent and after a read that could not run.
+- WHY_NO_CODEX says what connecting does ("connecting OpenAI again in Settings, AI Models installs it"): Kosmos
+  installs a provider's program when it is connected.
+- Deferred: "ChatGPT, connected the same way, also reads" does not list ChatGPT's refusal cases (catalog, version,
+  AGENTS.md, managed settings); each is told, with what to do, the moment it applies.
+
 ## Tests
 - server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
 - engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes

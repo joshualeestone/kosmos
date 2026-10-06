@@ -212,7 +212,7 @@ const ANY_PROVIDER = 'A CSV or Excel export works with any provider, and so does
 const WHY_MANAGED = 'ChatGPT does not read org charts on this computer: it has Codex settings an administrator manages, which Kosmos cannot switch off. ' + ANY_PROVIDER;
 /* Windows: the flags, the catalog and the capture were measured on a Mac only, and no administrator-managed layer is
    known there to check. Off until measured, as an unknown is everywhere else in this file. */
-const WHY_NO_CODEX = 'ChatGPT reads org charts through Codex, and Kosmos cannot find a Codex it can run on this computer (Kosmos installs it when OpenAI is connected in Settings, AI Models). ' + ANY_PROVIDER;
+const WHY_NO_CODEX = 'ChatGPT reads org charts through Codex, and Kosmos cannot find a Codex it can run on this computer: connecting OpenAI again in Settings, AI Models installs it. ' + ANY_PROVIDER;
 const WHY_WINDOWS = 'ChatGPT does not read org charts on Windows yet. ' + ANY_PROVIDER;
 const WHY_CATALOG = 'ChatGPT cannot read org charts on this computer yet: Codex has not set up its model list for this account. Start an OpenAI agent once, then try again. ' + ANY_PROVIDER;
 const WHY_CATALOG_VERSION = 'ChatGPT does not read org charts with this account: its model list was written by a Codex other than the version Kosmos has checked. ' + ANY_PROVIDER;

@@ -457,7 +457,8 @@ test('#5346 step 2: both no-reader sentences lead with Claude, name ChatGPT only
   for (const [label, f] of [['NO_MODEL', o.noModelFor], ['Gemini off-reason', keys.googleOffWhyFor]]) {
     const mac = f('darwin');
     const win = f('win32');
-    assert.match(mac, /Claude (reads|can read) a picture or PDF, connected in Settings, AI Models/, label);
+    assert.match(mac, /^Claude (reads|can read) a picture or PDF, connected in Settings, AI Models/, label + ': Claude first');
+    assert.match(win, /^Claude (reads|can read) a picture or PDF, connected in Settings, AI Models/, label + ': Claude first');
     assert.match(mac, /ChatGPT/, label + ': a Mac is told ChatGPT reads a picture');
     assert.doesNotMatch(win, /ChatGPT/, label + ': Windows is told ChatGPT reads, which it does not yet (WHY_WINDOWS)');
     for (const t of [mac, win]) {
