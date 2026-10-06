@@ -133,3 +133,30 @@ test('#4588: the tick runs only with live execution allowed and the brake off', 
   assert.equal(w.sent.length, 0);
   assert.equal(q.makeTick(deps(true, {}))().results.length, 1, 'CONTROL: allowed and no brake, it runs');
 });
+
+test('#5382: nudgeText is exactly NUDGE_TEXT with nothing moved away, and names a moved part with "leave it to them"', () => {
+  const now = AT + q.GRACE_MS;
+  assert.equal(q.nudgeText('agy-a', now), q.NUDGE_TEXT, 'no movedAway');
+  assert.equal(q.nudgeText('agy-a', now, () => []), q.NUDGE_TEXT, 'an empty list');
+  assert.equal(q.nudgeText('agy-a', now, () => { throw new Error('store unreadable'); }), q.NUDGE_TEXT, 'a throwing movedAway');
+  const asked = [];
+  const one = q.nudgeText('agy-a', now, (s, since) => { asked.push([s, since]); return ['task 3 in "Docs" (now gem-1\'s)']; });
+  assert.ok(one.startsWith(q.NUDGE_TEXT + ' '), 'the carry-on line is not first: ' + one);
+  assert.ok(one.includes('task 3 in "Docs" (now gem-1\'s)'), 'the moved part is not named: ' + one);
+  assert.ok(one.includes('leave it to them'), one);
+  assert.deepEqual(asked, [['agy-a', now - q.MAX_AGE_MS]], 'asked about the wrong agent or window');
+  const two = q.nudgeText('agy-a', now, () => ['task 3 in "Docs"', 'task 4 in "Docs"']);
+  assert.ok(two.includes('task 3 in "Docs", task 4 in "Docs"') && two.includes('leave those to them'), two);
+});
+
+test('#5382: sweepOnce passes o.movedAway through to the line it delivers (control: without it, the plain line)', () => {
+  const t0 = AT + q.GRACE_MS;
+  const w = world({ 'agy-a': paused() });
+  q.sweepOnce({ roster: w.roster, book: w.book, now: t0, readReport: w.readReport, deliver: w.deliver, DELIVERY: D,
+    movedAway: (s) => (s === 'agy-a' ? ['task 7 in "Ops" (now gem-2\'s)'] : []) });
+  assert.equal(w.sent.length, 1, 'fixture: nothing was delivered');
+  assert.ok(w.sent[0].text.includes('task 7 in "Ops"') && w.sent[0].text.includes('leave it to them'), w.sent[0].text);
+  const c = world({ 'agy-a': paused() });
+  sweep(c, t0);
+  assert.equal(c.sent[0].text, q.NUDGE_TEXT, 'control: without movedAway the line is the plain one');
+});

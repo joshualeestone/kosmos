@@ -174,4 +174,17 @@ test('#5382 PUT assigner a non-boolean failover is a 400 and changes nothing; a 
   await put('/api/assigner-setting', { failover: false });
 });
 
+test('#5382 PUT assigner with both on and failover is a 400 and stores neither', async () => {
+  await put('/api/assigner-setting', { on: true });
+  await put('/api/assigner-setting', { failover: false }); // known baseline: on, failover off
+  const w = await put('/api/assigner-setting', { on: false, failover: true });
+  assert.equal(w.status, 400);
+  assert.equal(w.json.error, 'change one setting at a time');
+  const after = await getJson('/api/assigner-setting');
+  assert.deepEqual([after.on, after.failover], [true, false], 'a two-field PUT stored one of its fields');
+  const one = await put('/api/assigner-setting', { failover: true });
+  assert.equal(one.status, 200, 'control: the same change on its own is accepted');
+  await put('/api/assigner-setting', { failover: false });
+});
+
 test.after(() => { server.closeAllConnections(); server.close(); });

@@ -94,3 +94,29 @@ test('if the agent it was taken from has left the project, an unreached move goe
     assert.equal(s.partOf().who, null, 'the part stayed on an agent that was never told, or went back to one off the project');
   } finally { s.board.restore(); }
 });
+
+/* The receiver's pane line: captured from the deliver the real heardBy calls. */
+function capturing(fn) {
+  const real = chat.deliver;
+  const lines = [];
+  chat.deliver = (who, line) => { lines.push({ who, line }); return { state: chat.DELIVERY.PLACED, because: null }; };
+  try { return { out: fn(), lines }; } finally { chat.deliver = real; }
+}
+
+test('a failover move tells the receiver where the part came from; an ordinary give does not', () => {
+  const s = setup('fohold5', 'forecv5');
+  try {
+    const f = capturing(() => givePart(s.pid, s.n, 1, 'forecv5', { assigner: true, roster: s.board.agents, from: 'fohold5' }));
+    assert.equal(f.out.ok, true, 'fixture: the move was refused: ' + f.out.because);
+    assert.equal(f.lines.length, 1, 'fixture: the receiver was not paged exactly once');
+    assert.equal(f.lines[0].who, 'forecv5');
+    assert.ok(f.lines[0].line.includes('It was moved to you from fohold5'), f.lines[0].line);
+    // Control: an ordinary Assigner give (no `from`) of a free part on another task of the same project.
+    const t2 = tasks.create(s.pid, { sentence: 'write the changelog', made: { via: 'screen' } });
+    const n2 = t2.task ? t2.task.number : t2.number;
+    const g = capturing(() => givePart(s.pid, n2, 1, 'forecv5', { assigner: true, roster: s.board.agents }));
+    assert.equal(g.out.ok, true, 'fixture: the ordinary give was refused: ' + g.out.because);
+    assert.equal(g.lines.length, 1, 'fixture: the ordinary give paged nobody, so this arm tests nothing');
+    assert.equal(g.lines[0].line.includes('It was moved to you from'), false, 'an ordinary give said it was moved: ' + g.lines[0].line);
+  } finally { s.board.restore(); }
+});

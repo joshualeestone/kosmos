@@ -1002,6 +1002,9 @@ function partsOf(task) {
       ...(part.createdAt ? { createdAt: part.createdAt } : {}),
       ...(part.movedVia ? { movedVia: part.movedVia } : {}),
       ...(part.movedAt ? { movedAt: part.movedAt } : {}),
+      /* #5382: who a failover move took the part from. Carried like the provenance above: without it every reader
+         (server movedAwayFrom) saw nothing, and the next write to the task erased it from the store. */
+      ...(part.movedFrom ? { movedFrom: part.movedFrom } : {}),
     }));
   }
   return [{

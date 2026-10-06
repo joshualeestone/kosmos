@@ -308,3 +308,53 @@ test('runOnce passes the failover source to give', () => {
     assert.deepEqual(calls, [{ who: w.key.rogem, from: w.key.rolim }]);
   } finally { w.restore(); }
 });
+
+test('assignPart records movedFrom on a failover move; a later ordinary move clears it', () => {
+  const w = world([{ name: 'mflim', paneState: 'rate_limited' }, { name: 'mfgem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.mflim, 'write the deploy notes');
+    const partNow = (r) => tasks.progressOf(r.task).parts.find((q) => Number(q.id) === Number(h.partId));
+    const moved = tasks.assignPart(w.pid, h.n, h.partId, w.key.mfgem, { via: 'assigner', onlyIfWho: w.key.mflim, failover: true });
+    assert.equal(moved.ok, true, JSON.stringify(moved));
+    assert.equal(partNow(moved).movedFrom, w.key.mflim, 'a failover move did not record who it took the part from');
+    // It survives a later write to the same task (writeParts stores what partsOf returns), read back from the store.
+    assert.equal(tasks.addPart(w.pid, h.n, { sentence: 'and a second part', made: { via: 'screen' } }).ok, true, 'fixture: addPart refused');
+    const stored = tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), h.n);
+    assert.equal(tasks.partsOf(stored).find((q) => Number(q.id) === Number(h.partId)).movedFrom, w.key.mflim,
+      'a later write to the task erased movedFrom');
+    // An ordinary move (a person, from the screen) back to the first agent: movedFrom is gone.
+    const back = tasks.assignPart(w.pid, h.n, h.partId, w.key.mflim, { via: 'screen' });
+    assert.equal(back.ok, true, JSON.stringify(back));
+    assert.equal(back.changed, true, 'fixture: the ordinary move did not move the part, so this arm tests nothing');
+    assert.equal(Object.prototype.hasOwnProperty.call(partNow(back), 'movedFrom'), false, 'an ordinary move kept movedFrom');
+  } finally { w.restore(); }
+});
+
+test('CONTROL: an ordinary move never records movedFrom', () => {
+  const w = world([{ name: 'omlim', paneState: 'rate_limited' }, { name: 'omgem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.omlim, 'write the deploy notes');
+    const r = tasks.assignPart(w.pid, h.n, h.partId, w.key.omgem, { via: 'assigner', onlyIfWho: w.key.omlim });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const part = tasks.progressOf(r.task).parts.find((q) => Number(q.id) === Number(h.partId));
+    assert.equal(part.who, w.key.omgem);
+    assert.equal(part.movedFrom, undefined, 'a move without failover recorded movedFrom');
+  } finally { w.restore(); }
+});
+
+test('a task closed as a whole (parts still open) refuses a failover move; reopened, the move goes through', () => {
+  const w = world([{ name: 'wclim', paneState: 'rate_limited' }, { name: 'wcgem', runner: 'gemini' }]);
+  try {
+    const h = heldTask(w.pid, w.key.wclim, 'write the deploy notes');
+    const made = () => ({ via: 'assigner', onlyIfWho: w.key.wclim, failover: true });
+    const closed = tasks.close(w.pid, h.n);
+    assert.ok(closed.closedAt, 'fixture: the task did not close');
+    assert.equal(tasks.progressOf(closed).parts.find((q) => Number(q.id) === Number(h.partId)).closedAt, null,
+      'fixture: closing the task closed the part, so this is the finished-part arm, not the whole-task arm');
+    const r = tasks.assignPart(w.pid, h.n, h.partId, w.key.wcgem, made());
+    assert.equal(r.ok, false, 'moved a part of a task closed as a whole');
+    tasks.reopen(w.pid, h.n);
+    const ok = tasks.assignPart(w.pid, h.n, h.partId, w.key.wcgem, made());
+    assert.equal(ok.ok, true, 'control: the same move on the reopened task was refused: ' + JSON.stringify(ok));
+  } finally { w.restore(); }
+});
