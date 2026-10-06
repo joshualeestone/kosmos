@@ -77,7 +77,7 @@ test('#4787 slice 2: the row\'s repeat line is red (class missed) only while a r
 });
 
 test('#4787 slice 2 review 5: an open Tasks view reads again once a shown slot passes its miss grace, and every 5 minutes while a row is red', () => {
-  const stale = new Function(page.liftAll(SCRIPT, ['tskRepeatStale']).replace('function tskRepeatStale', 'const TSK_MISSED_REREAD_MS = 300000;\nfunction tskRepeatStale') + '\nreturn tskRepeatStale;')();
+  const stale = new Function(page.liftAll(SCRIPT, ['tskRepeatStale']) + '\nreturn tskRepeatStale;')();
   const read = at(2026, 10, 6, 8, 0);
   const row = { repeat: { every: 'day', at: '09:00' }, state: 'assigned', repeatMissAfter: at(2026, 10, 6, 9, 15) };
   assert.equal(stale([row], read, at(2026, 10, 6, 9, 14)), false, 'before the slot is missed: no read');
