@@ -535,18 +535,21 @@ function jobOps(platform) {
   }
   if ((platform || process.platform) === 'linux') {
     const lj = require('./linuxjob');
+    /* #4918 review 6: every systemctl here goes through THIS module's run(), as the Mac arm's launchctl does, so
+       setRunner, setDryRun / AGENT_WORKFORCE_DRY_RUN and the live-execution gate all hold on Linux too. */
+    const via = (body) => lj.runWith((file, args) => run(file, args, { timeout: 30000 }), body);
     return {
       win32: false,
       linux: true,
-      disable: (name, job) => Boolean(lj.disable(name, job && job.worldId).ok),
-      stopNow: (name, job) => Boolean(lj.stop(name, job && job.worldId).ok),
-      enable: (name, job) => Boolean(lj.enable(name, job && job.worldId).ok),
-      startNow: (name, job) => Boolean(lj.start(name, job && job.worldId).ok),
-      loaded: (name, job) => Boolean(lj.loaded(name, job && job.worldId)),
+      disable: (name, job) => via(() => Boolean(lj.disable(name, job && job.worldId).ok)),
+      stopNow: (name, job) => via(() => Boolean(lj.stop(name, job && job.worldId).ok)),
+      enable: (name, job) => via(() => Boolean(lj.enable(name, job && job.worldId).ok)),
+      startNow: (name, job) => via(() => Boolean(lj.start(name, job && job.worldId).ok)),
+      loaded: (name, job) => via(() => Boolean(lj.loaded(name, job && job.worldId))),
       startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, job && job.worldId)),
       diagnose: (name, job) => {
         const u = lj.unitPath(name, job && job.worldId);
-        const st = lj.status(name, job && job.worldId);
+        const st = via(() => lj.status(name, job && job.worldId));
         return {
           label: lj.unitName(name, job && job.worldId),
           unitExists: fs.existsSync(u),

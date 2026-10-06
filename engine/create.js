@@ -4692,7 +4692,8 @@ function createAgentInner(opts) {
   let printed = '';
   if (jobPlatform === 'linux') {
     const lj = require('./linuxjob');
-    loaded = lj.loaded(name);
+    // #4918 review 6: through create's own run seam, as the launchctl print below is (dry run asks nothing).
+    loaded = lj.runWith((file, args) => run(file, args), () => lj.loaded(name));
   } else if (jobPlatform !== 'win32') {
     try {
       const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);

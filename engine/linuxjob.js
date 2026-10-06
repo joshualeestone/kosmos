@@ -55,7 +55,7 @@ let runnerFn = (cmd, args) => {
   try {
     const stdout = execFileSync(cmd, args, {
       encoding: 'utf8',
-      timeout: 5000,
+      timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     return { ok: true, stdout };
@@ -70,8 +70,16 @@ let runnerFn = (cmd, args) => {
   }
 };
 
+/* #4918 review 6: a caller with its own command seam (remove.js's run: setRunner, dry run, the live gate) runs
+   these ops through it, so a dry-run or sandboxed board never reaches the real user manager by unit name. */
+let runOverride = null;
 function runner(cmd, args) {
-  return runnerFn(cmd, args);
+  return runOverride ? runOverride(cmd, args) : runnerFn(cmd, args);
+}
+function runWith(fn, body) {
+  const prev = runOverride;
+  runOverride = fn;
+  try { return body(); } finally { runOverride = prev; }
 }
 
 function setRunnerForTests(fn) {
@@ -82,7 +90,7 @@ function setRunnerForTests(fn) {
     try {
       const stdout = execFileSync(cmd, args, {
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: 30000,   // #4918 review 6: a stop waits on the supervisor's sleep (up to 10 s)
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       return { ok: true, stdout };
@@ -410,5 +418,6 @@ module.exports = {
   refuseRealUnitDirInTests,
   systemdDirIsOverridden: () => systemdDirOverridden,
   runner,
+  runWith,
   setRunnerForTests,
 };
