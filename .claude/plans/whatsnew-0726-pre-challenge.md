@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0726
-diff_hash: 5aa52eb343126c33c5b86993e5f27063abf385408ed659c4de7e1a7dd3bb0a86
-validation: partial (Mortals full suite at a2cc0f342, same diff hash: node 16012 tests, 0 fail; red ONLY on the #1720 browser-check trailer gate, fixed at 1a5a245bf and both gates run alone pass. The rerun was withdrawn at 18:40 to free Mortals for the 0.7.26 cut Josh asked for now; the cut's step 3 runs the full suite at the pin, which contains this change)
+diff_hash: a548793aeba35f0c54bfb234180496dd0557907c2d28d06d87cf9bacd1318d9c
+validation: partial (Mortals full suite at a2cc0f342, which differs from this head only in line 1's wording, a data string: node 16012 tests, 0 fail; red ONLY on the #1720 browser-check trailer gate, fixed at 1a5a245bf and both gates run alone pass. The rerun was withdrawn at 18:40 to free Mortals for the 0.7.26 cut Josh asked for now; the cut's step 3 runs the full suite at the pin, which contains this change)
 subdir_audit: passed
 timestamp: 2026-10-06T23:42:00Z
-iterations: 3
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (plus Mona Lisa's copy check, twice)
+**Iterations:** 4 (plus Mona Lisa's copy check, three times)
 **Converged:** Yes
-**Total findings:** 13 (0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 8 NITs)
-**Fixed:** 6 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 16 (0 BLOCKERs, 5 WARNINGs, 1 CONVENTION, 10 NITs)
+**Fixed:** 8 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -44,6 +44,17 @@ Mona's copy check (between iterations 1 and 2): line 3 rewritten in active voice
 - [NIT] x3 (Token Usage speedup is for Claude transcripts; org chart Claude-first; PR #5414's "one Google account" framing) --> no change, each consistent with the line
 **Converged** - no new actionable findings.
 
+Mona's copy check 18:34: APPROVED; recommended line 1 name missed runs (#5416 merged 17:06, ships in this cut). Taken (d4da19c9c).
+
+#### Iteration 4 (the line 1 change)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 1 of the above
+- [WARNING] web/whats-new.json:7 - "A missed run shows in red" was true on main but the branch base predated #5416 --> FIXED (rebased onto origin/main: 9ea9f6ccb is an ancestor; "Missed the run due" and the .tsk-repeat.missed red rule are in web/index.html; the cut pins main after this merges, which contains #5416)
+- [NIT] plan "checked against main ~15:30" for the missed-run part --> FIXED (plan row says it was checked after the rebase)
+- [NIT] "When due, it is open work again" and hourly/daily/weekly confirmed --> no change
+**Converged** - no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -53,11 +64,12 @@ Mona's copy check (between iterations 1 and 2): line 3 rewritten in active voice
 | 3 | 1 | CONVENTION | plan | BRANCH | left-out list incomplete | FIXED | a053ef749 |
 | 4 | 1 | NIT | plan | BRANCH | message times | FIXED | a053ef749 |
 | 5 | 2 | WARNING | web/whats-new.json:7 | SELF | "reminded" conditional | FIXED | a2cc0f342 |
+| 7 | 4 | WARNING | web/whats-new.json:7 | SELF | branch base predated #5416 | FIXED | rebase |
 | 6 | - | gate | (commit messages) | BRANCH | #1720 browser-check trailer missing (Mortals run) | FIXED | 1a5a245bf |
 
 ### Validation
-- tools/whats-new-check.js 0.7.26: mac 4, windows 3. engine/whatsnew.test.js 12/12.
-- Mortals full suite at a2cc0f342 (diff hash 5aa52eb3, identical to this proof's): 16012 tests, 15780 pass, 0 fail;
+- At this head (rebased on main): tools/whats-new-check.js 0.7.26: mac 4, windows 3. engine/whatsnew.test.js 12/12.
+- Mortals full suite at a2cc0f342 (differs from this head only in line 1's text): 16012 tests, 15780 pass, 0 fail;
   the run's only red was the #1720 trailer gate. Fixed by an empty trailer commit (1a5a245bf); the coarse and the
   surface browser-check gates run alone both pass.
 - The rerun was withdrawn so the 0.7.26 cut (Josh 18:32: "as soon as we can") could take Mortals; the cut runs the
