@@ -550,16 +550,20 @@ async function measure(page) {
       const real = window.devicePixelRatio;
       const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const resizeOnce = async () => { window.dispatchEvent(new Event('resize')); await frames(); return root.style.getPropertyValue('--scrollbar-width'); };
-      root.setAttribute('data-layout', 'consolidated');
-      root.style.setProperty('--scrollbar-width', '99px');
-      const plain = await resizeOnce();
-      Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => real * 1.25 });
-      const zoom = await resizeOnce();
-      root.style.setProperty('--scrollbar-width', '99px');
-      const zoomAgain = await resizeOnce();   // same (zoomed) ratio as the last measure: no second reflow
-      if (desc) Object.defineProperty(window, 'devicePixelRatio', desc); else delete window.devicePixelRatio;
-      if (prev === null) root.removeAttribute('data-layout'); else root.setAttribute('data-layout', prev);
-      window.kosmosMeasureScrollbarWidth();
+      let plain, zoom, zoomAgain;
+      try {
+        root.setAttribute('data-layout', 'consolidated');
+        root.style.setProperty('--scrollbar-width', '99px');
+        plain = await resizeOnce();
+        Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => real * 1.25 });
+        zoom = await resizeOnce();
+        root.style.setProperty('--scrollbar-width', '99px');
+        zoomAgain = await resizeOnce();   // same (zoomed) ratio as the last measure: no second reflow
+      } finally {
+        if (desc) Object.defineProperty(window, 'devicePixelRatio', desc); else delete window.devicePixelRatio;
+        if (prev === null) root.removeAttribute('data-layout'); else root.setAttribute('data-layout', prev);
+        window.kosmosMeasureScrollbarWidth({ inConsolidated: true });   // back to the real ratio, whatever prev was
+      }
       return { plain, zoom, zoomAgain, restored: window.devicePixelRatio === real };
     });
     chk(zoomed.plain === '99px' && zoomed.zoomAgain === '99px',

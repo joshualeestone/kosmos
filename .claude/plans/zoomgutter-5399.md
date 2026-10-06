@@ -30,5 +30,10 @@ A Mac on "Automatic" scrollbars gaining or losing a mouse changes the width with
 the next flip out re-measures (the card's described one-time shift). Headless reads 0px, so the arm proves the measure
 RUNS, not the Windows or Mac width itself (A1n covers real widths for the other arms).
 
+Scroll positions in consolidated: the measure restores the window's and #d-dmthread's, not the other panes'
+(#pj-list-view, #panel-settings, .tkcards and so on). Not saved and restored on purpose: it runs only on a zoom, which
+already lays every pane out again at its new width in the same frame, and no test here could show the extra reflow
+moving one (review 1).
+
 ## Weakest premise
 That a zoom always changes devicePixelRatio in the Windows app (WebView2). It does in Chromium, whose engine WebView2 is.

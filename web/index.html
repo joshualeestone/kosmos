@@ -11669,6 +11669,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     if (localStorage.getItem('kosmos-look') === 'new') document.documentElement.setAttribute('data-look', 'new');
   } catch (e) { /* no storage: today's look */ }
 })();
+/* #5399: the devicePixelRatio at the last measurement. A zoom (or a move to a display with another scale) changes it,
+   and with it the scrollbar's width in CSS px. Declared before the first call below. */
+var kosmosMeasuredRatio = null;
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
@@ -11720,8 +11723,6 @@ window.kosmosMeasureScrollbarWidth = function (opts) {
     if (thread && thread.scrollTop !== threadTop) thread.scrollTop = threadTop;
   }
 };
-/* #5399: the devicePixelRatio at the last measurement. A zoom changes it, and with it the scrollbar's width in CSS px. */
-var kosmosMeasuredRatio = null;
 window.kosmosMeasureScrollbarWidth();
 /* A window drag fires resize many times a second; one measurement per frame is plenty. */
 (function () {
@@ -11731,8 +11732,8 @@ window.kosmosMeasureScrollbarWidth();
     queued = true;
     requestAnimationFrame(function () {
       queued = false;
-      /* #5399: in the consolidated view only a zoom re-measures (one reflow), so the width it pads by stays current;
-         a plain resize there changes no scrollbar and is left alone. */
+      /* #5399: in the consolidated view only a changed devicePixelRatio (a zoom, or a display with another scale)
+         re-measures, one reflow, so the width it pads by stays current; a plain resize there is left alone. */
       window.kosmosMeasureScrollbarWidth({ inConsolidated: window.devicePixelRatio !== kosmosMeasuredRatio });
     });
   });
