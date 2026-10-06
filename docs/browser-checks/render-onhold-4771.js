@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles
+// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -137,6 +137,44 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#tk-hold') === 'Put on hold', `${tag} Take off hold takes the task off hold`, await text(page, '#tk-hold'));
       chk(await heldCount(page, '0') === '0', `${tag} with both undone, nothing is on hold`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
+
+      /* kosmos#4787 slice 1b: the task page's Repeats. Save is off until the choice differs from what is stored; Every
+         week shows a day and a time; saving makes the board's sentence appear; Never clears it again. */
+      await openTask(page, winter.id, 1);
+      chk(await page.inputValue('#tk-repeat-every') === '' && await page.isDisabled('#tk-repeat-save') && await page.isHidden('#tk-repeat-line')
+        && await page.isHidden('#tk-repeat-when'),
+        `${tag} #4787 a one-off task says Repeats: Never, with Save off and no repeat line`, await page.inputValue('#tk-repeat-every'));
+      await page.selectOption('#tk-repeat-every', 'week');
+      chk(await page.isVisible('#tk-repeat-day') && await page.isVisible('#tk-repeat-at') && await page.isEnabled('#tk-repeat-save'),
+        `${tag} #4787 choosing Every week shows a day and a time, and Save comes on`);
+      await page.selectOption('#tk-repeat-day', 'tue');
+      await page.fill('#tk-repeat-at', '10:30');
+      await page.click('#tk-repeat-save');
+      await page.waitForFunction(() => !document.getElementById('tk-repeat-line').hidden, null, { timeout: 5000 }).catch(() => {});
+      chk(/^Repeats every Tuesday at 10:30am\. No run reported yet\. Next /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save'),
+        `${tag} #4787 Save sets the rule: the board's sentence shows and Save goes off again`, await text(page, '#tk-repeat-line'));
+      /* Review 2: an unsaved choice survives a refresh EVEN WHEN the stored rule changes under it (the rule moves to hourly
+         elsewhere while the person has Every day chosen); once they choose what is stored now, the controls follow again. */
+      const setRule = (body) => page.evaluate(([id, b]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.status), [winter.id, body]);
+      await page.selectOption('#tk-repeat-every', 'day');
+      chk(await setRule({ every: 'hour' }) === 200, `${tag} #4787 the rule changes elsewhere (setup)`);
+      await page.evaluate(async () => { await pjReload(); });
+      chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.isEnabled('#tk-repeat-save') && /^Repeats every hour/.test(await text(page, '#tk-repeat-line') || ''),
+        `${tag} #4787 an unsaved choice survives a refresh that changed the stored rule; the line says the stored rule`, await page.inputValue('#tk-repeat-every'));
+      await page.selectOption('#tk-repeat-every', 'hour');   // review 3: choosing what is stored NOW (hourly) is nothing unsaved
+      chk(await setRule({ every: 'day', at: '07:45' }) === 200, `${tag} #4787 the rule changes again (setup)`);
+      await page.evaluate(async () => { await pjReload(); });
+      await page.waitForFunction(() => document.getElementById('tk-repeat-every').value === 'day', null, { timeout: 5000 }).catch(() => {});
+      chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.inputValue('#tk-repeat-at') === '07:45' && await page.isDisabled('#tk-repeat-save'),
+        `${tag} #4787 with no unsaved choice the controls follow a rule changed elsewhere (control for the arm above)`, await page.inputValue('#tk-repeat-at'));
+      await page.fill('#tk-repeat-at', '');
+      chk(await page.isDisabled('#tk-repeat-save') && /Choose a time/.test(await text(page, '#tk-repeat-msg') || ''),
+        `${tag} #4787 an empty time is no choice: Save stays off and the page asks for a time`, await text(page, '#tk-repeat-msg'));
+      await page.selectOption('#tk-repeat-every', '');
+      await page.click('#tk-repeat-save');
+      await page.waitForFunction(() => document.getElementById('tk-repeat-line').hidden, null, { timeout: 5000 }).catch(() => {});
+      chk(await page.isHidden('#tk-repeat-line') && await page.isHidden('#tk-repeat-when') && await page.inputValue('#tk-repeat-every') === '',
+        `${tag} #4787 Never clears it: no repeat line, back to a one-off`, await text(page, '#tk-repeat-line'));
 
       /* A project an agent paused says so where it is resumed. */
       await openSettings(page, summer.id);

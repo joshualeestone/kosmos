@@ -108,3 +108,13 @@ test('#4787 review 5: a changed rule is measured from when it changed: a slot be
   assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 8, 30)), true, 'changed to 07:00 at 08:00 today: next is tomorrow 07:00');
   assert.equal(r.waitingForNextRun(t, at(2026, 10, 7, 7, 30)), false, 'CONTROL: tomorrow\'s 07:00 passes with no run: due');
 });
+
+test('#4787 slice 1b: fieldsOf says the rule and the next run for an open repeating task; nothing for a closed or one-off one', () => {
+  const now = new Date(2026, 9, 6, 8, 0, 0).getTime();
+  const f = r.fieldsOf({ repeat: { every: 'day', at: '09:00' } }, now);
+  assert.equal(f.repeatWords, 'every day at 9am');
+  assert.equal(f.repeatNextAt, new Date(2026, 9, 6, 9, 0, 0).getTime());
+  assert.deepEqual(r.fieldsOf({ repeat: { every: 'day', at: '09:00' }, isClosed: true }, now), {});
+  assert.deepEqual(r.fieldsOf({ repeat: { every: 'day', at: '09:00' }, closedAt: '2026-10-06T12:00:00Z' }, now), {});
+  assert.deepEqual(r.fieldsOf({}, now), {}, 'CONTROL: a one-off task');
+});

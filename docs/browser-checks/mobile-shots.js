@@ -557,6 +557,20 @@ const SCREENS = [
     await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
     await page.waitForSelector('#pj-task-view:not([hidden]) #tk-say', { state: 'visible', timeout: 8000 });
   } },
+  /* kosmos#4787 slice 1b: the task page's Repeats control with a rule set (every Tuesday at 10:30am), scrolled to it. */
+  { name: 'task-repeat', owner: 'Mona Lisa', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'week', on: 'tue', at: '10:30' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not set the repeat rule (' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+    await page.waitForSelector('#tk-repeat-line:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
+  }, after: async (page, data) => {   // put the task back to a one-off, so no later screen shows the rule
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
+  } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
     await newLook(page);

@@ -250,7 +250,7 @@ const STATES = {
         chk(v.logo.drawn && v.logo.label === 'Kosmos+' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
         chk(!/Use Kosmos from anywhere/.test(v.sectionText) && !/Each one asked here first/.test(v.sectionText) && !/I lost my phone/.test(v.sectionText) && !/\bPause\b|Turn off/.test(v.sectionText),
           `${t} #4080: gone from the pane: Use Kosmos from anywhere, the devices line, the lost-phone essay, Pause/Turn off`, v.sectionText.slice(0, 300));
-        chk(v.account === 'https://login.kosmosplus.com/', `${t} View account opens the web account`, v.account);
+        chk(v.account === 'https://login.kosmosplus.com/account', `${t} View account opens the account view (#5403)`, v.account);
         if (key === 'connected') {
           /* 0.7.03 walk (Josh's 22:22 mock): the empty status line and device message take no room while connected, so
              "Devices that can reach this computer" sits close under the sign-in box and the bottom row follows the list. */

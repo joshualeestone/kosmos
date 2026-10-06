@@ -158,3 +158,21 @@ test('#4787 review 5: a process closing part "01" is the same part 1: the last-p
   assert.equal(r.status, 409);
   assert.ok(stored(n).repeat);
 });
+
+test('#4787 slice 1b: the projects list (what the task page reads) carries the board\'s repeat words; a one-off task carries none (control)', async () => {
+  const n = newTask('Morning numbers');
+  const plain = newTask('One-off');
+  const r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'day', at: '08:15' }, screen);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const res = await fetch(base + '/api/projects', { headers: screen });
+  assert.equal(res.status, 200);
+  const all = await res.json();
+  const list = Array.isArray(all) ? all : all.projects;
+  const p = list.find((x) => x.id === projectId);
+  const t = p.tasks.find((x) => Number(x.number) === Number(n));
+  assert.equal(t.repeatWords, 'every day at 8:15am');
+  assert.match(t.repeatNextWords, /8:15am/);
+  assert.ok(Number.isFinite(t.repeatNextAt));
+  const o = p.tasks.find((x) => Number(x.number) === Number(plain));
+  assert.equal('repeatWords' in o, false, 'CONTROL: a task with no rule gets no repeat words');
+});

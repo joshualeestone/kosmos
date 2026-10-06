@@ -89,6 +89,7 @@ test('#4588 B deliverAutomatic: a held agy target (the paused one AND its idle c
     assert.equal(v.held, true, target + ': only the new held branch sets held');
     assert.equal(v.heldUntil, until, target);
     assert.match(v.because, /quota/);
+    assert.equal(v.heldBy, 'quota', target);
     assert.deepEqual(SPAWNED, [], target + ': a held line started a process');
   }
 });
@@ -136,4 +137,88 @@ test('#4588 B review 6: a STOPPED agy member (no Antigravity in its pane) is not
   const control = chat.deliverAutomatic('agy-idle', 'carry on', r);
   assert.equal(control.held, true, 'CONTROL: a reachable agy member in the same roster is held');
   assert.deepEqual(SPAWNED, []);
+});
+
+/* #4588 ask 3: the person's cap on how many agy agents work at once, through the same gate. The setting is the real
+   module writing into this file's sandboxed data root. */
+test('#4588 ask 3 deliverAutomatic: at the cap, an automatic line to an idle agy agent is held with the cap reason, and nothing is run', () => {
+  const capSetting = require('./agycap-setting');
+  assert.ok(path.resolve(capSetting.FILE).startsWith(path.resolve(SANDBOX) + path.sep), capSetting.FILE);
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    const r = heldRoster(null).map((c) => (c.sessionName === 'agy-paused' ? { ...c, state: 'working' } : c));
+    SPAWNED.length = 0;
+    const v = chat.deliverAutomatic('agy-idle', 'a room post', r);
+    assert.equal(v.state, DELIVERY.COULD_NOT);
+    assert.equal(v.held, true);
+    assert.match(v.because, /limit you set for working at once/);
+    assert.equal(v.heldBy, 'cap', 'the verdict says which hold, so no surface reads "the quota is out" for the cap');
+    assert.ok(Date.parse(v.heldUntil) > Date.now(), 'held until a moment ahead (the next look)');
+    assert.deepEqual(SPAWNED, [], 'a held line started a process');
+  } finally { fs.rmSync(capSetting.FILE, { force: true }); }
+});
+
+/* #4588 ask 3 review 1 (a blocker): a fan-out from ONE roster to idle agents, with nobody working yet. The slot is
+   reserved at the gate before the first await, so the second parallel send is held. */
+test('#4588 ask 3: two parallel automatic sends from one roster at cap 1: exactly one is held (the reservation counts)', async () => {
+  const capSetting = require('./agycap-setting');
+  const q = require('./agyquota');
+  q.CAP_STARTS.clear();
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    const r = heldRoster(null).map((c) => (c.runner === 'antigravity' ? { ...c, state: 'idle' } : c));
+    SPAWNED.length = 0;
+    const [a, b] = await Promise.all([chat.deliverAutomaticAsync('agy-paused', 'post', r), chat.deliverAutomaticAsync('agy-idle', 'post', r)]);
+    assert.notEqual(a.held, true, 'the first send is let through');
+    assert.equal(b.held, true, 'the second, from the same roster, is held: the first reserved the only slot');
+    assert.equal(b.heldBy, 'cap');
+    // The first one's delivery reached nothing here (the spy refuses every process), so its slot was given back.
+    assert.equal(q.CAP_STARTS.has('agy-paused'), false, 'a COULD_NOT delivery gives the reservation back');
+  } finally { fs.rmSync(capSetting.FILE, { force: true }); require('./agyquota').CAP_STARTS.clear(); }
+});
+
+test('#4588 ask 3 review 3: a send after the person\'s own click ({ cap: false }) is not held by the cap; the quota still holds it', () => {
+  const capSetting = require('./agycap-setting');
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    const r = heldRoster(null).map((c) => (c.sessionName === 'agy-paused' ? { ...c, state: 'working' } : c));
+    SPAWNED.length = 0;
+    const capped = chat.deliverAutomatic('agy-idle', 'hello', r);
+    assert.equal(capped.held, true, 'CONTROL: the same send without the exemption is held by the cap');
+    require('./agyquota').CAP_STARTS.clear();
+    const exempt = chat.deliverAutomatic('agy-idle', 'hello', r, undefined, undefined, { cap: false });
+    assert.notEqual(exempt.held, true, 'the person-initiated send was held by the cap');
+    const until = new Date(Date.now() + 30 * 60e3).toISOString();
+    const quota = chat.deliverAutomatic('agy-idle', 'hello', heldRoster(until), undefined, undefined, { cap: false });
+    assert.equal(quota.held, true, 'the shared-quota hold still applies to it');
+    assert.equal(quota.heldBy, 'quota');
+  } finally { fs.rmSync(capSetting.FILE, { force: true }); require('./agyquota').CAP_STARTS.clear(); }
+});
+
+test('#4588 ask 3 review 4 pin: deliverAutomatic and its async twin give the cap slot back when the delivery THROWS', () => {
+  /* A pin, not a run: deliver() is chat.js's internal function, so a test cannot make it throw without changing which
+     stubs reach it. Both bodies must release in a catch and rethrow. */
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  for (const [fn, call] of [['function deliverAutomatic(', 'deliver(sessionName, raw, roster, envelope, trailer)'], ['async function deliverAutomaticAsync(', 'await deliverAsync(sessionName, raw, roster, envelope, trailer)']]) {
+    const at = src.indexOf(fn);
+    assert.notEqual(at, -1, fn);
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    const tryAt = body.indexOf('try { v = ' + call + '; }');
+    assert.notEqual(tryAt, -1, fn + ' does not wrap the delivery in try');
+    assert.match(body.slice(tryAt), /catch \(err\) \{ require\('\.\/agyquota'\)\.releaseCapStart\(slot\); throw err; \}/, fn + ' does not release on a throw');
+  }
+});
+
+test('#4588 ask 3 review 8 pin: no await between the cap gate and the reservation (that is what makes check-then-reserve atomic)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  for (const fn of ['function deliverAutomatic(', 'async function deliverAutomaticAsync(']) {
+    const at = src.indexOf(fn);
+    assert.notEqual(at, -1, fn);
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    const gate = body.indexOf('quotaHeldVerdict(');
+    const reserve = body.indexOf('noteCapStart(');
+    assert.ok(gate > -1 && reserve > gate, fn + ': the reservation must follow the gate');
+    const code = body.slice(gate, reserve).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');   // comments may say "await"
+    assert.doesNotMatch(code, /\bawait\b/, fn + ': an await between the gate and the reservation lets a parallel send through');
+  }
 });

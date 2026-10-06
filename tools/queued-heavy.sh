@@ -46,7 +46,7 @@ fi
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
-_qh_need="kosmos_wait_until_clear kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
+_qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
 for _qh_fn in $_qh_need; do
   declare -F "$_qh_fn" >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
@@ -58,7 +58,7 @@ if [ -n "$QH_INHERITED_MAIN" ]; then
   if command -v kosmos_holds_machine_claim >/dev/null && kosmos_holds_machine_claim; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') $WHAT runs now, inside the turn that already holds the box (it claims and releases nothing)"
     # Review 13: the same clean command environment an ordinary turn gives (no queue controls, no side labels).
-    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE 2>/dev/null
+    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S 2>/dev/null
     exec "$@"
   fi
   unset KOSMOS_MACHINE_CLAIM_COOKIE   # a cookie whose claim is gone names nothing; this run takes its own
@@ -171,30 +171,49 @@ _qh_take() {
     # Asked again under the lock (the wait asked outside it, and a main-lane light take holds this lock too), then
     # the side claim. Only a won take drops the queue marker; a lost one leaves it, and the next wait resumes that place.
     kosmos_light_side_take "$WHAT" "$((SIDE_MIN + 2))" && rc=0
-  elif _qh_clear >/dev/null 2>&1; then kosmos_claim_machine "$CLAIM_MIN" && rc=0; fi
+  # #5332: the main lane's wait kept this run's queue place (KOSMOS_WAIT_KEEP_MARK), so the ORDER is asked here, under
+  # the lock, with every earlier waiter still marked: a later joiner can no longer pass while this run is between its
+  # wait and its claim. Asked only while this run HOLDS a marker: one with none (cleared on its first pass, or a lib
+  # older than #5332 that unmarked anyway) would read every live waiter as ahead and lose every take (review 1).
+  elif { [ ! -e "$(_kosmos_suite_waiter_file "$$")" ] || kosmos_refuse_if_earlier_suite_waiter "$WHAT" 2>/dev/null; } \
+       && _qh_clear >/dev/null 2>&1; then
+    kosmos_claim_machine "$CLAIM_MIN" && rc=0
+  fi
   rm -rf "$lock"
   # Test seam (#5064): QH_TEST_LOSE_TAKES=N makes the first N takes lose, so a lost take can be proven without racing.
   # Main lane only: a side take holds a side claim that kosmos_release_machine does not release (review, #5064).
   if [ "$rc" = 0 ] && [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ "${QH_TEST_LOSE_TAKES:-0}" -gt 0 ] 2>/dev/null; then
     QH_TEST_LOSE_TAKES=$((QH_TEST_LOSE_TAKES - 1)); kosmos_release_machine 2>/dev/null || true; rc=1
   fi
+  # The place is given up only once the take is won (a lost one keeps it, and the next wait resumes it).
+  [ "$rc" = 0 ] && [ "${KOSMOS_WAIT_LANE:-main}" != side ] && kosmos_unmark_suite_waiting
   return "$rc"
 }
 # #5064: this run's place in the queue is its join time (taken here, within a few seconds of the library's own).
-# A MAIN-lane wait that finds the box clear drops the run's marker before the take; if the take then loses, the next wait used to write a NEW marker stamped now, sending the oldest waiter
-# to the back (Kitty's ick 5031 full, 15:28:59 2026-10-02: first in line, then 21 ahead, its clock restarted). A lost
-# take now writes the marker back with the original join time, and the library's resume path keeps that place.
+# A MAIN-lane wait that found the box clear used to drop the run's marker before the take; if the take then lost, the
+# next wait wrote a NEW marker stamped now, sending the oldest waiter to the back (Kitty's ick 5031 full, 15:28:59
+# 2026-10-02: first in line, then 21 ahead, its clock restarted). Since #5332 the wait keeps the marker through the take
+# (KOSMOS_WAIT_KEEP_MARK), so a lost take still holds it. The re-mark below only restores the join time for a run that
+# had no marker (it cleared on its first pass, or a lib older than #5332 unmarked it): it cannot stop a later joiner
+# passing in the gap before it (perturbed with the kept marker removed and the re-mark left in: the #5064 arm went red
+# in one of two runs, a race, which is why the kept marker exists and why no arm can pin that variant).
 QH_JOINED="$(date +%s)"
+export KOSMOS_WAIT_KEEP_MARK=1   # #5332, see _qh_take. Read only by a main-lane wait (a side wait returns first; the renewer never waits).
 until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARGS[@]}"} _qh_clear || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') REFUSED (the queue's bound ran out): $WHAT"; exit 4; }; _qh_take; }; do
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') another run took the turn first; waiting again: $WHAT"
-  if [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') did not get the turn (another run took it, or is ahead in the queue); waiting again: $WHAT"
+  # Only when the place is gone (review 3): a lost take that kept its marker needs no re-mark.
+  if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then
     kosmos_mark_suite_waiting "$QH_JOINED"
-    # Said as an attempt: an unwritable marker dir, or a cut-guard lib older than #4911, keeps no place (review 1).
+    # Said as an attempt: an unwritable marker dir keeps no place (review 1). A lib without the marker functions is
+    # refused at load (_qh_need), so it never gets here.
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') re-marked its place in the queue (joined $(date -r "$QH_JOINED" '+%H:%M:%S')) (#5064): $WHAT"
   fi
+  # Test seam (#5332): QH_TEST_LOST_PAUSE_S pauses each main-lane lost take here, after any re-mark, so a later joiner's
+  # polls land while the loser holds only the place it kept (none, in the test's copy that removes both ways).
+  if [ "${KOSMOS_WAIT_LANE:-main}" != side ] && [ "${QH_TEST_LOST_PAUSE_S:-0}" -gt 0 ] 2>/dev/null; then sleep "$QH_TEST_LOST_PAUSE_S"; fi
   # A side wait returns before any sleep, so a take that keeps losing (say, a marker dir it cannot write) would spin.
-  # Side lane only: a main-lane loser is re-marked at its old place above, and a pause there only lets a later
-  # joiner past it.
+  # Side lane only: a main-lane loser keeps its place (its marker, or the re-mark above), and a pause there only lets
+  # a later joiner past it.
   [ "${KOSMOS_WAIT_LANE:-main}" = side ] && sleep "${KOSMOS_WAIT_EVERY_S:-30}"
 done
 RENEWER=""
@@ -325,7 +344,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S   # review 5: a command that queues on its own must not claim to be one of these
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).

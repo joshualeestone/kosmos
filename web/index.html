@@ -6308,6 +6308,14 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* #768: the due-date input sits in a tmeta row like the read-only values, but is
    editable. Inherit the font, keep it right-aligned and unobtrusive; the native
    date control carries its own picker + a clear affordance. */
+/* kosmos#4787 slice 1b: the Repeats controls wear the Due date field's look (.tk-due-input), so the column reads as one set. */
+.tk-repeat-in { font: inherit; color: inherit; background: transparent; border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; min-height: 30px; }
+.tk-repeat-in:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+.tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
+.tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
+#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -6509,6 +6517,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
+/* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
+   the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
+   rather than growing the header without bound. */
+.pjmidhead .pjhead #pj-one-shared { flex: 1 0 100%; min-width: 0; max-width: 100%; font-size: .8125rem; }
+#pj-one-shared-desc { overflow-wrap: anywhere; max-height: 10.5em; overflow-y: auto; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
    + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
@@ -10576,6 +10589,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      and at the row's end it would reach 4px past the page. */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
@@ -11669,6 +11683,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     if (localStorage.getItem('kosmos-look') === 'new') document.documentElement.setAttribute('data-look', 'new');
   } catch (e) { /* no storage: today's look */ }
 })();
+/* #5399: the devicePixelRatio at the last measurement. A zoom (or a move to a display with another scale) changes it,
+   and with it the scrollbar's width in CSS px. Declared before the first call below. */
+var kosmosMeasuredRatio = null;
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
@@ -11679,10 +11696,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
    second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
-window.kosmosMeasureScrollbarWidth = function () {
+window.kosmosMeasureScrollbarWidth = function (opts) {
   var root = document.documentElement;
-  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
-  if (root.getAttribute('data-layout') === 'consolidated') return;
+  /* The consolidated layout reserves no gutter, so measuring there forces a whole-page reflow: skipped, unless a zoom
+     asks for it (#5399, below). */
+  if (root.getAttribute('data-layout') === 'consolidated' && !(opts && opts.inConsolidated === true)) return;
+  kosmosMeasuredRatio = window.devicePixelRatio;
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
@@ -11725,7 +11744,12 @@ window.kosmosMeasureScrollbarWidth();
   window.addEventListener('resize', function () {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
+    requestAnimationFrame(function () {
+      queued = false;
+      /* #5399: in the consolidated view only a changed devicePixelRatio (a zoom, or a display with another scale)
+         re-measures, one reflow, so the width it pads by stays current; a plain resize there is left alone. */
+      window.kosmosMeasureScrollbarWidth({ inConsolidated: window.devicePixelRatio !== kosmosMeasuredRatio });
+    });
   });
   /* The fewest ms between two pointer-press re-measures. Each probe forces a layout, and a Mac's
      scrollbar mode changes when a mouse is plugged in, not between two clicks. */
@@ -16017,6 +16041,12 @@ window.kosmosMeasureScrollbarWidth();
              furniture, and an agent-made project is the one a person needs to
              be able to tell apart at a glance. -->
         <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
+        <!-- kosmos#5287: a project joined from another account says who shared it and what THEY wrote about it, as
+             theirs. Their words are never this project's own description (the brief its agents get), so they live here. -->
+        <div id="pj-one-shared" style="margin:6px 0 0;" hidden>
+          <p class="dhint" id="pj-one-shared-by" style="margin:0;"></p>
+          <p class="dhint" id="pj-one-shared-desc" style="margin:2px 0 0; white-space:pre-line;"></p>
+        </div>
       </div>
     </div>
 
@@ -16551,6 +16581,25 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
+        <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
+             line under it is the board's own sentence (rule, last run, next run). Hourly runs on the hour from this screen;
+             an agent can set another minute with kosmos task repeat. -->
+        <div class="tmeta" id="tk-repeat-row"><span>Repeats</span>
+          <select id="tk-repeat-every" class="tsk-sel" aria-label="How often this task repeats">
+            <option value="">Never</option><option value="hour">Every hour</option><option value="day">Every day</option><option value="week">Every week</option>
+          </select>
+        </div>
+        <div class="tmeta" id="tk-repeat-when" hidden><span>When</span>
+          <span class="tk-repeat-when">
+            <select id="tk-repeat-day" class="tsk-sel" aria-label="When: day of the week" hidden>
+              <option value="mon">Monday</option><option value="tue">Tuesday</option><option value="wed">Wednesday</option><option value="thu">Thursday</option><option value="fri">Friday</option><option value="sat">Saturday</option><option value="sun">Sunday</option>
+            </select>
+            <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="When: time of day" value="09:00">
+          </span>
+        </div>
+        <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
+        <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -17918,6 +17967,18 @@ window.kosmosMeasureScrollbarWidth();
            so a more prominent placement later is a pure move (Mona's polish). Hidden
            while empty so it costs nothing when nothing is stalled. -->
       <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
+    </section>
+    <!-- #4588 ask 3: a cap on how many Gemini (Antigravity) agents work at once. They share one Google account's
+         quota, and a team of six kept locking each other out. Status-control contract, as the Prompter's: the select
+         stays hidden until the server read lands, and a failed read hides it and says so, never a false "No limit". -->
+    <section class="dbox">
+      <h3 class="dlab">Gemini subscription agents at once</h3>
+      <div class="frow" id="agycap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
+        <label class="dhint" for="agycap-max" style="margin:0;">Working at the same time</label>
+        <select id="agycap-max" aria-describedby="agycap-hint"></select>
+      </div>
+      <p class="dhint" id="agycap-hint" style="margin:8px 0 0;">Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default.</p>
+      <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
@@ -24969,6 +25030,65 @@ function hbIntervalChange() {
 }
 document.getElementById('hb-toggle') && document.getElementById('hb-toggle').addEventListener('click', hbToggleClick);
 document.getElementById('hb-interval') && document.getElementById('hb-interval').addEventListener('change', hbIntervalChange);
+/* #4588 ask 3: the Gemini cap (GET/PUT /api/agycap-setting). Choices come from the server, so the select and the engine
+   cannot disagree; 0 reads "No limit". A non-ok or failed read hides the select and says so. Paint after a save comes
+   from the server's answer. AGYCAP_EPOCH: a slow GET cannot repaint over a newer save. */
+let AGYCAP_EPOCH = 0;
+function agycapLabel(n) { return n === 0 ? 'No limit' : (n === 1 ? '1 agent' : n + ' agents'); }
+function agycapShow(r, force) {
+  const sel = document.getElementById('agycap-max');
+  const row = document.getElementById('agycap-row');
+  if (Array.isArray(r.choices)) {
+    const html = r.choices.map((n) => '<option value="' + Number(n) + '">' + agycapLabel(Number(n)) + '</option>').join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+  }
+  // force: after a failed save the select must show the stored value even while it has focus (it just changed).
+  if (force || document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
+  if (row) row.hidden = false;
+}
+async function paintAgycap(force) {
+  const mine = ++AGYCAP_EPOCH;
+  const sel = document.getElementById('agycap-max');
+  const row = document.getElementById('agycap-row');
+  const msg = document.getElementById('agycap-msg');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/agycap-setting', { cache: 'no-store' });
+    if (mine !== AGYCAP_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== AGYCAP_EPOCH) return;
+    agycapShow(r, force);
+    // A saved file that could not be read is served as no limit (ok false): say so rather than show a quiet "No limit".
+    if (msg) msg.textContent = r.ok === false ? 'We could not read the saved limit, so no limit applies.' : '';
+  } catch {
+    if (mine !== AGYCAP_EPOCH) return;
+    if (row) row.hidden = true;
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function agycapChange() {
+  const sel = document.getElementById('agycap-max');
+  const msg = document.getElementById('agycap-msg');
+  if (!sel || !sel.options || !sel.options.length) return; // not loaded: never write a default over a stored value
+  const mine = ++AGYCAP_EPOCH;
+  try {
+    const res = await fetch('/api/agycap-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxWorking: Number(sel.value) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (mine !== AGYCAP_EPOCH) return;
+    if (!res.ok) { await paintAgycap(true); if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = out.error || 'We could not save that setting.'; return; }   // a newer change wins its own message
+    agycapShow(out, true);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine !== AGYCAP_EPOCH) return;
+    await paintAgycap(true);   // never leave a choice on screen that was not saved
+    if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = 'We could not reach Kosmos to save that.';
+  }
+}
+document.getElementById('agycap-max') && document.getElementById('agycap-max').addEventListener('change', agycapChange);
 /* #3508: keep the check-ins live while Settings is on screen. The store updates on the
    Prompter's own (minutes-granularity) tick, so a 15s poll is ample; it is gated on the
    panel being visible (offsetParent is null when Settings is not the shown view) so it
@@ -25142,6 +25262,7 @@ async function paintSettings() {
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  paintAgycap(); // #4588 ask 3
   paintRecommender(); // #3595: live.
   paintAssigner(); // #3595 phase 2: live.
   paintPrompterNudges();
@@ -46123,8 +46244,12 @@ function plusSiRegisterMode(address, nameOnly) {
  * meantime so they cannot drift silently.
  */
 const KOSMOS_SITE = 'https://installkosmos.com';
-/* #3829 / #3479: the web account (billing, history, cancel) lives where people sign in to Kosmos+. */
+/* #3829 / #3479: where people sign in to Kosmos+. The Copy chip copies it (the address other devices use), and the
+   buy fallback builds on it. */
 const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
+/* #5403: View account opens the account view (Sign out everywhere, Delete account), not the sign-in home. It is
+   its own constant because the home above is still the address to copy and the base the buy link builds on. */
+const PLUS_ACCOUNT_VIEW_URL = PLUS_ACCOUNT_URL + 'account';
 /* #4744: Copy puts the address other devices use on the clipboard, as a full https URL so it pastes as a link.
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
@@ -46367,7 +46492,7 @@ async function paintPlus() {
     pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
       : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
   }
-  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
+  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_VIEW_URL !== 'undefined') acct.href = PLUS_ACCOUNT_VIEW_URL;
   const chip = document.getElementById('plus-chip');
   if (chip) { chip.hidden = !up; if (up) plusChipFit(); }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
@@ -55922,6 +56047,13 @@ async function restartReadyWait(name, mine) {
    (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
    tests (no page globals) still read. */
 function wakeHeldLine(manualText, delivery) {
+  /* #4588 ask 3: held by the person's own cap on Gemini subscription agents at once, not by the quota. DEFENSIVE today: both callers
+     (the wake hello and the handoff pickup) send with { cap: false }, so a cap verdict does not reach here; kept so a
+     future automatic caller cannot show "the quota is out" for a cap hold. No time: the cap lifts as the others stop
+     working, not at a clock time Kosmos can name. */
+  if (delivery && delivery.heldBy === 'cap') {
+    return manualText + ' The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.';
+  }
   const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return manualText + ' ' + (when
@@ -59275,6 +59407,7 @@ function paintTaskPage() {
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.
   for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
+  tkPaintRepeat(p, t);
   const holdHint = document.getElementById('tk-hold-hint');
   if (holdHint) holdHint.textContent = p.paused === true
     ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'
@@ -59923,6 +60056,129 @@ async function saveTaskDue(value) {
 document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
 
 /* #4771: put the open task on hold, or take it off. The button acts on the state as last read from the server. */
+/* kosmos#4787 slice 1b: the task page's Repeats control. The stored rule fills the controls only when it changes (or
+   another task opens), so the five-second poll never undoes what a person is choosing; Save lights up only when the
+   choice differs from what is stored. A finished task has nothing to repeat: no control. */
+const TK_REPEAT_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+function tkRepeatChoice() {
+  const every = document.getElementById('tk-repeat-every').value;
+  if (!every) return { clear: true };
+  if (every === 'hour') return { every: 'hour' };
+  const at = document.getElementById('tk-repeat-at').value;
+  if (!at) return { needsTime: true };   // review 1: an empty time is no choice yet, never a silent 9am
+  return every === 'day' ? { every: 'day', at } : { every: 'week', on: document.getElementById('tk-repeat-day').value, at };
+}
+function tkRepeatStoredChoice(t) {
+  const r = t && t.repeat;
+  if (!r) return { clear: true };
+  if (r.every === 'hour') return { every: 'hour' };
+  return r.every === 'day' ? { every: 'day', at: r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
+}
+function tkRepeatShowWhen() {
+  const every = document.getElementById('tk-repeat-every').value;
+  document.getElementById('tk-repeat-when').hidden = every !== 'day' && every !== 'week';
+  document.getElementById('tk-repeat-day').hidden = every !== 'week';
+}
+function tkRepeatDirty(t) {
+  const save = document.getElementById('tk-repeat-save');
+  // Hourly from this screen runs on the hour; a rule an agent set at another minute still reads as unchanged.
+  const choice = tkRepeatChoice();
+  if (save) save.disabled = choice.needsTime === true || JSON.stringify(choice) === JSON.stringify(tkRepeatStoredChoice(t));
+  const msg = document.getElementById('tk-repeat-msg');
+  if (msg && choice.needsTime === true) { msg.textContent = 'Choose a time'; msg.dataset.needsTime = '1'; }
+  else if (msg && msg.dataset.needsTime === '1') { msg.textContent = ''; delete msg.dataset.needsTime; }
+}
+function tkPaintRepeat(p, t) {
+  const done = TK_ACT === 'reopen';
+  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line']) { const el = document.getElementById(id); if (el && done) el.hidden = true; }
+  const act = document.querySelector('.tk-repeat-actions');
+  if (act) act.hidden = done;
+  const msg = document.getElementById('tk-repeat-msg');
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
+  document.getElementById('tk-repeat-row').hidden = false;
+  const every = document.getElementById('tk-repeat-every');
+  const stored = JSON.stringify(tkRepeatStoredChoice(t));
+  const newTask = every.dataset.task !== key;
+  /* Review 2: the controls follow the stored rule unless the person has an unsaved choice (what they show differs from
+     what was last painted as stored); another task always repaints. Judged by the choice, not by focus, which can sit on
+     a control long after the person has finished. */
+  const choiceNow = JSON.stringify(tkRepeatChoice());
+  if (choiceNow === stored) every.dataset.stored = stored;   // review 3: choosing what is stored now is nothing unsaved
+  const edited = choiceNow !== every.dataset.stored;
+  if (newTask || (every.dataset.stored !== stored && !edited)) {
+    if (!newTask && msg && msg.dataset.task === key) msg.textContent = '';   // review 2: a rule changed elsewhere retires the Saved line
+    const c = tkRepeatStoredChoice(t);
+    every.value = c.clear ? '' : c.every;
+    // Review 1: a task with no time or day of its own starts from Monday 9am, never the last task's unsaved choice.
+    document.getElementById('tk-repeat-at').value = c.at || '09:00';
+    document.getElementById('tk-repeat-day').value = c.on || 'mon';
+    every.dataset.task = key;
+    every.dataset.stored = stored;
+  }
+  tkRepeatShowWhen();
+  tkRepeatDirty(t);
+  const line = document.getElementById('tk-repeat-line');
+  const said = t.repeat ? tskRepeatSentence(t, Date.now()) : '';
+  if (line.textContent !== said) line.textContent = said;
+  line.hidden = !said;
+}
+function tkOpenTask() {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return [null, null];
+  return [p, (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN)) || null];
+}
+for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day']) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  const on = () => {
+    const m = document.getElementById('tk-repeat-msg');
+    if (m && m.dataset.needsTime !== '1') m.textContent = '';   // review 1: a new choice retires the last answer
+    tkRepeatShowWhen(); const [, t] = tkOpenTask();
+    if (t) {
+      // CI round: choosing what is stored NOW is nothing unsaved, said at once (not at the next paint), so a rule changed
+      // elsewhere before that paint is still followed.
+      const nowStored = JSON.stringify(tkRepeatStoredChoice(t));
+      if (JSON.stringify(tkRepeatChoice()) === nowStored) document.getElementById('tk-repeat-every').dataset.stored = nowStored;
+      tkRepeatDirty(t);
+    }
+  };
+  el.addEventListener('change', on);
+  el.addEventListener('input', on);
+}
+document.getElementById('tk-repeat-save').addEventListener('click', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const btn = document.getElementById('tk-repeat-save');
+  const msg = document.getElementById('tk-repeat-msg');
+  btn.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }
+  const sent = tkRepeatChoice();
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sent),
+    });
+    const out = await res.json().catch(() => null);
+    // Review 1: an answer belongs to its own task; a person who moved on sees nothing of it.
+    const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+    if (!res.ok) { if (still()) { if (msg) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); } return; }
+    // Review 2: what was saved is now what is stored, so the repaint below follows it rather than reading it as unsaved.
+    if (still()) document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+    if (still()) {
+      if (msg) msg.textContent = 'Saved.';   // review 1: said aloud (the line is aria-live), and focus goes back to the choice
+      document.getElementById('tk-repeat-every').focus();
+    }
+  } catch {
+    if (PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number)) {
+      if (msg) msg.textContent = 'we could not reach Kosmos to change how that task repeats';
+      tkRepeatDirty(t);
+    }
+  }
+});
+
 document.getElementById('tk-hold').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
@@ -61148,6 +61404,22 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   }
 });
 
+/* kosmos#5287: who shared a joined project and what they wrote about it, from p.shared (GET /api/projects; members
+   only). The owner names come from Kosmos+ (the join screen's wording when there is none yet); the description is
+   the owner's text, so it is shown as theirs, in quotes, never as this project's own. textContent only. */
+function pjPaintShared(p) {
+  const box = document.getElementById('pj-one-shared');
+  if (!box) return;
+  const sh = p && p.shared && typeof p.shared === 'object' ? p.shared : null;
+  if (!sh) { box.hidden = true; return; }
+  document.getElementById('pj-one-shared-by').textContent = 'Shared by '
+    + (typeof sh.owner === 'string' && sh.owner ? sh.owner + '.kosmosplus.com' : 'a Kosmos+ account with no name yet') + '.';
+  const d = document.getElementById('pj-one-shared-desc');
+  const words = typeof sh.description === 'string' && sh.description.trim() ? sh.description.trim() : '';
+  d.textContent = words ? 'They describe it as: \u201c' + words + '\u201d' : 'They did not add a description.';
+  box.hidden = false;
+}
+
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
@@ -61238,6 +61510,7 @@ function paintOneProject() {
     madeLine.textContent = '';
     madeLine.hidden = true;
   }
+  pjPaintShared(p);
   /* The raw-path element retired with the pack cut ("~/" is a squiggle to
      this reader): the folder facts live on #pjs-folder-name and
      #pjs-folder-where in Project settings. */

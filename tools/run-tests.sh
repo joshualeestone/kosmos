@@ -356,6 +356,10 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
   fi
 elif command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
   if [ "$_rt_suite_check" = 1 ]; then
+    # #5332: KOSMOS_WAIT_KEEP_MARK is queued-heavy's alone (it unmarks after its take; this script never does). A leaked
+    # one would keep this suite's marker for the whole run, and a waiter's process tree is dropped from the live-suite
+    # check, so a harness could start beside it.
+    unset KOSMOS_WAIT_KEEP_MARK
     kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
   else
     kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1

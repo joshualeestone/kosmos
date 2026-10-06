@@ -233,3 +233,30 @@ test('mergeProviders does not freeze a scan marked incomplete', async () => {
   assert.equal(byDay[day]['gpt-5.6-sol'].output_tokens, 1, 'still shown');
   assert.ok(!fs.existsSync(file), 'an incomplete scan was frozen');
 });
+
+/* kosmos#5367: the provider scans take usage.js's own cut (windowCutMs, #5363), so Claude's transcripts and the other
+   providers' files are cut at the same instant: an hour before the window, for clock drift. */
+test('#5367: the providers\' cut is windowCutMs: 30 minutes before the window is read, 90 minutes before is not; an impossible day cuts nothing', async () => {
+  const { windowCutMs } = require('./usage');
+  const at = (mtimeIso) => {
+    const h = codexHome([
+      { timestamp: '2026-09-02T00:20:00Z', type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+      tc('2026-09-02T00:20:05Z', 100, 0, 10),
+    ]);
+    const f = path.join(h, 'sessions', '2026', '10', '01', 'rollout-2026-10-01T10-00-00-aaa.jsonl');
+    const t = new Date(mtimeIso);
+    fs.utimesSync(f, t, t);
+    return h;
+  };
+  const scan = (h, sinceDay) => scanProviders({ sinceDay, untilDay: '2026-09-30', homes: { codex: [h], gemini: [], grok: [] } });
+  // The file says it was last written at 23:30 the day before (a drifted clock); its row is inside the window.
+  const near = await scan(at('2026-09-01T23:30:00Z'), '2026-09-02');
+  assert.equal(near.days['2026-09-02']['gpt-5.6-sol'].output_tokens, 10, 'inside the hour margin: read (cut at midnight, it was not)');
+  const far = await scan(at('2026-09-01T22:30:00Z'), '2026-09-02');
+  assert.deepEqual(far.days, {}, 'CONTROL: before the margin: not read');
+  assert.equal(windowCutMs('2026-09-02'), Date.parse('2026-09-01T23:00:00Z'), 'the boundary the two cases straddle is the shared one');
+  // Not a real date: windowCutMs says no cut, and the scan reads (it compared with NaN and read nothing before).
+  assert.equal(windowCutMs('2026-02-31'), null);
+  const bad = await scan(at('2026-09-01T22:30:00Z'), '2026-02-31');
+  assert.equal(bad.days['2026-09-02']['gpt-5.6-sol'].output_tokens, 10, 'an impossible day is a full read, never an empty one');
+});
