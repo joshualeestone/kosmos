@@ -153,6 +153,9 @@ function noteSource(dir, target, owner) {
 }
 function sweep(deps = {}) {
   const CACHE = cacheDir();
+  // Review 2 (WARNING): the cache folder itself must be a real folder. If it were a symlink, every old folder without a
+  // record wherever it points would be removed; a folder that is not the board's own is never swept.
+  try { if (!fs.lstatSync(CACHE).isDirectory()) return { removed: 0 }; } catch { return { removed: 0 }; }
   let ents;
   try { ents = fs.readdirSync(CACHE, { withFileTypes: true }).filter((e) => e.isDirectory()); } catch { return { removed: 0 }; }
   let projectIds = null;
@@ -163,7 +166,7 @@ function sweep(deps = {}) {
     removedAgents = got && got.ok ? new Set(got.names) : null;
   } catch { removedAgents = null; }
   // Review 1 (BLOCKER): a FIRST render works inside its folder (r-<pid>-...) before the record exists, so a sweep
-  // during it must not take the folder. A folder with a render in it is skipped, and one with no record is left
+  // during it must not take the folder. A folder with a LIVE render in it is skipped (review 2: see below), and one with no record is left
   // until it is YOUNG_MS old (a render's own timeout is far shorter).
   const now = deps.now || Date.now();
   // Review 1: removed-agent names are stored cleaned (create.cleanName), so the owner is compared the same way.
@@ -174,7 +177,25 @@ function sweep(deps = {}) {
     const d = path.join(CACHE, e.name);
     let inside = [];
     try { inside = fs.readdirSync(d); } catch { inside = []; }
-    if (inside.some((n) => n.startsWith('r-'))) continue;   // a render is in progress here
+    // Review 2 (WARNING): a render folder (r-<pid>-...) protects this folder only while it is live: its process is still
+    // running and it is younger than YOUNG_MS. One a crash or restart left behind holds a full copy of the person's PDF,
+    // so it is removed now, and the folder is then judged as any other.
+    let rendering = false;
+    for (const n of inside) {
+      if (!n.startsWith('r-')) continue;
+      const m = /^r-(\d+)-/.exec(n);
+      const pid = m ? Number(m[1]) : NaN;
+      let alive = pid === process.pid;
+      if (!alive && Number.isSafeInteger(pid) && pid > 0) {
+        try { (deps.kill || process.kill)(pid, 0); alive = true; } catch (er) { alive = !!(er && er.code === 'EPERM'); }
+      }
+      let young = false;
+      // Real time, not deps.now: whether a render is still running is a fact about this moment.
+      try { young = Date.now() - fs.statSync(path.join(d, n)).mtimeMs < YOUNG_MS; } catch { young = false; }
+      if (alive && young) { rendering = true; continue; }
+      try { fs.rmSync(path.join(d, n), { recursive: true, force: true }); } catch { rendering = true; }
+    }
+    if (rendering) continue;   // a render is in progress here
     let rec = null;
     try { rec = JSON.parse(fs.readFileSync(path.join(d, SOURCE_FILE), 'utf8')); } catch { rec = null; }
     if (!rec) {
