@@ -144,6 +144,10 @@ test('#3055 CONTROL: GET /api/worlds/list (agent data) STAYS gated', async () =>
   assert.equal((await hit('/api/worlds/list')).code, 403,
     '/api/worlds/list carries agentCount+agents+waiting, so it must stay behind the token');
 });
+test('#5393: GET /api/worlds/overview (provider state, task counts) is gated', async () => {
+  assert.equal((await hit('/api/worlds/overview')).code, 403,
+    '/api/worlds/overview carries every Kosmos\'s task counts and the running one\'s providers, so it stays behind the token');
+});
 
 test('#3055 CONTROL: a POST to /api/worlds/names is NOT exempt (the exemption is read-only)', async () => {
   const res = await fetch(base + '/api/worlds/names', { method: 'POST', redirect: 'manual' });
