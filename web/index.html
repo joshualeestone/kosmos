@@ -3352,8 +3352,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      scrollbars. It is dropped here, and the header padding below keeps the header from moving when an
      agent opens or closes, which is the shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
-     nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
-     cannot be measured the gutter stays (A1q). */
+     nothing to drop here (consolidated's header gets its own padding, the #5379 rule below). Both rules wait for
+     data-scrollbar-measured, so if the width cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
@@ -3363,8 +3363,11 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
   /* #5379: the tab view reserves the scrollbar gutter on <html> and consolidated does not (its panes scroll inside),
      so on a platform whose scrollbars take width (Windows, Linux; 0 on macOS) the header's right controls sat 15px
      further right in consolidated and the centred tabs 7.5px: the header jumped on every view flip (CI:
-     render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. */
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead { padding-right: var(--scrollbar-width, 0px); }
+     render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. The
+     padding is on the inner header, not .apphead, because the inner header carries consolidated's background and
+     bottom rule, which then still reach the window edge. */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
+    padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
@@ -11738,6 +11741,10 @@ window.kosmosMeasureScrollbarWidth();
        second width, and leaving Talk (or a resize) re-measures anyway (A1p). */
     if (window.matchMedia('(min-width: 56.01rem)').matches
       && document.querySelector('body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])')) return;
+    /* #5379: nor in consolidated once measured, for the same reason: its rails and panes would reflow at a second
+       width on every press. Load, resize, focus, a return to the tab and a flip out of consolidated still measure. */
+    var root = document.documentElement;
+    if (root.getAttribute('data-layout') === 'consolidated' && root.hasAttribute('data-scrollbar-measured')) return;
     lastPress = now;
     window.kosmosMeasureScrollbarWidth();
   }, { capture: true, passive: true });
@@ -44930,7 +44937,7 @@ function applyLayout(layout, apply) {
      aria-expanded and re-apply (or clear) the folded-descendant hiding. Safe
      before the list exists (it no-ops) and cheap (a class/attr pass). */
   if (typeof applyConsFold === 'function') applyConsFold();
-  /* #3497: the measurer skips the consolidated layout, so leaving it re-measures (A1u). */
+  /* #3497 (A1u): a flip re-measures, so the width the new view pads by is current. */
   if (was !== want && typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25

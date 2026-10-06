@@ -224,6 +224,32 @@ async function measure(page, view, notice, name) {
     await page.close();
   }
 
+  // #5379: a board that boots in consolidated is measured there too. The header pads by --scrollbar-width only once
+  // data-scrollbar-measured is set, and before #5379 the measurer returned early in consolidated, so a person whose
+  // layout is consolidated never got the padding and the header jumped on the first flip where scrollbars take width.
+  // Over file:// the board always boots in the tab view, so this clears the measurement, enters consolidated, and
+  // measures there. On an overlay-scrollbar machine the width is 0 and only the attribute arm can red.
+  {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.goto('file://' + PAGE);
+    await measure(page, 'consolidated', false);
+    const got = await page.evaluate(() => {
+      const root = document.documentElement;
+      root.removeAttribute('data-scrollbar-measured');
+      root.style.removeProperty('--scrollbar-width');
+      window.kosmosMeasureScrollbarWidth();
+      return { measured: root.hasAttribute('data-scrollbar-measured'), width: getComputedStyle(root).getPropertyValue('--scrollbar-width').trim() };
+    });
+    const cons = await measure(page, 'consolidated', false);
+    const tabs = await measure(page, 'tabs', false);
+    if (!got.measured) problems.push('1440px booted in consolidated: the scrollbar width is not measured there, so its header never gets the #5379 padding');
+    else console.log(`  PASS  1440px booted in consolidated: the scrollbar width is measured there (${got.width})`);
+    for (const k of ['youX', 'tabsX']) {
+      if (cons[k] !== tabs[k]) problems.push(`1440px booted in consolidated: ${k} is ${cons[k]} in consolidated and ${tabs[k]} in the tab view (scrollbar width ${got.width})`);
+    }
+    await page.close();
+  }
+
   // CONTROL, below 960px: only the tab view exists there and it keeps its own spacing
   // (the fix is scoped to where views can be switched). If this reads the wide numbers,
   // the scope leaked and the narrow header changed with nobody asking.
