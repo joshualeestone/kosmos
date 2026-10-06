@@ -219,3 +219,18 @@ test("#5429 route: when the account's list cannot be read it fails open, as the 
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(plist(name), /gpt-6/);
 }));
+
+test('#5429 review 2: when the switch is partial (the picked Claude account could not be applied), the picked model is still named', async () => {
+  const name = born('srv-sm-partial');
+  await switchTo(name, { provider: 'google' });
+  const real = create.setProvider;
+  // The real switch runs; its answer is marked partial, as the engine does when the picked Claude account is refused.
+  create.setProvider = (...a) => { const w = real(...a); return { ...w, outcome: create.OUTCOME.PARTIAL, because: 'srv-sm-partial is switched to Claude, on your main Claude account: it could not be moved to b@example.com (test).' }; };
+  let r;
+  try { r = await switchTo(name, { provider: 'anthropic', model: 'opus55' }); } finally { create.setProvider = real; }
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial');
+  assert.equal(r.body.model && r.body.model.label, 'Claude Opus 5.5', 'Runs on can name it');
+  assert.match(r.body.because, /It runs on Claude Opus 5\.5\./, r.body.because);
+  assert.match(plist(name), /claude-opus-5-5/, 'the model was written');
+});

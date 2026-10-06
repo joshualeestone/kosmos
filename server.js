@@ -8402,7 +8402,8 @@ const server = http.createServer(async (req, res) => {
             outcome: 'partial',
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
-            because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
           return;
