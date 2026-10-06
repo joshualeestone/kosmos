@@ -133,3 +133,22 @@ test('#5340 review 3: a member whose instructions cannot be updated is counted, 
   assert.equal(j.notUpdated, 1, 'a member whose instructions could not be written was not counted: ' + JSON.stringify(j));
   assert.ok(!fs.readFileSync(file, 'utf8').includes('Ops Room New'), 'CONTROL: the file really was not updated');
 });
+
+test('#5340 rebase review: a move changes the folder and nothing else on the project (a role here, a repeating task survive)', async () => {
+  const old = folder('Keep Old');
+  const p = projects.create({ name: 'Keeper', folder: old });
+  projects.mutate(p.id, (rec) => ({ ...rec, rolesHere: { mara: 'writes the weekly digest' },
+    tasks: [{ number: 1, sentence: 'post the weekly digest', repeat: { every: 'week', day: 1, at: '09:00' },
+      lastRunAt: '2026-10-05T14:00:00.000Z', parts: [{ id: 1, sentence: 'post the weekly digest' }] }] }));
+  const before = stored(p.id);
+  const now = path.join(KEEP, 'Keep New');
+  fs.renameSync(old, now);
+  const r = await put(p.id, { folder: now }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  const after = stored(p.id);
+  const strip = (rec) => { const { folder: _f, updatedAt: _u, ...rest } = rec; return rest; };
+  assert.equal(after.folder, now);
+  assert.deepEqual(strip(after), strip(before), 'a move changed more than the folder');
+  assert.deepEqual(after.rolesHere, { mara: 'writes the weekly digest' }, 'fixture: the role here was not stored');
+  assert.equal(after.tasks[0].lastRunAt, '2026-10-05T14:00:00.000Z', 'fixture: the repeating task was not stored');
+});
