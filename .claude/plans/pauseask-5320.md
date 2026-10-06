@@ -15,12 +15,16 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
   also press Pause beside the project's name, at the top of its page), and pause it if they say yes. If they mean only
   some tasks, put those on hold: `kosmos task hold <project-id> <task-number>`."
   Review 1: not "in the room" (the request can come directly). Review 2: say what to do on a yes. Review 3: the Pause
-  pointer is given while asking (afterwards the button reads Resume), "your person" not "they", and a no has a verb.
+  pointer is given while asking (afterwards the button reads Resume), "your person" not "they", and some-tasks has a
+  verb. Review 4: a press on the screen is not announced to the room, so the agent is told nothing more is needed if
+  they press it; and a plain no means leave it.
 - Delivery: part 1 (#5409, merged) owes a running member a re-read when its block is next rewritten (a task or
   membership change) and the rule is new there. Until then it keeps the old pointer ("it is on the project's page"),
   which is still true.
 
 ## Ordering
+The PR says so in its body: its merge-order test is red BY DESIGN until #5395 is on main; after #5395 lands it needs
+a fresh CI run on the new main (/fresh-ci), not a re-run.
 Do NOT merge before #5395: the line names a button that only exists once it lands. ENFORCED by a test (review 1): it
 reads web/index.html for id="pj-head-pause" within 600 bytes after id="pj-one-name" (beside the name), and checks
 paintHeadPause alone (to its closing brace; review 3) names it with 'Pause' and 'Resume' (review 2: not one pinned line), so it is red on main until #5395 lands and
