@@ -150,6 +150,11 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   before the tell arrives. The full fix attaches the owed line to whatever message resumes the agent (the delivery
   path), which is a follow-up card, not this off-by-default PR.
 
+- Review 14 (blind, opus): every way a person gives work counts for "stays during the limit" (personGiveAt: a page
+  move, a part added on the page, a task created on the page with the agent on it); red when either path is dropped.
+- Review 15 (blind, opus): the limit clock is saved with the Assigner memory and needs two missed readings to clear, so
+  a restart or one misread tick cannot let a person's queued work move (red without saving, red without the debounce).
+  This replaces the earlier "limitedSince is not saved" note.
+
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
-- `limitedSince` is not saved across a board restart, so a restart restarts the 15 minutes (the waiting direction).
