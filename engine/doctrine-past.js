@@ -4,6 +4,7 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
+  { version: 25, length: 24675, sha256: 'f0ceb95a6b07007f38d0df415b7914b34cd959402523f384ab1e5968807b406c' },
   { version: 25, length: 24406, sha256: '633af970178b1b58156aa020e918c828925ebf2fa402e26f4e5917073b9220ab' },
   { version: 24, length: 23939, sha256: 'a660bad12cb659d6a421a32cc7d5e305c2370ec5d9036a89f8d539a21a6371f5' },
   { version: 24, length: 23626, sha256: '3723049af186a18308fd38251bdeb80ec56a0e751007c08fd55bacfe8cbded21' },
@@ -50,6 +51,7 @@ blocks.sections = [
   '2a1ad03c788e2dc57f246851b0e816f1486640823570f611bcd6ddfba2b1f127',
   '2ae6a3f9772bd0615d1db5085975451e2f3cfa677d7c1ef2b76a1b54aafdeb3c',
   '2bc15502eb0c26e74c22d65bd4b4692120c4da1ac115bd4c18a31fe62f07ec30',
+  '2beb3286aa01570f0872758e2318829ffd7be33c87dc30f1b23eb9f3e9979b75',
   '2fafb745956d54a44a8c94a4e7b8958689dccbdebb5e5e8bbfbd08632e3549f2',
   '32cfdfe445ba958f937c1fedd18c0b14621b1043c0f6e7eefe7296fe600e5c83',
   '44effa1e361a9cbfe70ac16d2cf4921840513dc0627dfdf4f396f7e2540e5a17',

@@ -431,14 +431,20 @@ const BLOCK = [
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
-  'each time: a report every morning, a check every hour. Add it as above, then',
-  'set when it runs:',
+  'each time: a report every morning, a check every hour. Add it as above (or use',
+  'the task you were given), with checks for what each run should find, then set',
+  'when it is due:',
   '',
   '`kosmos task repeat <project-id> <task-number> daily --at 09:00`',
   '',
-  '(or `hourly`, or `weekly --on mon --at 09:00`). After each run, say what it',
-  'found: `kosmos task ran <project-id> <task-number> "what this run found"`. A',
-  'repeating task is never marked built; it stops when someone closes it.',
+  '(or `hourly`, or `weekly --on mon --at 09:00`). **Kosmos shows when each run is',
+  'due; it does not start the run for you.** Run it when it is due, and if nothing',
+  'will bring you back at that time, tell the person so. After each run, say what',
+  'it found and how the checks went:',
+  '',
+  '`kosmos task ran <project-id> <task-number> "what this run found"`',
+  '',
+  'A repeating task is never marked built; it stops when someone closes it.',
   '',
   'A question, a quick answer or small talk is not a task. If you are on no',
   'project, or the work belongs to none of yours, do not guess another: write the',
@@ -913,16 +919,24 @@ function block() {
  *     checks (the editable-checks slice waits until after the beta).
  *  25. kosmos#4787 slice 1b: under `### Put the work on a task first`, a paragraph for work that comes back on a
  *     schedule: one task that repeats (`kosmos task repeat`, slice 1, #5389), a `kosmos task ran` after each run, and
- *     never marked built (the board refuses that for a repeating task). SAME HEADING, so it reaches existing agents
- *     through doctrine-past's earlier-version match, as v23 set up. MEASURED before merge with claude -p on throwaway
+ *     never marked built (the board refuses that for a repeating task). SAME HEADING: an agent holding an unedited
+ *     copy of an earlier version is offered it through the consented dialog (doctrine-past, as v23 set up); one whose
+ *     copy was edited, or has Windows line endings, is offered only missing headings, so not this. MEASURED before merge with claude -p on throwaway
  *     agents built from this block and a real Your projects section, a stand-in kosmos logging every call (every CLI
  *     path rewritten to it, so no run could reach a board): recurring requests (every morning at 8, hourly, every
  *     Monday at 9) 7/7 filed a task and set the repeat in the exact form (daily --at 08:00, hourly, weekly --on mon
  *     --at 09:00), 0/7 marked it built; a one-off blurb 0/2 and small talk 0/1 set anything. The v24 block (control)
  *     on the same recurring requests: 4/4 filed a task, 0/4 set a repeat the CLI accepts (3 guessed forms it refuses:
  *     "every 1h", "daily 08:00 America/Chicago", "every Monday 09:00 America/Chicago"; 1 set none). Claude only.
- *     WEAKEST PREMISE, NAMED: the test agents also read this Mac's own global instructions (both arms alike), and
- *     Codex and Gemini agents were not measured.
+ *     Review 1 then said plainly that Kosmos shows when a run is due and does not start it (it has no scheduler; the
+ *     card ruled one out), and that the checks are what each run should find. That wording, same requests: 7/7 filed
+ *     and set the repeat in the exact form, 0/7 marked it built; read reply by reply, 0/7 told the person Kosmos would
+ *     run the job, the replies say the agent will, and two set up their own schedule (a seven-day one, and a cloud
+ *     routine whose limits it named); a one-off 0/1 and small talk 0/1 set anything.
+ *     WEAKEST PREMISE, NAMED: nothing here shows a run actually happening when due: Kosmos does not start one, and the
+ *     schedules two agents made came from tools this Mac's agents have that a new Kosmos agent may not (slice 2, the
+ *     missed-run alert, is what makes a missed run visible). The test agents also read this Mac's own global
+ *     instructions (both arms alike), and Codex and Gemini agents were not measured.
  */
 const DOCTRINE_VERSION = 25;
 
