@@ -152,7 +152,9 @@ function sweep(o) {
         let state = null;
         let wait = false;
         try { const r = o.deliver(item.reviewer, tellText(item, o.nameOf), o.roster); state = r && r.state; wait = Boolean(r && (r.held === true || r.busy === true)); }
-        catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+        /* Review 13, as the reply nudge (its review 13) and chat.js say: a throw may have arrived (the text may be in the
+           pane), so it counts as unconfirmed, i.e. told, never typed again. */
+        catch { state = (o.DELIVERY && o.DELIVERY.UNCONFIRMED) || 'unconfirmed'; }
         /* Review 1, as the nudge and the reply nudge: a quota hold or a pane still placing another message typed nothing,
            so no try is spent (the slot is told after the reset, not given up on). */
         if (wait) { results.push({ ...item, act: 'held', because: 'the reviewer cannot take a line just now', delivery: state }); continue; }

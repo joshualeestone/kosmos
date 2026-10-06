@@ -296,3 +296,15 @@ test('#4787 slice 3 review 11: the reviewer\'s own idle report decides "just wen
   pass(NOW - 120000, new Map());
   assert.equal(typed, 1, 'its report says two minutes: told, with no two-pass record needed');
 });
+
+test('#4787 slice 3 review 13: a typing path that throws may have typed, so the line is never typed again', () => {
+  const { id, n } = fixture('ada');
+  const book = new Map();
+  let calls = 0;
+  for (let m = 0; m < 4; m += 1) {
+    mt.sweep({ projects: only(id), roster, now: NOW + m * 60000, allowed: true, limit: { on: false }, sent: [], book, idleSince: () => NOW - 600000, DELIVERY,
+      deliver: () => { calls += 1; throw new Error('pane went away mid-paste'); } });
+  }
+  assert.equal(calls, 1);
+  assert.ok(stored(id, n).missToldAt, 'told (unconfirmed)');
+});

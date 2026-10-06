@@ -35,6 +35,8 @@ Review 11 (fixed): "only just went idle" is judged by the reviewer's own idle re
 
 Review 12 (fixed): a reviewer taken off the project or switched off in it is a lasting hold, so each such slot is recorded once as not reached (never typed), and the task page lists that reviewer with "(left the project)"; "none" and "me" are read in any case; the close refusal says "set this task to repeat, or chose who reviews it".
 
+Review 13 (fixed): a typing path that throws may already have typed (chat.js), so it counts as unconfirmed (told, counted in the hour), never typed again, as the reply nudge does.
+
 Decided:
 - One reviewer, not a list: a list has nobody accountable.
 - The person is told through Needs Your Decision, not a phone push: a push needs a new coordinator kind (#718), a relay change. Follow-up if this is too quiet.
