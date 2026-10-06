@@ -13,11 +13,12 @@ function envDelete(env, name) {
   return env;
 }
 
-/** Set `name` to `value` as ONE key: the inherited spelling if there was one, else `name` as given. */
+/** Set `name` to `value` as ONE key, spelled as given: every inherited spelling goes first. The canonical spelling,
+    not the inherited one, because code later in the launch reads these names back by their usual spelling
+    (win32keyed reads env.GEMINI_API_KEY to decide NO_BROWSER and the key pin). */
 function envSet(env, name, value) {
-  const variants = Object.keys(env).filter((k) => k.toUpperCase() === String(name).toUpperCase());
-  for (const k of variants.slice(1)) delete env[k];
-  env[variants[0] || name] = value;
+  envDelete(env, name);
+  env[name] = value;
   return env;
 }
 

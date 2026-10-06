@@ -32,17 +32,17 @@ const keysOf = (env, name) => Object.keys(env).filter((k) => k.toUpperCase() ===
 test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives in; claude gets none (#3380)', () => {
   for (const runner of ['codex', 'gemini', 'grok', 'antigravity']) {
     const env = launcher.childEnv({ psexecutionpolicypreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
-    assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['psexecutionpolicypreference'], runner + ': two keys');
-    assert.equal(env.psexecutionpolicypreference, 'Bypass', runner);
+    assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': one key, spelled as usual');
+    assert.equal(env.PSExecutionPolicyPreference, 'Bypass', runner);
     assert.equal(launcher.childEnv({}, 't', null, 'C:\\K\\bin', runner).PSExecutionPolicyPreference, 'Bypass', runner + ' (no key before)');
     // Node on Windows sorts env names and keeps the first case-insensitive match, so an inherited UPPERCASE key used to
     // win over the Bypass this added beside it.
     const upper = launcher.childEnv({ PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
-    assert.deepEqual(keysOf(upper, 'PSExecutionPolicyPreference'), ['PSEXECUTIONPOLICYPREFERENCE'], runner + ': uppercase');
-    assert.equal(upper.PSEXECUTIONPOLICYPREFERENCE, 'Bypass', runner + ': uppercase');
+    assert.deepEqual(keysOf(upper, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': uppercase');
+    assert.equal(upper.PSExecutionPolicyPreference, 'Bypass', runner + ': uppercase');
     const two = launcher.childEnv({ psexecutionpolicypreference: 'RemoteSigned', PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
     assert.equal(keysOf(two, 'PSExecutionPolicyPreference').length, 1, runner + ': two spellings in, one key out');
-    assert.equal(two[keysOf(two, 'PSExecutionPolicyPreference')[0]], 'Bypass', runner + ': two spellings in');
+    assert.equal(two.PSExecutionPolicyPreference, 'Bypass', runner + ': two spellings in');
     const same = launcher.childEnv({ PSExecutionPolicyPreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
     assert.deepEqual(keysOf(same, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': the usual spelling');
     assert.equal(same.PSExecutionPolicyPreference, 'Bypass', runner);
@@ -61,20 +61,24 @@ test('#5358 review 9: every name childEnv removes or sets is matched whatever it
   assert.deepEqual(keysOf(dflt, 'CLAUDECODE'), [], 'a child-session marker survived in another spelling');
   // A named account and a token are set as ONE key each.
   const named = launcher.childEnv({ Claude_Config_Dir: 'C:\\engine', kosmos_agent_token: 'x' }, 'mine', 'C:\\acct', null, 'claude');
-  assert.deepEqual(keysOf(named, 'CLAUDE_CONFIG_DIR').map((k) => named[k]), ['C:\\acct']);
-  assert.deepEqual(keysOf(named, 'KOSMOS_AGENT_TOKEN').map((k) => named[k]), ['mine']);
+  assert.deepEqual(keysOf(named, 'CLAUDE_CONFIG_DIR'), ['CLAUDE_CONFIG_DIR']);
+  assert.equal(named.CLAUDE_CONFIG_DIR, 'C:\\acct');
+  assert.deepEqual(keysOf(named, 'KOSMOS_AGENT_TOKEN'), ['KOSMOS_AGENT_TOKEN']);
+  assert.equal(named.KOSMOS_AGENT_TOKEN, 'mine');
   const codex = launcher.childEnv({ codex_home: 'C:\\old' }, 't', 'C:\\h\\.codex-w', null, 'codex');
-  assert.deepEqual(keysOf(codex, 'CODEX_HOME').map((k) => codex[k]), ['C:\\h\\.codex-w']);
+  assert.deepEqual(keysOf(codex, 'CODEX_HOME'), ['CODEX_HOME']);
+  assert.equal(codex.CODEX_HOME, 'C:\\h\\.codex-w');
 });
 
 test('#5358 review 11: the shared helpers, and the Gemini/Grok/agy turn env, drop an account folder in any spelling', () => {
   const { envDelete, envSet } = require('./win32env');
   assert.deepEqual(envDelete({ Claude_Config_Dir: 'x', KEEP: '1' }, 'CLAUDE_CONFIG_DIR'), { KEEP: '1' });
   const one = envSet({ claude_config_dir: 'a', CLAUDE_CONFIG_DIR: 'b' }, 'CLAUDE_CONFIG_DIR', 'c');
-  assert.deepEqual(Object.keys(one).filter((k) => k.toUpperCase() === 'CLAUDE_CONFIG_DIR').map((k) => one[k]), ['c']);
+  assert.deepEqual(one, { CLAUDE_CONFIG_DIR: 'c' }, 'one key, spelled as given');
   // A named Gemini account through childEnv keeps one key, and the agy per-turn env then drops the Claude folder.
   const gem = launcher.childEnv({ gemini_cli_home: 'C:\\old' }, 't', 'C:\\h\\.gemini-w', null, 'gemini');
-  assert.deepEqual(keysOf(gem, 'GEMINI_CLI_HOME').map((k) => gem[k]), ['C:\\h\\.gemini-w'], 'one Gemini home, the named one');
+  assert.deepEqual(keysOf(gem, 'GEMINI_CLI_HOME'), ['GEMINI_CLI_HOME'], 'one Gemini home key, spelled as later code reads it');
+  assert.equal(gem.GEMINI_CLI_HOME, 'C:\\h\\.gemini-w');
   const turn = require('./win32agy').turnEnv({ Claude_Config_Dir: 'C:\\engine', PATH: 'x' });
   assert.deepEqual(keysOf(turn, 'CLAUDE_CONFIG_DIR'), [], 'the agy turn kept an oddly spelled Claude folder');
 });
@@ -135,7 +139,7 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
       assert.match(String(r.stdout), STUB, (/cygpath/.test(String(r.stderr)) ? 'kosmos was FOUND but its shim could not run: ' : 'kosmos was not found or did not answer: ') + said(r));
       const none = run(GIT_BASH, ['-c', 'kosmos --version'], baseEnv());
       assert.doesNotMatch(String(none.stdout), STUB, 'control: kosmos was found without the agent\'s PATH');
-    } finally { removeTree(z.root); }
+    } finally { try { removeTree(z.root); } catch { /* a leftover temp folder must never hide the arm's own result */ } }
   });
 
 test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and runs with Claude Code\'s flags; codex\'s PowerShell needs the agent\'s variable',

@@ -446,3 +446,19 @@ test('#5358: turnEnv sets and removes the key whatever spelling the environment 
   const s = keyed.turnEnv('grok', { xai_api_key: 'STALE' }, subAcct, { grokAccounts: mod, doorDir: null });
   assert.deepEqual(named(s, 'XAI_API_KEY'), [], 'a subscription account kept an inherited key');
 });
+
+test('#5358 review 13: a Gemini key the environment carried in another spelling still gets NO_BROWSER and one canonical key', () => {
+  const root = path.join(SANDBOX, 'genv-5358');
+  const acct = path.join(root, 'work1');
+  fs.mkdirSync(acct, { recursive: true });
+  fs.writeFileSync(path.join(acct, '.key'), 'ACCOUNT-KEY\n');
+  const mod = fakeAccounts(root, {});
+  const named = (env, n) => Object.keys(env).filter((k) => k.toUpperCase() === n);
+  for (const base of [{ GEMINI_API_KEY: 'OLD' }, { gemini_api_key: 'OLD' }]) {
+    const env = keyed.turnEnv('gemini', base, acct, { geminiAccounts: mod, doorDir: null, keyHome: null });
+    const spelled = Object.keys(base)[0];
+    assert.deepEqual(named(env, 'GEMINI_API_KEY'), ['GEMINI_API_KEY'], spelled + ': one key, spelled as the code reads it');
+    assert.equal(env.GEMINI_API_KEY, 'ACCOUNT-KEY', spelled);
+    assert.equal(env.NO_BROWSER, 'true', spelled + ': a keyed Gemini agent would wait on a browser login');
+  }
+});

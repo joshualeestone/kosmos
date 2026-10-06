@@ -29,7 +29,7 @@
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { envDelete } = require('./win32env');   // #5358: one key per name, whatever its case
+const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
 
 const RUNNER = 'antigravity';
 
@@ -115,8 +115,7 @@ function agyEnv(base, tmp) {
   env[pathKey] = env[pathKey] ? stub + path.win32.delimiter + env[pathKey] : stub;
   if (tmp) {
     try { fs.mkdirSync(tmp, { recursive: true }); } catch { /* agy falls back to its own */ }
-    for (const k of Object.keys(env)) if (k.toUpperCase() === 'TEMP' || k.toUpperCase() === 'TMP') delete env[k];
-    env.TEMP = tmp; env.TMP = tmp;
+    envSet(env, 'TEMP', tmp); envSet(env, 'TMP', tmp);
   }
   // A Claude variable an agy agent has no use for (win32launch.childEnv writes it for a named account), in any spelling.
   envDelete(env, 'CLAUDE_CONFIG_DIR');
@@ -296,7 +295,7 @@ function runAgyTurn(opts) {
 function turnEnv(base) {
   const env = Object.assign({}, base || {});
   envDelete(env, 'CLAUDE_CONFIG_DIR');
-  env.KOSMOS_PER_TURN = '1';
+  envSet(env, 'KOSMOS_PER_TURN', '1');
   return env;
 }
 
