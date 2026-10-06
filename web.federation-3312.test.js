@@ -53,11 +53,13 @@ function build(opts) {
   // Lift the join picker (pjJoinPickOptions/pjPaintJoinAgents) + addAgentsHtml it delegates to, so
   // the join-mode own-agent picker is covered like the create-mode one.
   const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('pjFedMessage'),
-    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('pjCopyInvite'),
+    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('copyTextOrdered'), lift('copyFocusStillOn'), lift('selectForCopy'), lift('copyRefusedLine'), lift('pjCopyInvite'),
     lift('addAgentsHtml'), lift('pjJoinPickOptions'), lift('pjPaintJoinAgents')].join('\n');
   // eslint-disable-next-line no-new-func
   const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView', 'roleLine', 'ROLE_TITLES', 'discTint', 'discInk', 'initials', 'PJ_ADD_AGENTS',
-    'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = []; var PJ_COPY_TIMER = null;\n' + src +
+    // kosmos#5275: pjCopyInvite now goes through copyTextOrdered, whose first step (select-and-copy) needs a real DOM;
+    // this stub doc has none, so that step reports a refusal and the clipboard path below it is what these tests drive.
+    'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = []; var PJ_COPY_TIMER = null; var PJ_COPY_BUSY = ""; var copyTextViaExec = () => false; var COPY_LATE_OLDER = "older"; function copyKeysWord() { return "Command C"; } function copyKeysGlyph() { return "\\u2318C"; } function selectAllKeysWord() { return "Command A"; }\n' + src +
     '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, pjResetFederation, pjCopyInvite, pjJoinPickOptions, pjPaintJoinAgents, get verified() { return PJ_JOIN_VERIFIED; }, get joinAgents() { return PJ_JOIN_ADD_AGENTS; }, get copyTimer() { return PJ_COPY_TIMER; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, setJoinAgents: (a) => { PJ_JOIN_ADD_AGENTS = a; }, ref: pjFederationRef };');
   const doc = makeDoc();
   const fieldBadCalls = [];
@@ -355,4 +357,46 @@ test('#4649 slice B: Remove and Withdraw get the owner-list sentences, not the i
   assert.equal(s.pjFedMessage({ reason: 'not-owner' }, 'x'), 'Only the owner of this project can invite people to it.');
   assert.equal(s.pjFedMessage({ reason: 'self-shared' }, 'x', { change: true }), 'This project is shared with your other computers, so its outside members cannot be changed here.');
   assert.match(s.pjFedMessage({ reason: 'self-shared' }, 'x'), /cannot be shared with other people yet/);
+});
+
+// #5275 slice 2 review 2: the create screen's refusal, through the page's real selectForCopy and copyRefusedLine.
+// (The three key helpers are one-liners, which lift() cannot bound, so build() defines them with the Mac values.)
+// Focus still on the button: the code is focused and selected, and the line names the copy keys. Focus moved on
+// (the person is typing in another field): the code is selected where it is, focus stays put, and the line says to
+// click the code and select all first. Each branch is the other's control.
+function refusalRig(focusOn) {
+  const calls = [];
+  const s = build({ navigator: { clipboard: { writeText: () => Promise.reject(new Error('Write permission denied.')) } } });
+  const code = s.doc.getElementById('pj-invite-code');
+  const btn = s.doc.getElementById('pj-invite-copy');
+  const other = s.doc.getElementById('pj-name');
+  code.value = 'THE-CODE-9';
+  code.focus = () => { calls.push('focus'); s.doc.activeElement = code; };
+  code.select = () => calls.push('select');
+  code.setSelectionRange = (a, b) => calls.push('range ' + a + '-' + b);
+  s.doc.body = {};
+  s.doc.activeElement = focusOn === 'button' ? btn : other;
+  return { s, calls, code, other };
+}
+test('#5275: a refused copy with focus on the button focuses and selects the code, and names the copy keys', async () => {
+  const { s, calls } = refusalRig('button');
+  await s.pjCopyInvite();
+  assert.deepEqual(calls, ['focus', 'select']);
+  assert.equal(s.doc.getElementById('pj-invite-status').textContent, 'Kosmos could not copy it. Select the code and press Command C.');
+  assert.equal(s.doc.getElementById('pj-invite-copy').textContent, 'Press \u2318C to copy');
+});
+test('#5275: a refused copy after focus moved on selects the code in place, leaves focus, and says to click it first', async () => {
+  const { s, calls, other } = refusalRig('elsewhere');
+  await s.pjCopyInvite();
+  assert.deepEqual(calls, ['range 0-10'], 'select() would have pulled focus into the code');
+  assert.equal(s.doc.activeElement, other, 'focus left the field the person was in');
+  assert.equal(s.doc.getElementById('pj-invite-status').textContent, 'Kosmos could not copy it. Click the code, press Command A, then Command C.');
+  assert.equal(s.doc.getElementById('pj-invite-copy').textContent, 'Copy');
+});
+test('#5275 review 3: a refused copy while focus is already in the code itself counts as in: selected there, and the copy keys are named', async () => {
+  const { s, calls, code } = refusalRig('elsewhere');
+  s.doc.activeElement = code;   // the person clicked into the code during the wait
+  await s.pjCopyInvite();
+  assert.deepEqual(calls, ['focus', 'select']);
+  assert.equal(s.doc.getElementById('pj-invite-status').textContent, 'Kosmos could not copy it. Select the code and press Command C.');
 });
