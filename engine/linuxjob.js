@@ -224,7 +224,9 @@ StandardError=append:${unitSafe(log, 'the log path')}
 # from this unit's cgroup; the default KillMode (control-group) would take every agent's session down with it.
 KillMode=process
 Restart=always
-RestartSec=5
+# 10 s, launchd's default throttle: a supervisor that exits at once on a lasting fault (a missing runner) restarts
+# at the Mac's pace, not every 5 s into start.log forever (#4918 review 7).
+RestartSec=10
 
 [Install]
 WantedBy=default.target

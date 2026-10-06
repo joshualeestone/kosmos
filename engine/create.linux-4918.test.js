@@ -26,11 +26,22 @@ delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
 const create = require('./create');
 const linuxjob = require('./linuxjob');
 
+/* review 7: create's systemd calls go through create's own runner (linuxRun). This fake behaves like the real one,
+   execFileSync: it RETURNS stdout on exit 0 and THROWS (status, stdout, stderr) otherwise. A fake that returned
+   { ok:false } for a failure is the shape that hid a crash on the first agent of every Linux board. */
 let systemd = () => ({ ok: true, stdout: '' });
 const calls = [];
-linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return systemd(cmd, args); });
-create.setRunner(() => ({ ok: true, stdout: '' }));
+create.setRunner((file, args) => {
+  if (file !== 'systemctl' && file !== 'loginctl') return { ok: true, stdout: '' };
+  calls.push([file, ...args]);
+  const r = systemd(file, args);
+  if (r.ok) return { ok: true, stdout: r.stdout || '' };
+  const err = new Error('Command failed: ' + file + ' ' + args.join(' '));
+  err.status = r.code == null ? 1 : r.code; err.stdout = r.stdout || ''; err.stderr = r.stderr || '';
+  throw err;
+});
 create.setDryRun(false);
+linuxjob.setRunnerForTests(() => { throw new Error('create went around its own runner to linuxjob\'s'); });
 
 test.after(() => {
   linuxjob.setRunnerForTests(null);
@@ -39,8 +50,10 @@ test.after(() => {
 });
 
 const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+// A fresh name: is-active answers "inactive" with exit 3, exactly as systemctl does.
 const lingerIs = (yes) => (cmd, args) => (cmd === 'loginctl' && args[0] === 'show-user'
   ? { ok: true, stdout: yes ? 'Linger=yes\n' : 'Linger=no\n' }
+  : (cmd === 'systemctl' && args[1] === 'is-active') ? { ok: false, code: 3, stdout: 'inactive\n' }
   : { ok: true, stdout: '' });
 
 test('#4918 create on Linux writes the unit under the sandbox and starts it through systemd', () => {
@@ -70,4 +83,11 @@ test('#4918 a start systemd refuses is not reported as created', () => {
   systemd = (cmd, args) => (args[1] === 'enable' ? { ok: false, stderr: 'Unit file is not valid' } : lingerIs(true)(cmd, args));
   const r = create.createAgent({ ...BINS, name: 'linbot3', role: 'pm', platform: 'linux' });
   assert.notEqual(r.outcome, create.OUTCOME.CREATED, 'a refused start reads as created: ' + JSON.stringify(r));
+});
+
+test('#4918 review 7: a name systemd still runs with no unit file left gets the command that frees it', () => {
+  systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' } : lingerIs(true)(cmd, args));
+  const r = create.createAgent({ ...BINS, name: 'ghostbot', role: 'pm', platform: 'linux' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(r));
+  assert.match(r.because, /systemctl --user stop kosmos-agent-ghostbot\.service/);
 });
