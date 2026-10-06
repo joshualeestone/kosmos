@@ -1,4 +1,4 @@
-// Browser-check-surface: login-adv-go acct-expiring acct-expiring-line acct-reauth-main acct-land
+// Browser-check-surface: login-adv-go acct-expiring acct-expiring-line acct-reauth-main acct-land acct-ended adv-covered
 'use strict';
 
 /**
@@ -158,6 +158,10 @@ function readRows(page) {
     chk(land.inView, theme + ' L1: the row is in view');
     chk(land.uncovered, theme + ' L1: nothing covers its Sign in again', JSON.stringify(land));
     chk(!land.noticesShown, theme + ' N2: on AI Models the login notices step aside');
+    /* Review 3: the other order. Already on AI Models, the notice repaints (its count dropped): it steps aside too. */
+    await page.evaluate(({ a, b, c }) => paintLoginAdvisories([{ ...a, daysLeft: 1, severity: 'urgent' }, b, c]), { a: ADV_SOON, b: ADV_ENDED, c: ADV_GONE });
+    const later = await page.evaluate(() => [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length);
+    chk(later === 0, theme + ' N2: a notice repainted while AI Models shows steps aside too', String(later));
     chk(land.focus, theme + ' L1: its Sign in again has focus');
 
     const rows = await readRows(page);
@@ -266,6 +270,9 @@ function readRows(page) {
     await pt.clock.runFor(500);
     await pt.waitForSelector('#set-accounts .acct-box.acct-land', { timeout: 5000 }).catch(() => {});
     const before = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
+    // Review 3: the list's own follow-up repaint (a pending sign-in check) rebuilds the rows: the ring is drawn again.
+    const across = await pt.evaluate(async () => { await paintAccounts({ followUp: 1 }); return document.querySelectorAll('#set-accounts .acct-box.acct-land').length; });
+    chk(across === 1, 'T1: the ring survives the list\'s own follow-up repaint', String(across));
     await pt.clock.runFor(21000);
     const after = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
     chk(before === 1 && after === 0, 'T1: ringed on arrival, and the ring goes after its time with no repaint', before + ' -> ' + after);
