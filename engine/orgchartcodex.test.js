@@ -456,3 +456,16 @@ test('#5346 step 2: both no-reader sentences lead with Claude, name ChatGPT only
   assert.equal(o.NO_MODEL, o.noModelFor(process.platform), 'NO_MODEL is the sentence for this computer');
   assert.equal(keys.OFF_WHY.google, keys.googleOffWhyFor(process.platform));
 });
+
+test('#5346 step 2 review 2: on Windows, "ChatGPT does not read here yet" does not hide a key provider\'s reason', () => {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), keys.OFF_WHY.google, 'the Gemini reason (which names Claude) was hidden by WHY_WINDOWS');
+    keys.setAccounts(() => []);
+    assert.equal(o.currentReader(), null);
+    assert.equal(o.whyNoReader(), c.WHY_WINDOWS, 'CONTROL: alone, the Windows ChatGPT reason is shown');
+  } finally { Object.defineProperty(process, 'platform', real); keys.setAccounts(() => []); }
+});
