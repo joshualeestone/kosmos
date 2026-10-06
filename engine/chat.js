@@ -1719,7 +1719,9 @@ function movedNoteFor(sessionName, raw, opts) {
   if (opts && opts.movedNote === false) return null;
   /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
      allowed commands match ^/), and a /clear would erase the note anyway. */
-  if (raw.trim().startsWith('/')) return null;
+  /* Review 4: and "!", Claude Code's shell mode, which a note in front would turn into a prompt too. Trimmed, because
+     cleanMessage trims what is typed, so " /clear" is a command as typed. */
+  if (/^[/!]/.test(raw.trim())) return null;
   /* Review 2 BLOCKER: never on a menu answer. The pane takes a bare digit there (Claude Code's limit menu, the moment
      this agent is owed a note), the rule dmNoteMayRide keeps for the reaction note; widened here to any single short
      token (a digit, y, n, esc), which is a keystroke answer, not a turn. The note rides the next real line. */
@@ -1760,7 +1762,7 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
-  const m = card && card.isNamedOurs === true ? movedNoteFor(sessionName, raw, opts) : null;   // #5400
+  const m = movedNoteFor(sessionName, raw, opts);   // #5400 (a card that is not ours is refused before any typing)
   return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
 }
 

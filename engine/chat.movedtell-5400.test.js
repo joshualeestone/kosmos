@@ -234,3 +234,28 @@ test('review 3: the restart-for-handoff route passes { movedNote: false } (serve
   assert.ok(line, 'the restart-for-handoff delivery moved; restate this pin');
   assert.match(line, /\{ movedNote: false \}/, 'the restart-for-handoff request would carry the note into a session that is about to end');
 });
+
+/* Review 4 (sonnet, blind). */
+test('review 4: a command with leading space, and a shell-mode "!" line, are typed exactly', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    for (const [sent, typed] of [['   /compact keep the task list', '/compact keep the task list'], ['! git status --short', '! git status --short']]) {
+      const tmux = arm([ok(), ok()]);
+      chat.deliver('casey', sent, board.agents);
+      assert.equal(tmux.pastedText(), typed, JSON.stringify(sent));
+    }
+    assert.equal(told.length, 0);
+  });
+});
+test('review 4: the short-token bound is 12: a 12-character token gets no note, a 13-character one does', () => {
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const told = hook([ITEM]);
+    let tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'abcdefghijkl', board.agents);
+    assert.equal(tmux.pastedText(), 'abcdefghijkl');
+    tmux = arm([ok(), ok()]);
+    chat.deliver('casey', 'abcdefghijklm', board.agents);
+    assert.ok(tmux.pastedText().includes(ITEM.phrase), 'a 13-character token did not carry the note');
+    assert.equal(told.length, 1);
+  });
+});
