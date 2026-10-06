@@ -90,5 +90,8 @@ test('#4787 slice 2 review 5: an open Tasks view reads again once a shown slot p
   assert.equal(stale([row], at(2026, 10, 6, 9, 15), at(2026, 10, 6, 9, 15) + 10000), false, 'at most one read per 30 seconds');
   // Wired: the board poll's tskRosterChanged asks it, with the time of the last good read.
   assert.match(page.liftAll(SCRIPT, ['tskRosterChanged']), /tskRepeatStale\(TSK\.data, TSK\.readAt, Date\.now\(\)\)\) \{ tskLoad\(\); return; \}/);
-  assert.match(SCRIPT, /TSK\.data = body\.tasks;\n\s+TSK\.readAt = Date\.now\(\);/, 'a good read stamps readAt');
+  const load = page.liftAll(SCRIPT, ['tskLoad']);
+  const stamp = load.indexOf('TSK.readAt = Date.now();');
+  assert.ok(stamp > 0 && stamp < load.indexOf('await fetch('), 'review 6: a read stamps readAt when it STARTS, before it fetches');
+  assert.equal(load.split('TSK.readAt =').length, 2, 'and only there');
 });

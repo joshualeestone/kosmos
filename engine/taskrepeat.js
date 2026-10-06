@@ -242,8 +242,11 @@ function fieldsOf(t, now = Date.now()) {
   if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};
   const nextAt = nextAfter(t.repeat, now);
   const out = { repeatWords: describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: whenWords(nextAt, now) };
-  /* review 5: when the next slot would become missed, so an open screen knows when to read again. */
-  if (nextAt !== null) out.repeatMissAfter = nextAt + missGraceFor(t.repeat);
+  /* review 5: when the next slot would become missed, so an open screen knows when to read again. Review 6: the first
+     slot whose grace has NOT yet passed (read at 09:05 for a 9am slot, that is 09:15 today, not 09:15 tomorrow). */
+  const grace = missGraceFor(t.repeat);
+  const pending = nextAfter(t.repeat, now - grace);
+  if (pending !== null) out.repeatMissAfter = pending + grace;
   /* slice 2: the missed runs, in the board's own time like the next run. */
   const missed = missedRuns(t, now);
   if (missed) Object.assign(out, { repeatMissed: missed.count, repeatMissedMore: missed.more, repeatMissedAt: missed.lastAt, repeatMissedWords: whenWords(missed.lastAt, now) });
