@@ -53,7 +53,7 @@ function build(opts) {
   // Lift the join picker (pjJoinPickOptions/pjPaintJoinAgents) + addAgentsHtml it delegates to, so
   // the join-mode own-agent picker is covered like the create-mode one.
   const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('pjFedMessage'),
-    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('copyTextOrdered'), lift('pjCopyInvite'),
+    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('copyTextOrdered'), lift('copyFocusStillOn'), lift('pjCopyInvite'),
     lift('addAgentsHtml'), lift('pjJoinPickOptions'), lift('pjPaintJoinAgents')].join('\n');
   // eslint-disable-next-line no-new-func
   const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView', 'roleLine', 'ROLE_TITLES', 'discTint', 'discInk', 'initials', 'PJ_ADD_AGENTS',
