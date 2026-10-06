@@ -288,6 +288,16 @@ test('#5415: a sent comment links to the post it is on; an unsent comment does n
   assert.equal((t.match(/on the post at /g) || []).length, 1);
 });
 
+test('#5415: a comment that is not in the community (unconfirmed) gets no link, though its post id is valid', (tc) => {
+  onSite(tc);
+  // Every comment carries a valid post id (publish requires one), so for comments the state alone keeps a link off.
+  const c = comment('ava', 'Unconfirmed comment.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'pending', attempted: true, agent: 'ava', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
+  const it = status.itemsFor('ava').find((x) => x.title === 'Unconfirmed comment.');
+  assert.equal(it.state, 'unconfirmed', 'fixture');
+  assert.equal(it.link, undefined, 'an unconfirmed comment was given a link');
+});
+
 test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed and refused do not', (tc) => {
   onSite(tc);
   const a = post('ava', 'Sent then refused');
