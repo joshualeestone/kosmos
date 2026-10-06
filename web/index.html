@@ -69654,7 +69654,9 @@ async function pjTogglePause(btn, msg) {
   for (const id of ['pj-one-pause-msg', 'pj-head-pause-msg']) { const m = document.getElementById(id); if (m) m.textContent = ''; }
   msg.textContent = '';
   msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
-  btn.disabled = true;
+  // review 4: both buttons go busy together, so neither looks live while the other's press is answered.
+  const both = ['pj-head-pause', 'pj-one-pause'].map((id) => document.getElementById(id)).filter(Boolean);
+  for (const b of both) b.disabled = true;
   PJ_PAUSE_BUSY = true;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
@@ -69662,15 +69664,15 @@ async function pjTogglePause(btn, msg) {
       body: JSON.stringify({ paused: p.paused !== true }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) { msg.textContent = body.error || 'we could not change that project'; return; }
+    if (!res.ok) { if (PJ_CURRENT === p.id) msg.textContent = body.error || 'we could not change that project'; return; }   // review 4: never under another project
     if (!(await loadProjects())) await loadProjects();
   } catch {
-    msg.textContent = 'we could not reach Kosmos to change that project';
+    if (PJ_CURRENT === p.id) msg.textContent = 'we could not reach Kosmos to change that project';
   } finally {
     PJ_PAUSE_BUSY = false;
     /* review 3: only the header button stays off after a failed re-read (paintHeadPause turns it back on when reads
        recover); Settings' button is re-enabled as it always was, since nothing in Settings would ever turn it back on. */
-    btn.disabled = btn.id === 'pj-head-pause' && PJ_READ_FAILED === true;
+    for (const b of both) b.disabled = b.id === 'pj-head-pause' && PJ_READ_FAILED === true;
   }
 }
 document.getElementById('pj-one-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-one-pause'), document.getElementById('pj-one-pause-msg')));
