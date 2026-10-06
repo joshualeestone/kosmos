@@ -223,8 +223,16 @@ test('#4787 slice 2: a run reported past its slot\'s miss grace is marked late, 
   const slot3 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, slot2 + 20 * 60000 + 10 * 60000);
   tasks.recordRun(id, n, 'ada', 'back on time', slot3 + 60000);
   assert.equal(stored(id, n).lastRunLate, undefined, 'the next on-time run clears the mark');
-  tasks.recordRun(id, n, 'bob', 'very late', slot3 + 3 * 86400000);
-  assert.equal(stored(id, n).lastRunLate, true, 'CONTROL: a run days after the slot it answers is late');
+  /* review 1: a missed day, then the next day's run on time: on time (measured against the latest slot, not the oldest). */
+  tasks.recordRun(id, n, 'bob', 'next day, on time', slot3 + 2 * 86400000 + 5 * 60000);
+  assert.equal(stored(id, n).lastRunLate, undefined, 'after a missed day, the next day\'s 09:05 run is on time');
+  tasks.recordRun(id, n, 'bob', 'very late', slot3 + 3 * 86400000 + 4 * 3600000);
+  assert.equal(stored(id, n).lastRunLate, true, 'CONTROL: four hours after its slot is late');
+  tasks.setRepeat(id, n, { every: 'day', at: '10:00' });
+  assert.equal(stored(id, n).lastRunLate, undefined, 'review 1: a changed rule drops the mark, measured against the old rule');
+  const slot10 = taskrepeat.nextAfter({ every: 'day', at: '10:00' }, Math.max(Date.parse(stored(id, n).repeatSetAt), Date.parse(stored(id, n).lastRunAt)) + 15 * 60000);   // the slots above run ahead of now
+  tasks.recordRun(id, n, 'bob', 'late again', slot10 + 2 * 3600000);
+  assert.equal(stored(id, n).lastRunLate, true, 'precondition for the clear below: a late mark is there');
   tasks.setRepeat(id, n, null);
   assert.equal(stored(id, n).lastRunLate, undefined, 'stopping the repeat clears it with the other run fields');
 });

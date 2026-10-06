@@ -142,6 +142,7 @@ test('#4787 slice 2: the miss grace is the smaller of 15 minutes and a quarter o
   const m = r.missedRuns(t, at(2026, 10, 8, 0, 30));
   assert.equal(m.count, r.MISSED_CAP);
   assert.equal(m.more, true);
+  assert.equal(m.lastAt, at(2026, 10, 8, 0, 0), 'review 1: the latest missed slot is the real latest, not the 99th from the start');
   // CONTROL: one day of it is under the cap, so `more` can be false (the flag is not always true).
   const d = r.missedRuns(t, at(2026, 10, 1, 12, 20));
   assert.deepEqual([d.count, d.more], [12, false], "01:00 to 12:00, the noon slot past its grace at 12:15");
@@ -186,4 +187,22 @@ test('#4787 slice 2: whenWords says a past slot as yesterday or its weekday, and
   assert.equal(r.whenWords(at(2026, 9, 29, 9, 0), now), 'Sep 29 at 9am', 'a week back is a date, never an ambiguous weekday');
   assert.equal(r.whenWords(at(2026, 10, 7, 9, 0), now), 'tomorrow at 9am');
   assert.equal(r.whenWords(at(2026, 10, 9, 9, 0), now), 'Friday at 9am');
+});
+
+test('#4787 slice 2 review 1: a run up to the miss grace early answers its slot, so it is never called missed (control: 20 minutes early is not)', () => {
+  const base = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 12, 0)).toISOString() };
+  const early = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 50)).toISOString() };
+  assert.equal(r.missedRuns(early, at(2026, 10, 6, 9, 30)), null, 'ran at 08:50 for 09:00');
+  assert.equal(r.missedRuns(early, at(2026, 10, 7, 9, 20)).lastAt, at(2026, 10, 7, 9, 0), 'the next day is still counted when missed');
+  const tooEarly = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 40)).toISOString() };
+  assert.deepEqual(r.missedRuns(tooEarly, at(2026, 10, 6, 9, 30)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) });
+});
+
+test('#4787 slice 2 review 1: latestAtOrBefore is the latest slot at or before a moment, never before `from`', () => {
+  const rule = { every: 'day', at: '09:00' };
+  assert.equal(r.latestAtOrBefore(rule, at(2026, 10, 3, 9, 0), at(2026, 10, 6, 9, 5)), at(2026, 10, 6, 9, 0));
+  assert.equal(r.latestAtOrBefore(rule, at(2026, 10, 3, 9, 0), at(2026, 10, 6, 9, 0)), at(2026, 10, 6, 9, 0), 'a slot exactly at the moment counts');
+  assert.equal(r.latestAtOrBefore(rule, at(2026, 10, 6, 9, 0), at(2026, 10, 6, 8, 0)), null, 'before `from`: none');
+  assert.equal(r.latestAtOrBefore(rule, null, at(2026, 10, 6, 8, 0)), null);
+  assert.equal(r.latestAtOrBefore({ every: 'week', day: 1, at: '09:00' }, at(2026, 9, 7, 9, 0), at(2026, 10, 6, 12, 0)), at(2026, 10, 5, 9, 0), 'weekly, weeks later');
 });
