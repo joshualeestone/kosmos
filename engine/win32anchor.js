@@ -136,7 +136,11 @@ function anchorDir(platform, home, env) {
   const e = worlds.preWorldEnv(env || {});
   const p = platform === 'win32' ? path.win32 : path.posix;
   let base;
-  if (e.AGENT_WORKFORCE_DATA) {
+  if (platform !== 'win32') {
+    // #5418: off Windows the anchor sits inside the data root, so it takes the data root's rule (a test
+    // process never gets the real one). The same formula as the branches below for these platforms.
+    base = store.resolveDataRoot(platform, home, e);
+  } else if (e.AGENT_WORKFORCE_DATA) {
     base = p.join(e.AGENT_WORKFORCE_DATA, APP);
   } else if (platform === 'win32') {
     base = e.AGENT_WORKFORCE_HOME

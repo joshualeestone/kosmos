@@ -85,6 +85,10 @@ test('#5418: every caller that derives the root agrees: store.ROOT, create.suppo
   assert.equal(got.support, got.root);
   assert.equal(got.base, got.root);
   assert.equal(got.monitor, path.join(got.root, 'selfreports'), 'the silence monitor derives the root some other way (or no longer exports defaultStoreDir)');
+  if (process.platform !== 'win32') {
+    const anchor = runJs('const a = require(' + JSON.stringify(path.join(dir, 'win32anchor.js')) + '); process.stdout.write(JSON.stringify({ root: s.ROOT, anchor: a.anchorDir(process.platform, require("node:os").homedir(), process.env) }))', { NODE_TEST_CONTEXT: 'child-v8' });
+    assert.equal(anchor.anchor, path.join(anchor.root, 'runtime'), 'the runtime anchor (inside the data root off Windows) derives the root some other way');
+  }
 });
 
 const throwaway = (out) => out.startsWith('ROOT=') && out.includes(require('./store').TEST_HOME_PREFIX);
@@ -191,8 +195,8 @@ test('#5418: a test process that allows the real root to READ it never runs the 
   const src = fs.readFileSync(STORE, 'utf8');
   const at = src.indexOf('function root() {');
   const body = src.slice(at, src.indexOf('\n}', at) + 2);
-  const skip = body.indexOf("if (isTestProcess(env) && env.KOSMOS_ALLOW_REAL_ROOT === '1') return resolved;");
-  const migrate = body.indexOf('maybeMigrateLegacyStore();');
+  const skip = body.search(/isTestProcess\(env\)\s*&&\s*env\.KOSMOS_ALLOW_REAL_ROOT\s*===\s*'1'\)\s*return/);
+  const migrate = body.search(/maybeMigrateLegacyStore\(\)/);
   assert.ok(skip > -1 && migrate > -1 && skip < migrate, 'root() can migrate the real store for a test that only allowed reading it');
 });
 

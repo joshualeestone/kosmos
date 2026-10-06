@@ -237,8 +237,9 @@ from a night in this codebase, kosmos#2616.)
    also no longer reads your fixtures: sandbox first. `KOSMOS_ALLOW_REAL_ROOT=1` lets a test read
    the real root on purpose (`test-support/real-root-allowed.js`). The marker is inherited: a
    board, supervisor or CLI started from inside a test (or from a shell that exported
-   `KOSMOS_TEST_RUN=1`) also gets a throwaway and writes nowhere real. `engine/worldenv.js`'s
-   header enumerates the ~26 frozen modules across both capture shapes (`const BASE =
+   `KOSMOS_TEST_RUN=1`) also gets a throwaway data root (its workers, projects and per-account
+   roots are not covered). `engine/worldenv.js`'s
+   header enumerates ~26 frozen modules (an incomplete list; #5418's grep found about forty) across both capture shapes (`const BASE =
    store.ROOT` and `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988)
    documents the require-ordering trap for consumers; `engine/store.js` owns the
    `store.ROOT` getter itself.
