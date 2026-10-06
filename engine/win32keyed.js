@@ -54,6 +54,7 @@ const path = require('node:path');
 
 const runners = require('./runners');
 const { envDelete, envSet, envCanon } = require('./win32env');   // #5358: one key per name, whatever its case
+const CANON_READS = Object.freeze(['GEMINI_API_KEY', 'GEMINI_CLI_HOME', 'XAI_API_KEY', 'GROK_HOME']);
 
 const KEYED_RUNNERS = Object.freeze(['gemini', 'grok']);
 const DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.6' });
@@ -310,8 +311,8 @@ function turnEnv(runner, base, configDir, deps) {
   const d = deps || {};
   const env = Object.assign({}, base || {});
   // #5358: names this function reads back by their usual spelling, moved to it from any inherited spelling first.
-  // A name read back below by a fixed spelling belongs in this list.
-  for (const n of ['GEMINI_API_KEY', 'GEMINI_CLI_HOME', 'XAI_API_KEY', 'GROK_HOME']) envCanon(env, n);
+  // A name read back below by a fixed spelling belongs in this list (engine/win32keyed.test.js scans this file for them).
+  for (const n of CANON_READS) envCanon(env, n);
   /* childEnv writes CLAUDE_CONFIG_DIR for any named account, a Claude variable a Gemini or
      Grok agent has no use for (and Grok's claude-compat layer reads), in any spelling (#5358). */
   envDelete(env, 'CLAUDE_CONFIG_DIR');
@@ -379,6 +380,7 @@ function turnEnv(runner, base, configDir, deps) {
 }
 
 module.exports = {
+  CANON_READS,
   KEYED_RUNNERS, DEFAULT_MODEL, KEY_VAR, GROK_COMPAT_OFF, isKeyedRunner,
   turnArgs, parseTurn, runKeyedTurn, turnEnv, setSpawn,
 };

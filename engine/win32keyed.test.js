@@ -474,3 +474,14 @@ test('#5358 review 14: an inherited key in another spelling, with no account key
   const none = keyed.turnEnv('gemini', {}, null, { geminiAccounts: mod, doorDir: null, keyHome: null });
   assert.equal('GEMINI_API_KEY' in none, false, 'control: nothing inherited, nothing set');
 });
+
+test('#5358 review 18: every name this module reads back by a fixed spelling is canonicalised first', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'win32keyed.js'), 'utf8')
+    .split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');   // code, not comments
+  const read = new Set([...src.matchAll(/\benv\.([A-Z][A-Z0-9_]*)\b(?!\s*=[^=])/g)].map((m) => m[1]));
+  assert.ok(read.has('GEMINI_API_KEY'), 'control: the scan finds the reads it is meant to find');
+  for (const n of read) assert.ok(keyed.CANON_READS.includes(n), n + ' is read back by a fixed spelling but not in CANON_READS');
+  // Two spellings at once: the one Node would pass the child (the sorted-first) is the value kept.
+  const env = require('./win32env').envCanon({ gemini_api_key: 'lower', GEMINI_API_KEY: 'upper' }, 'GEMINI_API_KEY');
+  assert.deepEqual(env, { GEMINI_API_KEY: 'upper' });
+});
