@@ -114,6 +114,10 @@ function sandbox(version) {
 function sandboxEnv(dir, extra) {
   const env = { ...process.env, HOME: dir, KOSMOS_SITE: path.join(dir, 'nowhere') };
   delete env.KOSMOS_ALLOW_VERSION_JUMP;
+  /* 0.7.25 cut, 2026-10-06: a staging cut runs this file at step 3 with KOSMOS_CUT_CHANNEL=staging exported, and
+     the sandbox inherited it, so step 1f (#5032, the site's /setup-staging headers) ran against a sandbox site with no
+     origin and refused. An arm that wants a channel passes it in `extra`. */
+  delete env.KOSMOS_CUT_CHANNEL;
   return { ...env, ...(extra || {}) };
 }
 
@@ -638,6 +642,8 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
          exported would redirect the pending arms away from the sandbox fixture and they
          would go red as if the guard were broken rather than the harness. */
       KOSMOS_ENTRY_FILE: undefined,
+      /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
+      KOSMOS_CUT_CHANNEL: undefined,
       /* #3955: the highlights opt-out is set only by the arm that tests it; an operator's exported
          one would otherwise let every arm past the check it is meant to exercise. */
       KOSMOS_CUT_NO_WHATS_NEW: noWhatsNew ? '1' : undefined,
