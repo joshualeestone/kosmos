@@ -188,6 +188,7 @@ function initStub(cfg) {
   window.__fed = cfg.fed;
   window.__posts = [];
   window.__inviteDelay = 0;
+  window.__inviteAnsweredAt = -1;   // B7b: the members-ask count at the moment an invite answer is handed back
   window.__inviteBodyStall = false;
   window.__copied = [];
   window.__invite = { status: 200, body: { code: cfg.code, expires_at: cfg.expires, invite_id: 'inv-1' } };
@@ -237,6 +238,7 @@ function initStub(cfg) {
           if (sig) sig.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; no(e); });
         });
       }
+      window.__inviteAnsweredAt = window.__memberUrls.length;
       // A12: the headers arrive, the body stalls, and (like a real fetch) the abort errors the body stream.
       if (window.__inviteBodyStall) {
         const sig = opts && opts.signal;
@@ -1043,7 +1045,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-go');
     await page.evaluate(() => { PJ_CURRENT = 'elsewhere'; });
     // #5373: wait until the held answer (300 ms) is in and handled, not a fixed 500 ms: the arm says what that
-    // answer did NOT do, so reading before it lands would pass for the wrong reason. FED_BUSY is the row keys with a Remove or Withdraw being asked: the handler deletes the key when the answer is in and finishes that answer synchronously.
+    // answer did NOT do, so reading before it lands would pass for the wrong reason. FED_BUSY is the row keys with
+    // a Remove or Withdraw being asked: the handler deletes the key when the answer is in and finishes that answer
+    // synchronously.
     await page.waitForFunction(() => window.__removes.length > 0 && FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const m = await modal(page);
     const loose = await page.evaluate(() => Object.keys(FED_MSGS).length);
@@ -1102,19 +1106,21 @@ const closeAll = (page) => page.evaluate(() => {
     // list asked again, so the code it made shows. Control: the count is read after the gate's own asks settle.
     await page.evaluate(() => fedInviteOpen(null, { label: 'Kim Lo', kind: 'person' }));
     await setMembers(page, answer([row({ invite_id: 'inv-kim', label: 'Kim Lo', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
-    await page.evaluate(() => { window.__inviteDelay = 600; });
+    await page.evaluate(() => { window.__inviteDelay = 600; window.__inviteAnsweredAt = -1; });
     await page.click('#fedinv-make');
     await page.waitForTimeout(50);
     await page.evaluate(([off, on]) => { fedGateStamp(off); fedGateStamp(on); }, [OFF, SHOW]);
     await page.waitForTimeout(150);
     const lateClosed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
-    const lateBefore = await gets(page);
-    // #5373: wait for the late reply's own ask of the list (the reply lands about 600 ms after Make), not a fixed 700 ms.
-    // The row alone cannot say it: the gate's own asks already return inv-kim.
-    await page.waitForFunction((b) => window.__memberUrls.length > b, lateBefore, { timeout: 4000 }).catch(() => {});
+    // #5373: the ask that counts is one made after the late reply was handed back (__inviteAnsweredAt), so the
+    // gate's own asks cannot satisfy it, however late they land. The row alone cannot say it either: the gate's
+    // asks already return inv-kim.
+    await page.waitForFunction(() => window.__inviteAnsweredAt >= 0 && window.__memberUrls.length > window.__inviteAnsweredAt,
+      null, { timeout: 4000 }).catch(() => {});
+    const late = await page.evaluate(() => ({ at: window.__inviteAnsweredAt, asks: window.__memberUrls.length }));
     const lateRows = (await readFed(page, '#pj-fed-outside')).rows;
-    check('B7b a reply landing after a forced close still has the list asked again, and the new pending row shows (control: closed, counted after the gate settled)',
-      lateClosed && (await gets(page)) > lateBefore && lateRows.some((r) => r.key === 'i:inv-kim'), JSON.stringify({ lateClosed, keys: lateRows.map((r) => r.key) }));
+    check('B7b a reply landing after a forced close still has the list asked again, and the new pending row shows (control: closed; the ask counted is after the reply)',
+      lateClosed && late.at >= 0 && late.asks > late.at && lateRows.some((r) => r.key === 'i:inv-kim'), JSON.stringify({ lateClosed, late, keys: lateRows.map((r) => r.key) }));
     // B7c: a Make given up on (the time limit) asks again too, since a code may still have been made.
     await page.evaluate(() => { window.__inviteDelay = 2000; FEDINV_MAKE_LIMIT_MS = 200; fedInviteOpen(null, { label: 'Ray Oh', kind: 'person' }); });
     await setMembers(page, answer([row({ invite_id: 'inv-ray', label: 'Ray Oh', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
@@ -1482,7 +1488,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-go');
     await page.waitForTimeout(30);
     await page.evaluate(async () => { PJ_CURRENT = 'elsewhere'; await fedMembersLoad('elsewhere'); PJ_CURRENT = 'k'; await fedMembersLoad('k'); });
-    // #5373: wait until the held 502 (300 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see B10b), not a fixed 500 ms.
+    // #5373: wait until the held 502 (300 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see
+    // B10b), not a fixed 500 ms.
     await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const loose = await page.evaluate(() => Object.values(FED_MSGS));
     const mF = await modal(page);
@@ -1500,7 +1507,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-keep');
     await page.click('#pj-back');
     await page.evaluate(() => openProject('k'));
-    // #5373: wait until the held answer (400 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see B10b), not a fixed 600 ms.
+    // #5373: wait until the held answer (400 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see
+    // B10b), not a fixed 600 ms.
     await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const looseG = await page.evaluate(() => Object.values(FED_MSGS));
     const backOpen = await page.evaluate(() => PJ_CURRENT);
