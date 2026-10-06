@@ -510,3 +510,9 @@ test('#5346 step 2 review 5: one combination written out in full (Mac, a Codex v
     }
   } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); }
 });
+
+test('#5346 step 2 review 6: every refusal ends with ANY_PROVIDER, which currentReader takes off by value', () => {
+  const whys = Object.keys(c).filter((k) => /^WHY_/.test(k) && typeof c[k] === 'string');
+  assert.ok(whys.length >= 6, 'control: the scan finds the refusals: ' + whys.join(','));
+  for (const k of whys) assert.ok(c[k].endsWith(' ' + c.ANY_PROVIDER), k + ' does not end with ANY_PROVIDER, so the composed reason would say it twice');
+});
