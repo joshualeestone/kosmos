@@ -46,9 +46,15 @@ test('#4918 remove.jobOps(linux) drives systemctl with the agent\'s (escaped) un
   assert.deepEqual(calls, [['systemctl', '--user', 'disable', unit], ['systemctl', '--user', 'stop', unit]]);
   assert.match(unit, /^kosmos-agent-[A-Za-z0-9:_.\\-]+\.service$/, 'a valid systemd unit name');
 
-  answer = (cmd, args) => (args[1] === 'enable' ? { ok: false, stderr: 'refused' } : { ok: true, stdout: '' });
+  // review 9: a restart's start never re-enables (the Mac's never does), and a refused reload stops it.
+  calls = [];
+  assert.equal(ops.startNow('kenshi', job), true);
+  assert.ok(!calls.some((c) => c[2] === 'enable'), 'a restart re-enabled the unit (it would come back at every boot)');
+  assert.ok(calls.some((c) => c[2] === 'start'), 'CONTROL: it did start');
+  answer = (cmd, args) => (args[1] === 'daemon-reload' ? { ok: false, stderr: 'refused' } : { ok: true, stdout: '' });
   try {
-    assert.equal(ops.startNow('kenshi', job), false, 'a start whose enable systemd refused reads as started');
+    calls = [];
+    assert.equal(ops.startNow('kenshi', job), false, 'a start after a refused reload reads as started');
     assert.ok(!calls.some((c) => c[2] === 'start'), 'it went on to start after the refusal');
   } finally { answer = () => ({ ok: true, stdout: '' }); }
 });
@@ -243,4 +249,14 @@ test('#4918 review 8: a removal record that kept only the unit name acts on THAT
   remove.jobOps('linux').enable('kenshi', record);
   assert.deepEqual(calls, [['systemctl', '--user', 'enable', linuxjob.unitName('kenshi', 'w9')]], 'enabled the current world\'s unit instead');
   assert.equal(linuxjob.worldFromUnitName('not-ours.service'), null, 'CONTROL: a foreign unit name has no world');
+});
+
+test('#4918 review 9: a unit with an incomplete ExecStart is said, never "(undefined)"', (t) => {
+  const create = require('./create');
+  const file = linuxjob.unitPath('halfunit');
+  fs.writeFileSync(file, '[Service]\nExecStart="/bin/bash" "/x/agent-supervisor.sh"\n');
+  t.after(() => fs.rmSync(file, { force: true }));
+  const v = create.readJobVerdict('halfunit', undefined, 'linux');
+  assert.equal(v.job, null);
+  assert.equal(v.because, 'its ExecStart line is incomplete');
 });

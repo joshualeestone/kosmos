@@ -63,7 +63,7 @@ test('unitFor generates valid systemd unit with all parameters', () => {
   assert.match(content, /^\[Service\]/m);
   assert.match(content, /^ExecStart="\/bin\/bash" .* "subzero" .* "\/usr\/bin\/claude" "\/usr\/bin\/tmux" .* "claude-3-5-sonnet-20241022"/m);
   assert.match(content, /^Restart=always/m);
-  assert.match(content, /^RestartSec=10$/m, "agents restart at launchd's pace (#4918 review 7)");
+  assert.match(content, /^RestartSec=30$/m, "agents restart at the Mac plist's ThrottleInterval (#4918 review 9)");
   assert.match(content, /^Environment="CLAUDE_CONFIG_DIR=\/home\/user\/\.claude-custom"/m);
   assert.match(content, /^Environment="LANG=C\.UTF-8"/m);
   assert.match(content, /^\[Install\]/m);

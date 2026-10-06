@@ -142,7 +142,7 @@ echo "Killing tmux session $AGENT_NAME..."
 "$TMUX_BIN" kill-session -t "$AGENT_NAME" 2>/dev/null || true
 
 revived=0
-for i in $(seq 1 40); do   # RestartSec=10 plus the supervisor's own start
+for i in $(seq 1 60); do   # RestartSec=30 plus the supervisor's own start
   if "$TMUX_BIN" has-session -t "$AGENT_NAME" 2>/dev/null; then
     revived=1
     ok "agent session revived by systemd after ${i}s"
@@ -152,7 +152,7 @@ for i in $(seq 1 40); do   # RestartSec=10 plus the supervisor's own start
 done
 
 if [ "$revived" = 0 ]; then
-  bad "agent session was NOT revived within 40s"
+  bad "agent session was NOT revived within 60s"
   journalctl --user -u "kosmos-agent-$AGENT_NAME.service" --no-pager | tail -25 || true
 fi
 

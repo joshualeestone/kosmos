@@ -7,7 +7,7 @@
  *
  * Each agent runs bin/agent-supervisor.sh under a user unit:
  *   ~/.config/systemd/user/kosmos-agent-<session>.service
- * with Restart=always and RestartSec=10 (launchd's default throttle), and KillMode=process.
+ * with Restart=always and RestartSec=30 (the Mac plist's ThrottleInterval), and KillMode=process.
  *
  * Systemd user units run without sudo/root privileges via systemctl --user,
  * and survive disconnect/logout via loginctl enable-linger.
@@ -233,9 +233,9 @@ StandardError=append:${unitSafe(log, 'the log path')}
 # from this unit's cgroup; the default KillMode (control-group) would take every agent's session down with it.
 KillMode=process
 Restart=always
-# 10 s, launchd's default throttle: a supervisor that exits at once on a lasting fault (a missing runner) restarts
-# at the Mac's pace, not every 5 s into start.log forever (#4918 review 7).
-RestartSec=10
+# 30 s, the Kosmos agent plist's ThrottleInterval on the Mac (create.js plistFor): a supervisor that exits at once on
+# a lasting fault (a missing runner) restarts at the Mac's pace, not every 5 s into start.log forever (#4918 review 7, 9).
+RestartSec=30
 
 [Install]
 WantedBy=default.target
@@ -343,6 +343,15 @@ function start(name, worldId) {
   return runner('systemctl', ['--user', 'start', u]);
 }
 
+/* #4918 review 9: start WITHOUT enabling, for a restart or relaunch. The Mac's restart only bootstraps and never
+   re-enables, so a switched-off agent cannot quietly come back at every boot; enabling stays the enable op's job
+   (restore and resume call it first). start() above, which enables, is for creating an agent. */
+function startOnly(name, worldId) {
+  const reload = daemonReload();
+  if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
+  return runner('systemctl', ['--user', 'start', unitName(name, worldId)]);
+}
+
 function stop(name, worldId) {
   const u = unitName(name, worldId);
   return runner('systemctl', ['--user', 'stop', u]);
@@ -417,6 +426,7 @@ module.exports = {
   enable,
   disable,
   start,
+  startOnly,
   stop,
   status,
   loaded,
