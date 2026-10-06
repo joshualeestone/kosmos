@@ -12852,6 +12852,14 @@ window.kosmosMeasureScrollbarWidth();
            can see, and a label that rewords the button breaks them. -->
       <button class="btn" id="d-instr-save" type="button" aria-label="Save instructions" disabled>Save</button>
     </div>
+    <!-- kosmos#5293 (design: Mona Lisa): an addition another agent proposed for these instructions, waiting for the
+         person. The community's held row, reused; nothing shows when nothing is pending. Apply, Dismiss and Undo go
+         to person-only routes (an agent token is refused there). After Apply the row becomes one quiet line with
+         Undo; the running-stale note below still offers the restart. -->
+    <div id="d-instr-add" hidden>
+      <h4 class="dlab" id="d-instr-add-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <ul class="community-mine" id="d-instr-add-list" aria-labelledby="d-instr-add-head"></ul>
+    </div>
     <!-- Announced: this is the only channel for every outcome of the most
          powerful write in the product, including each refusal and the reason a
          file cannot be edited. The staleness note beside it is already a live
@@ -40554,7 +40562,7 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -40694,6 +40702,177 @@ function paintPersonalInstr(personal) {
     : '';
   el.hidden = !tool;
 }
+/* kosmos#5293 (design: Mona Lisa, on the card): an addition another agent PROPOSED for these instructions, waiting for
+   the person. The community's held row, reused: bold title, the text clamped to four lines with Read all only when it
+   is cut, a meta line, then Apply and Dismiss. Apply / Dismiss / Undo go to person-only routes (server.js refuses an
+   agent token and wants a browser's headers, which this page's fetch sends by itself). After Apply the row becomes one
+   quiet line with Undo, shown while Undo can still work or for a day after; the running-stale note below keeps its
+   own restart. An unsaved edit in the box is never replaced: the "file has changed" note is shown instead. */
+let INSTR_ADD_LOAD = 0;
+let INSTR_ADD_UNDONE = null;   // the agent whose addition was just undone, for the one sentence that says so
+const INSTR_ADD_LAST_SHOWN_MS = 24 * 60 * 60 * 1000;
+function instrAddWhen(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+async function loadInstrAdd(sessionName) {
+  const mine = ++INSTR_ADD_LOAD;
+  let data = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instruction-add?t=' + Date.now(), { cache: 'no-store' });
+    data = res.ok ? await res.json() : null;
+  } catch { data = null; }
+  if (mine !== INSTR_ADD_LOAD || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  instrAddPaint(sessionName, data);
+}
+function instrAddPaint(sessionName, data) {
+  const wrap = document.getElementById('d-instr-add');
+  const list = document.getElementById('d-instr-add-list');
+  list.textContent = '';
+  const p = data && data.pending;
+  const last = data && data.last;
+  const li = document.createElement('li');
+  li.className = 'community-mine-row community-held-row';
+  if (data && (data.unreadable || data.busy)) {
+    /* Never a silent empty block (review 2). Busy: a passing read error, nothing moved. Unreadable: the file is corrupt;
+       the next change to it keeps it aside under its own name and starts a new one (review 3: said as what happens). */
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = data.busy
+      ? 'Kosmos could not read the additions waiting for you just now. Open this agent again in a moment.'
+      : 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. It is kept as it is, and Kosmos starts a new one the next time anything here changes.';
+    li.append(line);
+  } else if (p) {
+    const who = p.askedBy || 'another agent';
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = 'An addition to these instructions';
+    const body = document.createElement('p');
+    body.className = 'dhint community-held-body';
+    body.style.webkitLineClamp = String(COMMUNITY_HELD_CLAMP_LINES);
+    body.textContent = typeof p.text === 'string' ? p.text : '';
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = 'Asked by ' + who + ' \u00b7 ' + instrAddWhen(p.askedAt)
+      + '. Apply adds it at the end of these instructions, under a line saying who asked and when.';
+    text.append(title, body);
+    /* Review 1: a trailing newline is not a fifth line (a file ends with one), so it is not counted. */
+    if (body.textContent.length > COMMUNITY_HELD_READ_ALL_CHARS || body.textContent.replace(/\n+$/, '').split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
+      const more = document.createElement('button');
+      more.className = 'linkish community-held-more';
+      more.type = 'button';
+      more.textContent = 'Read all';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('open');
+        more.textContent = open ? 'Read less' : 'Read all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      text.append(more);
+    }
+    const note = document.createElement('p');
+    note.className = 'dhint';
+    note.style.margin = '2px 0 0';
+    note.setAttribute('role', 'status');
+    note.hidden = true;
+    text.append(meta, note);
+    const acts = document.createElement('div');
+    acts.className = 'community-held-acts';
+    const apply = document.createElement('button');
+    apply.className = 'btn';
+    apply.type = 'button';
+    apply.textContent = 'Apply';
+    apply.setAttribute('aria-label', 'Apply the addition ' + who + ' asked for');
+    const dismiss = document.createElement('button');
+    dismiss.className = 'btn danger-btn';
+    dismiss.type = 'button';
+    dismiss.textContent = 'Dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss the addition ' + who + ' asked for');
+    apply.addEventListener('click', () => instrAddAct(sessionName, 'apply', note, [apply, dismiss]));
+    dismiss.addEventListener('click', () => instrAddAct(sessionName, 'dismiss', note, [apply, dismiss]));
+    acts.append(apply, dismiss);
+    li.append(text, acts);
+  } else if (INSTR_ADD_UNDONE === sessionName) {
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = 'The addition was taken out. These instructions are back to how they were before it.';
+    li.append(line);
+    INSTR_ADD_UNDONE = null;   // said once; the line goes on the next load
+  } else if (last && !last.undone && (last.undoable || Date.now() - new Date(last.appliedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = 'Added on ' + instrAddWhen(last.appliedAt) + ', asked by ' + (last.askedBy || 'another agent') + '.'
+      /* Review 3: the real reason, never "edited" when nobody did. */
+      + (last.undoable ? ''
+        : last.blocked === 'edited' ? ' This addition can no longer be undone here, because the instructions were edited after it was added. Edit them above instead.'
+        : last.blocked === 'short' ? ' This addition cannot be undone here, because the instructions before it were too short to put back. Edit them above instead.'
+        : ' This addition cannot be undone here. Edit the instructions above instead.');
+    li.append(line);
+    if (last.undoable) {
+      const note = document.createElement('p');
+      note.className = 'dhint';
+      note.style.margin = '2px 0 0';
+      note.setAttribute('role', 'status');
+      note.hidden = true;
+      const undo = document.createElement('button');
+      undo.className = 'linkish';
+      undo.type = 'button';
+      undo.textContent = 'Undo this addition';
+      undo.addEventListener('click', () => instrAddAct(sessionName, 'undo', note, [undo]));
+      li.append(undo, note);
+    }
+  } else if (!(data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
+    wrap.hidden = true;
+    return;
+  }
+  /* Review 3: for a day after a corrupt file was set aside, name the kept file, so earlier additions are not lost silently. */
+  if (data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS) {
+    const kept = document.createElement('p');
+    kept.className = 'dhint';
+    kept.style.margin = '6px 0 0';
+    kept.textContent = 'An earlier file of waiting additions could not be read, so Kosmos started a new one. The old file is kept, as ' + data.movedAside + ', in the Kosmos data folder.';
+    li.append(kept);
+  }
+  list.append(li);
+  wrap.hidden = false;
+}
+async function instrAddAct(sessionName, act, note, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  note.hidden = false;
+  note.textContent = act === 'apply' ? 'Adding\u2026' : act === 'dismiss' ? 'Dismissing\u2026' : 'Taking it out\u2026';
+  let out = null; let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instruction-add/' + act, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    out = await res.json().catch(() => null);
+    ok = res.ok && out && out.ok === true;
+  } catch { ok = false; }
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  if (!ok) {
+    /* Review 1: the addition is already gone (applied or dismissed elsewhere): show where it stands now. */
+    if (out && out.code === 'none') { loadInstrAdd(sessionName); return; }
+    /* Review 3: written but not recorded: the box shows the addition, and the row keeps Apply to finish (never adds twice). */
+    if (out && out.code === 'unrecorded') document.getElementById('d-instr-outdated').hidden = false;   // the box is behind the file now
+    buttons.forEach((b) => { b.disabled = false; });
+    note.textContent = (out && (out.because || out.error)) || 'That did not work. Try again.';
+    return;
+  }
+  if (act === 'undo') INSTR_ADD_UNDONE = sessionName;
+  if (act === 'dismiss') { loadInstrAdd(sessionName); return; }
+  /* Apply and Undo changed the file. An unsaved edit in the box is never replaced: show the note that offers Update. */
+  const box = document.getElementById('d-instr');
+  if (box && box.value !== INSTR_LOADED_TEXT) {
+    document.getElementById('d-instr-outdated').hidden = false;
+    loadInstrAdd(sessionName);
+    return;
+  }
+  loadInstructions(sessionName);
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -40705,6 +40884,7 @@ async function loadInstructions(sessionName) {
   const msg = document.getElementById('d-instr-msg');
   box.value = '';
   msg.textContent = '';
+  document.getElementById('d-instr-add').hidden = true;   // #5293: another agent's waiting addition never shows here
   // Re-enabled on every load: a previous agent whose file could not be edited
   // left both of these disabled.
   // ⚠️ Disabled and hidden UNTIL the answer lands, not from the moment the
@@ -40771,6 +40951,7 @@ async function loadInstructions(sessionName) {
     document.getElementById('d-instr-outdated').hidden = true;
     INSTR_READY = true;
     INSTR_BANNER = true;
+    loadInstrAdd(sessionName);   // #5293: an addition another agent proposed, waiting for the person
     // Now that there is something real in the box, the controls may match it.
     box.disabled = false;
     saveBtn.disabled = false;

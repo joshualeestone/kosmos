@@ -4457,13 +4457,20 @@ cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <create|roles|role-draft>"
+      say "Usage: kosmos agent <create|roles|role-draft|instructions-add>"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
       say "                                                  make one with a role you wrote, when none fits"
       say "  kosmos agent roles                              list the roles an agent can be made with"
       say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
+      say "  kosmos agent instructions-add \"<name>\" --from <file>"
+      say "                                                  propose an addition to an agent's instructions; the person applies it"
       exit 2 ;;
+    instructions-add)
+      # kosmos#5293: only PROPOSES. The person applies it on that agent's page; nothing here can.
+      { [ -n "${1:-}" ] && [ "${2:-}" = "--from" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos agent instructions-add \"<name>\" --from <file>   (the text to add, in a file)"; exit 2; }
+      [ -f "$3" ] && [ -r "$3" ] || { say "We could not read $3. Write the addition to a file first."; exit 2; }
+      _no_more_words "agent instructions-add" 3 "Usage: kosmos agent instructions-add \"<name>\" --from <file>" "$@" ;;
     create)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; }
       if [ "$2" = "--new-role" ]; then
@@ -4484,7 +4491,7 @@ cmd_agent() {
       # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft"
+      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft, instructions-add"
       _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac
@@ -4577,6 +4584,28 @@ cmd_agent() {
           case "$because" in *[?!]) end="" ;; *) end="." ;; esac
           say "Kosmos did not make that agent: ${because}${end}"; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when making that agent."; exit 1 ;;
+      esac
+      ;;
+    instructions-add)
+      # kosmos#5293: the board holds it as <name>'s one waiting addition, named by this agent's token or pane (never a
+      # name typed here). The person applies or dismisses it on <name>'s page. The text goes on stdin (#1970).
+      local ia_name="$1" ia_from="$3" ia_data ia_path ia_parsed ia_out ia_who ia_when ia_because
+      ia_data=$(KOSMOS_IA_FILE="$ia_from" KOSMOS_IA_PANE="${TMUX_PANE:-}" "$_node" -e 'const fs=require("fs");const e=process.env;process.stdout.write(JSON.stringify({text:fs.readFileSync(e.KOSMOS_IA_FILE,"utf8").replace(/^\uFEFF/,""),from_pane:e.KOSMOS_IA_PANE||""}))') \
+        || { say "We could not read $ia_from."; exit 1; }
+      ia_path=$(KOSMOS_IA_NAME="$ia_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_IA_NAME))') || { say "We could not use that name."; exit 1; }
+      body=$(printf '%s' "$ia_data" | kosmos_curl "$_bt" "$_rtok" -sS -m 30 -X POST "$URL/api/agent/$ia_path/instruction-add" \
+        -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then say_unreached "hold that addition" "$rc" write; exit 1; fi
+      # Fields, tab-separated: outcome, who asked, when (short date), because.
+      ia_parsed=$(printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const clean=(v)=>String(v==null?"":v).replace(/[\t\n\r]+/g," ").trim();const p=j&&j.pending;let when="";if(p&&p.askedAt){const d=new Date(p.askedAt);if(!isNaN(d))when=d.toLocaleDateString("en-US",{month:"short",day:"numeric"});}const out=j&&j.ok===true?"held":(j&&j.code==="pending"?"waiting":"refused");process.stdout.write([out,clean(p&&p.askedBy),when,clean((j&&(j.because||j.error))||"")].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when holding that addition."; exit 1; }
+      ia_out=$(printf '%s' "$ia_parsed" | cut -f1); ia_who=$(printf '%s' "$ia_parsed" | cut -f2)
+      ia_when=$(printf '%s' "$ia_parsed" | cut -f3); ia_because=$(printf '%s' "$ia_parsed" | cut -f4)
+      case "$ia_out" in
+        held) say "Held. The person applies it on ${ia_name}'s page in Kosmos; nothing changes until they do. Tell them it is waiting there." ;;
+        waiting) say "Not sent: ${ia_name} already has an addition waiting, asked by ${ia_who:-another agent}${ia_when:+ on $ia_when}. The person can apply or dismiss it on ${ia_name}'s page first."; exit 1 ;;
+        *) while [[ "$ia_because" == *[.[:space:]] ]]; do ia_because="${ia_because%?}"; done
+           say "Kosmos did not hold that addition: ${ia_because:-it did not say why}."; exit 1 ;;
       esac
       ;;
   esac

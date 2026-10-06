@@ -177,7 +177,10 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   /* kosmos#4787 added `repeat` and `ran`, both WRITES: the handler identifies the caller from the header token first
      (senderFromAgentToken, else the pane), refuses an agent not on the project (projectHasAgent) and refuses a caller it
      cannot name (403), measured in server.task-repeat-4787.test.js. */
-  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign|repeat|ran)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
+  /* #5293 review 1 added POST /api/agent/<name>/instruction-add, a WRITE that only HOLDS a proposal (the person applies
+     it on the page, a person-only route): its handler names the caller with resolveAgentSender, header token first, and a
+     token that resolves wins over any pane in the body (server.instradd-5293.test.js, the enforcing-board arm). */
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/agent\\/[^/]+\\/instruction-add$/, /^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign|repeat|ran)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every WRITE a pattern admits must identify its caller from the header token, and every read of people\'s work must be narrowed to the caller\'s own projects (agentTokenOnlyCaller)');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');

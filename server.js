@@ -1214,6 +1214,7 @@ function connectionsHeld() {
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
+const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
 const autoretell = require('./engine/autoretell');
@@ -4280,7 +4281,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
 /* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
+   and its handler names the caller with resolveAgentSender, header token first. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -16352,6 +16355,50 @@ const server = http.createServer(async (req, res) => {
     } catch {
       sendJson(res, 500, { error: 'the previous version could not be read' });   // as the GET beside it
     }
+    return;
+  }
+
+  /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
+     page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
+     the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
+     token and want a browser's headers (isViaScreen, the check community release uses). As there, a speed bump, not
+     a wall, until #4491 keeps the board token out of agents' reach. One pending per target: a second is refused. */
+  const instrAdd = pathname.match(/^\/api\/agent\/([^/]+)\/instruction-add(?:\/(apply|dismiss|undo))?$/);
+  if (instrAdd) {
+    const asked = decodeSegment(instrAdd[1]);
+    const act = instrAdd[2] || null;
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(asked)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* Review 1 (BLOCKER): resolve the spelling to the ONE agent and key everything by its session name, which is what
+       the page reads by. A case or punctuation variant the gate accepts was stored apart: shown nowhere, and a second
+       "one pending" beside the first. */
+    const card = claimantFor(asked);
+    if (!card || typeof card.sessionName !== 'string' || !card.sessionName) { sendJson(res, 404, { error: 'no agent by that name' }); return; }   // review 2: never the raw spelling
+    const name = card.sessionName;
+    if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
+      try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this route does' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'send it as JSON, like {"text": "..."}' }); return; }
+        if (!act) {
+          const roster = safeRoster();
+          if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so nothing was held' }); return; }
+          const who = resolveAgentSender(req, body, roster);
+          if (!who || !who.ok) { sendJson(res, 200, { ok: false, because: (who && who.because) || 'we could not tell which agent is asking' }); return; }
+          const askedBy = (who.card && (who.card.name || who.card.sessionName)) || '';
+          sendJson(res, 200, instructionadds.propose(name, body.text, askedBy));
+          return;
+        }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from the agent’s page' }); return; }
+        const out = act === 'apply' ? instructionadds.apply(name) : act === 'dismiss' ? instructionadds.dismiss(name) : instructionadds.undo(name);
+        sendJson(res, out.ok ? 200 : 409, out);
+      })
+      .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that could not be done' }); });
     return;
   }
 
