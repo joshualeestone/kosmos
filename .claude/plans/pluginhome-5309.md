@@ -69,3 +69,10 @@ The board shows, per agent, plugins present in the person's own folder and missi
 ## Weakest premise
 That folder and account are the two causes worth naming. The text stays general where I measured nothing (Codex's
 enabled-plugin record, account-synced Claude plugins under `plugins/synced/`), so an agent checks rather than trusts it.
+
+## Full validation, round 1 (Mortals, df72bac42): one red, the boot-file size canary
+engine/create.test.js "a role-made boot file is nowhere near the size its reader refuses": 53,566 bytes of text against
+the / 5 line (52,428). This section is 3,357 bytes of it; main alone is about 50,200. Raised the canary to / 4 (65,536,
+4x under the 262,144 cap), the third raise in ten days, each for intended new instructions; growth stays kosmos#4021's.
+Rejected: trimming the section by a third to fit. That would cut the qualifications 18 review rounds required and reopen
+the loop. Weakest premise: that 3.3 KB in every agent's instructions is worth it for this case; a later trim is welcome.
