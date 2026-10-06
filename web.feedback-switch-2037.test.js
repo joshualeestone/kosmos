@@ -39,13 +39,14 @@ const CODE = codeOnly(SERVER);
 
 test('the board (not the CLI) fires the daily send on a timer, and the engine is wired in', () => {
   assert.match(CODE, /require\('\.\/engine\/feedbacksend'\)/, 'server.js does not require feedbacksend');
-  // The sweep: sendDailyOnce called from INSIDE the feedbackSweep timer body.
+  // The sweep: feedbacksend.sweepTick called from INSIDE the feedbackSweep timer body (kosmos#5317: it sends today's
+  // report, and first the day before when that changed after its send; it was sendDailyOnce(feedback.today())).
   // Anchored to `const feedbackSweep = setInterval(() => {` and bounded by `[^}]*`
   // (never crossing a `}`), so the call cannot be satisfied by a DIFFERENT sweep's
   // setInterval nor by the call being moved out of the timer to a bare statement -
   // both regressions the earlier lazy `[\s\S]*?` would have passed.
-  assert.match(CODE, /const feedbackSweep = setInterval\(\(\) => \{[^}]*feedbacksend\.sendDailyOnce\(feedback\.today\(\)\)/,
-    'feedbacksend.sendDailyOnce is not called from inside the feedbackSweep timer (the send never fires on a real install)');
+  assert.match(CODE, /const feedbackSweep = setInterval\(\(\) => \{[^}]*feedbacksend\.sweepTick\(\)/,
+    'feedbacksend.sweepTick is not called from inside the feedbackSweep timer (the send never fires on a real install)');
   // unref'd like its sibling sweeps, so it never holds the process open.
   assert.match(CODE, /const feedbackSweep = setInterval[\s\S]{0,300}feedbackSweep[^;]*unref/,
     'the feedback sweep is not unref\'d, so it can hold the board process open');
