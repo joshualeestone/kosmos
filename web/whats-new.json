@@ -9,7 +9,7 @@
     {
       "icon": "shield",
       "title": "Know before a Claude sign-in stops",
-      "line": "Settings > AI Models now shows when an ended Claude sign-in's agents stop working, so you can sign in again first.",
+      "line": "Settings > AI Models now shows when agents on an expired Claude sign-in will stop working, so you can sign in again first.",
       "platforms": [
         "mac"
       ]
@@ -22,7 +22,7 @@
     {
       "icon": "phone",
       "title": "More Settings on a phone",
-      "line": "On a phone, the row of Settings sections now fades and shows a chevron when there are more to scroll to."
+      "line": "On a phone, the row of Settings sections now shows an arrow, and fades only while there are more sections to scroll to."
     }
   ]
 }
