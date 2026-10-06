@@ -1057,8 +1057,20 @@ function cleanupSegments(part) {
    its callers and platformGate, so a win32 download is testable on a Mac. Only
    reached for a platform canDownloadClaude() allows (darwin or win32); anything else
    maps to darwin, but the gate never lets it through. ONE derivation of this key. */
+/* #5419: on Linux the build also depends on the C library: Anthropic publishes linux-<arch> (glibc) and
+   linux-<arch>-musl (Alpine and the like). Node's own report names the glibc it runs on; no glibc means musl.
+   A seam, so the musl arm is testable on any machine. */
+const DEFAULT_IS_MUSL = () => {
+  // Only meaningful on Linux: elsewhere the report has no glibc field at all, which is not musl.
+  if (process.platform !== 'linux') return false;
+  try { return !(process.report && process.report.getReport().header.glibcVersionRuntime); } catch { return false; }
+};
+let isMuslFn = DEFAULT_IS_MUSL;
+function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; }
+
 function platformKey(platform = process.platform) {
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64';
+  if (platform === 'linux') return `linux-${arch}${isMuslFn() ? '-musl' : ''}`;
   return `${platform === 'win32' ? 'win32' : 'darwin'}-${arch}`;
 }
 
@@ -3535,6 +3547,7 @@ function resetForTests() {
 }
 
 module.exports = {
+  setMuslDetectForTests,
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,

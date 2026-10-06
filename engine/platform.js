@@ -73,7 +73,10 @@ const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);
  * because a checksum-verifiable Windows build is published. A platform on neither
  * list fetches nothing and says so honestly. */
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
-const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+/* #5419: linux joins too. Anthropic's release manifest publishes linux-x64, linux-arm64 and their -musl builds
+   (read from downloads.claude.ai/claude-code-releases/2.1.292/manifest.json, 2026-10-06), each with the sha256
+   the download is verified against before anything runs, as on the Mac and Windows. */
+const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
 
 /* 🔑 AND CODEX NOW HAS ITS OWN LIST TOO, for the same reason Claude got one. The
  * comment above says "Codex ships only that macOS tarball". That was a fact about

@@ -2896,3 +2896,42 @@ driverTest('#248: a plain start still reads the global account and reports no di
 test('#248: a relative configDir is refused loudly before any state moves', async () => {
   await assert.rejects(() => connect.start({ configDir: 'relative/place' }), /absolute/);
 });
+
+// #5419: Linux fetches Anthropic's own linux build, verified against the manifest's checksum, executable, with the
+// musl build where the C library is musl. Driven with the `linux` platform seam so it runs on this Mac.
+test('#5419 a linux download fetches the linux build (glibc), verified and executable', async (t) => {
+  connect.setMuslDetectForTests(() => false);
+  t.after(() => connect.setMuslDetectForTests(null));
+  const binary = crypto.randomBytes(160 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.4', binary, checksum, platform: 'linux' });
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  const got = await connect.download(() => {}, undefined, 'linux');
+  assert.match(nodePath.basename(got.path), /^claude-9\.9\.4-linux-(x64|arm64)$/, 'not the linux build: ' + got.path);
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(got.path)).digest('hex'), checksum);
+  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+});
+
+test('#5419 the linux key follows the C library: linux-<arch> on glibc, linux-<arch>-musl on musl', () => {
+  try {
+    connect.setMuslDetectForTests(() => false);
+    assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)$/);
+    connect.setMuslDetectForTests(() => true);
+    assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)-musl$/);
+    assert.match(connect.platformKey('darwin'), /^darwin-(x64|arm64)$/, 'CONTROL: the Mac key ignores the musl seam');
+  } finally { connect.setMuslDetectForTests(null); }
+  assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)$/, 'the default on a non-Linux host is never musl');
+});
+
+test('#5419 a manifest with no build for this linux key refuses before anything is placed', async (t) => {
+  connect.setMuslDetectForTests(() => true);   // ask for -musl; the release serves only the glibc key
+  t.after(() => connect.setMuslDetectForTests(null));
+  const binary = crypto.randomBytes(64 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  connect.setMuslDetectForTests(() => false);
+  const base = await serveRelease(t, { version: '9.9.3', binary, checksum, platform: 'linux' });
+  connect.setMuslDetectForTests(() => true);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = base;
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), 'a build with no checksum for its key was placed');
+});
