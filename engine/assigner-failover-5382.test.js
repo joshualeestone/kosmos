@@ -150,6 +150,34 @@ test('waits out a limit whose known reset is within RESET_SOON_MS, and moves whe
   } finally { w.restore(); }
 });
 
+test('a shared-pool reset (poolUntil) within RESET_SOON_MS is waited out too, and a card not ours is never taken from', () => {
+  const w = world([{ name: 'poollim', paneState: 'rate_limited' }, { name: 'poolgem', runner: 'gemini' }]);
+  try {
+    heldTask(w.pid, w.key.poollim, 'write the deploy notes');
+    const at = T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS);
+    const edit = (patch) => w.cards.map((c) => (c.sessionName === w.key.poollim ? { ...c, ...patch } : c));
+    assert.equal(later(w, {}, edit({ poolUntil: new Date(at + a.RESET_SOON_MS).toISOString() })).toAssign.length, 0,
+      'moved work off an agent whose shared pool is about to reset');
+    assert.equal(later(w, {}, edit({ isNamedOurs: false })).toAssign.length, 0, 'took work from a card that is not ours');
+    assert.equal(later(w).toAssign.length, 1, 'control: the same world unedited moves the part');
+  } finally { w.restore(); }
+});
+
+test('stalled work comes before the backlog, and one stalled part goes to one receiver', () => {
+  const w = world([{ name: 'prilim', paneState: 'rate_limited' }, { name: 'prigem', runner: 'gemini' }, { name: 'prigem2', runner: 'gemini' }]);
+  try {
+    // The backlog task is older and so would be picked first by the ordinary rule.
+    tasks.create(w.pid, { sentence: 'an older unassigned task', made: { via: 'screen' } });
+    const h = heldTask(w.pid, w.key.prilim, 'write the deploy notes');
+    const out = later(w);
+    const moved = out.toAssign.filter((x) => x.from);
+    assert.equal(moved.length, 1, 'the stalled part went to more than one receiver, or to none: ' + JSON.stringify(out.toAssign));
+    assert.equal(moved[0].n, h.n);
+    assert.equal(out.toAssign.length, 2, 'the other idle agent did not get the backlog task: ' + JSON.stringify(out.toAssign));
+    assert.equal(out.toAssign[0].from, w.key.prilim, 'the first idle agent took the backlog before the stalled part');
+  } finally { w.restore(); }
+});
+
 test('never moves a part on hold, in a paused project, of a built or webhook task, or that is finished', () => {
   const w = world([{ name: 'hldlim', paneState: 'rate_limited' }, { name: 'hldgem', runner: 'gemini' }]);
   try {
