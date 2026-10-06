@@ -53,6 +53,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const runners = require('./runners');
+const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
 
 const KEYED_RUNNERS = Object.freeze(['gemini', 'grok']);
 const DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.6' });
@@ -310,11 +311,11 @@ function turnEnv(runner, base, configDir, deps) {
   const env = Object.assign({}, base || {});
   /* childEnv writes CLAUDE_CONFIG_DIR for any named account, a Claude variable a Gemini or
      Grok agent has no use for (and Grok's claude-compat layer reads), in any spelling (#5358). */
-  require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
+  envDelete(env, 'CLAUDE_CONFIG_DIR');
   /* #4012: every turn here is a whole headless session, so the report bridges must not read its
      SessionStart/SessionEnd as the agent starting and stopping (bin/gemini-report-bridge.js and
      bin/grok-report-bridge.js, reportFor). Only this per-turn path sets it; the Mac pane never does. */
-  env.KOSMOS_PER_TURN = '1';
+  envSet(env, 'KOSMOS_PER_TURN', '1');
   const doorDir = d.doorDir !== undefined ? d.doorDir : (() => {
     try { return require('./tokendoor').DIR; } catch { return null; }
   })();
@@ -323,8 +324,8 @@ function turnEnv(runner, base, configDir, deps) {
     const mod = d.geminiAccounts || require('./geminiaccounts');
     const dir = configDir || mod.defaultDir();
     const key = firstLine(mod.keyFile(dir));
-    if (key) env.GEMINI_API_KEY = key;
-    else if (door) env.GEMINI_API_KEY = door;
+    if (key) envSet(env, 'GEMINI_API_KEY', key);
+    else if (door) envSet(env, 'GEMINI_API_KEY', door);
     /* 🛑 AN AGENT GIVEN A KEY USES THE KEY, AND NEVER SITS WAITING ON A GOOGLE LOGIN. gemini
        takes its auth type from settings.json BEFORE it looks at GEMINI_API_KEY, and the
        default account's settings are the person's own ~/.gemini: anyone who once chose
@@ -343,13 +344,13 @@ function turnEnv(runner, base, configDir, deps) {
        An agent with NO key is left exactly as it was: the person's own Google login in the
        gemini CLI stays theirs to use. */
     if (env.GEMINI_API_KEY) {
-      env.NO_BROWSER = 'true';
+      envSet(env, 'NO_BROWSER', 'true');
       const home = env.GEMINI_CLI_HOME || d.homeDir || os.homedir();
       const chosen = selectedAuth(path.join(home, '.gemini', 'settings.json'));
       if (chosen && chosen !== KEY_AUTH) {
         const keyHome = d.keyHome !== undefined ? d.keyHome : defaultKeyHome(configDir);
         const bridge = d.bridge !== undefined ? d.bridge : defaultBridge();
-        if (keyHome && pinKeyAuth(keyHome, bridge)) env.GEMINI_CLI_HOME = keyHome;
+        if (keyHome && pinKeyAuth(keyHome, bridge)) envSet(env, 'GEMINI_CLI_HOME', keyHome);
       }
     }
     return env;
@@ -359,16 +360,16 @@ function turnEnv(runner, base, configDir, deps) {
     const dir = configDir || mod.defaultDir();
     /* The Mac exports the default account's dir as GROK_HOME too, so the dir judged here is
        the dir grok reads. */
-    env.GROK_HOME = String(dir);
+    envSet(env, 'GROK_HOME', String(dir));
     /* Run only its own hooks and AGENTS.md, not the person's Claude Code or Cursor setup (#4426,
        #4446, agent-supervisor.sh). */
-    Object.assign(env, GROK_COMPAT_OFF);
+    for (const [k, v] of Object.entries(GROK_COMPAT_OFF)) envSet(env, k, v);
     let kind = null;
     try { const who = mod.identityOf(dir); kind = who ? who.authMode : null; } catch { kind = null; }
-    if (kind === 'subscription') { require('./win32env').envDelete(env, 'XAI_API_KEY'); return env; }
+    if (kind === 'subscription') { envDelete(env, 'XAI_API_KEY'); return env; }
     const key = firstLine(mod.keyFile(dir));
-    if (key) env.XAI_API_KEY = key;
-    else if (door) env.XAI_API_KEY = door;
+    if (key) envSet(env, 'XAI_API_KEY', key);
+    else if (door) envSet(env, 'XAI_API_KEY', door);
     return env;
   }
   return env;

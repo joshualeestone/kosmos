@@ -55,6 +55,7 @@ const win32create = require('./win32create');
 const trust = require('./trust');
 const runners = require('./runners');
 const { accountEnvVar } = require('./accountenv');
+const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
 
 /* Every marker that makes a spawned session a CHILD of this one. Stripped, not
    overwritten: Claude Code reads presence, so an empty string is not the same as
@@ -75,8 +76,6 @@ const INHERITED_MARKERS = Object.freeze([
 /* The zip's agent command lives here, beside `app\` and `runtime\`
    (tools/build-kosmos-windows.sh stages it). The CLI itself is the marker: the
    shims beside it (kosmos.ps1, kosmos) are per shell, the CLI is always there. */
-const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
-
 const AGENT_CLI_DIR = 'bin';
 const AGENT_CLI_SHIM = 'kosmos-cli.js';
 

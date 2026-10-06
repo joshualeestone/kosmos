@@ -29,6 +29,7 @@
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { envDelete } = require('./win32env');   // #5358: one key per name, whatever its case
 
 const RUNNER = 'antigravity';
 
@@ -118,7 +119,7 @@ function agyEnv(base, tmp) {
     env.TEMP = tmp; env.TMP = tmp;
   }
   // A Claude variable an agy agent has no use for (win32launch.childEnv writes it for a named account), in any spelling.
-  require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
+  envDelete(env, 'CLAUDE_CONFIG_DIR');
   return env;
 }
 
@@ -294,7 +295,7 @@ function runAgyTurn(opts) {
  */
 function turnEnv(base) {
   const env = Object.assign({}, base || {});
-  require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
+  envDelete(env, 'CLAUDE_CONFIG_DIR');
   env.KOSMOS_PER_TURN = '1';
   return env;
 }

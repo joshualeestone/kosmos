@@ -430,3 +430,19 @@ test('#4012 turnEnv: gemini and grok turns are marked per-turn for the report br
   assert.equal(keyed.turnEnv('gemini', {}, null, { geminiAccounts: fakeAccounts(root, {}), doorDir: null, keyHome: null }).KOSMOS_PER_TURN, '1');
   assert.equal(keyed.turnEnv('grok', {}, null, { grokAccounts: fakeAccounts(root, {}), doorDir: null }).KOSMOS_PER_TURN, '1');
 });
+
+test('#5358: turnEnv sets and removes the key whatever spelling the environment carries it in', () => {
+  const root = path.join(SANDBOX, 'xenv-5358');
+  const keyAcct = path.join(root, 'key1');
+  const subAcct = path.join(root, 'sub1');
+  fs.mkdirSync(keyAcct, { recursive: true });
+  fs.mkdirSync(subAcct, { recursive: true });
+  fs.writeFileSync(path.join(keyAcct, '.key'), 'XAI-ACCOUNT\n');
+  const mod = fakeAccounts(root, { [keyAcct]: 'apikey', [subAcct]: 'subscription' });
+  const named = (env, n) => Object.keys(env).filter((k) => k.toUpperCase() === n).map((k) => env[k]);
+  const k = keyed.turnEnv('grok', { xai_api_key: 'STALE', Claude_Config_Dir: 'C:\\engine' }, keyAcct, { grokAccounts: mod, doorDir: null });
+  assert.deepEqual(named(k, 'XAI_API_KEY'), ['XAI-ACCOUNT'], 'the stale inherited spelling survived beside the account key');
+  assert.deepEqual(named(k, 'CLAUDE_CONFIG_DIR'), []);
+  const s = keyed.turnEnv('grok', { xai_api_key: 'STALE' }, subAcct, { grokAccounts: mod, doorDir: null });
+  assert.deepEqual(named(s, 'XAI_API_KEY'), [], 'a subscription account kept an inherited key');
+});
