@@ -300,7 +300,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
-    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; repeatDropped = true; }
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -709,7 +709,7 @@ function setClosed(projectId, n, closedAt) {
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
-    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; repeatDropped = true; }
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -827,6 +827,8 @@ function setRepeat(projectId, n, rule, opts = {}) {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     if (next && progressOf(t).closed) throw new Error('that task is closed; reopen it to make it repeat');
+    // review 4: the person's built mark is theirs too (#3951): a process's rule must not take it off silently.
+    if (!person && next && t.builtAt && t.builtByPerson === true) throw new Error('the person marked this task built, so only they can make it repeat');
     if (!person && t.repeatByPerson === true && JSON.stringify(t.repeat || null) !== JSON.stringify(next)) {
       throw new Error('the person set how often this task repeats, so only they can change it');
     }
@@ -835,14 +837,15 @@ function setRepeat(projectId, n, rule, opts = {}) {
     // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.
     if (next) {
       changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
+      if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
-      delete changed.repeat; delete changed.repeatByPerson; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunNote;
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunNote;
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats' });
+  if (droppedBuilt) taskchat.record(projectId, changed.number, { kind: 'unbuilt', reason: 'it repeats', via: person ? 'screen' : 'agent' });
   if (didChange) {
     // Flat fields (review 1: taskchat keeps strings and numbers; an object was stored as "[object Object]").
     taskchat.record(projectId, changed.number, next
