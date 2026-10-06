@@ -91,6 +91,37 @@ the person pasted it in on the colleague's page.
   is created, so in a later addition they are inert text.
 - NITs fixed: two comments said more than was measured.
 
+## Review 6 (opus, blind): the rebase onto main e645859f9
+- Main's #5297 board-start community refresh rewrites the instructions file without anybody editing it, so the
+  version check read as "edited". FIXED 762e44ad9: Apply and Undo match the addition's own span. DECIDED (card): an edit
+  ELSEWHERE no longer blocks Undo; an edit INSIDE the addition still refuses.
+
+## Review 7 (opus, blind): the 762e44ad9 fix
+- W: projects.removeBlock takes the blank lines on both sides of Kosmos's block, which are the addition's own leading
+  blank lines when it sits right after the block: Undo read "edited", and a second Apply press added it twice. FIXED
+  7d5ac53c1: matched from the heading line, exactly once, at a line start. Tests go through the real spliceBlock /
+  removeBlock. "Short" is judged on the text Undo would write. The queued runs at 762e44ad9 were withdrawn.
+
+## Review 8 (sonnet, blind)
+- W: a second press that found the addition but not exactly once recorded the file as "before", so the page said
+  undone with the addition there. FIXED e43918961 (refused, code 'edited'). Exact-text tests for Undo with the block
+  after the addition and with nothing above it. A redundant no-head branch dropped (no test could tell it apart).
+
+## Review 9 (opus, blind): the state is read from the file alone
+- W: a retry after an edit to the addition's TEXT added it twice. W: undone, then an earlier version restored: the
+  page said undone with the addition there and Undo refused. W: an Undo whose record failed after a block refresh
+  read "edited". REDESIGNED 974f853e2 rather than patched: whereIs reads the file only. Exactly once as written:
+  'here'; the id line absent: 'gone' (taken out, by Undo or by hand); the id line present otherwise: 'changed';
+  unreadable: 'unknown'. The whole-file restore (before/version) is gone: unreachable once the span is matched, and
+  the feature is unmerged, so no record needs it. Proposals cannot hold comments, so the id line is Kosmos's own.
+- The page's sentences now say only what each state means (4b8d2750b): taken out ("the rest is as it was"), changed
+  or copied, too short to keep. The browser check asserts the new undone sentence.
+- Found while checking: the browser-check surface gate was red since the feature commit (the earlier full run died
+  on the temp-dir leak before reaching it). Per-check trailers in 0a4123bef, each with its reason.
+- Mutations, each red: the apply refusal, tracing by core only, all-absent as changed, Undo's changed and gone
+  refusals, short, undone from the record, unreadable as unknown. Related files 265/265.
+- DECIDED: lines the person types directly under the addition are theirs and survive Undo (pinned).
+
 ## Weakest premise
 That the person sees the page. The CLI line tells the proposing agent to say in chat that a change is waiting, so the
 person hears about it where they are talking.
