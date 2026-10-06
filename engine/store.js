@@ -261,10 +261,22 @@ function realDefaultRoot(platform, env) {
   if (!home) return null;
   return dataRootFor(platform, home, { APPDATA: env.APPDATA });
 }
+/* The nearest existing ancestor's realpath with the rest re-attached, so two spellings of one
+   directory (a symlinked /var, a home reached through a link) compare equal even before the
+   root exists. Only test processes reach it. */
+function realish(p) {
+  let head = path.resolve(p); const rest = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync(head), ...rest); } catch { /* not there yet */ }
+    const up = path.dirname(head);
+    if (up === head) return path.resolve(p);
+    rest.unshift(path.basename(head)); head = up;
+  }
+}
 function refuseRealRootInTests(resolved, platform, env) {
   if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return;
   const real = realDefaultRoot(platform, env);
-  if (real && path.resolve(resolved) === path.resolve(real)) {
+  if (real && realish(resolved) === realish(real)) {
     throw new Error('store: a test process resolved this machine\'s REAL data root (' + resolved + '). '
       + 'Set AGENT_WORKFORCE_DATA (or AGENT_WORKFORCE_HOME) to a sandbox BEFORE requiring any engine module '
       + '(many freeze store.ROOT when they load). #5418');

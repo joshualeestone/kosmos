@@ -1,0 +1,49 @@
+# realroot-5418: a test process is refused this machine's real data root
+
+Card: kosmos#5418 (found by Renet on a fleet Mac, 2026-10-06). Owner: April. Claimed 2026-10-06 15:1x CDT (claim log).
+
+## Mechanism (measured)
+About forty engine modules freeze `store.ROOT` at require time (`const DIR = path.join(store.ROOT, ...)`;
+sendertoken.js:58 is the one the card's records came from). `store.ROOT` itself is lazy (#1443), but a
+test that requires any of those modules before setting its sandbox gets the REAL root frozen into that
+module for the rest of the process, and every write lands in the operator's store.
+
+## Decision (ask 1: make it impossible)
+Refuse at the single derivation every module reads, `store.root()`:
+- A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
+  `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
+  also reaches its shell tests and whatever they start).
+- In a test process, a resolved root equal to the machine's REAL default root throws a named error.
+- "Real" is derived from `os.userInfo().homedir` (the account's home in the user database), NOT
+  `os.homedir()`, which follows $HOME: a test that sandboxes by pointing HOME elsewhere must not be
+  refused. Same derivation as test-support/data-root-sandbox.js (#4340), which this makes mandatory.
+- Paths are compared by realpath of the nearest existing ancestor, so a symlinked spelling of the real
+  home is still the real root.
+- The refusal runs before the legacy migration, which would otherwise rename the real store first.
+- `KOSMOS_ALLOW_REAL_ROOT=1` is the explicit way out for a process that must read the real store under a
+  test runner.
+
+## Rejected
+- Making each of the ~40 modules resolve lazily: whack-a-mole, and the next module re-freezes it.
+- Exporting a sandbox AGENT_WORKFORCE_DATA from run-tests.sh for every test: trips the board's #634
+  "half-sandboxed" refusal, and does nothing for an agent's direct `node --test` run.
+
+## Ask 2 (cleanup on the fleet Macs)
+Separate and later. Destructive to a person's real store, so: dry-run listing first, backup, remove
+only entries whose agent is not on the board AND whose dates predate this guard, never a live agent's.
+
+## Tests
+`engine/store.real-root-5418.test.js`, child processes with a controlled env, reading `store.ROOT` only:
+refused under NODE_TEST_CONTEXT and under KOSMOS_TEST_RUN; sandbox by DATA or HOME var allowed; HOME
+pointed elsewhere allowed; real home through a symlink refused; controls: no test marker returns the
+real root as before, KOSMOS_ALLOW_REAL_ROOT returns it on purpose. On origin/main's store.js the two
+refusal tests fail; on the first (string-compare) version the symlink test fails.
+
+## Blast radius: measured by the full suite
+Any existing test that reaches the real root without a sandbox now fails by design. Each such failure is
+either a real leak the guard caught (fix the test's sandbox order) or needs the explicit way out.
+
+## Weakest premise
+That NODE_TEST_CONTEXT stays set by node --test (bulletin runtime-self-detection-is-version-dependent).
+If a future node stops setting it, direct `node --test` runs lose the guard (run-tests.sh keeps it).
+The test above would then fail its first arm, which is the signal.
