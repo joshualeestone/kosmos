@@ -17,7 +17,10 @@ project's name, at the top of the page the room sits on. So part 2 is not a new 
   Review 1: not "in the room" (the request can come directly). Review 2: say what to do on a yes. Review 3: the Pause
   pointer is given while asking (afterwards the button reads Resume), "your person" not "they", and some-tasks has a
   verb. Review 4: a press on the screen is not announced to the room, so the agent is told nothing more is needed if
-  they press it; and a plain no means leave it.
+  they press it; and a plain no means leave it. Review 5: the Pause pointer is an instruction ("tell them"), not an
+  aside; the branches run yes / nothing / some tasks so "no, just tasks 3 and 4" has one reading; "the room is told
+  you paused it (unless it already was)" (server.js posts only on a change); and the idle nudge (engine/agentnudge.js)
+  no longer says "asked in the room", which contradicted "the same place they asked".
 - Delivery: part 1 (#5409, merged) owes a running member a re-read when its block is next rewritten (a task or
   membership change) and the rule is new there. Until then it keeps the old pointer ("it is on the project's page"),
   which is still true.
@@ -32,7 +35,8 @@ red again if the button is ever removed or renamed.
 
 ## Tests
 engine/projects.test.js "#5320 part 2": both sentences present, the old pointer gone. Red against main's projects.js.
-projects + instructionreread tests 188/188.
+Red against main's projects.js. On this branch (main underneath) the merge-order test is the one expected red; on a
+tree with #5395 merged in, engine/projects.test.js is 162/162.
 
 ## Known limit
 The button is hidden on an archived project; agents are not told about archived projects, so the line is not reached
