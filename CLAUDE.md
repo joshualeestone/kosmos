@@ -228,7 +228,7 @@ from a night in this codebase, kosmos#2616.)
    spelling.
 
 2. **Sandbox every root before any `require`.** Dozens of modules freeze `store.ROOT` at require
-   time (about forty by #5418's grep of module-level captures; the derivation is
+   time (38 module-level captures in 35 files, measured 2026-10-06 for #5418; the derivation is
    `engine/store.js`, kosmos#1848/#1856). Set the `AGENT_WORKFORCE_*` root env before the first
    `require` of a store-using module, or the module captures the wrong root. Since #5418 a test
    process (`node --test`, or `tools/run-tests.sh`) that reaches this machine's real root is given a
@@ -239,8 +239,8 @@ from a night in this codebase, kosmos#2616.)
    also gets a throwaway data root, except under a direct `node --test --test-isolation=none`. Not covered: the
    workers, projects and per-account roots, and shell code that derives the root itself
    (`bin/agent-supervisor.sh`; #5428). `engine/worldenv.js`'s
-   header enumerates ~26 frozen modules (an incomplete list; #5418's grep found about forty) across both capture shapes (`const BASE =
-   store.ROOT` and `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988)
+   header enumerates ~26 frozen modules (an incomplete list) across both capture shapes
+   (`const BASE = store.ROOT` and `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988)
    documents the require-ordering trap for consumers; `engine/store.js` owns the
    `store.ROOT` getter itself.
 

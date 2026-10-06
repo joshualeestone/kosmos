@@ -242,7 +242,9 @@ function maybeMigrateLegacyStore() {
 /* #5418: a test process never gets this machine's real data root. Test runs wrote fixture
    records (sender tokens and more) into a fleet Mac's real store and left them there for
    weeks, through a module that froze `store.ROOT` at require time before its test set the
-   sandbox (about forty modules do). So the rule is HERE, on the derivation every one of them
+   sandbox (38 module-level captures in 35 files, measured 2026-10-06 by a git grep for
+   `const|let|var X = ...store.ROOT|AVATARS|PROFILES` in engine/, server.js, lib/, cli*.js,
+   leaving out per-call arrow functions). So the rule is HERE, on the derivation every one of them
    reads, not in each of them.
 
    A test process is one `node --test` started (NODE_TEST_CONTEXT, or --test in execArgv) or
@@ -293,12 +295,17 @@ function isTestProcess(env) {
 /* tools/run-tests.sh sets KOSMOS_TEST_RUN to its own private temp folder. It counts only for a
    process whose temp folder is that one or inside it, so the variable alone, left in a shell
    whose temp folder is the usual one, does not turn a real board into a test. */
+let runSeen = null;   // [KOSMOS_TEST_RUN, os.tmpdir(), answer]: the walks once per pair
 function inThisTestRun(env) {
   const run = env.KOSMOS_TEST_RUN;
   if (!run || !path.isAbsolute(run)) return false;
+  const tmp = os.tmpdir();
+  if (runSeen && runSeen[0] === run && runSeen[1] === tmp) return runSeen[2];
   const r = realish(run, process.platform, { fresh: true });
-  const t = realish(os.tmpdir(), process.platform, { fresh: true });
-  return t === r || t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  const t = realish(tmp, process.platform, { fresh: true });
+  const answer = t === r || t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  runSeen = [run, tmp, answer];
+  return answer;
 }
 let accountHome;   // os.userInfo().homedir, looked up once per process ('' when it cannot be)
 function realDefaultRoot(platform, app) {
