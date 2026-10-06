@@ -286,7 +286,9 @@ function jobSwitchState(name, platform, macOff) {
   }
   if (platform === 'linux') {
     // #4918 review 5: systemd answers this directly; a launchctl question has no answer on Linux.
-    const st = require('./linuxjob').enabledState(name);
+    // Through create's run seam (setRunner, dry run), never linuxjob's own runner (review 10).
+    const lj = require('./linuxjob');
+    const st = require('./create').linuxRun(() => lj.enabledState(name));
     if (!st.known) return 'unknown';
     return st.enabled ? 'on' : 'off';
   }

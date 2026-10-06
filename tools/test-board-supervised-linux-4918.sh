@@ -87,6 +87,19 @@ if [ -n "$NODE_BIN" ]; then
   [ "$js_unit" = "$bash_unit" ] \
     && ok "unit: install/kosmos matches engine/linuxboard.js ($bash_unit)" \
     || bad "unit: mismatch install/kosmos ($bash_unit) vs linuxboard.js ($js_unit)"
+  # #4918 review 10: a home reached through ".." and a RELATIVE home name the same unit in both (path.resolve).
+  _rd="$(mktemp -d)"; mkdir -p "$_rd/a" "$_rd/kosmos-home"
+  for _home in "$_rd/a/../kosmos-home" "$_rd/kosmos-home/" ; do
+    js_u="$("$NODE_BIN" -e 'console.log(require("./engine/linuxboard").boardUnitName(process.argv[1]))' "$_home")"
+    sh_u="$(KOSMOS_HOME="$_home" _kosmos_board_systemd_unit)"
+    [ "$js_u" = "$sh_u" ] && ok "unit: '$_home' matches in both ($sh_u)" || bad "unit: '$_home' differs: install/kosmos $sh_u vs linuxboard.js $js_u"
+  done
+  _lb="$PWD/engine/linuxboard.js"   # taken BEFORE the cd below
+  js_rel="$(cd "$_rd" && "$NODE_BIN" -e 'console.log(require(process.argv[1]).boardUnitName("kosmos-home"))' "$_lb")"
+  [ -n "$js_rel" ] || bad "unit: the relative-home check could not read linuxboard.js ($_lb)"
+  sh_rel="$(cd "$_rd" && KOSMOS_HOME=kosmos-home _kosmos_board_systemd_unit)"
+  [ "$js_rel" = "$sh_rel" ] && ok "unit: a relative home matches in both ($sh_rel)" || bad "unit: relative home differs: install/kosmos $sh_rel vs linuxboard.js $js_rel"
+  rm -rf "$_rd"
 fi
 
 # --- 2. Supervised detection ---

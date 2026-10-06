@@ -870,8 +870,18 @@ _kosmos_board_systemd_unit() {
   # #4918 review 5: one pipe into whichever tr exists. The old "| /usr/bin/tr ... || tr ..." ran the fallback
   # OUTSIDE the pipe, so on a system with no /usr/bin/tr (NixOS, Guix) it read the terminal and hung.
   local _tr; _tr="$(command -v tr 2>/dev/null || echo /usr/bin/tr)"
-  _def="$(printf '%s' "$HOME/.local/share/kosmos" | "$_tr" -s '/')"; _def="${_def%/}"
-  _kh="$(printf '%s' "$KOSMOS_HOME" | "$_tr" -s '/')"; _kh="${_kh%/}"
+  # #4918 review 10: resolve the folder the way engine/linuxboard.js does (path.resolve): a relative path, ".", ".."
+  # and trailing slashes collapse, logically, without resolving symlinks. An existing folder resolves by cd -L/pwd -L;
+  # a missing one keeps the slash-squeezed text, as before.
+  # A relative path is taken from the PHYSICAL working directory, as Node's process.cwd() is (on a Mac /var is a link to
+  # /private/var, and the two hashes differed); an absolute one keeps its own spelling, as path.resolve does.
+  _kosmos_resolve_dir() {
+    local _d="$1"
+    case "$_d" in /*) ;; *) _d="$(pwd -P)/$_d" ;; esac
+    if [ -d "$_d" ]; then (cd -L -- "$_d" 2>/dev/null && pwd -L) || printf '%s' "$_d"; else printf '%s' "$_d"; fi
+  }
+  _def="$(_kosmos_resolve_dir "$HOME/.local/share/kosmos" | "$_tr" -s '/')"; _def="${_def%/}"
+  _kh="$(_kosmos_resolve_dir "$KOSMOS_HOME" | "$_tr" -s '/')"; _kh="${_kh%/}"
   if [ "$_kh" = "$_def" ]; then
     printf 'kosmos-board.service'
   else
