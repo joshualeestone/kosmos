@@ -8,6 +8,8 @@
 #   3. Board keep-alive: board-run under kosmos-board.service relaunches on crash (kill -9).
 #   4. Deliberate stop: board.stopped prevents restart loops under ConditionPathExists.
 set -euo pipefail
+# It writes real units under ~/.config/systemd/user and uses sudo: CI only (#4918 review 2).
+[ -n "${CI:-}" ] || { echo "refusing: this test changes the real user systemd and uses sudo; it runs on CI (CI=true)" >&2; exit 2; }
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 fails=0
@@ -147,6 +149,24 @@ if [ "$revived" = 0 ]; then
   journalctl --user -u "kosmos-agent-$AGENT_NAME.service" --no-pager | tail -25 || true
 fi
 
+# #4918 review 2: KillMode=process. Stopping the unit stops its supervisor only: the tmux session (and the tmux
+# server every agent shares) survives. Under systemd's default KillMode the stop takes the session down with it.
+systemctl --user stop "kosmos-agent-$AGENT_NAME.service" >/dev/null 2>&1 || true
+sleep 2
+if "$TMUX_BIN" has-session -t "$AGENT_NAME" 2>/dev/null; then
+  ok "stopping the agent's unit left its tmux session alive (KillMode=process)"
+else
+  bad "stopping the agent's unit killed its tmux session (the shared tmux server would die with it)"
+fi
+# And a deliberate stop stays stopped: Restart=always does not revive a unit that was stopped on purpose.
+sleep 10
+if systemctl --user is-active "kosmos-agent-$AGENT_NAME.service" >/dev/null 2>&1; then
+  bad "the agent unit came back after a deliberate stop"
+else
+  ok "a deliberately stopped agent unit stays stopped (12s)"
+fi
+"$TMUX_BIN" kill-session -t "$AGENT_NAME" 2>/dev/null || true
+
 # Stop and remove agent unit using engine/linuxjob.js
 node -e '
   const linuxjob = require("./engine/linuxjob");
@@ -251,9 +271,18 @@ if [ "$restarted" = 0 ]; then
   journalctl --user -u "$BOARD_UNIT" --no-pager | tail -25 || true
 fi
 
-# Deliberate stop: write board.stopped and stop the unit
+# Deliberate stop: with board.stopped in place, a crash does not bring the board back (ConditionPathExists).
 echo "Simulating deliberate stop..."
 touch "$MOCK_BOARD_HOME/board.stopped"
+STOP_PID="$(cat "$MOCK_BOARD_HOME/board.pid" 2>/dev/null || true)"
+[ -n "$STOP_PID" ] && kill -9 "$STOP_PID" 2>/dev/null || true
+sleep 12
+AFTER_PID="$(cat "$MOCK_BOARD_HOME/board.pid" 2>/dev/null || true)"
+if [ -n "$AFTER_PID" ] && [ "$AFTER_PID" != "$STOP_PID" ] && kill -0 "$AFTER_PID" 2>/dev/null; then
+  bad "board.stopped did not hold: a new board (pid $AFTER_PID) started after the crash"
+else
+  ok "board.stopped held: no new board within 12s of the crash, with the unit still installed"
+fi
 node -e '
   const linuxboard = require("./engine/linuxboard");
   linuxboard.removeBoard(process.argv[1]);

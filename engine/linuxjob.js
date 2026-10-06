@@ -246,6 +246,8 @@ function readUnitJob(content) {
   // 6: logFile
   // 7: model (optional)
   // 8: runner (optional)
+  // A truncated ExecStart is no job (the same guard readPlistJob applies), never a job with null binaries.
+  if (tokens.length < 7 || !tokens[4] || !tokens[5]) return null;
   const claude = tokens.length > 4 ? tokens[4] : null;
   const tmux = tokens.length > 5 ? tokens[5] : null;
   const model = tokens.length > 7 && tokens[7] ? tokens[7] : null;
@@ -330,10 +332,17 @@ function presence(name, worldId) {
   return fs.existsSync(unitPath(name, worldId));
 }
 
-/* Stops, disables and deletes the unit. { ok: true } only when the unit file is gone afterwards. */
+/* Stops, disables and deletes the unit. { ok: true } only when the unit file is gone AND the stop did not fail for a
+   reason other than the unit not being loaded (#4918 review 2: with the user bus unreachable, a deleted file leaves
+   the loaded unit running and restarting from memory). */
+const NOT_LOADED = /not loaded|does not exist|no such file|not found/i;
 function remove(name, worldId) {
-  stop(name, worldId);
+  const st = stop(name, worldId);
+  const stopFailed = st && st.ok === false && !NOT_LOADED.test(String(st.stderr || st.because || ''));
   disable(name, worldId);
+  if (stopFailed) {
+    return { ok: false, because: 'systemd could not stop it, so it may still be running: ' + String(st.stderr || st.because || '').trim() };
+  }
   const file = unitPath(name, worldId);
   try {
     if (fs.existsSync(file)) fs.unlinkSync(file);

@@ -93,3 +93,19 @@ test('#4918 delete-leftover never promises the Trash for a systemd unit (it is d
     fs.rmSync(create.workerDir(name), { recursive: true, force: true });
   }
 });
+
+test('#4918 review 2: a stop systemd refused (bus unreachable) makes remove not ok, and the file stays for a retry', () => {
+  const file = linuxjob.unitPath('kenshi', 'w1');
+  fs.writeFileSync(file, '[Service]\n');
+  answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No medium found' } : { ok: true, stdout: '' });
+  try {
+    const r = linuxjob.remove('kenshi', 'w1');
+    assert.equal(r.ok, false);
+    assert.match(r.because, /could not stop it/);
+    assert.equal(fs.existsSync(file), true, 'the unit file was deleted while systemd still runs the unit');
+  } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
+  // CONTROL: a unit that was never loaded is not a failure.
+  fs.writeFileSync(file, '[Service]\n');
+  answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, stderr: 'Failed to stop x.service: Unit x.service not loaded.' } : { ok: true, stdout: '' });
+  try { assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }); } finally { answer = () => ({ ok: true, stdout: '' }); }
+});

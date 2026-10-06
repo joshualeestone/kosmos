@@ -112,9 +112,14 @@ function boardUnitFor(kosmosHome, port) {
   const userHome = os.homedir();
   const stopMarker = path.join(home, 'board.stopped');
   const tmuxBinDir = path.join(home, 'tmux', 'bin');
-  const pathVal = `${tmuxBinDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
+  /* #4918 review 2: a Linux install may use the system tmux (no bundled one). The installer's board-run accepts it
+     through AGENT_WORKFORCE_TMUX_BIN, so the unit carries that, or a board started by systemd would refuse as
+     "incomplete" and restart every 5 seconds. */
+  const sysTmux = typeof process.env.AGENT_WORKFORCE_TMUX_BIN === 'string' && path.isAbsolute(process.env.AGENT_WORKFORCE_TMUX_BIN)
+    ? process.env.AGENT_WORKFORCE_TMUX_BIN : '';
+  const pathVal = `${tmuxBinDir}:${sysTmux ? path.dirname(sysTmux) + ':' : ''}/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
   const { unitSafe } = require('./linuxjob');
-  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder']]) unitSafe(v, what);
+  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder'], [sysTmux, 'the tmux path']]) unitSafe(v, what);
 
   return `[Unit]
 Description=Kosmos Board
@@ -130,7 +135,7 @@ Environment="PATH=${pathVal}"
 Environment="LANG=C.UTF-8"
 Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
-# Stopping the board stops the board only, never a tmux server it may have started (see linuxjob.js).
+${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}# Stopping the board stops the board only, never a tmux server it may have started (see linuxjob.js).
 KillMode=process
 Restart=always
 RestartSec=5
@@ -167,17 +172,15 @@ function removeBoard(kosmosHome) {
   } catch {}
 }
 
+/* #4918 review 2: read the unit's MainPID and state with `systemctl show`, the machine-readable form, never the
+   human `status` text (locale and format dependent). */
 function loadedBoardJob(kosmosHome) {
   const unit = boardUnitName(kosmosHome);
-  const r = runner('systemctl', ['--user', 'status', unit]);
-  if (!r.ok || !r.stdout) return { ok: false };
-  const pidMatch = r.stdout.match(/Main PID:\s*(\d+)/);
-  const activeMatch = /\bActive:\s*active\s*\(running\)/.test(r.stdout);
-  return {
-    ok: true,
-    pid: pidMatch ? Number(pidMatch[1]) : null,
-    active: activeMatch,
-  };
+  const r = runner('systemctl', ['--user', 'show', '-p', 'MainPID', '-p', 'ActiveState', unit]);
+  if (!r || !r.ok || !r.stdout) return { ok: false };
+  const pid = Number((String(r.stdout).match(/^MainPID=(\d+)$/m) || [])[1]);
+  const state = (String(r.stdout).match(/^ActiveState=(\S+)$/m) || [])[1] || '';
+  return { ok: true, pid: pid > 0 ? pid : null, active: state === 'active' };
 }
 
 function canRestart(kosmosHome) {

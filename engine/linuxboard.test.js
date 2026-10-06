@@ -134,11 +134,7 @@ test('loadedBoardJob parses active and PID correctly', () => {
   linuxboard.setRunnerForTests((cmd, args) => {
     return {
       ok: true,
-      stdout: `● kosmos-board.service - Kosmos Board
-     Loaded: loaded (/home/user/.config/systemd/user/kosmos-board.service; enabled)
-     Active: active (running) since Wed 2026-10-01 22:00:00 CDT
-   Main PID: 4242 (node)
-`,
+      stdout: `MainPID=4242\nActiveState=active\n`,
     };
   });
 
@@ -173,7 +169,7 @@ test('canRestart checks unit file existence, status and PID matching', () => {
     // 3. PID mismatch -> false
     linuxboard.setRunnerForTests(() => ({
       ok: true,
-      stdout: 'Main PID: 99999\nActive: active (running)',
+      stdout: 'MainPID=99999\nActiveState=active',
     }));
     const r3 = linuxboard.canRestart(home);
     assert.equal(r3.canRestart, false);
@@ -182,7 +178,7 @@ test('canRestart checks unit file existence, status and PID matching', () => {
     // 4. PID matches process.pid -> true
     linuxboard.setRunnerForTests(() => ({
       ok: true,
-      stdout: `Main PID: ${process.pid}\nActive: active (running)`,
+      stdout: `MainPID=${process.pid}\nActiveState=active`,
     }));
     const r4 = linuxboard.canRestart(home);
     assert.equal(r4.canRestart, true);

@@ -31,10 +31,10 @@ test('canSelfRestart(linux) TRUE when running as systemd user service', () => {
     fs.writeFileSync(unitFile, 'dummy', 'utf8');
 
     linuxboard.setRunnerForTests((cmd, args) => {
-      if (args[1] === 'status') {
+      if (args[1] === 'show') {
         return {
           ok: true,
-          stdout: `Main PID: ${process.pid}\nActive: active (running)`,
+          stdout: `MainPID=${process.pid}\nActiveState=active`,
         };
       }
       return { ok: true, stdout: '' };
@@ -86,10 +86,10 @@ test('selfRestart(linux) invokes systemctl restart when via is systemd', () => {
     const calls = [];
     linuxboard.setRunnerForTests((cmd, args) => {
       calls.push({ cmd, args });
-      if (args[1] === 'status') {
+      if (args[1] === 'show') {
         return {
           ok: true,
-          stdout: `Main PID: ${process.pid}\nActive: active (running)`,
+          stdout: `MainPID=${process.pid}\nActiveState=active`,
         };
       }
       return { ok: true, stdout: '' };
