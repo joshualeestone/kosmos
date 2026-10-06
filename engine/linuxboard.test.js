@@ -62,7 +62,7 @@ test('boardUnitFor generates systemd unit with ConditionPathExists and board-run
   assert.match(content, /^Environment="LANG=C\.UTF-8"/m);
   assert.match(content, /^Environment="KOSMOS_PORT=16180"/m);
   assert.match(content, /^Environment="PORT=16180"/m);
-  assert.match(content, /^Restart=always/m);
+  assert.match(content, /^Restart=on-failure$/m, 'a clean board-run exit (board.stopped) must not be restarted');
   assert.match(content, /^RestartSec=5/m);
   assert.match(content, /^\[Install\]/m);
   assert.match(content, /^WantedBy=default\.target/m);

@@ -139,7 +139,11 @@ Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
 ${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}# Stopping the board stops the board only, never a tmux server it may have started (see linuxjob.js).
 KillMode=process
-Restart=always
+# on-failure, not always (#4918, measured on GitHub's ubuntu runner): systemd's automatic restart does not re-check
+# ConditionPathExists, and board-run exits 0 when board.stopped is there, so Restart=always restarted a stopped
+# board every 5 seconds. A crash or a kill is a failure and is restarted; a clean exit (stopped, or deferring to a
+# board already on the port) is not.
+Restart=on-failure
 RestartSec=5
 
 [Install]
