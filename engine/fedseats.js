@@ -74,7 +74,8 @@ function noteSentAfterRevoke(projectId, s, revokedAtSec) {
   const since = revokedAtSec * 1000 - REVOKE_SENT_SKEW_MS;
   const n = log.filter((t) => t >= since).length;
   if (!n) return;
-  say(projectId, (n === 1 ? 'A message this computer sent' : n + ' messages this computer sent')
+  // The log holds at most SENT_LOG_MAX, so a full one is a floor, not a count.
+  say(projectId, (n === 1 ? 'A message this computer sent' : (n >= SENT_LOG_MAX ? 'At least ' : '') + n + ' messages this computer sent')
     + ' around the time it was removed may not have been shown to the others in the shared project.');
 }
 /** A connector reason fit to show a person: without its HTTP trailer or its own "ask again"
@@ -211,6 +212,7 @@ function handleEvent(projectId, line, heldAt) {
       // answer from before it). So ask once more, refusing any answer asked before now, for revoked_at.
       if (deps && link.edge_id && s.sentLog && s.sentLog.length) {
         sharedEdges(Date.now(), mono()).promise.then((r) => {
+          if (seats.get(projectId) !== s) return;
           const e = r && r.ok && r.data && Array.isArray(r.data.as_member) ? r.data.as_member.find((x) => x && x.id === link.edge_id) : null;
           if (e && e.status === 'revoked') noteSentAfterRevoke(projectId, s, e.revoked_at);
         }).catch(() => {});
@@ -765,7 +767,8 @@ function isFresh(at, now) {
 }
 /** #5193: end a member's seat whose edge the owner revoked, at once, as the connector's own
     refusal (code 3) would about two minutes later: the room is told once, the link keeps the
-    ending across a restart, and held posts go with it (setStatus 'ended'). */
+    ending across a restart, and held posts go with it (setStatus 'ended'). #5404: `revokedAtSec` is the
+    coordinator's revoked_at; noteSentAfterRevoke uses it to name the posts sent after the revoke. */
 function endRevokedMember(projectId, s, link, revokedAtSec) {
   if (!s || s.stopped || s.status === 'ended') return;
   // An ending already told keeps its own words on the link, so the room and the record agree (round 3).
