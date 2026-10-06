@@ -70,6 +70,9 @@ function setOn(on) {
 /* #5382: on or off for moving a rate-limited agent's work to an agent on another provider. */
 function setFailover(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
+  /* An unreadable or corrupt file reads the Assigner off; writing failover on top would store that off for good
+     (review 6). Refused, so a passing read error never becomes a saved "Assigner off". */
+  if (!read().ok) return { ok: false, because: 'we could not read the Assigner setting, so this was not saved' };
   return write({ failover: on });
 }
 

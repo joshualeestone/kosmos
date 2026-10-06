@@ -394,7 +394,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, note = '') {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -406,7 +406,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   /* #1307: a webhook task's words are marked and quoted as outside text, here where they reach
      the agent (tasks.forAgent). */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.forAgent(t, sentence || '') + '. ' + (note ? note + ' ' : '') + 'When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
   const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
@@ -452,6 +452,25 @@ function tellEveryoneOn(t, roster) {
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
      taken back (to `from` for a failover move), so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
+/* #5382: the parts the Assigner's failover moved OFF this agent since `since` (epoch ms) and that are still open and not
+   back on it, as "task N in <project>" phrases, for the carry-on line it gets when its limit lifts. Empty on any error. */
+function movedAwayFrom(session, since) {
+  const out = [];
+  try {
+    for (const p of projects.readAll()) {
+      for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+        if (tasks.progressOf(t).closed) continue;
+        for (const x of tasks.progressOf(t).parts) {
+          if (x.movedFrom !== session || x.who === session || x.closedAt) continue;
+          const at = Date.parse(x.movedAt || '');
+          if (Number.isFinite(since) && !(at >= since)) continue;
+          out.push('task ' + t.number + ' in "' + String(p.name || p.id).replace(/[\r\n"]/g, ' ') + '" (now ' + x.who + '\'s)');
+        }
+      }
+    }
+  } catch { return []; }
+  return out;
+}
 function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
@@ -477,7 +496,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
+    /* #5382: a failover move says where the part came from, so the new agent looks before starting over (review 6). */
+    const note = failoverFrom ? 'It was moved to you from ' + failoverFrom + ', which hit its provider\'s usage limit and may'
+      + ' already have started it: read the task\'s room and ' + failoverFrom + '\'s work on it before you begin.' : '';
+    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -9670,6 +9692,9 @@ const server = http.createServer(async (req, res) => {
            can send the header); it stops the default CLI path only. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         /* #5382: one change per PUT, `on` or `failover`, as the Recommender's guards are. */
+        if (typeof body.on === 'boolean' && typeof body.failover === 'boolean') {
+          sendJson(res, 400, { error: 'change one setting at a time' }); return;   // review 6: never drop one silently
+        }
         const field = typeof body.on === 'boolean' ? 'on' : typeof body.failover === 'boolean' ? 'failover' : null;
         if (!field) { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
         const saved = field === 'on' ? assignerSetting.setOn(body.on) : assignerSetting.setFailover(body.failover);
@@ -20476,6 +20501,7 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        movedAway: (session, since) => movedAwayFrom(session, since),   // #5382: parts the failover gave away meanwhile
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
       });
@@ -20587,6 +20613,9 @@ function start(port = PORT) {
             readRoster: () => safeRoster(),
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
+            /* #5382: the runner the failover compares, as whoami resolves it: a non-claude value on the card is a recorded
+               or command-read fact; 'claude' there can be a default, so the launch job or profile answers instead. */
+            readRunner: (card) => (card && card.runner && card.runner !== 'claude' ? card.runner : create.recordedRunner(card.sessionName)),
             readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
             ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),

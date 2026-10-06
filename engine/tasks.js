@@ -514,7 +514,7 @@ function assignPart(projectId, n, partId, who, made) {
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       /* #5382: a failover move (the Assigner taking a rate-limited agent's part) is refused if the part was finished, or
          its task built, put on hold or its project paused, since it was picked. */
-      if (made && made.failover === true && (x.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
+      if (made && made.failover === true && (x.closedAt || t.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
@@ -522,7 +522,12 @@ function assignPart(projectId, n, partId, who, made) {
       }
       const hookNo = moved ? webhookGiveProblem(t, whoKey, made) : null;
       if (hookNo) throw new Error(hookNo);
-      return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
+      if (!moved) return x;
+      const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
+      /* #5382: who a failover move took the part from, so that agent can be told when it resumes (agyquota's carry-on
+         line) and nobody reads it as never started. Any other move clears it. */
+      if (made && made.failover === true && x.who) y.movedFrom = x.who; else delete y.movedFrom;
+      return y;
     });
   }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };

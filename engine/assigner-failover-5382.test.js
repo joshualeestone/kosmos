@@ -50,7 +50,13 @@ function world(specs) {
   }
   const p = projects.create({ name: 'Failover Test ' + (++seq) });
   for (const s of specs) if (s.member !== false) projects.addAgent(p.id, key[s.name], board.agents);
-  const cards = status.snapshot().agents;
+  /* The fleet fixture's limit line carries no reset time, and the failover acts only on a limit it can date (review 6), so
+     a limited card gets a reset six hours out, as Antigravity's report would give it, unless the spec says undated. */
+  const dated = new Set(specs.filter((s) => s.undated !== true).map((s) => s.name));
+  const cards = status.snapshot().agents.map((c) => {
+    const spec = Object.keys(key).find((n) => key[n] === c.sessionName);
+    return c.state === 'rate_limited' && dated.has(spec) ? { ...c, quotaUntil: new Date(T0 + 6 * 3600 * 1000).toISOString() } : c;
+  });
   const states = () => new Map(cards.filter(a.idleCard).map((c) => [c.sessionName, commitments.read(c.sessionName).state]));
   return { cards, key, pid: p.id, states, restore: board.restore };
 }
@@ -156,7 +162,7 @@ test('a shared-pool reset (poolUntil) within RESET_SOON_MS is waited out too, an
     heldTask(w.pid, w.key.poollim, 'write the deploy notes');
     const at = T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS);
     const edit = (patch) => w.cards.map((c) => (c.sessionName === w.key.poollim ? { ...c, ...patch } : c));
-    assert.equal(later(w, {}, edit({ poolUntil: new Date(at + a.RESET_SOON_MS).toISOString() })).toAssign.length, 0,
+    assert.equal(later(w, {}, edit({ quotaUntil: null, poolUntil: new Date(at + a.RESET_SOON_MS).toISOString() })).toAssign.length, 0,
       'moved work off an agent whose shared pool is about to reset');
     assert.equal(later(w, {}, edit({ isNamedOurs: false })).toAssign.length, 0, 'took work from a card that is not ours');
     assert.equal(later(w).toAssign.length, 1, 'control: the same world unedited moves the part');
@@ -245,8 +251,10 @@ test('setting: failover reads off by default and on a file without it; setFailov
 test('Antigravity and the Gemini CLI count as one provider (one Google account can share the quota that stopped the first)', () => {
   assert.equal(a.providerOf('antigravity'), a.providerOf('gemini'));
   assert.notEqual(a.providerOf('gemini'), a.providerOf('claude'));
-  assert.equal(a.providerOf(''), 'claude');
-  assert.equal(a.providerOf(undefined), 'claude');
+  // Review 6: an empty or missing runner is unknown, not claude (the card's 'claude' can be a default).
+  assert.equal(a.providerOf(''), null);
+  assert.equal(a.providerOf(undefined), null);
+  assert.equal(a.providerOf('codex'), 'openai', 'not create.runnerProvider\'s answer');
   const w = world([{ name: 'agylim', paneState: 'rate_limited' }, { name: 'agygem', runner: 'gemini' }]);
   try {
     heldTask(w.pid, w.key.agylim, 'write the deploy notes');
@@ -254,5 +262,49 @@ test('Antigravity and the Gemini CLI count as one provider (one Google account c
     const asAgy = w.cards.map((c) => (c.sessionName === w.key.agylim ? { ...c, runner: 'antigravity' } : c));
     assert.equal(later(w, {}, asAgy).toAssign.length, 0, 'moved an Antigravity agent\'s part to a Gemini CLI agent');
     assert.equal(later(w).toAssign.length, 1, 'control: the same part on a Claude agent moves to the Gemini CLI agent');
+  } finally { w.restore(); }
+});
+
+test('a limit Kosmos cannot date is not acted on (an old line on an idle screen); a vendor reset on the line, or a Codex limit, is', () => {
+  const w = world([{ name: 'udlim', paneState: 'rate_limited', undated: true }, { name: 'udgem', runner: 'gemini' }]);
+  try {
+    heldTask(w.pid, w.key.udlim, 'write the deploy notes');
+    assert.equal(a.limitedCard(card(w, 'udlim'), T0), false);
+    assert.equal(later(w).toAssign.length, 0, 'moved work off an agent whose limit line has no reset time');
+    const at = (cards) => later(w, {}, cards).toAssign.length;
+    const withLine = w.cards.map((c) => (c.sessionName === w.key.udlim
+      ? { ...c, stateEvidence: "You've hit your limit \u00b7 resets Jan 1, 2030 at 3pm (America/Chicago)" } : c));
+    assert.equal(at(withLine), 1, 'a vendor line with a reset still ahead did not move the part');
+    // T0 is in 2001, so a reset in 2000 has passed.
+    const passed = w.cards.map((c) => (c.sessionName === w.key.udlim
+      ? { ...c, stateEvidence: "You've hit your limit \u00b7 resets Jan 1, 2000 at 3pm (America/Chicago)" } : c));
+    assert.equal(at(passed), 0, 'a vendor line whose reset has passed (a stale screen) moved the part');
+    const codex = w.cards.map((c) => (c.sessionName === w.key.udlim ? { ...c, limitFrom: 'codex' } : c));
+    assert.equal(at(codex), 1, 'a current Codex limit did not move the part');
+  } finally { w.restore(); }
+});
+
+test('the board\'s runner derivation decides the provider, and an unknown runner is never moved from or to', () => {
+  const w = world([{ name: 'rnlim', paneState: 'rate_limited' }, { name: 'rngem', runner: 'gemini' }]);
+  try {
+    heldTask(w.pid, w.key.rnlim, 'write the deploy notes');
+    const step2 = (runners) => later(w, { runners }).toAssign.length;
+    assert.equal(step2(new Map([[w.key.rnlim, 'claude'], [w.key.rngem, 'gemini']])), 1, 'control: known, different providers move');
+    assert.equal(step2(new Map([[w.key.rnlim, 'antigravity'], [w.key.rngem, 'gemini']])), 0, 'the derivation said Google on both, and it moved');
+    assert.equal(step2(new Map([[w.key.rnlim, null], [w.key.rngem, 'gemini']])), 0, 'moved from an agent whose runner is unknown');
+    assert.equal(step2(new Map([[w.key.rnlim, 'claude'], [w.key.rngem, null]])), 0, 'moved to an agent whose runner is unknown');
+  } finally { w.restore(); }
+});
+
+test('runOnce passes the failover source to give', () => {
+  const w = world([{ name: 'rolim', paneState: 'rate_limited' }, { name: 'rogem', runner: 'gemini' }]);
+  try {
+    heldTask(w.pid, w.key.rolim, 'write the deploy notes');
+    const base = { roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states() };
+    const first = a.step({ prev: undefined, ...base, now: T0 });
+    const calls = [];
+    a.runOnce({ prev: first.next, ...base, now: T0 + Math.max(a.IDLE_MS, a.FAILOVER_MS),
+      give: (pid, n, partId, who, from) => { calls.push({ who, from }); return { ok: true }; } });
+    assert.deepEqual(calls, [{ who: w.key.rogem, from: w.key.rolim }]);
   } finally { w.restore(); }
 });

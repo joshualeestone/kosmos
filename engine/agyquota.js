@@ -155,6 +155,17 @@ function plan(report, entry, now, heldBackUntil) {
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
 
+/* #5382: the carry-on line, plus the parts the Assigner's failover gave to other agents while this one was paused
+   (movedAway(session, since) -> ["task N in \"P\" (now X's)"], injected), so it does not carry on with work that is
+   now somebody else's. Looks back MAX_AGE_MS, the longest pause this module resumes. A movedAway that throws adds nothing. */
+function nudgeText(session, now, movedAway) {
+  let gone = [];
+  if (typeof movedAway === 'function') { try { gone = movedAway(session, now - MAX_AGE_MS) || []; } catch { gone = []; } }
+  if (!Array.isArray(gone) || !gone.length) return NUDGE_TEXT;
+  return NUDGE_TEXT + ' While you were paused, Kosmos gave ' + gone.join(', ') + ' to another agent: leave '
+    + (gone.length === 1 ? 'it' : 'those') + ' to them.';
+}
+
 /*
  * One sweep. o = { roster, book (Map), now, memo (the pool memory; POOL_MEMO by default), env (process.env by default),
  * readReport (session) => selfreport.read shape, deliver (session, text, roster) => result, DELIVERY, log }. Nudges at
@@ -194,7 +205,7 @@ function sweepOnce(o) {
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
     const d = due[0];
     let state = null;
-    try { const r = o.deliver(d.session, NUDGE_TEXT, o.roster); state = r && r.state; }
+    try { const r = o.deliver(d.session, nudgeText(d.session, now, o.movedAway), o.roster); state = r && r.state; }
     catch (err) { state = 'threw: ' + String((err && err.message) || err); }
     const D = o.DELIVERY || {};
     const delivered = D.PLACED != null && state === D.PLACED;
@@ -224,9 +235,9 @@ function makeTick(deps) {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, DELIVERY: deps.DELIVERY, log: deps.log });
     } catch { return null; }
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, nudgeText, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

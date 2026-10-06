@@ -96,19 +96,30 @@ const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
 const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length === 1 && p.agents[0] === session
   && !!p.made && typeof p.made === 'object' && p.made.by === session;
 
-/* #5382: the provider a runner bills, for the failover's "another provider" test. Antigravity and the Gemini CLI are one:
-   both can run on the same Google account, whose shared quota (#4588) is what stopped the first agent. Empty is claude. */
+/* #5382: the provider a runner bills, for the failover's "another provider" test, from create.runnerProvider (the ONE
+   runner -> provider map). One more rule on top: Antigravity and the Gemini CLI are one, because both can run on the
+   same Google account, whose shared quota (#4588) is what stopped the first agent. A runner that is not known (null)
+   has no provider, and the failover neither takes from nor gives to it. */
 function providerOf(runner) {
-  const r = typeof runner === 'string' && runner ? runner : 'claude';
-  return r === 'antigravity' || r === 'gemini' ? 'google' : r;
+  if (typeof runner !== 'string' || !runner) return null;
+  const p = require('./create').runnerProvider(runner);
+  return p === 'antigravity' ? 'google' : p;
 }
 
-/* #5382: a card the failover may take work FROM: ours, reading rate_limited, and not about to reset. */
+/* #5382: a card the failover may take work FROM: ours, reading rate_limited on evidence that is still current, and not
+   about to reset. "Current" means Kosmos can date it: a reset time from Antigravity's report (quotaUntil), the shared
+   pool (poolUntil) or the vendor's own line (status.limitResetAt), still in the future; or a Codex or Gemini CLI limit,
+   which status sets only while the vendor's limit still holds. A limit line with no reset time is NOT acted on: an idle
+   pane can keep showing an old one long after the agent recovered (status.js, the #5031 notes), and 15 minutes of
+   waiting cannot tell those apart (review 6). */
 function limitedCard(a, now) {
   if (!(a && a.sessionName && a.isNamedOurs === true && a.state === 'rate_limited')) return false;
+  let fromLine = null;
+  try { fromLine = typeof a.stateEvidence === 'string' && a.stateEvidence ? require('./status').limitResetAt(a.stateEvidence, now) : null; } catch { fromLine = null; }
   // Each reset on its own: Math.max over a missing one (NaN) is NaN, which would read as no reset known.
-  const resets = [Date.parse(a.quotaUntil || ''), Date.parse(a.poolUntil || '')].filter(Number.isFinite);
-  return !(resets.length && Math.max(...resets) - now <= RESET_SOON_MS);
+  const resets = [Date.parse(a.quotaUntil || ''), Date.parse(a.poolUntil || ''), Number(fromLine)].filter((x) => Number.isFinite(x) && x > 0);
+  if (!resets.length) return a.limitFrom === 'codex' || a.limitFrom === 'gemini';
+  return Math.max(...resets) - now > RESET_SOON_MS;
 }
 
 /* Live (non-archived) project records only. */
@@ -316,7 +327,7 @@ function stalledParts(projects, ripe, runnerOf) {
       if (prog.closed) continue;
       for (const x of prog.parts) {
         if (x.closedAt || !ripe.has(x.who)) continue;
-        out.push({ projectId: p.id, n: t.number, partId: x.id, from: x.who, fromRunner: runnerOf.get(x.who) || 'claude',
+        out.push({ projectId: p.id, n: t.number, partId: x.id, from: x.who, fromRunner: runnerOf.get(x.who) || null,
           due: dueKey(t), age: ageKey(t) });
       }
     }
@@ -329,7 +340,7 @@ function stalledParts(projects, ripe, runnerOf) {
    an agent on a DIFFERENT provider (the same provider is likely the same limit), not already moved this step. */
 function failoverPick(session, runner, stalled, projects, movedParts) {
   for (const s of stalled) {
-    if (s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
+    if (!s.fromRunner || !runner || s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
     const p = projects.find((q) => q.id === s.projectId);
     if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     return s;
@@ -351,7 +362,7 @@ function failoverPick(session, runner, stalled, projects, movedParts) {
  * @param {number} o.now  ms clock
  * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
  */
-function step({ prev, roster, setting, records, commitments, goals, now }) {
+function step({ prev, roster, setting, records, commitments, goals, now, runners }) {
   const base = prev && prev.idleSince instanceof Map ? prev : emptyMemory();
   if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: emptyMemory() };
   // A null roster is a READ FAILURE, not an empty fleet: keep the memory, do nothing.
@@ -375,8 +386,10 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
   const runnerOf = new Map();
   const ripe = new Set();
   const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
+  /* `runners` (session -> runner or null) is the board's own derivation, passed in by tick (review 6: a card's runner of
+     'claude' can be a default, not a fact). Without it, the card's own field. */
   for (const a of Array.isArray(roster) ? roster : []) {
-    if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(a.runner));
+    if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(runners instanceof Map ? runners.get(a.sessionName) : a.runner));
     if (!limitedCard(a, now)) continue;
     const since = baseLimited.has(a.sessionName) ? baseLimited.get(a.sessionName) : now;
     limitedSince.set(a.sessionName, since);
@@ -399,7 +412,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     try { held = require('./agyquota').heldForQuota(session, roster, now); } catch { held = null; }
     if (held !== null) continue;
     /* #5382: work stalled on a rate-limited agent comes before the backlog: it was already started for somebody. */
-    const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || 'claude', stalled, projects, movedParts) : null;
+    const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || null, stalled, projects, movedParts) : null;
     const choice = moved
       ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from }
       : pick(session, projects, taken);
@@ -435,8 +448,8 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
  * charge back off the budget, so a refusal does not spend an hour's allowance.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY }) {
-  const out = step({ prev, roster, setting, records, commitments, goals, now });
+function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY, runners }) {
+  const out = step({ prev, roster, setting, records, commitments, goals, now, runners });
   /* #5161: an ask that did not land must not record the project as asked-about-in-this-state, or a pane that refused
      once would silence that project until something changed. */
   const unrecord = (item) => {
@@ -508,7 +521,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
  *   ask(session, text, roster), DELIVERY
  * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
-function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY }) {
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY, readRunner }) {
   const setting = readSetting();
   const roster = setting && setting.on === true ? readRoster() : null;
   const records = setting && setting.on === true ? readRecords() : [];
@@ -527,7 +540,17 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }
-  return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY,
+  /* #5382: each card's runner, from the board's derivation (readRunner), read only while failover is on. A read that
+     throws is unknown (null), which the failover skips. */
+  let runners;
+  if (setting && setting.on === true && setting.failover === true && typeof readRunner === 'function') {
+    runners = new Map();
+    for (const c of Array.isArray(roster) ? roster : []) {
+      if (!c || !c.sessionName) continue;
+      try { const r = readRunner(c); runners.set(c.sessionName, typeof r === 'string' && r ? r : null); } catch { runners.set(c.sessionName, null); }
+    }
+  }
+  return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY, runners,
     give: (projectId, n, partId, who, from) => give(projectId, n, partId, who, roster, from),
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
