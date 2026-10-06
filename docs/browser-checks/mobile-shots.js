@@ -249,6 +249,24 @@ const SCREENS = [
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
   } },
+  /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
+     and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
+  { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 8000 });
+  } },
+  { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-paused', { state: 'visible', timeout: 8000 });
+  } },
+  { name: 'projects-paused', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.waitForSelector(`#pj-list .pj-row[data-project="${data.projectId}"] .pjpill.paused`, { timeout: 8000 });
+  } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.
     await page.waitForSelector(`.acard[data-agent="${data.askAgent}"]`, { timeout: 5000 });
