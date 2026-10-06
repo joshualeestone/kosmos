@@ -3362,7 +3362,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   /* #5379: the tab view reserves the scrollbar gutter on <html> and consolidated does not (its panes scroll inside),
-     so on a platform whose scrollbars take width (Windows, Linux; 0 on macOS) the header's right controls sat 15px
+     so on a platform whose scrollbars take width (Windows, Linux, a Mac set to show them; 0 with overlay scrollbars) the header's right controls sat 15px
      further right in consolidated and the centred tabs 7.5px: the header jumped on every view flip (CI:
      render-tophead-stable-2624). Consolidated pads its header by the same width instead of adding an empty strip. The
      padding is on the inner header, not .apphead, because the inner header carries consolidated's background and
@@ -3373,7 +3373,10 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      15px further right in consolidated. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
     padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
-  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
+  /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
+  html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
     position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }

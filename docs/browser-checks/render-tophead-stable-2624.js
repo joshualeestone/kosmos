@@ -256,10 +256,23 @@ async function measure(page, view, notice, name) {
     for (const w of ['0px', '15px']) {
       await page.evaluate((w) => document.documentElement.style.setProperty('--scrollbar-width', w), w);
       at[w] = { cons: await measure(page, 'consolidated', false), tabs: await measure(page, 'tabs', false) };
+      // CONTROL: no measurement (a focus, a settled resize) replaced the hand-set width while reading.
+      const held = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim());
+      if (held !== w) problems.push(`CONTROL failed: 1440px: the hand-set ${w} scrollbar width read back as ${held}; a measurement ran mid-arm`);
       for (const k of ['youX', 'tabsX']) {
         if (at[w].cons[k] !== at[w].tabs[k]) problems.push(`1440px with a ${w} scrollbar width: ${k} is ${at[w].cons[k]} in consolidated and ${at[w].tabs[k]} in the tab view`);
       }
     }
+    // With consolidated chosen, a whole-page tab (Settings: data-layout stays consolidated, body is not .consolidated)
+    // has no reserved gutter either; its header must end where the tab view's does at the same width (still 15px).
+    const settings = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.remove('consolidated');
+      const el = document.querySelector('.apphead header .headright'); const r = el && el.getBoundingClientRect();
+      return r && r.width > 0 ? Math.round(r.left * 10) / 10 : null;
+    });
+    if (settings !== at['15px'].tabs.youX) problems.push(`1440px with a 15px scrollbar width: on a whole-page tab with consolidated chosen the right controls sit at ${settings}, the tab view's at ${at['15px'].tabs.youX}`);
+    else console.log(`  PASS  1440px with a 15px scrollbar width: a whole-page tab with consolidated chosen keeps the right controls at ${settings}`);
     const c0 = at['0px'].cons.youX, c15 = at['15px'].cons.youX;
     if (!(c0 !== null && c15 !== null && Math.abs((c0 - c15) - 15) < 0.6)) problems.push(`1440px consolidated: a 0px to 15px scrollbar width moved the right controls from ${c0} to ${c15}, not 15px left; consolidated does not pad its header by the scrollbar width`);
     else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${c15}, tabs at ${at['15px'].cons.tabsX})`);
