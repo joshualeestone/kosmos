@@ -3368,6 +3368,10 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      bottom rule, which then still reach the window edge. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
     padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
+  /* The Kosmos+ bar above it likewise: in the tab view kplusBarFit ends it at the reserved gutter, so Log out sat
+     15px further right in consolidated. */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
+    padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {

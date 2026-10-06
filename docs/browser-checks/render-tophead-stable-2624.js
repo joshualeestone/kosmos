@@ -257,8 +257,27 @@ async function measure(page, view, notice, name) {
     for (const k of ['youX', 'tabsX']) {
       if (cons15[k] !== tabs15[k]) problems.push(`1440px with a 15px scrollbar width: ${k} is ${cons15[k]} in consolidated and ${tabs15[k]} in the tab view`);
     }
-    if (!(cons15.youX !== null && cons.youX !== null && Math.abs((cons.youX - cons15.youX) - 15) < 0.6)) problems.push(`CONTROL failed: 1440px consolidated: a 15px scrollbar width moved the right controls from ${cons.youX} to ${cons15.youX}, not 15px left`);
+    if (!(cons15.youX !== null && cons.youX !== null && Math.abs((cons.youX - cons15.youX) - 15) < 0.6)) problems.push(`1440px consolidated: a 15px scrollbar width moved the right controls from ${cons.youX} to ${cons15.youX}, not 15px left; consolidated does not pad its header by the scrollbar width`);
     else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${cons15.youX}, tabs at ${cons15.tabsX})`);
+    // The Kosmos+ bar above the header (a remote session) pads by the width too, so its Log out ends where the header's
+    // right controls end. Read in consolidated only: in the tab view the bar's end comes from the REAL reserved gutter
+    // (kplusBarFit cancels the header padding), which a hand-set width cannot simulate on this Mac. There the two
+    // line up on a classic-scrollbar machine, and consolidated is pinned to the tab view by the header arms above.
+    // Built the way kplusBar builds it (first child of .apphead, sized by kplusBarFit), since over file:// there is
+    // no remote session.
+    await measure(page, 'consolidated', false);
+    const bar = await page.evaluate(() => {
+      const b = document.createElement('div'); b.id = 'kplus-bar'; b.className = 'kplus-bar';
+      b.innerHTML = '<canvas class="kplus-bar-mark" width="40" height="14"></canvas>'
+        + '<span class="kplus-bar-end"><button type="button" class="kplus-bar-out">Log out</button></span>';
+      const head = document.querySelector('.apphead'); head.insertBefore(b, head.firstChild);
+      kplusBarFit();
+      const right = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 ? Math.round(r.right * 10) / 10 : null; };
+      return { out: right(b.querySelector('.kplus-bar-out')), head: right(document.querySelector('.apphead header .headright')) };
+    });
+    if (bar.out === null || bar.head === null) problems.push(`CONTROL failed: 1440px consolidated: ${bar.out === null ? "the Kosmos+ bar's Log out" : 'the header right controls'} did not render`);
+    else if (bar.out !== bar.head) problems.push(`1440px consolidated with a 15px scrollbar width: the Kosmos+ bar's Log out ends at x ${bar.out}, the header's right controls at ${bar.head}; the bar does not pad by the scrollbar width`);
+    else console.log(`  PASS  1440px consolidated with a 15px scrollbar width: the Kosmos+ bar's Log out ends with the header's right controls (x ${bar.out})`);
     await page.close();
   }
 
