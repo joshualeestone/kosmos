@@ -40798,7 +40798,8 @@ function instrAddPaint(sessionName, data) {
     const line = document.createElement('p');
     line.className = 'dhint';
     line.style.margin = '0';
-    line.textContent = 'The addition was taken out. These instructions are back to how they were before it.';
+    /* Review 9: Undo keeps edits made elsewhere and Kosmos's own block, so only the addition is said to be gone. */
+    line.textContent = 'The addition was taken out. The rest of these instructions is as it was.';
     li.append(line);
     INSTR_ADD_UNDONE = null;   // said once; the line goes on the next load
   } else if (last && !last.undone && (last.undoable || Date.now() - new Date(last.appliedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
@@ -40808,8 +40809,8 @@ function instrAddPaint(sessionName, data) {
     line.textContent = 'Added on ' + instrAddWhen(last.appliedAt) + ', asked by ' + (last.askedBy || 'another agent') + '.'
       /* Review 3: the real reason, never "edited" when nobody did. */
       + (last.undoable ? ''
-        : last.blocked === 'edited' ? ' This addition can no longer be undone here, because the instructions were edited after it was added. Edit them above instead.'
-        : last.blocked === 'short' ? ' This addition cannot be undone here, because the instructions before it were too short to put back. Edit them above instead.'
+        : last.blocked === 'edited' ? ' This addition can no longer be undone here, because it was changed or copied after it was added. Edit the instructions above instead.'
+        : last.blocked === 'short' ? ' This addition cannot be undone here, because what would be left is too short to keep. Edit the instructions above instead.'
         : ' This addition cannot be undone here. Edit the instructions above instead.');
     li.append(line);
     if (last.undoable) {

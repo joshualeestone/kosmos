@@ -132,7 +132,7 @@ function readAdd(page) {
     await page.waitForFunction(() => /The addition was taken out/.test(document.getElementById('d-instr-add').textContent), null, { timeout: 8000 });
     chk(fs.readFileSync(fileOf('mara'), 'utf8') === BASE, 'Undo restored exactly the earlier text');
     const undone = await readAdd(page);
-    chk(!undone.undo && /These instructions are back to how they were before it\./.test(undone.text), 'after Undo: the sentence, and no button', JSON.stringify(undone.text));
+    chk(!undone.undo && /The addition was taken out\. The rest of these instructions is as it was\./.test(undone.text), 'after Undo: the sentence, and no button', JSON.stringify(undone.text));
 
     // Dismiss: gone, and the file untouched.
     adds.propose('mara', 'A short addition.', 'Leo');
