@@ -665,7 +665,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#fedinv-make');
     await page.evaluate((d) => fedGateStamp(d), OFF);   // forced close while the Make is answered
     // Past the dropped Make's 500 ms answer, on purpose (#5373 left it a sleep): the forced close clears FEDINV_INFLIGHT
-    // at once, so no flag says when that answer lands, and the arm is about the sheet AFTER it has.
+    // at once, so no page flag says when the page has finished with that answer, and the arm is about the sheet AFTER
+    // it has. (The stub's __inviteAnsweredAt marks the hand-back, which is earlier than that.)
     await page.waitForTimeout(700);
     await page.evaluate((d) => { window.__inviteDelay = 0; fedGateStamp(d); }, SHOW);
     await page.click('#pj-add-member');
@@ -880,7 +881,7 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
     await setMembers(page, answer(ALL.map((r) => (r === DANA ? Object.assign({}, r, { state: 'removed' }) : r))));
     await page.click('#mem-go');
-    // #5373: wait for the dialog to close and Dana's row to go (the list asked again), not a fixed 250 ms.
+    // #5373: wait for the dialog to close and Dana's row to go, not a fixed 250 ms.
     await page.waitForFunction(() => document.getElementById('mem-modal').hidden
       && !document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="e:edge-dana"]'), null, { timeout: 4000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__removes.slice());
@@ -957,7 +958,7 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__withdraw = { status: 200, body: { withdrawn: true } }; });
     await setMembers(page, answer(ALL.map((r) => (r === NOLABEL_P ? Object.assign({}, r, { state: 'withdrawn' }) : r))));
     await act(page, 'i:inv-nl');
-    // #5373: wait for the withdrawn row to go (the list asked again), not a fixed 250 ms.
+    // #5373: wait for the withdrawn row to go, not a fixed 250 ms.
     await page.waitForFunction(() => !document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-nl"]'),
       null, { timeout: 4000 }).catch(() => {});
     f = await readFed(page, '#pj-fed-outside');
@@ -1112,11 +1113,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(([off, on]) => { fedGateStamp(off); fedGateStamp(on); }, [OFF, SHOW]);
     await page.waitForTimeout(150);
     const lateClosed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
-    // #5373: the ask that counts is one made after the late reply was handed back (__inviteAnsweredAt), so the
-    // gate's own asks cannot satisfy it, however late they land. The row alone cannot say it either: the gate's
-    // asks already return inv-kim.
-    await page.waitForFunction(() => window.__inviteAnsweredAt >= 0 && window.__memberUrls.length > window.__inviteAnsweredAt,
-      null, { timeout: 4000 }).catch(() => {});
+    // #5373: wait for an ask made after the late reply was handed back (__inviteAnsweredAt) and the row it draws.
+    await page.waitForFunction(() => window.__inviteAnsweredAt >= 0 && window.__memberUrls.length > window.__inviteAnsweredAt
+      && !!document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-kim"]'), null, { timeout: 4000 }).catch(() => {});
     const late = await page.evaluate(() => ({ at: window.__inviteAnsweredAt, asks: window.__memberUrls.length }));
     const lateRows = (await readFed(page, '#pj-fed-outside')).rows;
     check('B7b a reply landing after a forced close still has the list asked again, and the new pending row shows (control: closed; the ask counted is after the reply)',
@@ -1485,23 +1484,26 @@ const closeAll = (page) => page.evaluate(() => {
     // B18f: a Remove asked, the project left and reopened (A, B, A) before it answers: its late answer says nothing.
     await page.evaluate(() => { window.__withdraw = { status: 200, body: { withdrawn: true } }; window.__remove = { status: 502, body: { error: 'refused' } }; window.__answerDelay = 300; });
     await act(page, 'e:edge-dana');
+    const fSent0 = await page.evaluate(() => window.__removes.length);
     await page.click('#mem-go');
     await page.waitForTimeout(30);
     await page.evaluate(async () => { PJ_CURRENT = 'elsewhere'; await fedMembersLoad('elsewhere'); PJ_CURRENT = 'k'; await fedMembersLoad('k'); });
     // #5373: wait until the held 502 (300 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see
     // B10b), not a fixed 500 ms.
-    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
+    await page.waitForFunction((n) => window.__removes.length > n && FED_BUSY.size === 0, fSent0, { timeout: 4000 }).catch(() => {});
+    const fSent = (await page.evaluate(() => window.__removes.length)) - fSent0;
     const loose = await page.evaluate(() => Object.values(FED_MSGS));
     const mF = await modal(page);
     await page.evaluate(() => { window.__answerDelay = 0; });
     // With the dialog still open a 502 would only write #mem-msg, so that is what is asserted: the dropped answer
     // closes the dialog and writes nothing (control: B3, the same 502 when the project stays, says it there).
     check('B18f a Remove answered after the project was left and reopened: the dialog closes, nothing is said (control: B3)',
-      !mF.open && mF.msg === '' && loose.length === 0, JSON.stringify({ open: mF.open, msg: mF.msg, loose }));
+      fSent === 1 && !mF.open && mF.msg === '' && loose.length === 0, JSON.stringify({ fSent, open: mF.open, msg: mF.msg, loose }));
     // B18g: the same through the real path: Cancel, the back chevron to the projects list, then the SAME project
     // reopened before the Remove answers. Its late answer says nothing in the reopened project.
     await page.evaluate(() => { window.__answerDelay = 400; });
     await act(page, 'e:edge-dana');
+    const gSent0 = await page.evaluate(() => window.__removes.length);
     await page.click('#mem-go');
     await page.waitForTimeout(30);
     await page.click('#mem-keep');
@@ -1509,12 +1511,13 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => openProject('k'));
     // #5373: wait until the held answer (400 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see
     // B10b), not a fixed 600 ms.
-    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
+    await page.waitForFunction((n) => window.__removes.length > n && FED_BUSY.size === 0, gSent0, { timeout: 4000 }).catch(() => {});
+    const gSent = (await page.evaluate(() => window.__removes.length)) - gSent0;
     const looseG = await page.evaluate(() => Object.values(FED_MSGS));
     const backOpen = await page.evaluate(() => PJ_CURRENT);
     await page.evaluate(() => { window.__answerDelay = 0; });
     check('B18g a Remove answered after Cancel, back to the list and the same project reopened leaves no sentence (control: reopened)',
-      backOpen === 'k' && looseG.length === 0, JSON.stringify({ backOpen, looseG }));
+      gSent === 1 && backOpen === 'k' && looseG.length === 0, JSON.stringify({ gSent, backOpen, looseG }));
     await ctx.close();
   }
   {
