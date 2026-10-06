@@ -20,8 +20,8 @@ one root). Left on `dataRootFor` on purpose: `boardauth` and `setup-assistant` r
 - In a test process, a resolved root equal to the machine's REAL default root, or inside it (a named
   world hangs off it), is never used:
   - with NO sandbox variable set, the store answers ONE throwaway root of that process's own (mkdtemp,
-    prefix `kosmos-test-home-`), removed at exit (best effort; run-tests.sh sweeps ones older than two
-    hours). It is the store's alone: no environment variable is set, so no other seam changes (an
+    prefix `kosmos-test-home-<pid>-`), removed at exit (best effort; run-tests.sh sweeps the ones whose
+    process is gone). It is the store's alone: no environment variable is set, so no other seam changes (an
     earlier version exported AGENT_WORKFORCE_HOME, which agystatus, accounts, codexupdate and others
     also read, and which overrode a HOME set later; review 2 caught it). A child process is a test
     process too and gets its own. The legacy migration is skipped for it, since its target would be
@@ -80,6 +80,18 @@ Exporting the throwaway as AGENT_WORKFORCE_HOME changed every seam that reads th
 on which module read the store first, and silently overrode a HOME set later. The throwaway now lives
 in store.js only. Cost: a parent and the children it starts no longer share one throwaway; only
 unsandboxed pairs that both used the REAL store shared before, and those are this card's leaks.
+
+## What is protected, and what is not (review 4)
+- Protected: this account's OS-default root (from the user database), equal or inside, which is where
+  the card's records were. Measured in this pane: AGENT_WORKFORCE_DATA and AGENT_WORKFORCE_HOME are both
+  unset, so a test started here gets that protection.
+- Not protected: a store some OTHER root names, when a shell exports a non-default AGENT_WORKFORCE_DATA or
+  AGENT_WORKFORCE_HOME pointing at a live board and a test inherits it. Telling an inherited value from
+  a test's own sandbox is not possible from inside the process.
+- A sandbox variable aimed at the real root itself throws (deliberate; a pane exporting
+  AGENT_WORKFORCE_HOME=$HOME would make every test that loads the store fail loudly).
+- The shell side (bin/agent-supervisor.sh and shell tests deriving the root themselves): #5428.
+- A plain `node file.test.js` (no `--test`, no run-tests.sh) sets no marker and is not guarded.
 
 ## Residual
 A test that sets no sandbox now passes silently instead of being told. That is the trade: the card asks

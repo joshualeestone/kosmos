@@ -265,7 +265,9 @@ function maybeMigrateLegacyStore() {
    - A sandbox variable IS set and still resolves to the real root or inside it (a symlink to the
      real home, a DATA aimed at the real root's parent, a named world under it): that is a
      misconfiguration, and it throws.
-   Every caller that derives the root goes through resolveDataRoot below, not only this file. */
+   Every caller that derives the root goes through resolveDataRoot below, not only this file.
+   What is protected is this account's OS-default root; a store a shell's inherited
+   AGENT_WORKFORCE_DATA/HOME names is not (the shell side is #5428). */
 function isTestProcess(env) {
   return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1';
 }
