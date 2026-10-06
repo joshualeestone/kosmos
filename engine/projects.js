@@ -2043,6 +2043,11 @@ function makeFolder(name) {
 function trueChildName(parent, name) {
   let entries;
   try { entries = fs.readdirSync(parent); } catch { return name; }
+  // #5424: an exact entry is the answer, and another spelling is adopted only when this name really opens it (a
+  // case-insensitive disk). On a case-sensitive one `Lease` is not `lease`: makeFolder makes `lease` beside it,
+  // so the preview must name `lease` too.
+  if (entries.includes(name)) return name;
+  try { fs.statSync(path.join(parent, name)); } catch { return name; }
   const wanted = name.toLowerCase();
   const matches = entries.filter((entry) => entry.toLowerCase() === wanted);
   return matches.length === 1 ? matches[0] : name;
