@@ -37,8 +37,9 @@ stay off (measured reasons on the card).
   managed-preferences profile): those layers may not be covered by `--ignore-user-config` and could add a tool.
 - **Windows: off.** Nothing here was measured on Windows and no managed layer is known there, so the reader is not
   offered on Windows, with a sentence saying so, until it is measured.
-- **A PDF passes ChatGPT over** for a key account that can read it (the choice knows the file's kind); with no such
-  key, ChatGPT stays the reader and the person is told it cannot take a PDF.
+- **A PDF passes ChatGPT over** for a connected key account, chosen in Settings order as before (the choice knows the
+  file's kind; it does not check that the key can read it, so a Grok-only key refuses a PDF in its own words); with no
+  key account, ChatGPT stays the reader and the person is told it cannot take a PDF.
 - **At the read, every gate is asked again** (Windows, version, instructions file, managed config), so a change while
   the consent box was open is caught before Codex starts. An answer counts only from a turn that completed.
 - **PNG and JPEG only**, the two formats measured. A PDF, GIF or WebP gets a "use a picture or an export" sentence.

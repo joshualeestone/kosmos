@@ -599,8 +599,8 @@ let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
     null restores the real one. */
 function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
-/* `name`, when known, is the file about to be read: a reader that cannot take that kind (ChatGPT and a PDF) is passed
-   over for the next one that can, rather than chosen and then refused (#5346 review). */
+/* `name`, when known, is the file about to be read: ChatGPT, which takes only PNG and JPEG, is passed over for that
+   kind when a key account is connected (#5346 review). The key account is chosen as before, by Settings order. */
 function currentReader(name) {
   lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from
   if (readerOverride) return readerOverride();

@@ -128,7 +128,8 @@ test('a read: every switch is on the command line, the picture goes in, the cata
   const got = await o.readWithModel('chart.png', PNG, { reader: o.currentReader() });
   assert.deepEqual(got.rows.map((r) => r.person), ['Avery Quill', 'Bo Linden']);
   const rec = JSON.parse(fs.readFileSync(record, 'utf8'));
-  for (const f of c.DISABLED_FEATURES) assert.ok(rec.argv.join(' ').includes('--disable ' + f), 'missing --disable ' + f);
+  // As argv pairs, so `multi_agent` is not "found" inside `multi_agent_v2`.
+  for (const f of c.DISABLED_FEATURES) assert.ok(rec.argv.some((a, i) => a === '--disable' && rec.argv[i + 1] === f), 'missing --disable ' + f);
   for (const k of c.CONFIG) assert.ok(rec.argv.includes(k), 'missing -c ' + k);
   for (const f of ['--ephemeral', '--ignore-user-config', '--ignore-rules', '--json']) assert.ok(rec.argv.includes(f), 'missing ' + f);
   assert.equal(rec.home, acct, 'run on the account the consent named');
