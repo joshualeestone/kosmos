@@ -42,7 +42,7 @@ function fixture(reviewer, extra = {}) {
 }
 const stored = (id, n) => tasks.byNumber(projects.readAll().find((x) => x.id === id), n);
 const only = (id) => projects.readAll().filter((x) => x.id === id);
-const roster = [{ sessionName: 'ada', name: 'Ada', isNamedOurs: true }, { sessionName: 'rex', name: 'Rex', isNamedOurs: true }];
+const roster = [{ sessionName: 'ada', name: 'Ada', isNamedOurs: true, state: 'idle' }, { sessionName: 'rex', name: 'Rex', isNamedOurs: true, state: 'idle' }];
 
 test('#4787 slice 3: an agent reviewer is told once per missed slot, with the task, the run and its owner', () => {
   const { id, n } = fixture('ada');
@@ -115,7 +115,7 @@ test('#4787 slice 3: held, not spent, while Kosmos cannot type, the reviewer is 
   assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'rex' }], allowed: true, sent: [] }).results[0].act, 'held');
   assert.equal(mt.sweep({ ...base, roster, allowed: true, limit: { on: true, perHour: 1 }, sent: [NOW - 1000] }).results[0].act, 'held');
   assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: false }], allowed: true, sent: [] }).results[0].act, 'held', 'not ours');
-  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: true, swarm: { active: false } }], allowed: true, sent: [] }).results[0].act, 'held', 'a switched-off swarm');
+  assert.equal(mt.sweep({ ...base, roster: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle', swarm: { active: false } }], allowed: true, sent: [] }).results[0].act, 'held', 'a switched-off swarm');
   assert.equal(stored(id, n).missToldAt, undefined, 'nothing is marked told while held');
   // CONTROL: the same task, allowed and running, is told.
   const r = mt.sweep({ ...base, roster, allowed: true, sent: [], deliver: () => ({ state: 'placed' }) });
@@ -221,4 +221,26 @@ test('#4787 slice 3 review 8: a reviewer switched off in this project is held; a
   const me = fixture('me', { repeatReviewerSetAt: new Date(at(2026, 10, 6, 9, 30)).toISOString() });
   assert.equal(mt.personReviewMissed(stored(me.id, me.n), NOW), false, 'the 9am miss came before "Me" was chosen at 9:30');
   assert.equal(mt.personReviewMissed(stored(me.id, me.n), at(2026, 10, 7, 10, 0)), true, 'CONTROL: the next day\'s miss is theirs');
+});
+
+test('#4787 slice 3 review 9: never typed into a reviewer that is not idle (a permission prompt could take the Enter), with no try spent', () => {
+  const { id, n } = fixture('ada');
+  const book = new Map();
+  for (const state of ['needs_you', 'working', 'rate_limited', 'auth_failed', 'blocked']) {
+    const r = mt.sweep({ projects: only(id), roster: [{ sessionName: 'ada', isNamedOurs: true, state }], now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY, deliver: () => { throw new Error('typed into ' + state); } });
+    assert.equal(r.results[0].act, 'held', state);
+  }
+  assert.equal(book.size, 0, 'no try spent');
+  assert.equal(stored(id, n).missToldAt, undefined);
+  const r = mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book, DELIVERY, deliver: () => ({ state: 'placed' }) });
+  assert.equal(r.results[0].act, 'tell', 'CONTROL: idle, it is told');
+});
+
+test('#4787 slice 3 review 9: a sentence with control characters or quotes still makes a line the board will type', () => {
+  const text = mt.tellText({ n: 4, project: 'Watch', sentence: 'Pull\u0007 "the" feed\u0000 now', count: 1, words: 'today at 9am', owners: [], reviewer: 'ada' });
+  assert.doesNotMatch(text, /[\u0000-\u001f\u007f]/);
+  assert.match(text, /"Pull the feed now"/);
+  const chat = require('../engine/chat');
+  assert.ok(chat.messageProblem('a\u0007b'), 'CONTROL: the typing path refuses a control character');
+  assert.equal(chat.messageProblem(text), null, 'and accepts the cleaned line');
 });
