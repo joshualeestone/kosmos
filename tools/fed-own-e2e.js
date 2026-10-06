@@ -424,7 +424,10 @@ async function hasExternal(b, id, text) {
 const ANY_STAYED = /stayed on this computer/i;
 // ONLY the not-connected variants of engine/fedseats.js post(): the seat is down, or the
 // own-room seat was refused. Not "ended", "nobody has joined", sealed-room or too-long.
-const NOT_CONNECTED = /stayed on this computer: (the connection to the external project is not up right now|this project is not connected to your other computers right now)/;
+// engine/fedseats.js farSide: "the external project" for another person's project, "the other computers in this
+// project" for one shared between one person's own computers, the case this harness runs (the 10-06 02:54 run
+// recorded 37 of these and the old pattern matched none).
+const NOT_CONNECTED = /stayed on this computer: (the connection to (the external project|the other computers in this project) is not up right now|this project is not connected to your other computers right now)/;
 /* The room lines AFTER the (last) line carrying `text`, or null if `text` is not there. */
 async function linesAfter(b, id, text) {
   const lines = (await roomText(b, id)).split('\n');
@@ -586,12 +589,12 @@ async function main() {
   // from it, so without this the own-code verify in step 5 answers 409 "This computer has not been allowed" (measured
   // 10-06 01:28 on both arms). Done as a person does it: B's join rounds work out a code, A's Allow carries that same
   // code from A's pending list, and B confirms "The codes match".
-  const allowedOnA = async () => {
-    const d = await http(A.base, 'GET', '/api/remote/devices');
-    return d.status === 200 && d.json && Array.isArray(d.json.allowed) ? d.json.allowed : null;
+  // A computer that joins is not a row on the device ALLOWED list (that is phones and browsers; measured 10-06 02:52),
+  // so the Allow is shown by B leaving A's WAITING list, which the running tunnel refreshes every few seconds.
+  const waitingOnA = async (id) => {
+    const p = await http(A.base, 'GET', '/api/remote/pending');
+    return p.json && Array.isArray(p.json.devices) ? p.json.devices.some((d) => d && d.device_id === id) : null;
   };
-  const before = await allowedOnA();
-  chk(Array.isArray(before), 'step 4b control: A\'s device list is readable before the Allow', before ? before.length + ' allowed' : 'no list');
   let joinCode = '';
   let waiting = null;
   const paired = await waitFor(async () => {
@@ -610,9 +613,9 @@ async function main() {
     chk(r0.status === 200, 'step 4b: A allows B with the code it shows', r0.status + ' ' + r0.text.slice(0, 200));
     r0 = await http(B.base, 'POST', '/api/remote/join/confirm', { code: joinCode }, SCREEN);
     chk(r0.status === 200 && r0.json && r0.json.confirmed === true, 'step 4b: B confirms the codes match', r0.status + ' ' + r0.text.slice(0, 200));
-    const after = await allowedOnA();
-    chk(Array.isArray(after) && after.some((d) => d && d.device_id === waiting.device_id) && !(before || []).some((d) => d && d.device_id === waiting.device_id),
-      'step 4b: B is on A\'s allowed list now and was not before', (after || []).length + ' allowed');
+    // B WAS waiting (asserted above, the control); the Allow must take it off.
+    const gone = await waitFor(async () => (await waitingOnA(waiting.device_id)) === false, 30000, 1000);
+    chk(!!gone, 'step 4b: after the Allow, B is no longer waiting on A (it was, above)');
   }
 
   // 5. A: a project with an agent, and its own code. B: verify + join with that code.
