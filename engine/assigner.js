@@ -295,20 +295,6 @@ function askText(item) {
     + 'If there is nothing real to add, add nothing and say so in the room: kosmos post ' + item.projectId + ' "...".';
 }
 
-/**
- * One Assigner step. Pure apart from one read: #4588 PR B asks agyquota.heldForQuota, which also records the
- * Antigravity quota pool's reset in that module's memory (POOL_MEMO).
- * @param {object} o
- * @param {{idleSince: Map, log: Array}|undefined} o.prev  memory from the last step
- * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
- * @param {{on:boolean}} o.setting  from assigner-setting.read()
- * @param {Array} o.records  projects.readAll()
- * @param {Map<string,string>} o.commitments  session -> commitments state for idle cards, or 'free'
- *   (tick's commitmentsFree: nothing stated), which counts like 'clear'
- * @param {Map<string,string>} [o.goals]  project id -> BRIEF.md goal (phase 3); absent = none
- * @param {number} o.now  ms clock
- * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
- */
 /* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
    may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
    those out, #1307). `runnerOf` maps session -> provider. */
@@ -343,6 +329,20 @@ function failoverPick(session, runner, stalled, projects, movedParts) {
   return null;
 }
 
+/**
+ * One Assigner step. Pure apart from one read: #4588 PR B asks agyquota.heldForQuota, which also records the
+ * Antigravity quota pool's reset in that module's memory (POOL_MEMO).
+ * @param {object} o
+ * @param {{idleSince: Map, log: Array}|undefined} o.prev  memory from the last step
+ * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
+ * @param {{on:boolean}} o.setting  from assigner-setting.read()
+ * @param {Array} o.records  projects.readAll()
+ * @param {Map<string,string>} o.commitments  session -> commitments state for idle cards, or 'free'
+ *   (tick's commitmentsFree: nothing stated), which counts like 'clear'
+ * @param {Map<string,string>} [o.goals]  project id -> BRIEF.md goal (phase 3); absent = none
+ * @param {number} o.now  ms clock
+ * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
+ */
 function step({ prev, roster, setting, records, commitments, goals, now }) {
   const base = prev && prev.idleSince instanceof Map ? prev : emptyMemory();
   if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: emptyMemory() };

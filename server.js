@@ -484,8 +484,12 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-      // #5382: a failover move goes back to the agent it was taken from, not to nobody.
-      const back = tasks.assignPart(projectId, n, partId, failoverFrom, { via: 'assigner', onlyIfWho: who });
+      // #5382: a failover move goes back to the agent it was taken from. If that is refused (it has left the project
+      // since), the part goes to nobody, as an ordinary give's does, rather than staying on an agent never told.
+      let back;
+      try { back = tasks.assignPart(projectId, n, partId, failoverFrom, { via: 'assigner', onlyIfWho: who }); }
+      catch (err) { back = { ok: false, because: String((err && err.message) || err) }; }
+      if (failoverFrom && !back.ok) back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };

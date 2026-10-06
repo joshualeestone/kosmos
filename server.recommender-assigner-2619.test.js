@@ -147,4 +147,31 @@ test('PUT assigner a non-boolean on is a 400 and does not change the stored valu
   assert.equal((await getJson('/api/assigner-setting')).on, true, 'a rejected write left the in-force value unchanged');
 });
 
+test('#5382 GET assigner: failover reads off by default', async () => {
+  assert.equal((await getJson('/api/assigner-setting')).failover, false);
+});
+
+test('#5382 PUT assigner failover is set on its own, read back, and leaves on alone', async () => {
+  await put('/api/assigner-setting', { on: true }); // known baseline
+  const w = await put('/api/assigner-setting', { failover: true });
+  assert.equal(w.status, 200);
+  assert.deepEqual([w.json.on, w.json.failover], [true, true]);
+  assert.equal((await getJson('/api/assigner-setting')).failover, true);
+  const w2 = await put('/api/assigner-setting', { on: false });
+  assert.deepEqual([w2.json.on, w2.json.failover], [false, true], 'turning the Assigner off dropped failover');
+  const w3 = await put('/api/assigner-setting', { failover: false });
+  assert.deepEqual([w3.json.on, w3.json.failover], [false, false]);
+});
+
+test('#5382 PUT assigner a non-boolean failover is a 400 and changes nothing; a process caller is refused', async () => {
+  await put('/api/assigner-setting', { failover: true }); // known baseline
+  const w = await put('/api/assigner-setting', { failover: 'false' });
+  assert.equal(w.status, 400);
+  assert.equal((await getJson('/api/assigner-setting')).failover, true, 'a rejected write changed failover');
+  const raw = await fetch(`${base}/api/assigner-setting`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ failover: false }) });
+  assert.equal(raw.status, 403, 'a tokenless process call switched failover');
+  assert.equal((await getJson('/api/assigner-setting')).failover, true, 'a refused write changed the store');
+  await put('/api/assigner-setting', { failover: false });
+});
+
 test.after(() => { server.closeAllConnections(); server.close(); });
