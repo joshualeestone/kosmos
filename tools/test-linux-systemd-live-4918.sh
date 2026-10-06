@@ -6,7 +6,8 @@
 #      tmux session triggers systemd to revive it within 15s.
 #   2. Agent lifecycle: start, stop, disable, remove cleanly manages user units.
 #   3. Board keep-alive: board-run under kosmos-board.service relaunches on crash (kill -9).
-#   4. Deliberate stop: board.stopped prevents restart loops under ConditionPathExists.
+#   4. Deliberate stop: with board.stopped, board-run exits 0 and Restart=on-failure leaves it down (systemd's
+#      automatic restart does not re-check ConditionPathExists, measured here 2026-10-06).
 set -euo pipefail
 # It writes real units under ~/.config/systemd/user and uses sudo: CI only (#4918 review 2).
 [ -n "${CI:-}" ] || { echo "refusing: this test changes the real user systemd and uses sudo; it runs on CI (CI=true)" >&2; exit 2; }
@@ -324,11 +325,16 @@ fi
 # #4918 review 3: the stub board-run also exits on the marker, so the pid check alone passes without the Condition.
 # What ConditionPathExists decides is whether systemd starts the unit at all: after the crash it schedules one
 # restart, and the start is refused (ConditionResult=no). Without the Condition every 5s start succeeds and exits.
-COND="$(systemctl --user show -p ConditionResult --value "$BOARD_UNIT" 2>/dev/null || true)"
-if [ "$COND" = "no" ]; then
-  ok "systemd refused to start the board while board.stopped exists (ConditionResult=no)"
+# What matters is that systemd stops restarting: with board.stopped there, board-run exits 0 and Restart=on-failure
+# leaves it down. Measured as NRestarts over 12 more seconds (Restart=always + RestartSec=5 would add 2 or 3).
+R1="$(systemctl --user show -p NRestarts --value "$BOARD_UNIT" 2>/dev/null || echo x)"
+sleep 12
+R2="$(systemctl --user show -p NRestarts --value "$BOARD_UNIT" 2>/dev/null || echo y)"
+ST="$(systemctl --user show -p ActiveState --value "$BOARD_UNIT" 2>/dev/null || true)"
+if [ "$R1" = "$R2" ] && [ "$ST" != "active" ] && [ "$ST" != "activating" ]; then
+  ok "with board.stopped, systemd stopped restarting the board (NRestarts $R1 -> $R2, $ST)"
 else
-  bad "systemd did not refuse the start on board.stopped (ConditionResult=$COND): the unit would restart every 5s"
+  bad "with board.stopped, systemd kept restarting the board (NRestarts $R1 -> $R2, $ST)"
 fi
 if node -e '
   const linuxboard = require("./engine/linuxboard");
