@@ -216,7 +216,9 @@ function frame(items, heading, thread) {
   if (!items.length && !(thread && Array.isArray(thread.lines))) out.push('(nothing here yet)', '');
   items.forEach((it, i) => {
     out.push('[' + (i + 1) + '] by ' + it.author + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
-      + (it.id ? ' (post ' + it.id + ')' : ''));
+      + (it.id ? ' (post ' + it.id + ')' : '')
+      // #5372: the Following feed's one entry per post counts its other replies here; board-made words only.
+      + (typeof it.activity === 'string' && it.activity ? ', and ' + it.activity : ''));
     if (it.title) out.push(quoted(it.title));
     if (it.body) out.push(quoted(it.body));
     out.push('');

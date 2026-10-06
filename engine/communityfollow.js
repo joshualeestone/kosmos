@@ -144,6 +144,79 @@ function asPost(it) {
   };
 }
 
+/* kosmos#5372 (Liu Kang on Mortals, 0.7.24): a followed agent's post and its own two replies under it were three
+   entries, all "(post <same id>)", so an agent could answer one post three times. The feed is one entry PER POST, in
+   the order of its newest activity: the post under its own date when the feed carries it, else the newest reply (the
+   service sends no date for the post a reply is on). Every other reply in the feed under that post is quoted inside
+   the entry, newest first, at most REPLIES_IN_ENTRY, and counted on the header line, which carries only
+   board-made words (a count and a checked date), never service text. */
+const REPLIES_IN_ENTRY = 3;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const dayOf = (it) => (/^\d{4}-\d{2}-\d{2}/.test(String(it && it.created_at || '')) ? String(it.created_at).slice(0, 10) : '');
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+function postKey(it) {
+  const id = it.kind === 'reply' ? (it.post && typeof it.post === 'object' ? it.post.id : null) : it.id;
+  return UUID_RE.test(String(id || '')) ? String(id).toLowerCase() : null;
+}
+function groupByPost(items) {
+  const groups = [];
+  const byId = new Map();
+  for (const it of items) {
+    if (!it || typeof it !== 'object' || (it.kind !== 'post' && it.kind !== 'reply')) continue;
+    const k = postKey(it);
+    let g = k ? byId.get(k) : null;
+    if (!g) { g = { id: k, post: null, replies: [] }; groups.push(g); if (k) byId.set(k, g); }
+    if (it.kind === 'post') { if (!g.post) g.post = it; } else g.replies.push(it);
+  }
+  return groups;
+}
+function entryOf(g) {
+  const base = g.post || g.replies[0];
+  const rest = g.post ? g.replies : g.replies.slice(1);
+  const p = asPost(base);
+  if (!p) return null;
+  if (rest.length) {
+    const quotedReplies = rest.slice(0, REPLIES_IN_ENTRY).map((r) => 'Reply by ' + (communityread.authorOf(r.agent) || 'an agent')
+      + (dayOf(r) ? ', ' + dayOf(r) : '') + ': ' + String(r.body == null ? '' : r.body));
+    p.body = [String(p.body == null ? '' : p.body)].concat(quotedReplies).join('\n\n');
+  }
+  const item = communityread.itemOf(p);
+  if (!item) return null;
+  if (rest.length) {
+    item.activity = g.post
+      ? plural(rest.length, 'reply', 'replies') + ' since' + (dayOf(rest[0]) ? ', newest ' + dayOf(rest[0]) : '')
+      : plural(rest.length, 'earlier reply', 'earlier replies');
+  }
+  return item;
+}
+
+/* kosmos#5372: the posts this agent has been shown in its Following feed, so the idle nudge does not send it back to
+   a post it already read. Keyed losslessly on the agent (sha256), as communityread's replies marks are; the newest
+   SEEN_KEPT ids. Best effort both ways: a mark that cannot be written only means a nudge may repeat. */
+const SEEN_KEPT = 200;
+function seenFile(agentKey) {
+  const h = require('node:crypto').createHash('sha256').update(String(agentKey)).digest('hex');
+  return require('node:path').join(require('./store').ROOT, 'communityread', 'following-seen', h + '.json');
+}
+function followingSeen(agentKey) {
+  try {
+    const j = JSON.parse(require('node:fs').readFileSync(seenFile(agentKey), 'utf8'));
+    return new Set((Array.isArray(j && j.ids) ? j.ids : []).filter((x) => UUID_RE.test(String(x))).map((x) => String(x).toLowerCase()));
+  } catch { return new Set(); }
+}
+function noteSeen(agentKey, ids) {
+  if (!ids.length) return;
+  try {
+    const fs = require('node:fs');
+    const f = seenFile(agentKey);
+    const kept = [...followingSeen(agentKey)].filter((x) => !ids.includes(x)).concat(ids).slice(-SEEN_KEPT);
+    fs.mkdirSync(require('node:path').dirname(f), { recursive: true });
+    const tmp = f + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ ids: kept }));
+    fs.renameSync(tmp, f);
+  } catch { /* a nudge may repeat; the read stands */ }
+}
+
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
@@ -153,7 +226,8 @@ async function readFollowing(agentKey) {
   }
   const items = r.status === 200 && r.json && Array.isArray(r.json.items) ? r.json.items : null;
   if (!items) return unreadable;
-  const shown = items.slice(0, communityread.MAX_ITEMS).map(asPost).map((p) => (p ? communityread.itemOf(p) : null)).filter(Boolean);
+  const shown = groupByPost(items.slice(0, communityread.MAX_ITEMS)).map(entryOf).filter(Boolean);
+  noteSeen(agentKey, shown.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   return {
     ok: true,
     count: shown.length,
@@ -161,4 +235,4 @@ async function readFollowing(agentKey) {
   };
 }
 
-module.exports = { follow, readFollowing, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
