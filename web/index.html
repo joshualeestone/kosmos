@@ -17134,7 +17134,7 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#5275 slice 2 (Pete's design call): when Copy the invitation cannot copy either way, the whole
          invitation shows here, under the line that explains it, selected, so the copy keys the line names copy all of it (the steps and the name line
          included), not the code alone. Hidden again by the next copy, and when the sheet opens. -->
-    <textarea class="tk-inp fedinv-whole" id="fedinv-whole" readonly hidden rows="5" spellcheck="false" aria-label="The whole invitation, selected so you can copy it"></textarea>
+    <textarea class="tk-inp fedinv-whole" id="fedinv-whole" readonly hidden rows="5" spellcheck="false" aria-label="The whole invitation"></textarea>
     <div class="rm-acts">
       <button class="btn" id="fedinv-ok" type="button">Done</button>
       <button class="btn uprime" id="fedinv-copy-all" type="button">Copy the invitation</button>
@@ -46121,6 +46121,13 @@ const COPY_LATE_OLDER = 'An earlier copy finished late, so the clipboard now hol
 /* #5275 slice 2 review 1: the copy fallback's selection. select() always moves focus into the field (measured in Chromium,
    WebKit and Firefox), so when the person has moved on (copyFocusStillOn false) the text is selected with
    setSelectionRange, which leaves focus where they put it. Returns whether focus moved there. */
+/* #5275 slice 2 review 2: the two code screens' refusal. With focus in the code (selectForCopy true) the keys copy it;
+   with focus left elsewhere a click collapses the selection, so the line names select-all first. */
+function copyRefusedLine(focused) {
+  return focused
+    ? 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.'
+    : 'Kosmos could not copy it. Click the code, press ' + selectAllKeysWord() + ', then ' + copyKeysWord() + '.';
+}
 function selectForCopy(el, btn) {
   if (copyFocusStillOn(btn)) { el.focus(); el.select(); return true; }
   el.setSelectionRange(0, el.value.length);
@@ -60596,8 +60603,9 @@ async function pjsOwnCopy() {
   try { ok = await copyTextOrdered(text, btn, () => { if (code.value === text) msg.textContent = 'Code copied.'; else if (code.value) msg.textContent = COPY_LATE_OLDER; }); }   // see pjCopyInvite
   finally { if (PJS_OWN_COPY_BUSY === text) PJS_OWN_COPY_BUSY = ''; }
   if (code.value !== text) { if (ok === 'clip' && code.value) msg.textContent = COPY_LATE_OLDER; return; }   // see pjCopyInvite
-  if (!ok) { try { selectForCopy(code, btn); } catch { /* the field is the fallback */ } }   // #5275 review 1: see pjCopyInvite
-  msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
+  let focused = true;
+  if (!ok) { try { focused = selectForCopy(code, btn); } catch { /* the field is the fallback */ } }   // #5275 review 1: see pjCopyInvite
+  msg.textContent = ok ? 'Code copied.' : copyRefusedLine(focused);
 }
 document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
 document.getElementById('pjs-own-copy').addEventListener('click', pjsOwnCopy);
@@ -68426,9 +68434,10 @@ async function pjCopyInvite() {
   // unless it is focused there). ONE cancellable timer reverts both, cleared on reset so a reopen within the 2s
   // window cannot fire onto a different project's fresh state. A late write comes back through here too, so its
   // "Copied" is reverted like any other.
-  const say = (ok) => {
-    btn.textContent = ok ? 'Copied' : 'Press ' + copyKeysGlyph() + ' to copy';
-    if (status) status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press ' + copyKeysWord() + '.';
+  // `focused` false: the code is selected but focus stayed where the person put it, so the keys alone would not copy it.
+  const say = (ok, focused = true) => {
+    btn.textContent = ok ? 'Copied' : focused ? 'Press ' + copyKeysGlyph() + ' to copy' : 'Copy';
+    if (status) status.textContent = ok ? 'Code copied.' : copyRefusedLine(focused);
     if (PJ_COPY_TIMER) clearTimeout(PJ_COPY_TIMER);
     PJ_COPY_TIMER = setTimeout(() => {
       PJ_COPY_TIMER = null;
@@ -68464,8 +68473,9 @@ async function pjCopyInvite() {
   }
   // The fallback: the code selected, so the copy keys the line names copy it. Focus moves to it only if it is still on
   // the button (or nowhere): after a 3 s wait the person may be typing elsewhere (#5275 review 1).
-  if (!ok) { try { selectForCopy(codeEl, btn); } catch { /* the field is the fallback; nothing else to do */ } }
-  say(ok);
+  let focused = true;
+  if (!ok) { try { focused = selectForCopy(codeEl, btn); } catch { /* the field is the fallback; nothing else to do */ } }
+  say(ok, focused);
 }
 
 // Verify a pasted code: on success show the owner's read-only project name + description.
