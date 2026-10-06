@@ -524,8 +524,8 @@ async function measure(page) {
       'A6 scoping: a non-Talk section (Model) stays content-height, NOT stretched to the window',
       'secBottom=' + model.secBottom + ' innerHeight=' + model.innerHeight);
 
-    // A1u: leaving the consolidated layout re-measures, so the view it lands in pads by a current
-    // width. A planted value must be replaced.
+    // A1u: leaving the consolidated layout re-measures (the measurer skips that layout, so a
+    // scrollbar change made there would otherwise stay stale). A planted value must be replaced.
     const relayout = await page.evaluate(() => {
       const root = document.documentElement;
       const prev = root.getAttribute('data-layout');

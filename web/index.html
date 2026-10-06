@@ -1421,9 +1421,8 @@ html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overf
 /* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
-   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; in consolidated
-   that padding is 0 and the bar pads itself by the scrollbar width instead, and on a whole-page tab with consolidated
-   chosen kplusBarFit pads it to match the header, #5379). The bar's fills
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 pads it
+   by the width where none is reserved). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
 .kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
@@ -3354,25 +3353,17 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      scrollbars. It is dropped here, and the header padding below keeps the header from moving when an
      agent opens or closes, which is the shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
-     nothing to drop here (#5379: the header there is padded by the rules below, Agents and Projects' inner header by
-     one and every other page's, an agent's included, by the tab view's). Both rules wait for
-     data-scrollbar-measured, so if the width cannot be measured the gutter stays (A1q). */
+     nothing to drop here (#5379 pads its header below). Both rules wait for data-scrollbar-measured,
+     so if the width cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
-  /* #5379: the tab view reserves the scrollbar gutter on <html> and consolidated does not (its panes scroll inside),
-     so on a platform whose scrollbars take width (Windows, Linux, a Mac set to show them; 0 with overlay scrollbars)
-     the header's right controls sat 15px further right in consolidated and the centred tabs 7.5px: the header jumped
-     on every view flip (CI: render-tophead-stable-2624). Consolidated pads its header by the same width instead of
-     adding an empty strip. The padding is on the inner header, not .apphead, because the inner header carries
-     consolidated's background and bottom rule, which then still reach the window edge. Less what the page really
-     gives up (100vw - 100%: .apphead has no padding or margin here), as the tab view's rule does: a window too short
-     for the grid scrolls the page, and its real scrollbar already holds the width. The Kosmos+ bar above it takes
-     the same padding (one rule, so the two cannot drift): in the tab view kplusBarFit ends it at the reserved gutter,
-     so Log out sat 15px further right in consolidated. */
+  /* #5379: the tab view reserves the scrollbar gutter and consolidated does not, so where scrollbars take width the
+     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule), and
+     the Kosmos+ bar, by the same width less what the page gives up. */
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
   html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
     padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
@@ -11687,36 +11678,25 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
-   the window edge, and wide headers are padded by this less what the page gives up (consolidated's
-   without the tab view's body-padding term, #5379), so the header does not move between views. Read off
-   the root itself, not a scrolling element: a runner that hides scrollbars still reserves the root's
-   gutter, and an element probe then reads 0 against a 15px gutter. Measured at load, again once applyPlatformCopy stamps
-   Windows (its scrollbar rule changes the width), on resize (a zoom, a move to another display), on a
-   pointer press (at most once a second), focus and return to the tab: a Mac set to "Automatic"
-   switches scrollbars when a mouse is plugged in, which fires no resize, and the press that opens an
-   agent then measures first. In consolidated (#5379) a resize measures once the drag settles, and a
-   press, a focus and a return to the tab only when a small scroller's scrollbar changed width, since a
-   measurement there reflows the page. */
+   the window edge, and wide headers are padded by this less what the page gives up, so the header
+   does not move between views. Read off the root itself, not a scrolling element: a runner that hides
+   scrollbars still reserves the root's gutter, and an element probe then reads 0 against a 15px
+   gutter. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar rule changes
+   the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
+   second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
+   plugged in, which fires no resize, and the press that opens an agent then measures first. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
-  /* #5379: measured in the consolidated layout too, so the width its header is padded by (the #5379 rule) follows a
-     zoom, a move to another display or a scrollbar-mode change made while in consolidated. */
+  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
+  if (root.getAttribute('data-layout') === 'consolidated') return;
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
-  var scrolled = [];
   var vw = null;
   try {
     /* A WebKit older than scrollbar-gutter (the Mac floor is 13.5) never reserved the #1309 gutter,
        so there is nothing to drop and padding the Talk header would itself move it (A1s). */
     if (!(window.CSS && CSS.supports && CSS.supports('scrollbar-gutter', 'stable'))) return;
-    /* #5379: consolidated reserves no gutter, so forcing one narrows the page and its rails and panes reflow for one
-       layout; put back every inner scroller that was scrolled. (The tab view already reserves it: nothing moves.) */
-    if (root.getAttribute('data-layout') === 'consolidated') {
-      document.querySelectorAll('body *').forEach(function (el) {
-        if (el.scrollTop || el.scrollLeft) scrolled.push([el, el.scrollTop, el.scrollLeft]);
-      });
-    }
     /* Forced and read in one task, so nothing paints in between. */
     root.style.scrollbarGutter = 'stable';
     root.style.overflow = 'hidden';
@@ -11742,26 +11722,13 @@ window.kosmosMeasureScrollbarWidth = function () {
     root.style.overflow = prevOverflow;
     if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y);
     if (thread && thread.scrollTop !== threadTop) thread.scrollTop = threadTop;
-    scrolled.forEach(function (s) {
-      if (s[0].scrollTop !== s[1]) s[0].scrollTop = s[1];
-      if (s[0].scrollLeft !== s[2]) s[0].scrollLeft = s[2];
-    });
   }
 };
 window.kosmosMeasureScrollbarWidth();
 /* A window drag fires resize many times a second; one measurement per frame is plenty. */
 (function () {
   var queued = false;
-  /* #5379: in consolidated a measurement reflows the whole page (it reserves no gutter), so a drag there measures
-     once, when it has stopped for SCROLLBAR_RESIZE_SETTLE_MS, not every frame. */
-  var SCROLLBAR_RESIZE_SETTLE_MS = 200;
-  var settle = 0;
   window.addEventListener('resize', function () {
-    if (document.documentElement.getAttribute('data-layout') === 'consolidated') {
-      clearTimeout(settle);
-      settle = setTimeout(window.kosmosMeasureScrollbarWidth, SCROLLBAR_RESIZE_SETTLE_MS);
-      return;
-    }
     if (queued) return;
     queued = true;
     requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
@@ -11778,33 +11745,10 @@ window.kosmosMeasureScrollbarWidth();
     if (window.matchMedia('(min-width: 56.01rem)').matches
       && document.querySelector('body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])')) return;
     lastPress = now;
-    remeasureUnlessConsolidatedUnchanged();
-  }, { capture: true, passive: true });
-  /* #5379: in consolidated a full measurement reflows the whole page, and a press, a focus and a return to the tab are
-     frequent. So there they first ask a small off-screen scroller how wide a scrollbar is (it lays out only itself) and
-     measure only when that answer changed: a Mac on "Automatic" switching mode when a mouse comes or goes. A runner
-     that hides scrollbars reads 0 from it, which only skips a re-measure; it never sets the width. */
-  var probedThickness = null;
-  function scrollbarThickness() {
-    var el = document.createElement('div');
-    el.style.cssText = 'position:absolute;top:-999px;left:0;width:100px;height:50px;overflow:scroll';
-    document.documentElement.appendChild(el);
-    var w = el.offsetWidth - el.clientWidth;
-    el.remove();
-    return w;
-  }
-  function remeasureUnlessConsolidatedUnchanged() {
-    if (document.documentElement.getAttribute('data-layout') !== 'consolidated') { window.kosmosMeasureScrollbarWidth(); return; }
-    var t = scrollbarThickness();
-    var same = t === probedThickness;
-    probedThickness = t;
-    if (same) return;
     window.kosmosMeasureScrollbarWidth();
-  }
-  probedThickness = scrollbarThickness();
-  function remeasureOnReturn() { remeasureUnlessConsolidatedUnchanged(); }
-  window.addEventListener('focus', remeasureOnReturn);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) remeasureOnReturn(); });
+  }, { capture: true, passive: true });
+  window.addEventListener('focus', window.kosmosMeasureScrollbarWidth);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) window.kosmosMeasureScrollbarWidth(); });
 })();
 </script>
 </head>
@@ -45001,7 +44945,7 @@ function applyLayout(layout, apply) {
      aria-expanded and re-apply (or clear) the folded-descendant hiding. Safe
      before the list exists (it no-ops) and cheap (a class/attr pass). */
   if (typeof applyConsFold === 'function') applyConsFold();
-  /* #3497 (A1u): a flip re-measures, so the width the new view pads by is current. */
+  /* #3497: the measurer skips the consolidated layout, so leaving it re-measures (A1u). */
   if (was !== want && typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25

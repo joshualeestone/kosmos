@@ -20,7 +20,7 @@
  * Since #5379 it also pins the scrollbar width: the header (and the Kosmos+ bar above it) sits on the same pixels in
  * both views on a platform whose scrollbars take width, through a width set by hand (0px, then 15px) so an
  * overlay-scrollbar Mac can see it, on Agents and Projects in consolidated and on a whole-page tab with consolidated
- * chosen; and the measurer runs in consolidated.
+ * chosen.
  *
  * Measured on the served 0.6.95 build before the fix: the controls sat 33px lower in
  * the tab view at 1440px and 92px lower at 1100px, and a notice moved them in EITHER
@@ -229,29 +229,11 @@ async function measure(page, view, notice, name) {
     await page.close();
   }
 
-  // #5379: the measurer runs in consolidated too. Before #5379 it returned early there, so a width that changed while
-  // in consolidated (a zoom, another display, a scrollbar-mode change) stayed stale until a flip out, and the header
-  // padded by it sat off by the difference. This clears the measurement, enters consolidated and measures there; a
-  // real page never clears it, the clearing is what lets an early return show. On an overlay-scrollbar machine the
-  // width is 0 and only the attribute arm can red.
+  // #5379: the header (and the Kosmos+ bar) sits on the same pixels in both views on a platform whose scrollbars take width.
   {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto('file://' + PAGE);
     await measure(page, 'consolidated', false);
-    const got = await page.evaluate(() => {
-      const root = document.documentElement;
-      root.removeAttribute('data-scrollbar-measured');
-      root.style.removeProperty('--scrollbar-width');
-      window.kosmosMeasureScrollbarWidth();
-      return { measured: root.hasAttribute('data-scrollbar-measured'), width: getComputedStyle(root).getPropertyValue('--scrollbar-width').trim() };
-    });
-    const cons = await measure(page, 'consolidated', false);
-    const tabs = await measure(page, 'tabs', false);
-    if (!got.measured) problems.push('1440px measured in consolidated: the scrollbar width is not measured there, so a width that changes in consolidated stays stale');
-    else console.log(`  PASS  1440px measured in consolidated: the scrollbar width is measured there (${got.width})`);
-    for (const k of ['youX', 'tabsX']) {
-      if (cons[k] !== tabs[k]) problems.push(`1440px measured in consolidated: ${k} is ${cons[k]} in consolidated and ${tabs[k]} in the tab view (scrollbar width ${got.width})`);
-    }
     // A width set by hand, 0px and then 15px, so a Mac with overlay scrollbars (real width 0) can see the padding at all,
     // and a classic-scrollbar runner (real width 15, already padded) still sees it move. At each width the tab view's
     // rule pads by it less what the page really gives up, and consolidated likewise (without the body-padding term), so the right cluster and the
@@ -261,7 +243,7 @@ async function measure(page, view, notice, name) {
     for (const w of ['0px', '15px']) {
       await page.evaluate((w) => document.documentElement.style.setProperty('--scrollbar-width', w), w);
       at[w] = { cons: await measure(page, 'consolidated', false), tabs: await measure(page, 'tabs', false) };
-      // CONTROL: no measurement (a focus, a settled resize) replaced the hand-set width while reading.
+      // CONTROL: no measurement (a focus, a resize) replaced the hand-set width while reading.
       const held = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim());
       if (held !== w) problems.push(`CONTROL failed: 1440px: the hand-set ${w} scrollbar width read back as ${held}; a measurement ran mid-arm`);
       for (const k of ['youX', 'tabsX']) {
