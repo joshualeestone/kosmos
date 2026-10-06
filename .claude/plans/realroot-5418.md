@@ -14,9 +14,12 @@ Apply the rule at the derivation, `store.resolveDataRoot()` (review 3 found `sto
 `store.dataRootFor` directly; all four now go through `resolveDataRoot`, so one process always agrees on
 one root). Review 5: `boardauth`'s legacy-token read goes through it too (`resolveDataRoot` takes the
 leaf), so a test can never load a real legacy token. Left on `dataRootFor` on purpose:
-`setup-assistant`'s deny-rule paths (named, never read), `win32uninstall` (its own explicit home),
-`install/setup.sh`'s consult (an installer), `win32anchor`'s runtime anchor (LOCALAPPDATA's runtime folder,
-not the store). The rule:
+`setup-assistant`'s deny-rule paths (named, never read), `win32uninstall` (its data delete is behind
+`liveExecutionAllowed`, convention 3, which a test does not grant), `install/setup.sh`'s consult (an
+installer), and `win32anchor` ON WINDOWS (AppData\Local, not the store). Review 11: off Windows the runtime
+anchor sits inside the data root, so `anchorDir` takes the rule there (tested in "every caller agrees").
+A test process is recognised by NODE_TEST_CONTEXT, KOSMOS_TEST_RUN, or live-execution's own
+`inTestProcess()` (`--test*` in execArgv), reused rather than re-derived. The rule:
 - A test process is one `node --test` started (NODE_TEST_CONTEXT is set in every file it runs; measured
   `child-v8` on node 26.8.1) or one `tools/run-tests.sh` started (it now exports KOSMOS_TEST_RUN=1, which
   also reaches its shell tests and whatever they start).
@@ -110,6 +113,8 @@ unsandboxed pairs that both used the REAL store shared before, and those are thi
   so one known limit rather than two different ones).
 - KOSMOS_ALLOW_REAL_ROOT=1 in a test process allows READING the real root and never runs the legacy
   migration on it (review 8; pinned in source).
+- macOS firmlinked spellings (/System/Volumes/Data/Users/...) are not symlinks, so realpath leaves them
+  as they are and a sandbox spelled that way into the real root is not matched.
 - The dead-pid sweep removes only a real folder this user owns (lstat, uid), never a link or a file. It
   trusts "no such process": two pid namespaces sharing one tmp and one uid (a container mounting the host's
   tmp) could see each other's live throwaway as dead.

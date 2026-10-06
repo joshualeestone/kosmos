@@ -271,16 +271,19 @@ function maybeMigrateLegacyStore() {
      would fail every unsandboxed test an agent in a named world runs.
    Every caller that derives the current or legacy root to READ or WRITE it goes through
    resolveDataRoot below (create.supportDir, worlds.baseRoot, boardauth's legacy token, the
-   silence monitor). Not routed: setup-assistant's deny-rule paths (named, never read),
-   win32uninstall (its own explicit home), install/setup.sh's consult (an installer) and
-   win32anchor's runtime anchor (LOCALAPPDATA's runtime folder, not the store).
+   silence monitor, and win32anchor's runtime anchor off Windows, where it sits inside the data
+   root). Not routed: setup-assistant's deny-rule paths (named, never read), win32uninstall (its
+   delete is behind liveExecutionAllowed, which a test does not grant), install/setup.sh's consult
+   (an installer) and win32anchor on Windows (AppData\Local, not the store).
    Protected is this account's OS-default root (the user database's home), equal or inside; a
    store a shell's inherited non-default AGENT_WORKFORCE_DATA/HOME names is not (the shell side
    is #5428). With no user-database home (os.userInfo throws) the rule is off. */
 /* `node --test --test-isolation=none` runs the files in this very process and sets no
-   NODE_TEST_CONTEXT (measured, node 26.8.1), but its own execArgv carries --test. */
+   NODE_TEST_CONTEXT (measured, node 26.8.1), but its own execArgv carries --test: that half is
+   live-execution's inTestProcess, reused rather than re-derived (updating.js's second-derivation
+   rule). */
 function isTestProcess(env) {
-  return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1' || process.execArgv.includes('--test');
+  return !!env.NODE_TEST_CONTEXT || env.KOSMOS_TEST_RUN === '1' || require('./live-execution').inTestProcess();
 }
 let accountHome;   // os.userInfo().homedir, looked up once per process ('' when it cannot be)
 function realDefaultRoot(platform, app) {
@@ -782,7 +785,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, sweepDeadTestHomes, realDefaultRoot, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
