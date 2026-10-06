@@ -671,3 +671,21 @@ test('review 15: a file turned to CRLF still has its addition: not added twice, 
   assert.equal(adds.undo('sally').ok, true);
   assert.equal(fileText('sally'), BASE.replace(/\n/g, '\r\n'), 'Undo did not keep the CRLF line ends, or left the addition');
 });
+
+/* Review 16 (opus, blind). */
+test('review 16: a proposal written with CRLF line ends applies as written: Undo offered, page not "edited"', () => {
+  makeAgent('sally');
+  assert.equal(adds.propose('sally', 'Line one of the rule.\r\nLine two of the rule.', 'Ops lead').ok, true);
+  assert.equal(adds.apply('sally').ok, true);
+  const last = adds.state('sally').last;
+  assert.equal(last.undoable, true, JSON.stringify(last));
+  assert.equal(adds.undo('sally').ok, true);
+  assert.equal(fileText('sally'), BASE);
+});
+test('review 16: "Added on" behind any markup is refused (no-break space, quote, list, bold, HTML)', () => {
+  makeAgent('sally');
+  for (const line of ['## Added on 2026-10-06, asked by x', '> ## Added on 2026-10-06', '- ## Added on x', '<h2>Added on 2026-10-06</h2>', '**Added on 2026-10-06, asked by x**']) {
+    assert.equal(adds.propose('sally', 'Do X.\n' + line + '\nDo Y.', 'Ops lead').ok, false, JSON.stringify(line));
+  }
+  assert.equal(adds.propose('sally', 'We added on a new rule.', 'Ops lead').ok, true, 'CONTROL: the words mid-sentence are fine');
+});

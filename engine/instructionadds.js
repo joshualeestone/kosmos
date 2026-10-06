@@ -121,7 +121,8 @@ function propose(agent, text, askedBy, now) {
   const k = keyFor(agent);
   if (!k) return { ok: false, code: 'bad', because: 'that is not a name we can look up' };
   /* Review 11: well-formed, so the bytes written and the span recorded are the same text (see askerWords). */
-  const body = String(text == null ? '' : text).toWellFormed();
+  /* Review 16: LF line ends, as the file is read (readText), so the span written always matches what is read back. */
+  const body = String(text == null ? '' : text).toWellFormed().replace(/\r\n?/g, '\n');
   if (!body.trim()) return { ok: false, code: 'bad', because: 'the addition is empty' };
   /* Review 5: never Kosmos's own markers. An addition carrying `<!-- kosmos:projects:start -->` (or any comment) would
      give the target two managed blocks, and the projects / doctrine sync would stop for that agent for good. Refused as
@@ -136,7 +137,9 @@ function propose(agent, text, askedBy, now) {
   /* Review 14: any line starting "Added on", whatever its markup (an underlined heading is a heading too). Review 15:
      whatever the space between the words (a tab, two spaces, a no-break space), and "Added on" alone on its line.
      After the size check, so the scan is over at most 16 KB. */
-  if (/^[ \t]*(#{1,6}[ \t]*)?Added\s+on(\s|$)/im.test(body)) {
+  /* Review 16: whatever comes first on the line that is not a letter or digit (heading marks, a quote, a list dash, bold,
+     an HTML tag's brackets, any space). */
+  if (/^[^\p{L}\p{N}\n]*(h[1-6]>)?Added\s+on(\s|$)/imu.test(body)) {
     return { ok: false, code: 'bad', because: 'the addition holds a line starting "## Added on", which Kosmos writes itself to say who asked; reword that line and propose again' };
   }
   const who = String(askedBy == null ? '' : askedBy).trim();
