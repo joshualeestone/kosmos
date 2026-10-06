@@ -2026,8 +2026,8 @@ function makeFolder(name) {
    * So: the parent is left exactly as it was (it comes from the person's home
    * directory, which they recognise), and only the last segment — the part
    * derived from their typed name — is corrected against the parent's own
-   * listing. That is the same instrument `create.test.js` uses for the identical
-   * volume lesson. It takes an exact entry first and adopts another spelling only
+   * listing, the same listing `create.test.js` uses for the identical volume
+   * lesson, plus a stat. It takes an exact entry first and adopts another spelling only
    * when the typed name opens it, so on a case-sensitive volume a typed `lease`
    * beside `Lease` stays `lease`, in the preview as here (#5424).
    */
@@ -2046,9 +2046,9 @@ function makeFolder(name) {
 function trueChildName(parent, name) {
   let entries;
   try { entries = fs.readdirSync(parent); } catch { return name; }
-  // #5424: an exact entry is the answer, and another spelling is adopted only when this name really opens it (a
-  // case-insensitive disk). On a case-sensitive one `Lease` is not `lease`: makeFolder makes `lease` beside it,
-  // so the preview must name `lease` too.
+  // #5424: another spelling is adopted only when this name really opens it (a case-insensitive disk). On a
+  // case-sensitive one `Lease` is not `lease`: makeFolder makes `lease` beside it, so the preview must name
+  // `lease` too. The exact-entry return is a shortcut that saves the stat; the filter below would keep it too.
   if (entries.includes(name)) return name;
   try { fs.statSync(path.join(parent, name)); } catch { return name; }
   const wanted = name.toLowerCase();

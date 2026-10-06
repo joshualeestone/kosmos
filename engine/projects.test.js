@@ -1741,6 +1741,33 @@ test('an over-long name on the default path meets the SAME sentence the preview 
     /longer than a project name should be/);
 });
 
+test('#5424 on a case-sensitive disk, the preview names the folder makeFolder will make, not a different-case one', () => {
+  // This Mac's disk is case-insensitive, so the test above passes here with or without the fix. This one
+  // makes the projects folder answer as a case-sensitive disk does (the listing holds `Lease`, and `lease`
+  // opens nothing until it is made), so the fix has a guard that runs on every machine.
+  reset();
+  const root = projects.projectsRoot();
+  fs.mkdirSync(path.join(root, 'Lease'), { recursive: true });
+  const lower = path.join(root, 'lease');
+  let made = false;
+  const realStat = fs.statSync, realMkdir = fs.mkdirSync, realReaddir = fs.readdirSync;
+  fs.statSync = (p, ...rest) => {
+    if (p === lower && !made) { const e = new Error(`ENOENT: no such file or directory, stat '${p}'`); e.code = 'ENOENT'; throw e; }
+    return realStat(p, ...rest);
+  };
+  fs.mkdirSync = (p, ...rest) => { if (p === lower) { made = true; return undefined; } return realMkdir(p, ...rest); };
+  fs.readdirSync = (p, ...rest) => (p === root && made ? [...realReaddir(p, ...rest), 'lease'] : realReaddir(p, ...rest));
+  try {
+    const previewed = projects.folderPathPreview('lease');
+    assert.equal(previewed.path, lower, 'the preview names lease, the folder that will be made');
+    assert.equal(previewed.exists, false, 'and says MAKE, since lease opens nothing yet');
+    assert.equal(projects.makeFolder('lease'), lower, 'makeFolder makes lease beside Lease');
+    assert.equal(made, true, 'control: the act really reached the make arm');
+  } finally {
+    fs.statSync = realStat; fs.mkdirSync = realMkdir; fs.readdirSync = realReaddir;
+  }
+});
+
 test('the previewed path IS the path the act produces, case correction included', () => {
   // ⚠️ Volume-portable on purpose, the same lesson create.test.js records: on
   // a case-insensitive disk `lease` beside an existing `Lease` ADOPTS that

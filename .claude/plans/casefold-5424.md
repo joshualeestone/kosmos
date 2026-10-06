@@ -25,8 +25,12 @@ folder's name to match that answer.
 - No committed test mounts a case-sensitive image: hdiutil is Mac-only and a mount left behind by a killed
   run is worse than the gap. The Linux lane runs both tests on a case-sensitive disk; the engine test was
   red there before this change (card #5424, run 37531000100).
-- On this Mac's own disk both tests pass with or without the fix. Mutation evidence, measured by hand: with
-  TMPDIR on a case-sensitive APFS image, both tests fail against main's engine and pass with the fix.
+- On this Mac's own disk the two volume-portable tests pass with or without the fix (measured by hand: with
+  TMPDIR on a case-sensitive APFS image, both fail against main's engine and pass with the fix). So a third
+  test, `#5424 on a case-sensitive disk...`, makes the projects folder answer as a case-sensitive disk does
+  (stubbed `fs.readdirSync`, `fs.statSync` and `fs.mkdirSync` for that one folder), and runs on every machine.
+  It fails against main's engine on this Mac and passes with the fix (blind review 3 asked for a guard that
+  does not depend on #4919 merging).
 - Not changed, and not new: a name stored in NFD (common on macOS) and typed in NFC opens the same folder,
   but the lower-case comparison does not match the two forms, so the typed spelling is kept. Preview and
   act still agree (both use the same stat), which is this card's property; normalising is its own change.
