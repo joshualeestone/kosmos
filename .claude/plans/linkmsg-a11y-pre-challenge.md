@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linkmsg-a11y
-diff_hash: 8b02264eee5edd41edc46a6e14b676b26baae0db52c865dce21813d0da3eaadf
+diff_hash: 8044fa76b26cbd02aed59a16e1db0197e5a78f56fa108fc32049f6893dd76877
 validation: not run locally (suite queue). The page script parses; the browser check parses. The light-lane local run of render-dm-sideways-3969 and render-agent-pill-3958 gave up after the queue's 2700 s bound (9 runs ahead), so CI's browser-checks (selected by the new surface token) is the first run of the new assertion and the new count.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-06T11:51:18Z
