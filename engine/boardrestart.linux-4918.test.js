@@ -8,6 +8,14 @@
  *   node --test engine/boardrestart.linux-4918.test.js
  */
 const test = require('node:test');
+// #4918 review 3: sandboxed before anything requires the store or create, so start()'s mkdir of the agent folder and
+// every store read land in temp folders, never the person's real workers folder or store.
+{
+  const sbx = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'aw-linux4918-'));
+  process.env.AGENT_WORKFORCE_DATA = require('node:path').join(sbx, 'data');
+  process.env.AGENT_WORKFORCE_WORKERS = require('node:path').join(sbx, 'workers');
+  process.on('exit', () => { try { require('node:fs').rmSync(sbx, { recursive: true, force: true }); } catch { /* temp */ } });
+}
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');

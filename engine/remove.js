@@ -2214,6 +2214,16 @@ function restartInner(name, cause, platform, startIfDead) {
                   + 'running. It needs another try.'
                 : `we closed ${shown}'s window and started its task, but its supervisor never came `
                   + 'up, so it is not running right now. It needs another restart.')
+            /* #4918 review 3: on Linux the job is a systemd user service; say so, never macOS's launch job. */
+            : ops.linux
+              ? (!stopped && !fromDead
+                ? `we closed ${shown}'s window but systemd would not stop its service, so the restart did not take `
+                  + 'effect. If it is running, it is still running as before; if not, it needs another restart.'
+                : fromDead
+                  ? `we could not start ${shown}. systemd did not start its service, so it is not running. `
+                    + 'It needs another try.'
+                  : `we closed ${shown}'s window but could not start it again. systemd did not start its service, `
+                    + 'so it is not running right now. It needs another restart.')
             /* #4964: launchd refused the bootout, so the old job was never asked to stop: it may still be running
                as before, and whatever this restart was for (a switched provider) did not take effect. */
             : !stopped && !fromDead
