@@ -1042,7 +1042,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__answerDelay = 300; window.__remove = { status: 200, body: { removed: true } }; });
     await page.click('#mem-go');
     await page.evaluate(() => { PJ_CURRENT = 'elsewhere'; });
-    await page.waitForTimeout(500);
+    // #5373: wait until the held answer (300 ms) is in and handled, not a fixed 500 ms: the arm says what that
+    // answer did NOT do, so reading before it lands would pass for the wrong reason. FED_BUSY is the row keys with a Remove or Withdraw being asked: the handler deletes the key when the answer is in and finishes that answer synchronously.
+    await page.waitForFunction(() => window.__removes.length > 0 && FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const m = await modal(page);
     const loose = await page.evaluate(() => Object.keys(FED_MSGS).length);
     check('B10b another project opened mid-Remove: the dialog closes, nothing is said, the old list is not asked again (control: B2 asks again)',
@@ -1086,7 +1088,9 @@ const closeAll = (page) => page.evaluate(() => {
     await setMembers(page, answer([row({ invite_id: 'inv-new', label: 'Old Friend', kind: 'agent', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
     await page.click('#fedinv-make');
     await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
-    await page.waitForTimeout(150);
+    // #5373: the list is asked again after the code lands; wait for that ask and the new row, not a fixed 150 ms.
+    await page.waitForFunction((b) => window.__memberUrls.length > b
+      && !!document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-new"]'), before, { timeout: 4000 }).catch(() => {});
     const posts = await page.evaluate(() => window.__posts.slice());
     const f = await readFed(page, '#pj-fed-outside');
     check('B7 the new code is made for the same label and kind', posts.length === 1 && posts[0].body.label === 'Old Friend'
@@ -1105,7 +1109,9 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(150);
     const lateClosed = await page.evaluate(() => document.getElementById('fedinv-modal').hidden);
     const lateBefore = await gets(page);
-    await page.waitForTimeout(700);
+    // #5373: wait for the late reply's own ask of the list (the reply lands about 600 ms after Make), not a fixed 700 ms.
+    // The row alone cannot say it: the gate's own asks already return inv-kim.
+    await page.waitForFunction((b) => window.__memberUrls.length > b, lateBefore, { timeout: 4000 }).catch(() => {});
     const lateRows = (await readFed(page, '#pj-fed-outside')).rows;
     check('B7b a reply landing after a forced close still has the list asked again, and the new pending row shows (control: closed, counted after the gate settled)',
       lateClosed && (await gets(page)) > lateBefore && lateRows.some((r) => r.key === 'i:inv-kim'), JSON.stringify({ lateClosed, keys: lateRows.map((r) => r.key) }));
@@ -1114,7 +1120,10 @@ const closeAll = (page) => page.evaluate(() => {
     await setMembers(page, answer([row({ invite_id: 'inv-ray', label: 'Ray Oh', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
     const toBefore = await gets(page);
     await page.click('#fedinv-make');
-    await page.waitForTimeout(600);
+    // #5373: wait for the limit's message (not the in-flight "Making a code…") and the ask it makes, not a fixed 600 ms.
+    await page.waitForFunction((b) => document.getElementById('fedinv-msg').textContent.startsWith('Kosmos did not hear back in time.')
+      && window.__memberUrls.length > b
+      && !!document.querySelector('#pj-fed-outside .fedout-row[data-fed-key="i:inv-ray"]'), toBefore, { timeout: 4000 }).catch(() => {});
     const toMsg = await page.evaluate(() => document.getElementById('fedinv-msg').textContent);
     const toRows = (await readFed(page, '#pj-fed-outside')).rows;
     const toAsked = (await gets(page)) - toBefore;
@@ -1175,7 +1184,8 @@ const closeAll = (page) => page.evaluate(() => {
     await act(page, 'e:edge-dana');
     await page.evaluate(() => { window.__remove = { status: 502, body: { error: 'The connection service refused just now.' } }; });
     await page.click('#mem-go');
-    await page.waitForTimeout(200);
+    // #5373: wait until the 502 is in and handled (FED_BUSY, see B10b), not a fixed 200 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0 && document.getElementById('mem-msg').textContent !== 'Removing…', null, { timeout: 4000 }).catch(() => {});
     const left = await modal(page);
     await page.click('#mem-keep');
     // Dirty the dialog by hand (Cancel already cleaned it), so only openMemModal's own reset can clean it again.
@@ -1190,7 +1200,8 @@ const closeAll = (page) => page.evaluate(() => {
     const liveBefore = await page.evaluate(() => { const e = document.getElementById('fed-live'); return e ? e.textContent : ''; });
     await page.evaluate((e) => { window.__withdraw = { status: 409, body: { reason: 'unsupported', error: e } }; }, UNSUPPORTED);
     await act(page, 'i:inv-lee');
-    await page.waitForTimeout(250);
+    // #5373: wait until the refusal is in (FED_BUSY, see B10b) AND said: fedSay writes #fed-live on a 50 ms timer.
+    await page.waitForFunction(() => FED_BUSY.size === 0 && ((document.getElementById('fed-live') || {}).textContent || '') !== '', null, { timeout: 4000 }).catch(() => {});
     const after = await page.evaluate(() => ({
       focused: document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.fedKey || document.activeElement.tagName : null,
       live: (document.getElementById('fed-live') || {}).textContent || '' }));
@@ -1233,7 +1244,8 @@ const closeAll = (page) => page.evaluate(() => {
     await openProjectIn(page, 'consolidated');
     await page.evaluate(() => { window.__withdraws.length = 0; window.__withdraw = { status: 409, body: { error: 'Kosmos cannot withdraw a code yet. This one stops working on its own when it lapses.', reason: 'unsupported' } }; });
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="i:inv-lee"] .fedout-act');
-    await page.waitForTimeout(250);
+    // #5373: wait until the Withdraw was asked and its answer handled (FED_BUSY, see B10b), not a fixed 250 ms.
+    await page.waitForFunction(() => window.__withdraws.length > 0 && FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__withdraws.slice());
     const f = await readFed(page, '#alist-fed-outside');
     check('B11a rail: Withdraw asks the board for Lee and says the lapse sentence in the rail (control: B4 in the tab layout)',
@@ -1297,7 +1309,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(50);
     await page.click('#mem-keep');
     await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
-    await page.waitForTimeout(500);
+    // #5373: wait until the held answer (300 ms) is in and handled (FED_BUSY, see B10b), not a fixed 500 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     let f = await readFed(page, '#pj-fed-outside');
     check('B15d Cancel does not stop an asked Remove: when it goes through, the list says so (control: the row is gone)',
       f.msgs.includes('Dana Ruiz was removed from this project.') && !f.rows.some((r) => r.key === 'e:edge-dana'), JSON.stringify({ msgs: f.msgs, keys: f.rows.map((r) => r.key) }));
@@ -1308,7 +1321,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForTimeout(100);
     await act(page, 'e:edge-dana');
     await page.click('#mem-go');
-    await page.waitForTimeout(250);
+    // #5373: wait until the answer is in and handled (FED_BUSY, see B10b), not a fixed 250 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const c15 = { open: (await modal(page)).open, focus: await focusedKey() };
     check('B15c a Remove that goes through closes the dialog and focus lands on the Members "+"', !c15.open && c15.focus === 'pj-add-member', JSON.stringify(c15));
     // B15e: a Withdraw nobody answers is given up on: it says so, the row's Withdraw is live again, the list is asked.
@@ -1320,7 +1334,8 @@ const closeAll = (page) => page.evaluate(() => {
     await act(page, 'i:inv-lee');
     await page.waitForTimeout(80);
     const busyFocus = await focusedKey();   // the busy, rebuilt Withdraw keeps focus (aria-disabled, not disabled)
-    await page.waitForTimeout(520);
+    // #5373: wait until the 200 ms limit has given it up (FED_BUSY, see B10b), not a fixed 520 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     f = await readFed(page, '#pj-fed-outside');
     const g1 = (await gets(page)) - g0;
     await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; window.__answerDelay = 0; });
@@ -1340,7 +1355,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#pj-one-agents .pj-minus[data-drop="ada"]');
     await page.waitForTimeout(100);
     const hFirst = await focusedKey();
-    await page.waitForTimeout(500);
+    // #5373: wait until the late 502 (400 ms) is in and handled (FED_BUSY, see B10b), not a fixed 500 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const h = { open: (await modal(page)).open, first: hFirst, after: await focusedKey() };
     await page.evaluate(() => { window.__answerDelay = 0; });
     await page.click('#mem-keep');
@@ -1357,7 +1373,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-go');
     await page.waitForTimeout(60);
     const iBusyFocus = await focusedKey();   // in flight: on Cancel, not <body> (Remove is disabled while asked)
-    await page.waitForTimeout(540);
+    // #5373: wait until the 200 ms limit has given it up (FED_BUSY, see B10b), not a fixed 540 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const iModal = (await modal(page)).open;
     const iF = await readFed(page, '#pj-fed-outside');
     const iFocus = await focusedKey();
@@ -1417,13 +1434,15 @@ const closeAll = (page) => page.evaluate(() => {
     await act(page, 'e:edge-dana');
     await page.evaluate(() => { window.__remove = { status: 403, body: { error: 'forbidden' } }; });
     await page.click('#mem-go');
-    await page.waitForTimeout(200);
+    // #5373: wait until the answer is in and handled (FED_BUSY, see B10b), not a fixed 200 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const m403 = await modal(page);
     check('B18b Remove 403: the dialog stays with the plain fallback, not the board text', m403.open && m403.msg === 'Kosmos could not remove them just now. Try again in a moment.', JSON.stringify(m403));
     await page.evaluate(() => { window.__remove = { status: 409, body: { reason: 'not-owner', error: 'not the owner' } }; });
     const c0 = await gets(page);
     await page.click('#mem-go');
-    await page.waitForTimeout(250);
+    // #5373: wait until the answer is in and handled (FED_BUSY, see B10b), not a fixed 250 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const mNo = await modal(page);
     f = await readFed(page, '#pj-fed-outside');
     // B18h: the same refusal when the list asked again says this board is not the owner: no section, but the
@@ -1441,7 +1460,8 @@ const closeAll = (page) => page.evaluate(() => {
       !mNo.open && f.msgs.includes('Only the owner of this project can change who is in it.') && (await gets(page)) > c0, JSON.stringify({ open: mNo.open, msgs: f.msgs }));
     await page.evaluate(() => { window.__withdraw = 'throw'; });
     await act(page, 'i:inv-lee');
-    await page.waitForTimeout(200);
+    // #5373: wait until the dropped Withdraw is handled (FED_BUSY, see B10b), not a fixed 200 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     f = await readFed(page, '#pj-fed-outside');
     const leeD = f.rows.find((r) => r.key === 'i:inv-lee');
     check('B18d Withdraw the network drops: the could-not-reach sentence, and the Withdraw is live again',
@@ -1462,7 +1482,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-go');
     await page.waitForTimeout(30);
     await page.evaluate(async () => { PJ_CURRENT = 'elsewhere'; await fedMembersLoad('elsewhere'); PJ_CURRENT = 'k'; await fedMembersLoad('k'); });
-    await page.waitForTimeout(500);
+    // #5373: wait until the held 502 (300 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see B10b), not a fixed 500 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const loose = await page.evaluate(() => Object.values(FED_MSGS));
     const mF = await modal(page);
     await page.evaluate(() => { window.__answerDelay = 0; });
@@ -1479,7 +1500,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.click('#mem-keep');
     await page.click('#pj-back');
     await page.evaluate(() => openProject('k'));
-    await page.waitForTimeout(600);
+    // #5373: wait until the held answer (400 ms) is in and handled: the arm says what it did NOT do (FED_BUSY, see B10b), not a fixed 600 ms.
+    await page.waitForFunction(() => FED_BUSY.size === 0, null, { timeout: 4000 }).catch(() => {});
     const looseG = await page.evaluate(() => Object.values(FED_MSGS));
     const backOpen = await page.evaluate(() => PJ_CURRENT);
     await page.evaluate(() => { window.__answerDelay = 0; });
@@ -1731,13 +1753,20 @@ const closeAll = (page) => page.evaluate(() => {
     if (words) {
       await page.evaluate(() => { showTab('projects'); pjView('list'); });   // the Projects list, where step 2 starts
       await page.waitForTimeout(200);
+      // #5373: the next screen may draw after the click's handler returns, so each word is looked for until it shows
+      // (4 s at most), not once after a fixed 200 ms. A word that never shows still ends the walk with null.
+      const findSoon = async (w) => {
+        const end = Date.now() + 4000;
+        let h = await find(page, w);
+        while (!h && Date.now() < end) { await page.waitForTimeout(50); h = await find(page, w); }
+        return h;
+      };
       for (const w of words) {
-        const hit = await find(page, w);
+        const hit = await findSoon(w);
         found.push({ word: w, hit });
         if (!hit) break;
         if (found.length === 3) break;   // Verify is found as a label; not pressed (no side effect on the stub)
         await page.click('[data-c3-hit]');
-        await page.waitForTimeout(200);
       }
     }
     check('C3 each step word is a visible label on the page\'s own path: Projects list, Add Project screen, join step',
@@ -1772,7 +1801,8 @@ const closeAll = (page) => page.evaluate(() => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } });
       });
       await pw.page.click('#fedinv-copy');
-      await pw.page.waitForTimeout(100);
+      // #5373: wait for the refusal's own line (said 30 ms after both copies fail), not a fixed 100 ms.
+      await untilStatus(pw.page, { text: 'Kosmos could not copy it.', prefix: true });
       const win = await step(pw.page);
       check('C5b a Windows page\'s bare Copy refusal says Ctrl+C and Ctrl C (control: C5\'s Mac page names Command C)',
         win.copyText === 'Press Ctrl+C to copy' && win.status === 'Kosmos could not copy it. Select the code and press Ctrl C.',
@@ -2100,7 +2130,8 @@ const closeAll = (page) => page.evaluate(() => {
       await p9.page.click('#fedinv-ok');
       await makeCode(p9.page, 'Lee Park');
       await p9.page.evaluate(() => window.__releaseClip());
-      await p9.page.waitForTimeout(150);
+      // #5373: wait for the late write's line (the new sheet's line is empty until it lands), not a fixed 150 ms.
+      await p9.page.waitForFunction(() => document.getElementById('fedinv-status').textContent !== '', null, { timeout: 4000 }).catch(() => {});
       const d = (await step(p9.page)).status;
       check('C9 a held write from a closed sheet that lands under a new code says the clipboard holds that one (control: the same sheet path, C6)',
         d === 'A copy from an earlier invitation finished late, so the clipboard now holds that one. Press Copy or Copy the invitation for this code.', d);
