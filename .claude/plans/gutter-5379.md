@@ -26,4 +26,6 @@ Rejected:
 - Whether the one-layout reflow in consolidated is visible on a classic-scrollbar platform (it is forced and restored in one task, so nothing should paint between).
 - Scroll events: if scroll anchoring moves an inner scroller during the forced layout, the move and the restore each queue a scroll event, so a position-reading scroll handler may run once per measurement in consolidated (load, settled resize, focus, a return to the tab). Not observed either way.
 - The scroll restore itself: on an overlay-scrollbar machine nothing reflows, so no local check can red without it; only a classic-scrollbar run exercises it.
+- An engine whose 100vw excludes a reserved gutter is never marked measured (A1t), so neither view gets the #3497/#5379 padding there and the 15px jump remains on it; that is the existing A1q fallback, not new.
+- The scroller walk in consolidated reads every element under body on each measurement (load, focus, a return to the tab, a settled resize, a flip). Kept rather than a list of known scrollers, which would go stale as panes are added; the triggers are rare.
 - The classic-scrollbar CI result is recorded on card #5379, not here: this file is written before it lands.

@@ -1421,7 +1421,8 @@ html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overf
 /* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
-   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter). The bar's fills
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; in consolidated
+   that padding is 0 and the bar pads itself by the scrollbar width instead, #5379). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
 .kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);

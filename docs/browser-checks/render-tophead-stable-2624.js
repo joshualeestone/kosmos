@@ -247,18 +247,22 @@ async function measure(page, view, notice, name) {
     for (const k of ['youX', 'tabsX']) {
       if (cons[k] !== tabs[k]) problems.push(`1440px measured in consolidated: ${k} is ${cons[k]} in consolidated and ${tabs[k]} in the tab view (scrollbar width ${got.width})`);
     }
-    // A 15px width set by hand, so this Mac (overlay scrollbars, width 0) can see the padding at all: each view pads its
-    // header by it (the tab view's rule less what the page gives up, 0 here), so the right cluster and the centred tabs
-    // still land on the same pixels, 15px and 7.5px left of where they sit at width 0. CONTROL: the controls really
-    // moved, so equal numbers are not two views ignoring the width alike.
-    await page.evaluate(() => document.documentElement.style.setProperty('--scrollbar-width', '15px'));
-    const cons15 = await measure(page, 'consolidated', false);
-    const tabs15 = await measure(page, 'tabs', false);
-    for (const k of ['youX', 'tabsX']) {
-      if (cons15[k] !== tabs15[k]) problems.push(`1440px with a 15px scrollbar width: ${k} is ${cons15[k]} in consolidated and ${tabs15[k]} in the tab view`);
+    // A width set by hand, 0px and then 15px, so a Mac with overlay scrollbars (real width 0) can see the padding at all,
+    // and a classic-scrollbar runner (real width 15, already padded) still sees it move. At each width the tab view's
+    // rule pads by it less what the page really gives up, and consolidated by all of it, so the right cluster and the
+    // centred tabs land on the same pixels in both views. The 0 -> 15 step must move consolidated's right controls 15px
+    // left, so equal numbers are not two views ignoring the width alike.
+    const at = {};
+    for (const w of ['0px', '15px']) {
+      await page.evaluate((w) => document.documentElement.style.setProperty('--scrollbar-width', w), w);
+      at[w] = { cons: await measure(page, 'consolidated', false), tabs: await measure(page, 'tabs', false) };
+      for (const k of ['youX', 'tabsX']) {
+        if (at[w].cons[k] !== at[w].tabs[k]) problems.push(`1440px with a ${w} scrollbar width: ${k} is ${at[w].cons[k]} in consolidated and ${at[w].tabs[k]} in the tab view`);
+      }
     }
-    if (!(cons15.youX !== null && cons.youX !== null && Math.abs((cons.youX - cons15.youX) - 15) < 0.6)) problems.push(`1440px consolidated: a 15px scrollbar width moved the right controls from ${cons.youX} to ${cons15.youX}, not 15px left; consolidated does not pad its header by the scrollbar width`);
-    else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${cons15.youX}, tabs at ${cons15.tabsX})`);
+    const c0 = at['0px'].cons.youX, c15 = at['15px'].cons.youX;
+    if (!(c0 !== null && c15 !== null && Math.abs((c0 - c15) - 15) < 0.6)) problems.push(`1440px consolidated: a 0px to 15px scrollbar width moved the right controls from ${c0} to ${c15}, not 15px left; consolidated does not pad its header by the scrollbar width`);
+    else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${c15}, tabs at ${at['15px'].cons.tabsX})`);
     // The Kosmos+ bar above the header (a remote session) pads by the width too, so its Log out ends where the header's
     // right controls end. Read in consolidated only: in the tab view the bar's end comes from the REAL reserved gutter
     // (kplusBarFit cancels the header padding), which a hand-set width cannot simulate on this Mac. There the two
