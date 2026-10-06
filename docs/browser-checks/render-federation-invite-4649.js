@@ -457,7 +457,9 @@ const closeAll = (page) => page.evaluate(() => {
     check('A5 "It works once, until Sunday, October 11." from expires_at, then the withdraw sentence (an agent invite: "they")',
       done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.', done.until);
     await page.click('#fedinv-copy');
-    await page.waitForTimeout(100);
+    // #5373: wait for the copy's own answer, not a fixed 100 ms (the write is a promise; a slow runner outran the sleep).
+    await page.waitForFunction(() => window.__copied.length > 0 && document.getElementById('fedinv-copy').textContent === 'Copied',
+      null, { timeout: 4000 }).catch(() => {});
     const copied = await page.evaluate(() => ({ copied: window.__copied.slice(), btn: document.getElementById('fedinv-copy').textContent }));
     check('A5 Copy copies the code and says Copied', copied.copied.length === 1 && copied.copied[0] === CODE && copied.btn === 'Copied', JSON.stringify(copied));
     // A stray backdrop click must not lose a code on screen.
@@ -660,6 +662,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__inviteDelay = 500; });
     await page.click('#fedinv-make');
     await page.evaluate((d) => fedGateStamp(d), OFF);   // forced close while the Make is answered
+    // Past the dropped Make's 500 ms answer, on purpose (#5373 left it a sleep): the forced close clears FEDINV_INFLIGHT
+    // at once, so no flag says when that answer lands, and the arm is about the sheet AFTER it has.
     await page.waitForTimeout(700);
     await page.evaluate((d) => { window.__inviteDelay = 0; fedGateStamp(d); }, SHOW);
     await page.click('#pj-add-member');
@@ -694,7 +698,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.fill('#fedinv-label', 'Dana Ruiz');
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 300; window.__inviteDelay = 2000; });
     await page.click('#fedinv-make');
-    await page.waitForTimeout(700);
+    // #5373: wait for the limit's own message (300 ms here), not a fixed 700 ms.
+    await page.waitForFunction(() => document.getElementById('fedinv-msg').textContent !== '', null, { timeout: 4000 }).catch(() => {});
     const timed = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, make: !document.getElementById('fedinv-make').disabled,
       focus: document.activeElement && document.activeElement.id }));
     await page.evaluate(() => { FEDINV_MAKE_LIMIT_MS = 60000; window.__inviteDelay = 0; });
