@@ -2039,9 +2039,9 @@ function makeFolder(name) {
  *
  * Answers the asked-for name unchanged when the listing cannot be read, when the
  * listing holds that exact name, when the name does not open anything (#5424: on a
- * case-sensitive disk `lease` is not `Lease`), or when
- * the listing does not hold exactly one case-insensitive match: an ambiguous answer is
- * not one to act on, and inventing a spelling is worse than keeping theirs.
+ * case-sensitive disk `lease` is not `Lease`), or when the listing does not hold
+ * exactly one case-insensitive match: an ambiguous answer is not one to act on, and
+ * inventing a spelling is worse than keeping theirs.
  */
 function trueChildName(parent, name) {
   let entries;

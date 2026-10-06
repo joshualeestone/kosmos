@@ -30,3 +30,9 @@ folder's name to match that answer.
 - Not changed, and not new: a name stored in NFD (common on macOS) and typed in NFC opens the same folder,
   but the lower-case comparison does not match the two forms, so the typed spelling is kept. Preview and
   act still agree (both use the same stat), which is this card's property; normalising is its own change.
+- Not changed here: three other tests in engine/projects.test.js (`"Lease" and "lease" are ONE project...`,
+  `an adopted folder is stored under the spelling...`, `the same folder reached by two spellings of a MIDDLE
+  segment...`) assume a case-insensitive disk by their own names and fail on a case-sensitive one (blind
+  review 2, measured on the image). The #4919 Linux lane already skips them off case-insensitive disks with
+  its `caseInsensitiveFS()` probe; adding a second skip here would duplicate that and collide when #4919
+  merges. Weakest premise: that #4919 merges with those skips intact.
