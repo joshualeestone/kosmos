@@ -1653,6 +1653,9 @@ test('#4941: a comment and a post written in emoji, within the service\'s charac
   assert.equal(one.ok, true, one.because);
   assert.match(one.text, /END-OF-EMOJI-COMMENT/, 'a comment of 1500 emoji was cut');
   assert.match(one.text, /END-OF-EMOJI-POST/, 'a post of 3500 emoji was cut');
+  // Review 2: and the caps are pinned from above too, so neither drifts far past what the service can ever send.
+  assert.equal(cr.POST_BODY_CAP, 8000, 'the service\'s 4000 characters at two UTF-16 units each');
+  assert.equal(cr.POST_COMMENT_CAP, 4000);
 });
 
 /* #4941 review 1: only the single-post read asks for the larger comment cap; the digest reads (read --replies, the
