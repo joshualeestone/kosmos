@@ -46611,10 +46611,21 @@ function plusSetBusy(el, on) {
   if ('disabled' in el) { el.disabled = on; return; }
   if (on) el.setAttribute('aria-disabled', 'true'); else el.removeAttribute('aria-disabled');
 }
+/* kosmos#5354: a wait of two minutes or more is said in minutes, rounded up ("about 22 minutes", "about an hour" at
+   sixty), as the relay's own sign-in page says it (kosmos-relay coordinator/src/signin.html waitWords, the same words).
+   "in 1290 seconds" reached a person live on 2026-10-05. Under two minutes the seconds still count down. The app reads
+   the wait from the coordinator's sentence, whose "in N seconds" the relay keeps on purpose (its test
+   the_sentence_always_carries_the_seconds_the_app_matches): retry_after_secs does not reach this page, because the
+   sign-in goes through the setup tool, which hands back only the sentence. */
+function plusWaitWords(secs) {
+  if (secs < 120) return secs + (secs === 1 ? ' second' : ' seconds');
+  const m = Math.ceil(secs / 60);
+  return m === 60 ? 'about an hour' : 'about ' + m + ' minutes';
+}
 function plusCountdown(line, btn, why, secs) {
   if (PLUS_COUNTDOWN) clearInterval(PLUS_COUNTDOWN);
   let left = secs;
-  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + left + (left === 1 ? ' second' : ' seconds')) + '.'; };
+  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + plusWaitWords(left)) + '.'; };
   paint();
   plusSetBusy(btn, true);
   PLUS_COUNTDOWN = setInterval(() => {
