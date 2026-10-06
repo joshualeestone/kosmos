@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: reviewer-4787
-diff_hash: 67c5962e2949814f3ca93b21fe38b42ecc0e396096d3628efeceb2ea12749c0c
-validation: focused after every round (engine/missedtell.test.js, engine/tasks.repeat-4787.test.js, server.task-repeat-4787.test.js, cli.task-reviewer-4787.test.js, web.task-repeat-4787.test.js), and at convergence, rebased onto main after #5416 merged, every web.*, engine/*, server.*, cli.* and tools.* test: 14385 pass, 0 fail, rc 0. Each fix's test was proven to fail by undoing the fix. Browser: a new arm in render-onhold-4771 for "If missed, tell" (added after convergence; CI is its first run; its first CI run caught the new select missing the field fill in dark, fixed). Surface trailers for render-unread-edge-3743 and render-agentdm-3414 (local "msg").
+diff_hash: e16a14d61eafa22f6b8f84b3261ccb67fcc43495059f4b78d99797846508d560
+validation: focused after every round (engine/missedtell.test.js, engine/tasks.repeat-4787.test.js, server.task-repeat-4787.test.js, cli.task-reviewer-4787.test.js, web.task-repeat-4787.test.js), and at convergence, rebased onto main after #5416 merged, every root-level and engine test file: 15849 pass, 0 fail, rc 0 (CI then caught fixture-discipline, which the narrower local globs had skipped; fixed). Each fix's test was proven to fail by undoing the fix. Browser: a new arm in render-onhold-4771 for "If missed, tell" (added after convergence; CI is its first run; its first CI run caught the new select missing the field fill in dark, fixed). Surface trailers for render-unread-edge-3743 and render-agentdm-3414 (local "msg").
 subdir_audit: not run
 timestamp: 2026-10-06T22:11:31Z
 iterations: 14
