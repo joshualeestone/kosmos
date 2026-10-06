@@ -9,3 +9,5 @@
 **Rejected:** moving fedCopyText (the sheet) onto the helper (its two-button late-write lines and clipboard record; card comment). **Deferred:** a per-screen record of what the clipboard holds (review 1 F4; card comment). **Next slice:** the sheet's visible whole-invitation field when both ways fail.
 
 **Weakest premise:** that a real web view refuses the awaited path (the card's own, reasoned from activation rules).
+
+**Surface gate:** render-owncode-4649 lists pjs-own-copy but asserts nothing about Copy (S1-S5 in render-federation-invite-4649 do); render-plus-panel-3829 uses copyTextViaExec, which this branch calls but does not change; render-unread-edge-3743 and render-agentdm-3414 match only the bare token 'msg' (pjsOwnCopy's local). Trailers on the commit; CI runs all four.
