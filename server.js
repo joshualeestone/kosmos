@@ -1292,9 +1292,15 @@ const tasks = require('./engine/tasks');
 const taskrepeat = require('./engine/taskrepeat');   // kosmos#4787
 /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), added to a task row so neither
    the page nor an agent's CLI computes the rule again. A task that does not repeat is returned as it is. */
+function repeatFields(t) {
+  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};   // review 1: a closed task has no next run
+  const now = Date.now();
+  const nextAt = taskrepeat.nextAfter(t.repeat, now);
+  return { repeatWords: taskrepeat.describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: taskrepeat.whenWords(nextAt, now) };
+}
 function withRepeatWords(t) {
   if (!t || !t.repeat) return t;
-  return Object.assign({}, t, { repeatWords: taskrepeat.describe(t.repeat), repeatNextAt: taskrepeat.nextAfter(t.repeat, Date.now()) });
+  return Object.assign({}, t, repeatFields(t));
 }
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
@@ -16763,7 +16769,7 @@ const server = http.createServer(async (req, res) => {
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
            the page never computes the rule again. */
-        ...withRepeatWords(t),
+        ...repeatFields(t),   // review 1: only the added fields, never the task again over the computed ones
       });
     });
     /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
@@ -18822,14 +18828,14 @@ const server = http.createServer(async (req, res) => {
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
-          task = tasks.setRepeat(id, taskRepeat[2], rule);
+          task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
         }
       } catch (err) {
         const msg = String((err && err.message) || 'we could not change that task');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : 400, { error: msg });
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can change it/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
-      sendJson(res, 200, { task, ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
+      sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });

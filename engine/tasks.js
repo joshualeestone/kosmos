@@ -680,6 +680,7 @@ function setClosed(projectId, n, closedAt) {
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
+  let repeatDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -698,6 +699,8 @@ function setClosed(projectId, n, closedAt) {
     if (after) changed = withoutBuilt(changed);
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
+    // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -705,6 +708,7 @@ function setClosed(projectId, n, closedAt) {
   });
   if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
+  if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;
 }
 
@@ -799,26 +803,34 @@ function setDue(projectId, n, dueDate) {
  * (taskrepeat.repeatProblem) and stored normalised. A closed task cannot be made to repeat: closing is how a recurring
  * job ends. Setting the rule it already has records nothing, as setDue does.
  */
-function setRepeat(projectId, n, rule) {
+function setRepeat(projectId, n, rule, opts = {}) {
   const taskrepeat = require('./taskrepeat');
   const problem = taskrepeat.repeatProblem(rule);
   if (problem) throw new Error(problem);
   const next = taskrepeat.normalise(rule);
+  /* #4787 review 1: the person's rule is theirs, as the built mark is (#3951 refusePersonMark): a process cannot change
+     or clear a rule the person set. `opts.person`: this call is the person's (the screen). */
+  const person = opts.person === true;
   let changed;
   let didChange = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     if (next && progressOf(t).closed) throw new Error('that task is closed; reopen it to make it repeat');
+    if (!person && t.repeatByPerson === true && JSON.stringify(t.repeat || null) !== JSON.stringify(next)) {
+      throw new Error('the person set how often this task repeats, so only they can change it');
+    }
     didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
     changed = { ...t };
-    if (next) changed.repeat = next; else delete changed.repeat;
+    if (next) { changed.repeat = next; if (person) changed.repeatByPerson = true; else delete changed.repeatByPerson; }
+    else { delete changed.repeat; delete changed.repeatByPerson; }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (didChange) {
+    // Flat fields (review 1: taskchat keeps strings and numbers; an object was stored as "[object Object]").
     taskchat.record(projectId, changed.number, next
-      ? { kind: 'repeat-set', repeat: next, words: require('./taskrepeat').describe(next) }
-      : { kind: 'repeat-cleared' });
+      ? { kind: 'repeat-set', every: next.every, words: taskrepeat.describe(next), via: person ? 'screen' : 'agent' }
+      : { kind: 'repeat-cleared', via: person ? 'screen' : 'agent' });
   }
   return changed;
 }
@@ -829,21 +841,27 @@ function setRepeat(projectId, n, rule) {
  * is in its history while the row shows the latest. Refused on a task that does not repeat (a one-off is closed, not run)
  * and on a closed one.
  */
+const RUN_DEDUP_MS = 60 * 1000;
 function recordRun(projectId, n, by, note, at = Date.now()) {
   const taskrepeat = require('./taskrepeat');
   const problem = taskrepeat.noteProblem(note);
   if (problem) throw new Error(problem);
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   let changed;
+  let duplicate = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     if (!t.repeat) throw new Error('that task does not repeat; set how often with kosmos task repeat, or close it when it is done');
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    /* #4787 review 1: the same run reported twice (a retried command, a duplicated job: the 10-03 report) within a minute
+       counts once: the first stays, nothing new is recorded. */
+    if (t.lastRunAt && Math.abs(at - Date.parse(t.lastRunAt)) < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
     changed = { ...t, lastRunAt: new Date(at).toISOString(), lastRunBy: String(by || 'operator').slice(0, WHO_MAX) };   // ISO, as createdAt and builtAt are
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
+  if (duplicate) return Object.assign({}, changed, { duplicate: true });
   taskchat.record(projectId, changed.number, { kind: 'run', by: changed.lastRunBy, ...(said ? { note: said } : {}) });
   return changed;
 }

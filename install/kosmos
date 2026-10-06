@@ -3927,8 +3927,16 @@ cmd_task() {
       done
       [ -z "$_rwant" ] || { say "--at and --on each need a value. $_rusage"; exit 2; } ;;
     ran)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]"; exit 2; }
-      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+      local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\")"
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_ranusage"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local _n _npast=0 _nwant=0   # #4787 review 1: --note is ran's one option; any other --word is refused
+      for _n in "${@:3}"; do
+        if [ "$_nwant" = 1 ]; then _nwant=0; continue; fi
+        if [ "$_npast" = 1 ]; then break; fi
+        case "$_n" in --) _npast=1 ;; --note) _nwant=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac
+      done
+      [ "$_nwant" = 0 ] || { say "--note needs the note. $_ranusage"; exit 2; } ;;
     hold|unhold)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
@@ -4156,13 +4164,16 @@ cmd_task() {
     repeat|ran)
       # kosmos#4787: a repeating task's rule (repeat) and its runs (ran). The agent token names who ran it (the pane is the
       # fallback, as for built); the board refuses a caller it cannot name.
-      local project num every="" at="" on="" clear=false note="" _w _wnext=""
+      local project num every="" at="" on="" clear=false note="" _w _wnext="" _rpast=0
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       for _w in "$@"; do
         case "$_wnext" in at) at="$_w"; _wnext=""; continue ;; on) on="$_w"; _wnext=""; continue ;; esac
         if [ "$sub" = repeat ]; then
           case "$_w" in --at) _wnext=at ;; --on) _wnext=on ;; --clear) clear=true ;; *) every="$_w" ;; esac
         else
+          case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; esac
+          if [ "$_w" = "--note" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=note; continue; fi
+          if [ "$_w" = "--" ] && [ "${_rpast:-0}" = 0 ]; then _rpast=1; continue; fi
           note="${note:+$note }$_w"
         fi
       done

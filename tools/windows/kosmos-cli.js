@@ -973,16 +973,31 @@ async function taskRepeat(ctx, args) {
   if (on) body.on = on;
   return taskRepeatCall(ctx, project, num, 'repeat', body, clear);
 }
+const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...")';
 async function taskRan(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task ran <project-id> <task-number> ["what this run found"]'); return 2; }
+  if (!project || !num) { ctx.err(RAN_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  return taskRepeatCall(ctx, project, num, 'ran', { note: args.slice(2).join(' '), from_pane: '' }, false);
+  /* #4787 review 1, as install/kosmos: --note is ran's one option, a bare -- ends options, any other --word is refused. */
+  const words = [];
+  let past = false, want = false;
+  for (const a of args.slice(2)) {
+    if (want) { words.push(a); want = false; continue; }
+    if (!past && a === '--') { past = true; continue; }
+    if (!past && a === '--note') { want = true; continue; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task ran', RAN_USAGE, a); return 2; }
+    words.push(a);
+  }
+  if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
+  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), from_pane: '' }, false);
 }
 async function taskRepeatCall(ctx, project, num, which, body, clear) {
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
   if (!r.reached) {
-    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+    /* review 1: not "safe" to repeat for a run: a second ran records a second run (a minute apart or more). */
+    return r.timedOut ? maybe(ctx.err, which === 'ran'
+      ? 'Kosmos was slow to answer and we stopped waiting. The run may have been recorded; check the task (kosmos task list ' + project + ') before recording it again.'
+      : 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {

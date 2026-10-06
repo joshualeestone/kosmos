@@ -58402,19 +58402,6 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    field -- test-support/fleet refuses the read), falling back to the
    session name while the roster has not arrived; TSK.names remembers what was painted so the
    first roster that changes a name repaints once (see the LAST assignment). */
-/* kosmos#4787: a moment as the repeat line says it: "today at 9am", "tomorrow at 9am", "Monday at 9:30am", or a date
-   further out. Local time, as the rule is. Pure (node-testable): `now` is passed in. */
-function repeatWhen(ms, now) {
-  const d = new Date(ms);
-  const h = d.getHours(), m = d.getMinutes();
-  const time = (h % 12 === 0 ? 12 : h % 12) + (m ? ':' + String(m).padStart(2, '0') : '') + (h < 12 ? 'am' : 'pm');
-  const day0 = (x) => new Date(new Date(x).getFullYear(), new Date(x).getMonth(), new Date(x).getDate()).getTime();
-  const days = Math.round((day0(ms) - day0(now)) / 86400000);
-  if (days === 0) return 'today at ' + time;
-  if (days === 1) return 'tomorrow at ' + time;
-  if (days > 1 && days < 7) return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()] + ' at ' + time;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' at ' + time;
-}
 /* kosmos#4787: the repeat line's sentence, from the board's fields: "Repeats every day at 9am. Last run 2 hours ago by
    Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
 function tskRepeatSentence(t, now) {
@@ -58427,7 +58414,8 @@ function tskRepeatSentence(t, now) {
   } else {
     s += ' No run reported yet.';
   }
-  if (Number.isFinite(t.repeatNextAt)) s += ' Next ' + repeatWhen(t.repeatNextAt, now) + '.';
+  // The board's own words for the next run (review 1: never this browser's time zone beside the board's rule).
+  if (t.repeatNextWords) s += ' Next ' + t.repeatNextWords + '.';
   return s;
 }
 function tskAgentName(sessionName) {

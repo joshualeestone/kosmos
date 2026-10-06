@@ -59,3 +59,25 @@ test('#4787: a run note is optional, text, and capped', () => {
   assert.equal(typeof r.noteProblem(5), 'string');
   assert.equal(typeof r.noteProblem('x'.repeat(r.NOTE_MAX + 1)), 'string');
 });
+
+test('#4787 review 1: across the US spring-forward night a 02:30 rule is 02:30 again the next day (TZ pinned in a child)', () => {
+  const { execFileSync } = require('node:child_process');
+  const src = "const r=require(" + JSON.stringify(require.resolve('./taskrepeat')) + ");"
+    + "const f=(x)=>{const d=new Date(x);return d.getMonth()+1+'/'+d.getDate()+' '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0')};"
+    + "const at=(mo,d,h,mi)=>new Date(2026,mo-1,d,h,mi).getTime();"
+    + "console.log(JSON.stringify([f(r.nextAfter({every:'day',at:'02:30'},at(3,8,3,45))),f(r.nextAfter({every:'week',day:1,at:'02:30'},at(3,8,12,0))),f(r.nextAfter({every:'day',at:'02:30'},at(3,7,23,0))),f(r.nextAfter({every:'hour',minute:30},at(3,8,1,45)))]));";
+  const out = JSON.parse(execFileSync(process.execPath, ['-e', src], { env: { ...process.env, TZ: 'America/Chicago' } }).toString());
+  assert.equal(out[0], '3/9 2:30', 'daily, asked after the jump: the next day keeps 02:30');
+  assert.equal(out[1], '3/9 2:30', 'weekly Monday 02:30, asked on the Sunday of the jump');
+  assert.equal(out[2], '3/8 3:30', 'the skipped 02:30 itself lands where the clock puts it (03:30), as local time does');
+  assert.equal(out[3], '3/8 3:30', 'hourly :30 across the gap: 03:30');
+});
+
+test('#4787 review 1: waitingForNextRun: between runs a repeating task holds no work; due again once a slot has passed', () => {
+  const now = at(2026, 10, 6, 10, 0);
+  const base = { repeat: { every: 'day', at: '09:00' }, createdAt: new Date(at(2026, 10, 1, 8, 0)).toISOString() };
+  assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 6, 9, 2)).toISOString() }, now), true, 'ran at 9:02 today: waits for tomorrow');
+  assert.equal(r.waitingForNextRun({ ...base, lastRunAt: new Date(at(2026, 10, 5, 9, 2)).toISOString() }, now), false, 'last ran yesterday, today\'s 9:00 passed: due');
+  assert.equal(r.waitingForNextRun(base, now), false, 'never ran, a slot since it was made has passed: due');
+  assert.equal(r.waitingForNextRun({ sentence: 'one-off' }, now), false, 'CONTROL: a task that does not repeat is never waiting');
+});
