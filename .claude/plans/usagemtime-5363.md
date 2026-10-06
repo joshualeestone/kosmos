@@ -105,3 +105,22 @@ engine/usage.test.js still passes (29/29 across both files).
 
 ## Review round 4 (sonnet): no B/W, CONVERGED
 - [N] FIXED: the docblock says 'the files written since an hour before today began (UTC)', not 'today's files'.
+
+## Equivalence run: the merge gate, PASSED (2026-10-06 03:00 to 03:06 CDT, fleet Mac, real data, nice 10)
+Setup: ~/.cache/claude-handoffs/april-equiv-5363.js, with the 7 real config roots and a copy of the live usage cache
+in a data folder outside temp.
+
+**Yesterday (2026-10-05 UTC, complete): the cut scan against the full read.**
+- Total tokens: **5,638,236,935 and 5,638,236,935, EXACTLY equal.**
+- The per-folder split (19 folders) and the per-model split: no difference.
+
+**Today (2026-10-06, still growing): two fast scans with a full read between them.**
+- Total: 1,161,041,858 (before) <= 1,172,235,595 (full) <= 1,175,114,160 (after).
+- Every one of the 19 folders sits between its two fast values.
+
+**Timings:**
+- full read: 381,114 ms;
+- fast scans: 5,140 ms and 5,720 ms;
+- yesterday's cut scan (just after UTC midnight): 16,078 ms.
+
+Log: ~/.cache/claude-handoffs/detached/equiv-5363.log.
