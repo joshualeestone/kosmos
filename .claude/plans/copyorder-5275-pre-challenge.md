@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: copyorder-5275
-diff_hash: ad0d318a6a0c0690f4ffadaf6fd7f12352d2076d568a2627b1313e7b3c9ba3bf
+diff_hash: 20e13c3552219bc7bf3b35bb50050119452163a2512399f7064b5f6a8dba511d
 validation: not run locally (suite queue). Run instead: web.federation-3312.test.js 22/22 (from the worktree) after every round; page script parses (node --check) after every round. render-federation-invite-4649 (with S1-S5 per screen) queued in the light lane; CI's browser-checks runs it on the PR.
 subdir_audit: not run (same queue)
 timestamp: 2026-10-06T07:49:22Z
