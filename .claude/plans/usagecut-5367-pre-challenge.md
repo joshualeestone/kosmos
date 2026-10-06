@@ -16,7 +16,18 @@ converged: true
 **Converged:** Yes (iteration 1: NO NEW ISSUES)
 
 #### Iteration 1 (sonnet): NO NEW ISSUES
-- checked: no require cycle at load (usage.js requires usageproviders only inside mergeProviders; cutFor requires usage at scan time)
-- checked: an hour-earlier cut only reads more whole files; rows are still filtered by inRange, Codex deltas are per file, so a frozen day can only be more complete, never double counted
-- checked: Antigravity's since is used only for the skip; day assignment uses step time or the file's birth/mtime, unchanged
+- checked, require cycle: none at load. usage.js requires usageproviders only inside mergeProviders (usage.js:497), at call time
+- checked, require cycle: receipt.js requires usageproviders lazily too (receipt.js:271)
+- checked, require cycle: usageproviders requires usage only inside cutFor, which runs at scan time, after usage.js has fully loaded
+- checked, frozen days: the cut decides only which whole files are read; rows are still filtered by inRange on sinceDay/untilDay
+- checked, double counting: Codex running-total deltas are computed per file, so reading an extra file adds no row twice
+- checked, consequence: an hour-earlier cut can only read MORE files, so a frozen day can only be more complete, never different
+- checked, Antigravity: since is used only for the conversation skip (usageproviders.js:338)
+- checked, Antigravity: a call's day comes from its step time or the file's birth/mtime (usageproviders.js:402-404), so no day shifts by an hour
+- checked, untilDay: handling unchanged
+- checked, an impossible or non-string sinceDay: windowCutMs returns null, so a full read; a falsy sinceDay also gives null
+- checked, the old behaviour: an impossible day compared with NaN and skipped every file, which the new test pins
+- checked, the #5367 Codex test can fail: on main the 30-minute case is skipped at the midnight cut and the impossible-day case reads nothing
+- checked, its control: a file 90 minutes before the window is not read under either cut
+- ran: engine/usageproviders-5158.test.js and engine/usageagy-5158.test.js, 28/28 at review time
 - [NIT] no Antigravity case for the new cut --> ADDED (30 minutes inside read, 90 outside not; fails on main)
