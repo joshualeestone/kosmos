@@ -47,7 +47,9 @@ test('#2039: supportDir keeps NO second copy of the data-root formula (source-pi
   assert.ok(at > -1, 'supportDir vanished or was renamed');
   const body = src.slice(at, src.indexOf('\n}', at) + 2);
   // #5418: through store.resolveDataRoot, which applies the test-process rule and then delegates
-  // to dataRootFor (pinned in store.js below), so there is still one formula.
+  // to dataRootFor (pinned in store.js below), so there is still one formula. A revert of supportDir
+  // to raw dataRootFor would still pass this pin; engine/store.real-root-5418.test.js's "every caller
+  // agrees" test is the one that goes red.
   assert.match(body, /store\.(?:resolveDataRoot|dataRootFor)\(/, 'supportDir stopped delegating to store.resolveDataRoot (or store.dataRootFor)');
   const storeSrc = fs.readFileSync(nodePath.join(__dirname, 'store.js'), 'utf8');
   const r = storeSrc.slice(storeSrc.indexOf('function resolveDataRoot('), storeSrc.indexOf('\n}', storeSrc.indexOf('function resolveDataRoot(')) + 2);

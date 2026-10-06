@@ -227,10 +227,14 @@ from a night in this codebase, kosmos#2616.)
    (`grep -q 'only must come first' tools/run-tests.sh` finds nothing), it would run the whole suite, in either
    spelling.
 
-2. **Sandbox every root before any `require`.** Roughly two dozen modules freeze `store.ROOT`
-   at require time (the ONE data-root derivation, `engine/store.js`, kosmos#1848/#1856). Set
-   the `AGENT_WORKFORCE_*` root env before the first `require` of a store-using module, or
-   the module captures the wrong root. `engine/worldenv.js`'s header enumerates the ~26 frozen
+2. **Sandbox every root before any `require`.** Dozens of modules freeze `store.ROOT` at require
+   time (about forty by #5418's grep of module-level captures; the derivation is
+   `engine/store.js`, kosmos#1848/#1856). Set the `AGENT_WORKFORCE_*` root env before the first
+   `require` of a store-using module, or the module captures the wrong root. Since #5418 a test
+   process (`node --test`, or `tools/run-tests.sh`) that reaches this machine's real root is given a
+   throwaway store root instead, so a missing sandbox no longer writes to a person's store, but it
+   also no longer reads your fixtures: sandbox first. `KOSMOS_ALLOW_REAL_ROOT=1` lets a test read
+   the real root on purpose (`test-support/real-root-allowed.js`). `engine/worldenv.js`'s header enumerates the ~26 frozen
    modules across both capture shapes (`const BASE = store.ROOT` and
    `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988) documents the
    require-ordering trap for consumers; `engine/store.js` owns the `store.ROOT` getter itself.

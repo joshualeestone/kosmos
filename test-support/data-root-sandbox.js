@@ -18,8 +18,9 @@ const os = require('node:os');
 const path = require('node:path');
 const store = require('../engine/store');
 
+/* #5418: the same "real root" engine/store.js protects (one definition, not two). */
 function realDataRoot() {
-  return store.dataRootFor(process.platform, os.userInfo().homedir, { APPDATA: process.env.APPDATA });
+  return store.realDefaultRoot(process.platform);
 }
 
 /* Resolve the nearest EXISTING ancestor and re-attach the rest: a root or thread file not yet written has no

@@ -69,11 +69,14 @@ test('#5418: a test that sets HOME AFTER its first store read is honoured from t
 
 test('#5418: every caller that derives the root agrees: store.ROOT, create.supportDir and worlds.baseRoot answer the same throwaway', () => {
   const dir = path.dirname(STORE);
+  const monitor = path.join(dir, '..', 'tools', 'selfreport-silence-monitor.js');
   const got = runJs('const create = require(' + JSON.stringify(path.join(dir, 'create.js')) + '); const worlds = require(' + JSON.stringify(path.join(dir, 'worlds.js')) + ');'
-    + ' process.stdout.write(JSON.stringify({ root: s.ROOT, support: create.supportDir(), base: worlds.baseRoot() }))', { NODE_TEST_CONTEXT: 'child-v8' });
+    + ' const m = require(' + JSON.stringify(monitor) + ');'
+    + ' process.stdout.write(JSON.stringify({ root: s.ROOT, support: create.supportDir(), base: worlds.baseRoot(), monitor: typeof m.defaultStoreDir === "function" ? m.defaultStoreDir() : null }))', { NODE_TEST_CONTEXT: 'child-v8' });
   assert.ok(got.root.includes(require('./store').TEST_HOME_PREFIX), got.root);
   assert.equal(got.support, got.root);
   assert.equal(got.base, got.root);
+  assert.equal(got.monitor, path.join(got.root, 'selfreports'), 'the silence monitor derives the root some other way (or no longer exports defaultStoreDir)');
 });
 
 const throwaway = (out) => out.startsWith('ROOT=') && out.includes(require('./store').TEST_HOME_PREFIX);
@@ -138,4 +141,31 @@ test('#5418 control: outside a test process the real root is returned as before'
 
 test('#5418 control: KOSMOS_ALLOW_REAL_ROOT=1 lets a test process read the real root on purpose', () => {
   assert.equal(rootIn({ NODE_TEST_CONTEXT: 'child-v8', KOSMOS_ALLOW_REAL_ROOT: '1' }), 'ROOT=' + realRoot());
+});
+
+/* A pid no process has: above the usual range, and checked dead before use. */
+function deadPid() {
+  for (let p = 4194000; p < 4194300; p++) { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') return p; } }
+  throw new Error('no free pid found for the dead-process arm');
+}
+
+test('#5418: sweepDeadTestHomes removes a dead process\'s throwaway and keeps a live one, a malformed name and anything else', () => {
+  const store = require('./store');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweep5418-'));
+  try {
+    const dead = path.join(tmp, store.TEST_HOME_PREFIX + deadPid() + '-AAAAAA');
+    const live = path.join(tmp, store.TEST_HOME_PREFIX + process.ppid + '-BBBBBB');
+    const junk = path.join(tmp, store.TEST_HOME_PREFIX + 'notapid');
+    const other = path.join(tmp, 'other-folder');
+    for (const d of [dead, live, junk, other]) fs.mkdirSync(path.join(d, 'Library'), { recursive: true });
+    store.sweepDeadTestHomes(tmp);
+    assert.equal(fs.existsSync(dead), false, 'the dead process\'s throwaway was kept');
+    assert.equal(fs.existsSync(live), true, 'a live process\'s throwaway was removed');
+    assert.equal(fs.existsSync(junk), true, 'a name with no pid was removed');
+    assert.equal(fs.existsSync(other), true, 'a folder outside the prefix was removed');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('#5418: test-support/data-root-sandbox.js and the store agree on what the real root is', () => {
+  assert.equal(require('../test-support/data-root-sandbox').realDataRoot(), require('./store').realDefaultRoot(process.platform));
 });
