@@ -371,16 +371,15 @@ function todayUtc() {
  * Transcripts are not date-partitioned, so before #5363 `scanUsage`
  * read and JSON.parsed every line of every transcript across every
  * config root on every call that had ANY missing day (today always
- * qualifies, since it's never frozen). #5363 (below) bounds the usual
- * case: a file's mtime does say it holds nothing for today. The freeze only saves the
- * ACCUMULATION work for days already on disk; it does not save the I/O.
+ * qualifies, since it's never frozen); the freeze saved only the
+ * ACCUMULATION work for days already on disk, not the I/O.
  * #5363: since then, a transcript last written more than an hour before the first missing day is not read at all (a
  * row is appended when it is written, so it holds none in the missing days); a skipped top-level one is head-read for
  * its first cwd only when a subagent of it is read. With every past day frozen (the usual open) that is today's files;
  * just after UTC midnight, yesterday's and today's.
- * A stats page polling this on a live schedule will still cost real time
- * and real disk I/O on this machine's volumes (hundreds of transcripts,
- * individual files into the tens of MB) on every call. What this DOES
+ * A stats page polling this on a live schedule still costs real time and
+ * disk I/O on every call: the files written since the first missing day
+ * (measured on the fleet Mac, about 4 to 6 seconds). What this DOES
  * avoid, because every read on this path is async (fs.promises, not
  * fs.*Sync): it does not block Node's single event loop while doing so --
  * without that, every OTHER route on this server (agent status polling
@@ -392,9 +391,9 @@ function todayUtc() {
  * corner cut here, and distinct from the event-loop-blocking fix above.
  *
  * The scan range is narrowed to the missing days' own span (not the full
- * requested window), so at least the ACCUMULATION and per-day freeze work
- * scoped to `wanted` isn't wasted on days already cached -- a real, if
- * smaller, saving than skipping the read entirely would be.
+ * requested window), so the ACCUMULATION and per-day freeze work scoped to
+ * `wanted` isn't wasted on days already cached, and (#5363) neither is the
+ * read of files last written before that span.
  *
  * Returns `{ byDay: { [date]: { [model]: bucketed } },
  * byFolder: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --

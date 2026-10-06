@@ -122,10 +122,17 @@ test('#5363: on a cold cache dailyUsageByModel cuts at the first missing day, an
     JSON.stringify({ timestamp: dayOf(3) + 'T11:30:00.000Z', message: { id: 't-1', model: 'm', usage: { output_tokens: 5 } } })], at(2));
   write('p/ten-days.jsonl', [JSON.stringify({ type: 'user', cwd: '/w/ten', timestamp: dayOf(10) + 'T11:00:00.000Z' }),
     JSON.stringify({ timestamp: dayOf(10) + 'T11:30:00.000Z', message: { id: 'x-1', model: 'm', usage: { output_tokens: 99 } } })], at(10));
+  // Review 3: contrived, to pin the WIRING (dailyUsageByModel asks for the cut): a row inside the window in a file last
+  // written two hours before the cut (the first missing day, dayOf(6), less an hour), so only a cut can drop it.
+  write('p/before-cut.jsonl', [JSON.stringify({ type: 'user', cwd: '/w/cut', timestamp: dayOf(3) + 'T08:00:00.000Z' }),
+    JSON.stringify({ timestamp: dayOf(3) + 'T08:30:00.000Z', message: { id: 'c-1', model: 'm', usage: { output_tokens: 40 } } })],
+    Date.parse(dayOf(6) + 'T00:00:00Z') - 2 * H);
   const r = await usage.dailyUsageByModel(7);   // nothing frozen: seven missing days, cut at the earliest less an hour
   const out = (d) => Object.values(r.byDay[d] || {}).reduce((a, b) => a + (b.output_tokens || 0), 0);
-  assert.equal(out(dayOf(3)), 5, 'a file written inside the window is read, and its past row counted');
+  assert.equal(out(dayOf(3)), 5, 'a file written inside the window is read, and its past row counted; the file written before the cut (40) is not read');
   assert.equal(Object.keys(r.byFolder[dayOf(3)] || {}).join(), '/w/three');
-  const again = await usage.dailyUsageByModel(7);   // the past days are frozen now
-  assert.equal(Object.values(again.byDay[dayOf(3)] || {}).reduce((a, b) => a + (b.output_tokens || 0), 0), 5, 'and frozen as counted');
+  // Review 3: the fixture is removed (the cache is kept), so only the FROZEN day can still give 5.
+  fs.rmSync(nodePath.join(ROOT, 'projects'), { recursive: true, force: true });
+  const again = await usage.dailyUsageByModel(7);
+  assert.equal(Object.values(again.byDay[dayOf(3)] || {}).reduce((a, b) => a + (b.output_tokens || 0), 0), 5, 'the past day was frozen as counted');
 });
