@@ -7,11 +7,14 @@
 # the shared runners. Part of the Linux port (#4916, umbrella #4903).
 #
 # ⚠️ RED BY DESIGN for now, and it has no list of which reds are expected (unlike tools/windows-tests.js's
-# KNOWN_RED), so read the failing FILES, not the colour. Expected on 2026-10-06 (run 37523489451, before
-# #4919's Linux-only skips): the installer tests (install.*: #4920), the Claude Code and runner download
-# tests (engine/runners, engine/connect*, server.runners, engine/muserun: #5419), and
-# report-hook-killguard-4671's awk fallback (#5420). Anything else red is new. A known-red list is a
-# follow-up once those land (#4919).
+# KNOWN_RED), so read the failing FILES, not the colour. The files measured red on 2026-10-06 (run 37523489451)
+# that this branch leaves red, each carried by a card:
+#   #4920 (setup on Linux): install.reachable-1662, install.claude-gate, install.uninstall-litter-1547,
+#     install.uninstall-watchdog-2955
+#   #5419 (downloads on Linux): engine/runners, engine/connect, engine/connect.install-997,
+#     engine/connect.nobinary-1580, engine/connect.hookwiring-1569, server.runners, engine/muserun
+#   #5420 (kill guard timing): report-hook-killguard-4671
+# A red in any other file is new. A known-red list is a follow-up once those land (#4919).
 
 name: linux
 
