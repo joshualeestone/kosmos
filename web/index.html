@@ -4238,6 +4238,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
 .tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
+/* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
+.tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
   border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
@@ -11683,6 +11685,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     if (localStorage.getItem('kosmos-look') === 'new') document.documentElement.setAttribute('data-look', 'new');
   } catch (e) { /* no storage: today's look */ }
 })();
+/* #5399: the devicePixelRatio at the last measurement. A zoom (or a move to a display with another scale) changes it,
+   and with it the scrollbar's width in CSS px. Declared before the first call below. */
+var kosmosMeasuredRatio = null;
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
@@ -11693,10 +11698,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
    second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
-window.kosmosMeasureScrollbarWidth = function () {
+window.kosmosMeasureScrollbarWidth = function (opts) {
   var root = document.documentElement;
-  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
-  if (root.getAttribute('data-layout') === 'consolidated') return;
+  /* The consolidated layout reserves no gutter, so measuring there forces a whole-page reflow: skipped, unless a zoom
+     asks for it (#5399, below). */
+  if (root.getAttribute('data-layout') === 'consolidated' && !(opts && opts.inConsolidated === true)) return;
+  kosmosMeasuredRatio = window.devicePixelRatio;
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
@@ -11739,7 +11746,12 @@ window.kosmosMeasureScrollbarWidth();
   window.addEventListener('resize', function () {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
+    requestAnimationFrame(function () {
+      queued = false;
+      /* #5399: in the consolidated view only a changed devicePixelRatio (a zoom, or a display with another scale)
+         re-measures, one reflow, so the width it pads by stays current; a plain resize there is left alone. */
+      window.kosmosMeasureScrollbarWidth({ inConsolidated: window.devicePixelRatio !== kosmosMeasuredRatio });
+    });
   });
   /* The fewest ms between two pointer-press re-measures. Each probe forces a layout, and a Mac's
      scrollbar mode changes when a mouse is plugged in, not between two clicks. */
@@ -19182,8 +19194,10 @@ function windowsCopyTable() {
       + '<li>Double-click <b>Kosmos.exe</b>. Your agents keep running.</li>',
     /* Documents (W-19) and the agent page (W-18). */
     docsOpenFolder: 'Open in File Explorer',
-    terminalTab: 'Live output',
-    terminalBoxTitle: 'Live output',
+    /* #5239: was "Live output", but a Windows agent runs without a window, so the section never showed output.
+       What it holds on Windows is Trust & Restart (Open Terminal is hidden), so it is named for that (Baron's review: a noun, not "Starting", which read as in progress). */
+    terminalTab: 'Start-up and restart',
+    terminalBoxTitle: 'Start-up and restart',
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     /* Not signed in (W-24) and the recovery toasts (W-26). Windows says "sign in" (W-23). */
     signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
@@ -19243,7 +19257,7 @@ function applyPlatformCopy(root) {
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
   /* An accessible name has to say what the visible label says (the Terminal tab reads
-     "Live output" on Windows, and its section is named from the same key). */
+     "Start-up and restart" on Windows (#5239), and its section is named from the same key). */
   root.querySelectorAll('[data-win-aria-label]').forEach((el) => { el.setAttribute('aria-label', windowsCopy(el.getAttribute('data-win-aria-label'))); });
 }
 applyPlatformCopy(typeof document === 'undefined' ? null : document);
@@ -46234,8 +46248,12 @@ function plusSiRegisterMode(address, nameOnly) {
  * meantime so they cannot drift silently.
  */
 const KOSMOS_SITE = 'https://installkosmos.com';
-/* #3829 / #3479: the web account (billing, history, cancel) lives where people sign in to Kosmos+. */
+/* #3829 / #3479: where people sign in to Kosmos+. The Copy chip copies it (the address other devices use), and the
+   buy fallback builds on it. */
 const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
+/* #5403: View account opens the account view (Sign out everywhere, Delete account), not the sign-in home. It is
+   its own constant because the home above is still the address to copy and the base the buy link builds on. */
+const PLUS_ACCOUNT_VIEW_URL = PLUS_ACCOUNT_URL + 'account';
 /* #4744: Copy puts the address other devices use on the clipboard, as a full https URL so it pastes as a link.
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
@@ -46478,7 +46496,7 @@ async function paintPlus() {
     pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
       : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
   }
-  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
+  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_VIEW_URL !== 'undefined') acct.href = PLUS_ACCOUNT_VIEW_URL;
   const chip = document.getElementById('plus-chip');
   if (chip) { chip.hidden = !up; if (up) plusChipFit(); }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
@@ -58574,17 +58592,27 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
 function tskRepeatSentence(t, now) {
   const words = t.repeatWords || 'on a schedule';
-  let s = 'Repeats ' + words + '.';
+  /* kosmos#4787 slice 2: a missed run leads the line, in the board's own words (taskrepeat.missedRuns), so the person
+     sees it before the rhythm. The latest missed slot is the one named; more than one is counted. */
+  let s = tskRepeatMissed(t);
+  s += (s ? ' ' : '') + 'Repeats ' + words + '.';
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
-    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
   } else {
     s += ' No run reported yet.';
   }
   // The board's own words for the next run (review 1: never this browser's time zone beside the board's rule).
   if (t.repeatNextWords) s += ' Next ' + t.repeatNextWords + '.';
   return s;
+}
+/* slice 2: "Missed the run due today at 9am." or "Missed 3 runs, the latest due today at 9am.", or '' when none is. */
+function tskRepeatMissed(t) {
+  const n = Number(t && t.repeatMissed);
+  if (!(n >= 1) || !t.repeatMissedWords) return '';
+  if (n === 1 && t.repeatMissedMore !== true) return 'Missed the run due ' + t.repeatMissedWords + '.';
+  return 'Missed ' + (t.repeatMissedMore === true ? 'more than ' + n : n) + ' runs, the latest due ' + t.repeatMissedWords + '.';
 }
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
@@ -58606,7 +58634,20 @@ function tskRosterChanged() {
      closing tasks or not yet read is still a change on the next tick (review round 5). */
   if (TSK.needs === null) TSK.needs = needs;
   else if (needs !== TSK.needs && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  /* kosmos#4787 slice 2 (review 5): a repeat line is time state too, so it is read again while the view is open once a
+     slot it shows passes its miss grace (the board's repeatMissAfter), and every few minutes while a row is red, so a
+     reported run clears it. */
+  if (shown && TSK.data && !TSK.busy && tskRepeatStale(TSK.data, TSK.readAt, Date.now())) { tskLoad(); return; }
   if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+function tskRepeatStale(rows, readAt, now) {
+  const MISSED_REREAD_MS = 5 * 60 * 1000;   // kept inside, so the function lifts whole into the page tests
+  /* At most one read per 30 seconds: repeatMissAfter is the board's time, and a browser clock ahead of it would
+     otherwise read on every poll until the board caught up. */
+  if (now - readAt < 30 * 1000) return false;
+  return (rows || []).some((t) => t && t.repeat && t.state !== 'closed'
+    && ((Number.isFinite(t.repeatMissAfter) && now >= t.repeatMissAfter)
+      || (Number(t.repeatMissed) >= 1 && !(now - readAt < MISSED_REREAD_MS))));
 }
 /* The agents needing the person by the board's own rule, with the project a question names: the part of the
    roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
@@ -58669,6 +58710,9 @@ async function tskLoad(arrival) {
   /* #3949: who needs the person as of THIS read, so a question asked after the read and before the next poll
      still counts as a change (tskRosterChanged). */
   TSK.needs = tskNeedsSig();
+  /* kosmos#4787 slice 2 review 6: stamped when the read STARTS, as TSK.needs is, so a read slower than one poll is
+     not restarted by tskRepeatStale on every tick. */
+  TSK.readAt = Date.now();
   const msg = document.getElementById('tsk-msg');
   if (arrival) {
     TSK.sel.clear();
@@ -58765,7 +58809,7 @@ function tskRow(t, at) {
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
-  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
+  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat' + (tskRepeatMissed(t) ? ' missed' : '') + '">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
     + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -59553,7 +59597,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -60108,6 +60152,7 @@ function tkPaintRepeat(p, t) {
   const line = document.getElementById('tk-repeat-line');
   const said = t.repeat ? tskRepeatSentence(t, Date.now()) : '';
   if (line.textContent !== said) line.textContent = said;
+  line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
   line.hidden = !said;
 }
 function tkOpenTask() {

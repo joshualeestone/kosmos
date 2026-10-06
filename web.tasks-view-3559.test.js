@@ -175,7 +175,7 @@ test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar d
 });
 
 test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-reads the tasks while the view is shown', () => {
-  const src = page.liftAll(SCRIPT, ['tskRosterChanged', 'tskNeedsSig', 'tskNamesSig']);
+  const src = page.liftAll(SCRIPT, ['tskRosterChanged', 'tskNeedsSig', 'tskNamesSig', 'tskRepeatStale']);   // #4787 slice 2: the repeat-line reread
   const make = new Function('env', `
     let LAST = env.LAST; const TSK_READY = true;
     const TSK = { data: [], names: '', needs: null, busy: false };
