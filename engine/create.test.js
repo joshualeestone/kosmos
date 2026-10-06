@@ -204,6 +204,11 @@ const onWin = (why) => (process.platform === 'win32' ? { skip: 'POSIX harness on
 const WIN_LAUNCHD = onWin('reads or drives the launchd job (plist, launchctl, the launchd runner seam, or the '
   + '"already set to start" launchd arm). Windows runs a Scheduled Task; covered by create.win32-job-read.test.js '
   + 'and create.win32-launch-570.test.js');
+/* #4919: a few #4279 leftover-job tests build their temp-plist fixtures from macOS's temp folder and its /private
+   spelling, so on Linux they cannot reach the case they test. Agent jobs on Linux are systemd user units (#4918), so
+   this launchd path does not run there. Skipped only on a Linux host; macOS and Windows are unchanged. */
+const LINUX_LAUNCHD_TEMP = process.platform === 'linux'
+  ? { skip: 'macOS launchd leftover-job fixture: a macOS temp-folder plist and its /private spelling; Linux agent jobs are systemd units (#4918)' } : {};
 const WIN_LAUNCHD_FAIL = onWin('simulates a failed start or write through the launchd runner seam (create.setRunner), '
   + 'which the win32 create path never calls. Windows failed starts: create.win32-launch-570.test.js (7c-2)');
 const WIN_TASK_STUB = onWin('switches an agent by rewriting its launch job, and this file\'s win32 stub answers every '
@@ -860,7 +865,7 @@ function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null,
 }
 const bootedOut = (calls) => calls.some(([, a]) => a && a[0] === 'bootout');
 
-test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent is created', WIN_LAUNCHD, () => {
+test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent is created', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   // The measured case: a 09-24 test left com.kosmos.agent.josh loaded from T/rx-launch-*.
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-temp.plist');
@@ -898,7 +903,7 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
 });
 
-test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', WIN_LAUNCHD, () => {
+test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   /* Unit level on purpose: through createAgent an existing own plist is refused earlier ("no folder
      for it") and launchctl is never asked, so a create-level test of this arm tests nothing. */
   const own = create.plistPath('leftover-ownreal');
@@ -916,7 +921,7 @@ test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real 
   } finally { fs.rmSync(own, { force: true }); }
 });
 
-test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', WIN_LAUNCHD, () => {
+test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const own = create.plistPath('leftover-ownabsent');
   fs.mkdirSync(nodePath.dirname(own), { recursive: true });
   const printed = nodePath.join(fs.realpathSync.native(nodePath.dirname(own)), nodePath.basename(own));
@@ -935,7 +940,7 @@ test('#4279: a job whose plist EXISTS outside a temp folder is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job it cannot prove is dead');
 });
 
-test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not proof the job left', WIN_LAUNCHD, () => {
+test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not proof the job left', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-okfalse.plist');
   fs.writeFileSync(leaked, '<plist/>');
@@ -945,7 +950,7 @@ test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not
   assert.match(r.because, /removing it did not work/);
 });
 
-test('#4279: a bootout that does not take is still a refusal, not a creation', WIN_LAUNCHD, () => {
+test('#4279: a bootout that does not take is still a refusal, not a creation', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-stuck.plist');
   fs.writeFileSync(leaked, '<plist/>');
@@ -1023,7 +1028,7 @@ test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the 
   assert.match(r.because, /\/etc\/hosts/, 'the refusal does not name the file it found');
 });
 
-test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', WIN_LAUNCHD, () => {
+test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const ours = '/Users/x/Library/LaunchAgents/com.kosmos.agent.a.plist';
   assert.equal(create.leftoverJob('x = { ... }', ours), null, 'no path reported: not provable');
   assert.equal(create.leftoverJob(`\tpath = ${ours}\n`, ours), null, 'our own path');
