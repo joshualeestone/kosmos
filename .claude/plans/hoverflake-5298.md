@@ -20,7 +20,17 @@ replaced row is not :hover until the pointer moves.
 - CONTROL, a COMMITTED throwaway (1b20da031, the hover rule removed; never pushed): rc 1, the hover arm FAILS 9/9
   (3 views x 2 runs + retry), reading the resting rgba(0, 0, 0, 0). Two earlier controls were vacuous (uncommitted:
   browser-checks.sh serves the committed HEAD).
-- After the rebase onto main 10-06 (web/index.html moved ~2,000 lines; this file did not): run alone headless, 301/301.
+- After the rebase onto main 10-06 (web/index.html moved ~2,000 lines; this file did not; the fix is now cf313656a):
+  run alone headless, 301/301.
+
+## Review 1 (5018a3a2d)
+- listLook returns hoverSeen, and BOTH list arms require it: a missed hover reads as "never hovered", and the ground arm
+  can no longer pass by comparing the resting ground with itself (a gap that predates this branch).
+- The gate accepts whichever plain row is :hover (selector + ':hover'), the hover wait is bounded at 2 s, and the
+  comment names the assumption that .lrow has no transition (a border-color transition would read its start here).
+- Run alone headless at 5018a3a2d: 301/301. Controls, run alone: the gate never satisfied -> both list arms FAIL in all
+  3 views; the new look's hover rule removed (web/index.html :not(:hover) dropped) -> hoverSeen true in all 12 reads,
+  the border arm FAILS in all 3 views, the ground arm still PASSES.
 
 ## Weakest premise
 That the flake is the harness race and not a real moment where a row under the pointer shows no border. Not measured:
