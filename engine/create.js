@@ -1250,10 +1250,12 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
     const lj = require('./linuxjob');
     const runnerBin = f.runnerBin || f.claudeBin;
     const tmuxBin = f.tmux || f.tmuxBin;
-    const unit = lj.unitFor(clean, runnerBin, tmuxBin, f.model, f.configDir, f.runner);
     try {
+      // #4918 review 2: unitFor refuses an unsafe value by throwing, so it sits inside the try with the write.
+      const unit = lj.unitFor(clean, runnerBin, tmuxBin, f.model, f.configDir, f.runner);
       lj.writeUnitFile(lj.unitPath(clean), unit);
-      lj.daemonReload();
+      const reload = lj.daemonReload();
+      if (!reload || !reload.ok) throw new Error('systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim());
     } catch (e) {
       return {
         outcome: OUTCOME.REFUSED,
@@ -5008,6 +5010,7 @@ function createAgentInner(opts) {
   /* What the win32 launch handed back, so a rollback can stop the process it
      started. Null on darwin and until the start step runs. */
   let win32Launched = null;
+  let linuxLingering = null;   // #4918 review 2: whether systemd keeps the agent running with nobody logged in
 
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
@@ -5766,9 +5769,9 @@ function createAgentInner(opts) {
     if (jobPlatform === 'linux') {
       if (DRY_RUN) return true;
       const lj = require('./linuxjob');
-      lj.enableLinger();
+      linuxLingering = lj.enableLinger().lingering;
       const r = lj.start(name);
-      return Boolean(r && r.ok !== false);
+      return Boolean(r && r.ok === true);
     }
     /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`
        sticks by writing a per-user `disable` override keyed on the LABEL, and that
@@ -5799,6 +5802,11 @@ function createAgentInner(opts) {
     if (DRY_RUN) return true;
     return Boolean(win32Launched && win32Launched.atLogin === true);
   });
+  /* #4918 review 2: on Linux the same question is whether systemd linger is on. Without it the agent stops at
+     logout and does not start at boot, and the person sees that as this step not done. */
+  const keptRunning = (jobPlatform === 'linux' && started)
+    ? step('kept it running with nobody logged in', () => DRY_RUN || linuxLingering === true)
+    : true;
 
   /* #169: what the failed-start rollback below knows in memory, persisted
      for the ordinary removal that happens weeks later. Only a line WE wrote
@@ -5926,7 +5934,9 @@ function createAgentInner(opts) {
        other path is unchanged. */
     because: (jobPlatform === 'win32' && started && !atLogin)
       ? `${shown} is set up and starting, but it will not come back by itself after a restart`
-      : `${shown} is set up and starting`,
+      : (jobPlatform === 'linux' && started && !keptRunning)
+        ? `${shown} is set up and starting, but it stops when you log out: this computer does not let Kosmos keep it running (systemd linger is off)`
+        : `${shown} is set up and starting`,
     atLogin: jobPlatform === 'win32' ? Boolean(atLogin) : undefined,
     steps,
     firstAction: role.firstAction,
