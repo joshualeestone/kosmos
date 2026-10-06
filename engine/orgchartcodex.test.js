@@ -263,16 +263,17 @@ test('a file made after the consent is caught at the read: Codex is never starte
   } finally { fs.rmSync(path.join(acct, 'AGENTS.md')); }
 });
 
-test('with no reader at all, a switched-off key provider\'s reason wins over the ChatGPT one', () => {
+test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s reason wins over a switched-off key provider\'s', () => {
   keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
   c.setVersion(() => '9.9.9');
   try {
     assert.equal(o.currentReader(), null);
-    assert.equal(o.whyNoReader(), keys.OFF_WHY.google);
-    keys.setAccounts(() => []);
+    assert.match(o.whyNoReader(), /Kosmos has checked only version/, 'the Gemini reason (which says ChatGPT reads) hid why their ChatGPT did not');
+    c.setVersion(() => PINNED);
+    c.setAccounts(() => []);
     assert.equal(o.currentReader(), null);
-    assert.match(o.whyNoReader(), /Kosmos has checked only version/, 'CONTROL: alone, the ChatGPT reason is shown');
-  } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); }
+    assert.equal(o.whyNoReader(), keys.OFF_WHY.google, 'CONTROL: with no ChatGPT account, the Gemini reason is shown');
+  } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); c.setAccounts(() => [SUB]); }
 });
 
 test('a catalog with a field this Codex does not know, or written by another Codex version, is not used', async () => {
@@ -437,4 +438,21 @@ test('a model catalog far past a real one is refused unread, so its size cannot 
   assert.equal(c.deriveCatalog(big), null);
   fs.writeFileSync(path.join(big, 'models_cache.json'), JSON.stringify(CACHE));
   assert.ok(c.deriveCatalog(big), 'CONTROL: the same catalog at its real size is used');
+});
+
+test('#5346 step 2: both no-reader sentences lead with Claude, name ChatGPT only off Windows, and never say API key', () => {
+  for (const [label, f] of [['NO_MODEL', o.noModelFor], ['Gemini off-reason', keys.googleOffWhyFor]]) {
+    const mac = f('darwin');
+    const win = f('win32');
+    assert.match(mac, /Claude (reads|can read) a picture or PDF, connected in Settings, AI Models/, label);
+    assert.match(mac, /ChatGPT/, label + ': a Mac is told ChatGPT reads a picture');
+    assert.doesNotMatch(win, /ChatGPT/, label + ': Windows is told ChatGPT reads, which it does not yet (WHY_WINDOWS)');
+    for (const t of [mac, win]) {
+      assert.doesNotMatch(t, /API key/i, label);
+      assert.match(t, /connected with a key/, label + ': the key routes are still named');
+      assert.match(t, /A CSV or Excel export works with any provider|a CSV or Excel export works with any provider/, label);
+    }
+  }
+  assert.equal(o.NO_MODEL, o.noModelFor(process.platform), 'NO_MODEL is the sentence for this computer');
+  assert.equal(keys.OFF_WHY.google, keys.googleOffWhyFor(process.platform));
 });

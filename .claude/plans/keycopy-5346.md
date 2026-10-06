@@ -12,6 +12,16 @@ Was stacked on PR #5361; rebased onto main (its own two commits) after #5361 squ
 - Weakest premise: that "connected with a key" does not read as "you need an API key". It is the last clause, after
   Claude and ChatGPT.
 
+## Review round 1 (calls)
+- ChatGPT is named only off Windows (orgchartcodex WHY_WINDOWS): `noModelFor(platform)` and `googleOffWhyFor(platform)`.
+- A person whose own ChatGPT account was refused now hears THAT reason before the Gemini one (orgchartfile
+  currentReader `sub.offWhy || got.offWhy`). This reverses #5361's order, which I set: the Gemini sentence says ChatGPT
+  reads, so shown over a refused ChatGPT it contradicted itself and hid the actionable reason.
+- "Claude reads a picture or PDF" rather than "needs Claude": the next sentence names other readers.
+- CLAUDE.md's routing row names the ChatGPT reader.
+
 ## Tests
-- server.orgchart-read-4559.test.js: the sentence starts with Claude, names ChatGPT, and has no "API key".
+- server.orgchart-read-4559.test.js: the sentence starts with Claude and has no "API key".
+- engine/orgchartcodex.test.js: both sentences on both platforms (ChatGPT only off Windows, no "API key", key routes
+  named); a refused ChatGPT's reason wins over Gemini's, with a no-ChatGPT control.
 - docs/browser-checks/render-orgchart-file-4559.js: the NO READER check asserts the same on the page.

@@ -194,7 +194,7 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   assert.equal(r.json.unavailable, true);
   assert.equal(r.json.problems[0], orgchartfile.NO_MODEL);
   // #5346: leads with Claude, names ChatGPT for a picture, and never tells the person they need an API key.
-  assert.match(r.json.problems[0], /^Reading a picture or PDF needs Claude, .*ChatGPT also reads a PNG or JPG picture.*A CSV or Excel export works with any provider/);
+  assert.match(r.json.problems[0], /^Claude reads a picture or PDF, connected in Settings, AI Models\. .*A CSV or Excel export works with any provider/);
   assert.doesNotMatch(r.json.problems[0], /API key/i);
   assert.equal(sent.length, 0);
 });

@@ -177,8 +177,16 @@ const ENABLED_DEFAULT = { openai: true, google: false, xai: true };
 let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
 function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
+/* #5346: as orgchartfile.noModelFor, Claude first and ChatGPT only where it reads. */
+function googleOffWhyFor(platform) {
+  return 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. '
+    + 'Claude can read a picture or PDF, connected in Settings, AI Models'
+    + (platform === 'win32' ? ', and so can OpenAI or Grok connected with a key (Grok a PNG or JPG picture only)'
+      : ', and ChatGPT a PNG or JPG picture (so can OpenAI or Grok connected with a key, and OpenAI a PDF as well)')
+    + '; a CSV or Excel export works with any provider, and so does typing the list.';
+}
 const OFF_WHY = {
-  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude can read a picture or PDF, and ChatGPT a PNG or JPG picture (so can OpenAI or Grok connected with a key, and OpenAI a PDF as well); a CSV or Excel export works with any provider, and so does typing the list.',
+  google: googleOffWhyFor(process.platform),
 };
 
 /* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the
@@ -382,4 +390,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, googleOffWhyFor, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
