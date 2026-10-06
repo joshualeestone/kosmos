@@ -59748,6 +59748,15 @@ function tkActPhrase(ev, p) {
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
     case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
+    case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
+    case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
+    case 'missed': {
+      const runs = Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
+      if (ev.person) return runs + '; you review it';
+      const who = nameOf(ev.told) || 'its reviewer';
+      return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
+    }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The

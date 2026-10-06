@@ -125,3 +125,14 @@ test('#4787 slice 3: the task page\'s reviewer choice: Nobody, Me and the projec
   paint(p, { ...t, repeatReviewer: 'rex' }, true);
   assert.equal(sel.value, 'rex', 'forced: back to what is stored (a refusal puts it back)');
 });
+
+test('#4787 slice 3 review 5: the task history says the reviewer and a missed run in words, never the raw kind', () => {
+  const phrase = new Function('tkMemberName', page.liftAll(SCRIPT, ['tkActPhrase']) + '\nreturn tkActPhrase;')((p, sn) => ({ ada: 'Ada' }[sn] || sn));
+  const p = { id: 'p1' };
+  assert.equal(phrase({ kind: 'reviewer-set', who: 'ada' }, p), 'Ada will be told if a run is missed');
+  assert.equal(phrase({ kind: 'reviewer-set', person: true }, p), 'You will be told if a run is missed');
+  assert.equal(phrase({ kind: 'reviewer-cleared' }, p), 'Nobody is told now if a run is missed');
+  assert.equal(phrase({ kind: 'missed', count: 1, told: 'ada', reached: true }, p), 'A run was missed; Ada was told');
+  assert.equal(phrase({ kind: 'missed', count: 3, told: 'ada', reached: false }, p), '3 runs missed; Kosmos could not reach Ada');
+  assert.equal(phrase({ kind: 'missed', count: 1, person: true }, p), 'A run was missed; you review it');
+});
