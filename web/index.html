@@ -49031,6 +49031,7 @@ function paintProviderPicker(a) {
   /* #5429 review 1: the switch's model menu goes with it, so another agent's menu never stays on screen. */
   const modelSel0 = document.getElementById('d-provider-model');
   if (modelSel0) { modelSel0.hidden = true; modelSel0.innerHTML = ''; delete modelSel0.dataset.for; }
+  SWITCH_MODEL_GEN += 1;   // review 2: an OpenAI list still loading for the agent before never lands on this one
   /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
      (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
   { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
@@ -49180,7 +49181,7 @@ function switchAccountsEnsure(forAgent) {
 /* kosmos#5429: the switch's model menu, for the provider being switched TO. Filled wherever the switch's account menu
    is (fillSwitchAccountsSafely), so the two can never describe different switches. A generation guard drops an OpenAI
    list that arrives after the provider or account moved on. */
-let SWITCH_MODEL_GEN = 0;
+var SWITCH_MODEL_GEN = 0;   // var: paintProviderPicker bumps it and is defined earlier in the script
 async function fillSwitchModel() {
   const sel = document.getElementById('d-provider-model');
   const prov = document.getElementById('d-provider');

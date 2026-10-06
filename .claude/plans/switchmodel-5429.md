@@ -13,6 +13,8 @@ Built:
 
 Review 1 (fixed): every path of the menu sets `disabled` (a Claude menu shown after an OpenAI load in flight stayed greyed out and sent nothing); a refill for the same target (the account list arriving, a Claude account change) keeps the person's pick; opening another agent clears the menu (paintProviderPicker), so another agent's menu never stays; the route's OpenAI path has tests (refused, written into the Codex job, fail-open). Left: an OpenAI model is named by its id in the answer (setModel's label for a per-account model is its id); with no account sent the route checks the default account's list (the page always sends one); the restart-failed answer does not name the model.
 
+Review 2 (fixed): a PARTIAL switch (the picked Claude account could not be applied) still wrote the model but its answer did not say so, so Runs on said Claude's default while the agent ran the picked model; it now carries `model` and names it (tested by marking a real switch partial). Opening another agent bumps the menu's generation guard, so an OpenAI list still loading for the agent before never lands on the next one (the guard is a `var`, since paintProviderPicker is defined earlier in the script).
+
 Decided:
 - The default is preselected and sent, as the create form does (the create form pins the default model too). Leaving the menu untouched therefore pins Claude Sonnet 5, where the old switch left the model empty (Claude's own default). Weakest premise: that pinning the create form's default is what the person wants; if Claude's own default should stay unpinned, a first "Claude's default" option with value "" would restore that.
 - Gemini, Grok and Antigravity show no menu: Kosmos has no list of their models (the agent page says the same).
