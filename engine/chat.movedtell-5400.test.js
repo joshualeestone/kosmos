@@ -283,3 +283,15 @@ test('review 5: server.js installs the hook with the note that asks for nothing,
   assert.match(block, /told: \(session, items\) => \{ movedRecs\.recs = null;/, 'told keeps a stale read, so the next lines repeat the note');
   assert.match(block, /markAll\(session, items, tasks\.markMoveTold\)/);
 });
+test('review 6: an agent whose card reads needs-you (a permission or question prompt) gets no note either', () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you' })]);
+  try {
+    const card = board.agents.find((c) => c.sessionName.startsWith('casey'));
+    assert.equal(card && card.state, 'needs_you', 'fixture: the card does not read needs-you: ' + JSON.stringify(card && card.state));
+    const told = hook([ITEM]);
+    const tmux = arm([ok(), ok()]);
+    chat.deliver(card.sessionName, 'Are you back? Carry on with the tests.', board.agents);
+    assert.ok(!tmux.pastedText().includes(ITEM.phrase), 'the note went into a prompt');
+    assert.equal(told.length, 0);
+  } finally { board.restore(); }
+});
