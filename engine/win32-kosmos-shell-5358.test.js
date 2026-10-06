@@ -24,6 +24,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const launcher = require('./win32launch');
+// A just-exited node.exe can hold its folder for a moment on Windows (#5010, #5074): remove with the shared retry.
+const { removeTree } = require('../test-support/remove-tree');
 
 const keysOf = (env, name) => Object.keys(env).filter((k) => k.toUpperCase() === name.toUpperCase());
 
@@ -103,7 +105,7 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
       assert.match(String(r.stdout), STUB, (/cygpath/.test(String(r.stderr)) ? 'kosmos was FOUND but its shim could not run: ' : 'kosmos was not found or did not answer: ') + said(r));
       const none = run(GIT_BASH, ['-c', 'kosmos --version'], baseEnv());
       assert.doesNotMatch(String(none.stdout), STUB, 'control: kosmos was found without the agent\'s PATH');
-    } finally { fs.rmSync(z.root, { recursive: true, force: true }); }
+    } finally { removeTree(z.root); }
   });
 
 test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and runs with Claude Code\'s flags; codex\'s PowerShell needs the agent\'s variable',
@@ -111,6 +113,7 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
   { timeout: 240000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
     const z = stageZip();
     const ps = (env, command, flags = []) => run(POWERSHELL, ['-NoProfile', '-NonInteractive', ...flags, '-Command', command], env);
+    // If this read fails, the restore writes Undefined (the policy a fresh GitHub runner has at this scope).
     const was = String(ps(baseEnv(), 'Get-ExecutionPolicy -Scope CurrentUser').stdout || '').trim() || 'Undefined';
     let failed = null;
     try {
@@ -135,7 +138,7 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
       assert.match(String(ran.stdout), STUB, 'codex\'s PowerShell with the agent\'s variable: ' + said(ran));
     } catch (e) { failed = e; throw e; } finally {
       const back = ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy ' + (/^[A-Za-z]+$/.test(was) ? was : 'Undefined') + ' -Force');
-      fs.rmSync(z.root, { recursive: true, force: true });
+      try { removeTree(z.root); } catch { /* a leftover temp folder must never hide the policy check below */ }
       // A policy left Restricted would turn later Windows tests red for no reason of their own: say so loudly, and fail
       // here unless this arm already failed (its own reason comes first).
       if (back.status !== 0) {
