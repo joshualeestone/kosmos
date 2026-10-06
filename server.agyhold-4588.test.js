@@ -192,7 +192,7 @@ const AUTOMATIC = [
   ['firstreply-nudge', 'book: FIRSTREPLY_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['account-notify', 'accountNotify.sweepOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, cards,/],
   ['recommender', 'recommender.runOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster,/],
-  ['assigner ask', 'give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster\)/],
+  ['assigner ask', 'give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster\)/],
   ['agent-nudge', 'book: AGENT_NUDGE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
 ];
 
