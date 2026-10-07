@@ -1361,6 +1361,7 @@ uninstall() {
     # #4466: --force on every board start/stop/restart in this installer. `kosmos` refuses an AGENT's
     # stop/restart of a board that answers, and an install or update run from an agent's pane is not
     # the agent restarting the board. An older kosmos ignores the extra word.
+    _kosmos_linux_unit_killmode   # #4920: as before an update pause, so an old unit's cgroup kill cannot take this run
     "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
     # A refused stop (a board this command did not start) is NAMED rather
     # than glossed: the files still come off, but an orphan process would
@@ -1489,18 +1490,30 @@ BOARDEOF
         systemctl --user disable "$_lb_name" 2>/dev/null || true
         rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
         systemctl --user daemon-reload 2>/dev/null || true
+      else
+        info "no board service named $_lb_name was found, so none was removed"
       fi
     elif [ -f "$KOSMOS_HOME/app/server.js" ]; then
       # The app is here (this release or an older one) but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
       # loaded one. Say so rather than blaming a missing app folder.
       info "systemctl is not available, so no board service was removed (none can be running without it)"
     else
-      # Without the app's own code there is no second copy of the name rule here, so name what is there instead. Each
-      # KOSMOS_HOME has its own unit (the name carries a hash of it), so a file here may be another install's.
+      # The app is gone. This home's own unit is named by _kosmos_linux_unit_name (the name carries a hash of
+      # KOSMOS_HOME, so it can only be this install's): remove it, or it restarts against a missing folder every 5 s at
+      # every boot. Any other kosmos-board unit may be another install's, so it is named, never touched.
       # The folder is linuxjob.defaultSystemdDir's (a sandboxed run, the LAUNCH case, returned at the top).
       _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      if [ -f "$_lb_dir/$_lb_name" ] && command -v systemctl >/dev/null 2>&1; then
+        info "removing the systemd service for the board"
+        systemctl --user stop "$_lb_name" 2>/dev/null || true
+        systemctl --user disable "$_lb_name" 2>/dev/null || true
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+        systemctl --user daemon-reload 2>/dev/null || true
+      fi
       for _lb_f in "$_lb_dir"/kosmos-board*.service; do
         [ -f "$_lb_f" ] || continue
+        [ "${_lb_f##*/}" = "$_lb_name" ] && continue
         info "a Kosmos board service is still at $_lb_f. This install's app code or runtime is missing, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
       done
     fi
