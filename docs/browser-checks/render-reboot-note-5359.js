@@ -54,8 +54,11 @@ const CASES = [
     await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: served }) }).catch(() => {}));
     let dismissStatus = 200;   // the failed-dismiss arm below sets 500
     await pg.route('**/api/board/restart-note/dismiss', (route) => { dismissed.push(route.request().method()); return route.fulfill({ status: dismissStatus, contentType: 'application/json', body: dismissStatus === 200 ? '{"dismissed":true}' : '{"error":"we could not record that the note was dismissed"}' }).catch(() => {}); });
+    // The note's own answer is awaited, so an empty slot (the control) means it was asked and said none, not not-yet.
+    const asked = pg.waitForResponse((r) => r.url().endsWith('/api/board/restart-note'), { timeout: 15000 }).then(() => true, () => false);
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    say(await asked, c.key + ': the page asked the board for its note');
     await pg.waitForTimeout(300);
     const got = await pg.evaluate(() => {
       const slot = document.getElementById('reboot-slot');
@@ -124,6 +127,7 @@ const CASES = [
         const refused = await pg.evaluate(() => { const t = document.querySelector('#reboot-slot .utoast.reboot'); return { kept: Boolean(t), said: t ? ((t.querySelector('.utxt .rerr') || {}).textContent || '') : '' }; });
         say(refused.kept && /could not record that just now/.test(refused.said), 'dismiss refused: the note stays and says it could not record it', JSON.stringify(refused));
         dismissStatus = 200;
+        dismissed.length = 0;   // the refused click above posted too; this arm must see its own
         await pg.click('#reboot-slot .ux');
         await pg.waitForTimeout(300);
         const after = await pg.evaluate(() => document.getElementById('reboot-slot').innerHTML.trim());

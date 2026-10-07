@@ -26,6 +26,12 @@ fs.writeFileSync(rn._files.noteFile(), JSON.stringify({
   upAt: new Date(now - 60000).toISOString(), dismissed: false,
 }));
 
+/* Review 5: start() must also arm the once-a-minute beat, or the record holds only the start time and a board that ran
+   for hours before the computer died never makes a note. server.js requires this same cached module, so wrapping it
+   here records the call without waiting a minute. */
+let beatsArmed = 0;
+const realStartBeating = rn.startBeating;
+rn.startBeating = (...a) => { beatsArmed++; const t = realStartBeating(...a); if (t && t.unref) t.unref(); return t; };
 const { start, server } = require('./server');
 
 test('#5359: the board serves the restart note, records a dismiss, and says it is alive at start', async (t) => {
@@ -35,6 +41,7 @@ test('#5359: the board serves the restart note, records a dismiss, and says it i
 
   const alive = JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8'));
   assert.ok(Math.abs(Date.parse(alive.at) - Date.now()) < 60000, 'start did not write when the board was last alive');
+  assert.equal(beatsArmed, 1, 'start did not arm the once-a-minute beat');
 
   const first = await (await fetch(`${base}/api/board/restart-note`)).json();
   assert.ok(first.note, 'the note was not served');

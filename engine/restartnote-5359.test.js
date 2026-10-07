@@ -75,3 +75,18 @@ test('#5359: no record at all reads as no note, and dismissing nothing is fine',
   assert.equal(rn.current(NOW), null);
   assert.equal(rn.dismiss(), true);
 });
+
+test('#5359 review 5: the beat rewrites the last-alive record once a minute', (t) => {
+  // The rule needs a recent record when the computer goes down: a beat slower than a few per window misses notes.
+  assert.ok(rn.BEAT_MS > 0 && rn.BEAT_MS * 5 <= rn.WINDOW_MS, 'the beat is too slow for the window: ' + rn.BEAT_MS);
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: NOW });
+  fs.rmSync(path.dirname(rn._files.aliveFile()), { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(rn._files.aliveFile()), { recursive: true });
+  const timer = rn.startBeating();
+  t.after(() => clearInterval(timer));
+  assert.equal(fs.existsSync(rn._files.aliveFile()), false, 'control: nothing is written before the first minute');
+  t.mock.timers.tick(rn.BEAT_MS);
+  assert.equal(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).at, new Date(NOW + rn.BEAT_MS).toISOString());
+  t.mock.timers.tick(rn.BEAT_MS);
+  assert.equal(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).at, new Date(NOW + 2 * rn.BEAT_MS).toISOString(), 'the second minute did not move it');
+});

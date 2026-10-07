@@ -17,13 +17,14 @@
 - "Restarted", never "crashed": nothing here can tell a crash from a person's restart.
 - No "your agents are running again": not measured (Mona: never say it unmeasured).
 
-## Verification (so far)
-- engine/restartnote-5359.test.js: 5/5 (every rule arm with a control; read-before-write; a day; dismiss).
-- docs/browser-checks/render-reboot-note-5359.js against a fully sandboxed board: all PASS (today, yesterday, older,
-  empty control, dismiss POST, role, label, neutral tone). Wired: browser-checks.sh run_one on $B8, b8-board.txt,
-  README row, SITE_COUNTS line; the four wiring guards green.
-- To do: design shots for Mona (light/dark, desktop/phone, with the login notice, phone over Settings tabs), the
-  server route test, the challenge loop.
+## Verification
+- engine/restartnote-5359.test.js 7/7 (every rule arm with a control; read-before-write; a day; dismiss; clock slack;
+  the beat under mocked timers and its rate against the window), server.restartnote-5359.test.js (routes, the start
+  write, the beat armed), cli.restartnote-stop-5359.test.js 3/3, install.uninstall-remembered-1531.test.js 5/5, and
+  the repo guards: 56/56 together.
+- docs/browser-checks/render-reboot-note-5359.js against a fully sandboxed board: all PASS. Wired: browser-checks.sh
+  run_one on $B8, b8-board.txt, README row, SITE_COUNTS line; the wiring guards green.
+- Design shots done and approved by Mona at dd2f52a56 (~/work/design-shots/kosmos-5359/).
 
 ## Review 2 (fixed)
 - `kosmos stop` clears board-alive.json only after the board is confirmed gone (next to removing the pidfile): before
@@ -73,3 +74,16 @@
   moment." in its status words. Pinned with a 500 from the route. This is a new line in the note's failure state only.
 - FIXED: the dated cases run at a pinned noon; a refused or failed re-check leaves a showing note alone; a note is still
   shown with the clock up to a minute behind it (engine test, mutation red).
+
+
+## Review 5
+- FIXED: the once-a-minute beat was unpinned (removing it, or slowing it to an hour, left every test green, and without
+  it a board up for hours before a crash never makes a note). Pinned: the beat moves the record each minute under
+  mocked timers, its rate is held to at least five per window, and the server test asserts start() arms it. All three
+  mutations red.
+- FIXED: uninstall now removes board-alive.json and board-restart-note.json with the other remembered-answer files
+  (install/setup.sh, count now six). install.uninstall-remembered-1531.test.js reads both names from
+  engine/restartnote.js and checks the rm line; dropping one reddens it. tools/test-install.sh is not extended: it
+  seeds only the first three files, and the node guard reads the rm line itself.
+- FIXED: the "board is told" arm no longer counts the refused click's POST; every case first waits for the page's
+  own request for the note, so the empty control means "asked, none", not "not yet".
