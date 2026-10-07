@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 3d90af8d3e0a5579e0b488c7343c22dc09cd1e79e6fea4112e5bdb994ebd92c5
+diff_hash: a9b07797192e91e8cf43d7c513d913abc9df4a613650ad765a20af29bdbdd5e2
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -126,3 +126,4 @@ Eighth post-rebase review (sonnet): no way around the guard found; 2 WARNINGs (u
 Ninth review (opus, whole branch): 3 WARNINGs; 2 fixed (planted guard-undoing keys dropped, parse-site claim), 1 deferred to a follow-up card (other config read at start); 308 + 50 + 27 tests pass.
 Tenth review (sonnet): 3 WARNINGs; dropped keys now logged, kept keys named as a #5516 residual; 308 + 50 + 27 tests pass.
 Eleventh review (opus): 1 BLOCKER (refresh created folders for listed names) and 1 WARNING (settings.local.json) fixed; 310 + 52 + 27 tests pass.
+Twelfth review (sonnet): no security hole; 4 WARNINGs addressed (cost cache, log severity, comments, cleanLocal fail-closed stated); 310 + 52 + 16 tests pass.
