@@ -42,8 +42,10 @@ which is why it can stay inside the atomic try).
 folder is flushed after the rename (fails on main); a refused fsync still takes the atomic path (passes on
 main trivially; a mutation making fsync fatal turns it red). `engine/sendertoken.test.js`'s #1761 test
 counted every open under the token folder, which now includes securewrite opening the folder to flush it;
-it counts opens below the folder, as its own comment intends. Tests of securewrite and its callers: 132
-files, all passing after that change. Also, each run against the commit before it (or a mutation) and failing there:
+it counts opens below the folder, as its own comment intends. Tests of securewrite and its callers: 133
+files, all passing. The repo-wide meta tests (126 files that list or read the tree) pass too: 3705 tests,
+0 fail. They were NOT in the caller set at first, and one of them (windows-tests-1777) caught that this
+test file branches on win32 without being run on Windows; it is now in tools/windows-tests.js ALSO. Also, each run against the commit before it (or a mutation) and failing there:
 - the fallback flushes what it wrote (forced with a planted temp);
 - a real flush error (EIO) fails the write at once: one attempt, no fallback, the old file kept;
 - a close that fails after a refused flush does not replace the flush error (still one attempt, no
@@ -51,7 +53,9 @@ files, all passing after that change. Also, each run against the commit before i
 - every "cannot flush" code is skipped (EPERM and EISDIR on Windows only), and on POSIX an EPERM from the
   flush fails the write (control);
 - a real flush error on the fallback restores the old contents and reports the error with its cause
-  (mutation: marking the write done before the flush).
+  (mutation: marking the write done before the flush);
+- a refused FOLDER flush after the rename never fails the write or reaches the fallback (mutation: the
+  folder flush throwing).
 
 ## Cost, measured
 On this Mac (APFS, node 26.8.1, 50 writes of a small token record): 0.112 ms per write on main, 7.963 ms with

@@ -16,7 +16,7 @@ const securewrite = require('./securewrite');
 /* Record opens (with the fd each returned), fsyncs and renames, in order, while `fn` runs; put fs
    back afterwards. `wxFails` makes every 'wx' create fail with EEXIST, which sends writeSecret to
    its in-place fallback after three attempts. */
-function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = false } = {}) {   // *Throws: false, or an error code
+function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = false, fsyncOnly = null } = {}) {   // fsyncOnly(fd, events): throw only for these fds   // *Throws: false, or an error code
   const events = [];
   const realOpen = fs.openSync;
   const realFsync = fs.fsyncSync;
@@ -29,7 +29,7 @@ function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = fal
     events.push(['open', target, flags, fd]);
     return fd;
   };
-  fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncThrows) throw Object.assign(new Error('fsync failed'), { code: fsyncThrows === true ? 'EINVAL' : fsyncThrows }); return realFsync(fd); };
+  fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncOnly && !fsyncOnly(fd, events)) return realFsync(fd); if (fsyncThrows) throw Object.assign(new Error('fsync failed'), { code: fsyncThrows === true ? 'EINVAL' : fsyncThrows }); return realFsync(fd); };
   fs.renameSync = (a, b) => { events.push(['rename', b]); return realRename(a, b); };
   try { fn(); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; fs.closeSync = realClose; }
   return events;
@@ -143,6 +143,21 @@ test('#5434: a real flush error on the in-place fallback restores the old conten
     assert.ok(threw && threw.flushFailed, 'the refused flush was not reported: ' + (threw && threw.message));
     assert.ok(threw.cause, 'why the atomic path was abandoned is not attached');
     assert.equal(fs.readFileSync(file, 'utf8'), 'old', 'the old contents were not restored');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a refused FOLDER flush after the rename never fails the write or sends it to the fallback', { skip: process.platform === 'win32' && 'the folder is not flushed on Windows' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-dirfail-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    // Throw only for the descriptor opened on the folder itself (flags 'r').
+    const isFolderFd = (fd, events) => events.some((e) => e[0] === 'open' && e[1] === dir && e[2] === 'r' && e[3] === fd);
+    const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { fsyncThrows: 'EIO', fsyncOnly: isFolderFd });
+    assert.equal(events.filter((e) => e[0] === 'open' && e[2] === 'wx').length, 1, 'it retried: ' + JSON.stringify(events));
+    assert.ok(!events.some((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number'), 'it reached the fallback: ' + JSON.stringify(events));
+    assert.ok(events.some((e) => e[0] === 'open' && e[1] === dir && e[2] === 'r'), 'the folder flush never ran, so this arm proved nothing');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'new');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
