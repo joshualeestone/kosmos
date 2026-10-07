@@ -4,7 +4,7 @@
 #
 # setup.sh is served as a single curl|sh file and sources nothing, so this extracts the REAL pause block
 # (from the FRESH_INSTALL=no guard to its closing fi) and runs it in a harness: a throwaway KOSMOS_HOME, a
-# stub `kosmos` whose every verb does nothing, as #4636's stop does in a sandbox, and a node stub listener as the board.
+# stub `kosmos` whose verbs do nothing (as #4636's stop does in a sandbox), except that start fails when STUBSTART=fail, and a node stub listener as the board.
 # "Passed the pause" is the line the harness prints if the block lets the update go on to replace files.
 #
 # Three seatbelt profiles, measured on a Mac (2026-09-30):
@@ -50,9 +50,11 @@ printf '#!/bin/sh\nif [ "$1" = start ] && [ "${STUBSTART:-ok}" = fail ]; then ex
 PUTBACK="$(awk '/^_kosmos_put_board_back\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
 case "$PUTBACK" in *'could not be started again'*) ;; *) echo "FAIL: could not extract _kosmos_put_board_back (anchor drift?)" >&2; exit 1 ;; esac
 printf '%s\n' "$PUTBACK" > "$T/putback.sh"
+# setup.sh must initialise the flag at the top level itself (it runs under set -u); the harness mirrors that line.
+grep -q '^_kosmos_putback_unsure=no' "$SETUP" || { echo "FAIL: setup.sh does not initialise _kosmos_putback_unsure" >&2; exit 1; }
 printf '%s\n' "$BLOCK" > "$T/pause.sh"
 cat > "$T/run.sh" <<'EOF'
-set -e
+set -eu
 T="$1"; PORT="$2"
 KOSMOS_HOME="$T/home"; LOG_DIR="$T/logs"; FRESH_INSTALL=no
 info() { echo "INFO: $*"; }
@@ -117,7 +119,7 @@ chk "control: outside a sandbox, a non-HTTP banner listener keeps the existing p
 # ordinary Terminal, so the words must still name the pid and say what to quit, not only "use a normal Terminal".
 P="$(free_port)"; start_listener "$P" v6; OUT="$(run_pause "" "$P")"; V6PID="$LISTENER"; stop_listener
 chk "outside a sandbox, a ::1-only listener stops the update and names its pid to quit" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"quit the app with pid $V6PID"* ]]'
-chk "outside a sandbox, a ::1-only listener: the put-back still runs (it can start the board here), marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* && "$OUT" == *"Kosmos is running again"* ]]'
+chk "outside a sandbox, a ::1-only listener: the put-back still runs (it can start the board here), marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* && "$OUT" == *"Kosmos is running ("* && "$OUT" != *"running again"* ]]'
 
 # A with nothing listening: lsof works and finds nothing, so the board really stopped. Must PASS: failing closed
 # on an unreadable port must not turn into refusing every update from a sandboxed shell.

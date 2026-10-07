@@ -2813,7 +2813,11 @@ _kosmos_put_board_back() {
      && KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1; then
     _kosmos_back_v="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _kosmos_back_v=""
     # The version on disk, which after a failure past the file swap may not be the one from before the update.
-    printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
+    if [ "$_kosmos_putback_unsure" = yes ]; then   # #4651: it may never have stopped, so not "again"
+      printf '  Kosmos is running (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
+    else
+      printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
+    fi
   else
     if [ "$_kosmos_putback_unsure" = yes ]; then
       # #4651: after a failed port check this run cannot tell whether its stop stopped anything (a sandboxed shell's
