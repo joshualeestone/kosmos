@@ -389,7 +389,9 @@ function sweepDeadTestHomes(dir) {
   }
 }
 let testHome = null;            // this process's one throwaway home
-const testRoots = new Set();     // the throwaway roots handed out, so root() can skip migrating them
+// The throwaway roots handed out, so root() can skip migrating them. (Comment on its own line:
+// tools/check-frozen-roots.js reads a const up to the first line ending in `;`.)
+const testRoots = new Set();
 function throwawayRootForThisProcess(platform, app) {
   if (!testHome) {
     // The pid is in the name so sweepDeadTestHomes can remove only the ones whose process is gone.
