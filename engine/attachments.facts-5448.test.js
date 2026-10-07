@@ -91,6 +91,27 @@ test('#5448: a file named and typed as a PNG whose bytes are not one is not call
   assert.match(attachments.wireNote(attachments.read(rec.id)), /\/lie\.png \(unknown type, 21 bytes\)\]$/);
 });
 
+test('#5448: a real JPEG whose frame header is past the bytes read keeps its type, without dimensions', () => {
+  const jpg = bytesOf('base.jpg');
+  const app = Buffer.alloc(4 + 65000);
+  app.writeUInt16BE(0xffe2, 0);   // APP2, where an ICC profile lives
+  app.writeUInt16BE(65000 + 2, 2);
+  const big = Buffer.concat([jpg.subarray(0, 2), app, app, app, app, app, jpg.subarray(2)]);   // ~325 KB before the frame header
+  assert.equal(attachments.imageFacts(big.subarray(0, 256 * 1024)), null, 'the frame header really is outside the window');
+  const rec = attachments.save('agent', 'april', { name: 'icc.jpg', type: 'image/jpeg', bytes: big });
+  assert.match(attachments.wireNote(attachments.read(rec.id)), /\/icc\.jpg \(image\/jpeg, \d+ KB\)\]$/);
+});
+
+test('#5448 controls: zero dimensions, image data before any frame header, and a stuffed byte answer null', () => {
+  const png = Buffer.from(bytesOf('a.png'));
+  png.writeUInt32BE(0, 16);
+  assert.equal(attachments.imageFacts(png), null, 'a PNG 0 wide');
+  const jpg = bytesOf('base.jpg');
+  const sos = Buffer.from([0xff, 0xda, 0x00, 0x08, 0, 0, 0, 0, 0, 0]);
+  assert.equal(attachments.imageFacts(Buffer.concat([jpg.subarray(0, 2), sos, jpg.subarray(2)])), null, 'SOS before SOF');
+  assert.equal(attachments.imageFacts(Buffer.concat([jpg.subarray(0, 2), Buffer.from([0xff, 0x00, 0, 0]), jpg.subarray(2)])), null, 'FF00 outside image data');
+});
+
 test('#5448: a JPEG with stray padding between segments is still read', () => {
   const jpg = bytesOf('base.jpg');
   const padded = Buffer.concat([jpg.subarray(0, 2), Buffer.from([0x00, 0x00]), jpg.subarray(2)]);
