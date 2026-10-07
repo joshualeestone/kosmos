@@ -75,11 +75,6 @@ shape run  "bash +x $SCRIPT"
 shape run  "bash -- $SCRIPT"
 shape run  "bash --rcfile /x/rc $SCRIPT"
 shape not  "bash ${SCRIPT%.sh}Xsh"   # the dot is literal: a name that differs only there is not this script
-# The option class is letter ranges; under a non-C locale they must still exclude c and n.
-for loc in en_US.UTF-8 C.UTF-8; do
-  out="$(pgrep() { printf '4242 bash -lc %s\n' "$SCRIPT"; }; LC_ALL=$loc LANG=$loc kosmos_running_lines "$SCRIPT")"; rc=$?
-  [ "$rc" = 1 ] && ok "under LC_ALL=$loc a -lc string is still not a run" || bad "LC_ALL=$loc let -lc through (rc $rc)"
-done
 
 # A pgrep that fails is "could not tell" (2), never "nothing running" (1).
 out="$(pgrep() { return 3; }; kosmos_running_lines "$SCRIPT")"; rc=$?

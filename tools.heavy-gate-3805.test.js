@@ -210,6 +210,9 @@ test('#5470: a tools/queued-heavy.sh waiter is not a run, also under a spaced ch
   assert.doesNotMatch(installed.out, /COUNTS 116/);
   const dotslash = run([['117', WORK + '/tools', 'bash ./queued-heavy.sh x bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(dotslash.code, 0, dotslash.out);
+  const wrapper2 = run([['119', WORK, 'bash /some/wrapper tools/queued-heavy.sh tools/release.sh', 'zsh']]);
+  assert.equal(wrapper2.code, 1, wrapper2.out);   // a path-shaped argument after an absolute non-.sh wrapper is still an argument
+  assert.match(wrapper2.out, /COUNTS 119/);
   const wrapper = run([['118', WORK, 'bash /some/wrapper queued-heavy.sh tools/release.sh', 'zsh']]);
   assert.equal(wrapper.code, 1, wrapper.out);   // a non-.sh lead: queued-heavy.sh is its argument, release.sh still counts
   assert.match(wrapper.out, /COUNTS 118/);

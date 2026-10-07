@@ -142,8 +142,10 @@ live_snapshot() {
 # argument after the shell's own options and their values (-o/-O NAME, also as the last letter of
 # a cluster like -eo NAME, and --rcfile FILE), for a
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
-# run (it only mentions the name), and neither is -n, a syntax check, nor a tools/queued-heavy.sh
-# waiter (#5470: when the lead script is a queued-heavy.sh, in any directory): prints nothing. Runs in a subshell with globbing off,
+# run (it only mentions the name), and neither is -n, a syntax check: prints nothing.
+# #5470: nor is a queued-heavy.sh waiter (its lead script is a queued-heavy.sh, in any directory): prints
+# nothing. Its run counts once started, and queued-heavy.sh holds the machine claim (which reads busy)
+# from before it starts the run until it ends. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
@@ -161,9 +163,12 @@ script_of() (
       esac
       lead="$w"; inlead=1
     elif [ "$inlead" = 1 ]; then
-      # Still the lead only if ps split it at a space: a continuation piece holds a / but does not start
-      # with one (".../My" then "Work/kosmos/tools/x.sh"). Anything else is an argument.
-      case "$w" in /*|-*) inlead=0 ;; */*) : ;; *) inlead=0 ;; esac
+      # Still the lead only if ps split it at a space: that needs an ABSOLUTE lead with no .sh ending yet
+      # ("/Users/x/My" then "Work/kosmos/tools/x.sh"), and a piece that holds a / but does not start with
+      # one. Anything else (a wrapper's argument like tools/queued-heavy.sh) is an argument.
+      case "$lead" in /*) : ;; *) inlead=0 ;; esac
+      case "$lead" in *.sh) inlead=0 ;; esac
+      [ "$inlead" = 1 ] && case "$w" in /*|-*) inlead=0 ;; */*) : ;; *) inlead=0 ;; esac
     fi
     # #5470: a queued-heavy.sh WAITER (in any directory: agents run the installed copy,
     # ~/.cache/claude-handoffs/queued-heavy.sh) carries its wrapped command as arguments while it waits for
@@ -172,7 +177,13 @@ script_of() (
     # end of a lead that ps split at a space, can make a line a waiter; a queued-heavy.sh that is only an
     # argument (after a script, or after a wrapper with no .sh suffix) leaves the line to the rules below.
     if [ "$inlead" = 1 ]; then
-      case "$w" in */queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
+      if [ "$w" = "$lead" ]; then
+        case "$w" in */queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
+      else
+        # The tail of a split path carries the rest of the directory chain ("Work/kosmos/tools/...", "Name/
+        # .cache/claude-handoffs/..."); a bare relative argument like tools/queued-heavy.sh does not.
+        case "$w" in */*/queued-heavy.sh) exit 0 ;; esac
+      fi
       case "$w" in *.sh) inlead=0 ;; esac   # the lead script is complete; later words are its arguments
     fi
     case "$w" in */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh|*/tools/run-tests.sh|tools/run-tests.sh)
