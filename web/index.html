@@ -58837,7 +58837,7 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    session name while the roster has not arrived; TSK.names remembers what was painted so the
    first roster that changes a name repaints once (see the LAST assignment). */
 /* kosmos#4787: the repeat line's sentence, from the board's fields: "Repeats every day at 9am. Last run 2 hours ago by
-   Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
+   Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, unless a missed run already does (#5444). */
 function tskRepeatSentence(t, now) {
   const words = t.repeatWords || 'on a schedule';
   /* kosmos#4787 slice 2: a missed run leads the line, in the board's own words (taskrepeat.missedRuns), so the person
