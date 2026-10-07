@@ -63,7 +63,15 @@ const OUTCOME = { DELETED: 'deleted', REFUSED: 'refused', PARTIAL: 'partial' };
    sandboxed. Measured elsewhere in this class: `accounts.list()` returned four
    of the operator's real accounts against an empty fixture (#1419). */
 function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
-const TRASH = () => process.env.AGENT_WORKFORCE_TRASH || path.join(homeDir(), '.Trash');
+/* #5445: on Linux the desktop Trash is the freedesktop one, $XDG_DATA_HOME/Trash/files (default
+   ~/.local/share/Trash/files), not ~/.Trash, which no Linux file manager shows. A sandboxed home
+   (AGENT_WORKFORCE_HOME) ignores XDG_DATA_HOME, which names the person's real folder. */
+function linuxTrashRoot() {
+  const xdg = !process.env.AGENT_WORKFORCE_HOME && process.env.XDG_DATA_HOME;
+  return path.join(xdg && path.isAbsolute(xdg) ? xdg : path.join(homeDir(), '.local', 'share'), 'Trash');
+}
+const TRASH = (platform) => process.env.AGENT_WORKFORCE_TRASH
+  || ((platform || process.platform) === 'linux' ? path.join(linuxTrashRoot(), 'files') : path.join(homeDir(), '.Trash'));
 /* A walk that stops counting past this many entries: the numbers are for a
    sentence, and "more than 20,000 files" is the honest form past it. */
 const WALK_CAP = 20000;
@@ -164,9 +172,15 @@ function filesWords(m) {
 
 /** Whether the Trash can take a path: it exists, and it is on the same
     volume, so a rename works and nothing is copied-then-deleted. */
-function trashCanTake(p) {
+function trashCanTake(p, platform) {
   try {
-    const t = fs.statSync(TRASH());
+    let t;
+    try { t = fs.statSync(TRASH(platform)); } catch (e) {
+      /* #5445: a Linux desktop makes its Trash on first use, so a missing one is made at the move (as the Mac's
+         mkdir does); the volume is then its home's. Anywhere else a missing Trash still cannot take it. */
+      if (!(e && e.code === 'ENOENT' && (platform || process.platform) === 'linux' && !process.env.AGENT_WORKFORCE_TRASH)) throw e;
+      t = fs.statSync(homeDir());
+    }
     if (!t.isDirectory()) return false;
     return fs.statSync(p).dev === t.dev;
   } catch { return false; }
@@ -266,7 +280,7 @@ function plan(name, opts) {
       return { ok: false, because: `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete it.` };
     }
     const m = measure(folderPath);
-    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath) };
+    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform) };
   }
   let job = null;
   if (platform === 'win32') {
@@ -290,7 +304,7 @@ function plan(name, opts) {
       label: isLinux ? require('./linuxjob').unitName(clean) : create.serviceLabel(clean),
       /* #4918 review 1: a systemd unit is deleted by linuxjob.remove, never moved to the Trash, so the Trash promise
          is never made for it. */
-      trash: isLinux ? false : trashCanTake(jobPath),
+      trash: isLinux ? false : trashCanTake(jobPath, platform),
       ...(isLinux ? { unit: true } : {}),
     };
   }
@@ -377,9 +391,22 @@ function plan(name, opts) {
   };
 }
 
-function trashName(p) {
+function trashName(p, platform) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  return path.join(TRASH(), `${path.basename(p)} (Kosmos ${stamp})`);
+  return path.join(TRASH(platform), `${path.basename(p)} (Kosmos ${stamp})`);
+}
+
+/* #5445: a Linux file manager lists a trashed item, and can put it back, only with its .trashinfo beside it in
+   Trash/info (the freedesktop Trash spec): where it came from and when. Not written for a test's own Trash folder. */
+function writeTrashInfo(from, to) {
+  if (process.env.AGENT_WORKFORCE_TRASH) return;
+  const info = path.join(linuxTrashRoot(), 'info');
+  fs.mkdirSync(info, { recursive: true });
+  const when = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}`;
+  const enc = path.resolve(from).split('/').map(encodeURIComponent).join('/');
+  fs.writeFileSync(path.join(info, path.basename(to) + '.trashinfo'), `[Trash Info]\nPath=${enc}\nDeletionDate=${date}\n`);
 }
 
 /** The act. Re-plans first, so nothing is deleted that the plan would not
@@ -389,6 +416,7 @@ function del(name, opts) {
      test (and a Mac driving the win32 arm) plans one act and performs another. */
   const p = plan(name, opts && opts.platform ? { platform: opts.platform } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
+  const platform = (opts && opts.platform) || process.platform;
   if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
     return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted` };
   }
@@ -418,8 +446,10 @@ function del(name, opts) {
   const move = (from, what) => {
     try {
       if (p.toTrash) {
-        fs.mkdirSync(TRASH(), { recursive: true });
-        fs.renameSync(from, trashName(from));
+        fs.mkdirSync(TRASH(platform), { recursive: true });
+        const to = trashName(from, platform);
+        fs.renameSync(from, to);
+        if (platform === 'linux') { try { writeTrashInfo(from, to); } catch { /* moved; only the put-back record is missing */ } }
       } else {
         fs.rmSync(from, { recursive: true, force: true });
       }

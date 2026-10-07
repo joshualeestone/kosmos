@@ -69,12 +69,14 @@ function inTestProcess() {
 function refuseOrWarn(moduleName, file, args) {
   const cmd = file + ' ' + (Array.isArray(args) ? args.join(' ') : '');
   if (inTestProcess()) {
-    throw new Error(
+    const err = new Error(
       moduleName + ' tried to execute "' + cmd + '" for real inside a test '
       + 'process with no runner and no opt-in. Install a seam first: setRunner(fn) '
       + '(both modules), or setDryRun(true) (remove.js). Refusing rather than faking '
       + "success, because this reaches the operator's live launchd and tmux.",
     );
+    err.code = 'LIVE_EXECUTION_REFUSED';   // #5445: so a caller that turns failures into results can let this one through
+    throw err;
   }
   process.stderr.write(
     '[live-execution] ' + moduleName + ': not authorized to run live, dry-running "'
