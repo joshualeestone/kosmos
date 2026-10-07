@@ -65138,8 +65138,9 @@ function voiceWhere(box) {
   return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
 }
 const VOICE_SAYS = {
-  'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
-  'speech-denied': 'Kosmos is not allowed to use speech recognition. You can turn it on in System Settings, Privacy & Security, Speech Recognition.',
+  // #5481 (Josh): the directions are replaced by one button that opens the exact pane (voiceSettingsOffer).
+  'mic-denied': 'Kosmos is not allowed to use the microphone.',
+  'speech-denied': 'Kosmos is not allowed to use speech recognition.',
   'speech-unanswered': 'Speech recognition was not allowed, so nothing was heard.',
   'no-on-device': 'This computer has no on-device speech model for your language, and Kosmos never sends your voice off this computer.',
   'no-mic': 'No microphone was found.',
@@ -65458,6 +65459,7 @@ function voiceToggle(btn) {
   VOICE.seq += 1;
   Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false, heard: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
+  voiceSettingsClear();   // #5481: a new start retires the Settings button
   voicePaint(btn, 'asking');
   if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
   h.postMessage({ op: 'start', id: VOICE.id });
@@ -65477,7 +65479,42 @@ function voiceCancel() {
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'cancel' });
 }
+/* #5481 (Josh, 2026-10-07): on the Mac app, a denied microphone or speech recognition gets ONE button that opens the
+   exact System Settings pane (the app opens only the two panes it knows, never a URL from the page). When the person
+   comes back with both allowed, the app says "allowed" and the same mic starts listening, with no second click. */
+const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
+const VOICE_SETTINGS = { btn: null, id: '' };
+function voiceSettingsClear() {
+  document.querySelectorAll('.voice-settings').forEach((el) => el.remove());
+  VOICE_SETTINGS.btn = null; VOICE_SETTINGS.id = '';
+}
+function voiceSettingsOffer(btn, pane) {
+  const line = voiceMsgEl(btn);
+  if (!line) return;
+  voiceSettingsClear();
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.className = 'voice-settings';
+  go.textContent = 'Turn on in Settings';
+  go.addEventListener('click', () => {
+    const h = voiceBridge();
+    if (!h || h.phone) return;
+    VOICE.seq += 1;
+    VOICE_SETTINGS.btn = btn; VOICE_SETTINGS.id = 'set' + VOICE.seq;
+    h.postMessage({ op: 'settings', pane, id: VOICE_SETTINGS.id });
+  });
+  line.insertAdjacentElement('afterend', go);
+}
 function voiceOnEvent(ev) {
+  // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.
+  if (ev && ev.kind === 'allowed') {
+    const btn = VOICE_SETTINGS.btn;
+    if (!btn || (ev.id != null && ev.id !== VOICE_SETTINGS.id)) return;
+    voiceSettingsClear();
+    voiceUnsayOwn(btn);
+    if (document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
+    return;
+  }
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
   /* #4409 (review 2): an event from an EARLIER session (moving from one mic to another is cancel-then-start in one
      turn, and the cancel's "stopped" lands after the new start) must not end the new one. The app echoes the id the
@@ -65516,6 +65553,7 @@ function voiceOnEvent(ev) {
     const b = voiceBridge();
     const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
     voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
+    if (b && !b.phone && VOICE_SETTINGS_PANE[ev.reason]) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason]);   // #5481
     return;
   }
   if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
