@@ -2090,6 +2090,28 @@ test('kosmos#5422: an invalid id in use is replaced by the kept opaque id at onc
   assert.equal(remote.read().device_id, 'old-opaque-id', 'the self-grant kept an invalid id');
 });
 
+test('kosmos#5422: when remote.json cannot be saved, the self-grant still goes to the key id this computer now uses', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const dataDir = nodePath.dirname(remote.FILE);
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  fs.mkdirSync(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), { recursive: true });
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  fs.chmodSync(dataDir, 0o500);   // reads work, saves fail (a full disk, a locked file)
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+    assert.equal(remote.read().device_id, 'old-opaque-id', 'precondition: the save of the key id failed');
+    await remote.signinVerify('her@example.com', '111111');
+    assert.equal((await remote.signinRegister('lockedmac')).ok, true);
+    await until(() => allows().length > 0, 'the automatic Allow for this computer\'s own sign-in');
+    assert.deepEqual(allows(), [FAKE_KEYED], 'the self-grant went to the stale id in the file');
+  } finally {
+    fs.chmodSync(dataDir, 0o700);
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+  }
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {

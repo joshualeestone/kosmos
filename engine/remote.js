@@ -1339,8 +1339,15 @@ function resetSelfGrant() {
 }
 const SELF_ALLOW_RETRY_MS = 60000;
 /* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
+/* kosmos#5422: the id this computer signs in as now. What this process holds is never older than remote.json (it is set
+   when a sign-in is taken, before the save that may fail on a full disk or a locked file), so it wins when valid. */
+function idInUse() {
+  if (heldIdentity && DEVICE_ID.test(heldIdentity.device_id)) return heldIdentity.device_id;
+  const d = read().device_id;
+  return typeof d === 'string' ? d : '';
+}
 function selfPendingInSnapshot() {
-  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  const id = idInUse();
   if (!id) return false;
   try {
     const raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8'));
@@ -1348,7 +1355,7 @@ function selfPendingInSnapshot() {
   } catch { return false; }
 }
 function allowSelfQuietly() {
-  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  const id = idInUse();
   if (!id || selfAllowing || !enrolled()) return false;
   if (selfGrantedId === id && Date.now() - selfGrantedAt < SELF_REGRANT_MS) return false;
   if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
@@ -1771,7 +1778,7 @@ async function signinDeviceArgsNow(forVerify) {
      gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
      so; with no key file and no key id, this is an older tunnel's sign-in and the opaque id carries on. */
   if (forVerify && !fs.existsSync(DEVICE_KEY_FILE())) {
-    if (KEYED_ID.test(read().device_id) || (heldIdentity && KEYED_ID.test(heldIdentity.device_id))) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
+    if (KEYED_ID.test(idInUse())) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
     const opaque = signinDeviceId();
     return { args: ['--device-id', opaque], id: opaque };
   }
