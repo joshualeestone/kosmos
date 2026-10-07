@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: winpolicy-5358
-diff_hash: 4c254965a4bdf81316afca98395eeade8feeda80043b144dd19d819efff18479
+diff_hash: 39431f53f2c7c446429de704c0314c53d8a7768c4c444495775463d61d23de7e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-06T09:26:34Z
-iterations: 10
+timestamp: 2026-10-07T15:51:23Z
+iterations: 21
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
 **Iterations:** 10
-**Converged:** Yes (iteration 10, sonnet: 3 WARNINGs, all duplicates of ledger entries)
+**Converged:** Yes (iteration 21, sonnet: 3 WARNINGs; one wording fix, two deferred with reasons). An earlier convergence at iteration 10, and another at 19, were reopened: 11 to 19 for the case-insensitive class (#2129) and 20 to 21 after #5385 was folded in.
 **Total findings:** 15 WARNINGs, 0 BLOCKERs, 0 CONVENTIONs (plus NITs below)
 **Fixed:** 10 | **Deferred:** 5 | **Asked (awaiting user):** 0
 
@@ -127,3 +127,24 @@ extension was removed and #3380's test restored (8bfa6a9). Card comment 60115348
 - One helper pair (envDelete, envSet) for every name childEnv removes or sets; perturbing envDelete reddens its test
 - The policy arm's controls: effective policy really Restricted, refusal for the policy reason, the variable's source asserted, restore checked
 - Windows arms fail rather than skip on the CI runner
+
+## Iterations 11 to 21 (reopened after the iteration 10 convergence)
+
+- [WARNING] downstream exact-case deletes (win32agy, win32keyed) --> FIXED 7363390 (engine/win32env.js helpers)
+- [WARNING] PSModulePath comment claimed what a board passes --> FIXED 7363390
+- [WARNING] keyed turnEnv key sets exact-case --> FIXED f19fec0
+- [BLOCKER] envSet kept an inherited spelling; GEMINI_API_KEY read back, NO_BROWSER skipped --> FIXED c7f1e45 (canonical spelling + Gemini arm)
+- [WARNING] inherited lowercase key with no account key not read --> FIXED 023ace5 (envCanon)
+- [WARNING] "every launch path" claim false --> FIXED 205079a
+- [WARNING] envCanon list hand-kept --> FIXED ae9aff5, then 142b3b9 (scan test)
+- [WARNING] the same class in six other modules --> DEFERRED to card #5386 (plan Scope)
+- Iteration 19 (opus): NITs only, converged; then #5385 was folded in.
+- #5385: childEnv deletes PSModulePath for every runner --> 327a03899 (unit test, planted red). Windows CI arm f6bf2538f:
+  control (inherited pwsh 7 path) breaks 5.1, every runner passes; windows run 37640906989, 6 tests 0 skipped.
+- [WARNING] it20: plan still said the pwsh 7 case was not modelled --> FIXED d9ec6df9f
+- [WARNING] it20: Claude Code's PowerShell 5.1 stated as fact --> FIXED d9ec6df9f (marked a premise from #570)
+- [WARNING] it21: Node's choice among spellings stated as fact --> FIXED 5dde6a5c2
+- [WARNING] it21: PSModulePath deleted for Claude too --> DEFERRED: Renet's measured spec says every runner, Claude included; the comment documents what is lost (a path added only in the launching session)
+- [WARNING] it21: the env.NAME read scan is best-effort --> DEFERRED: it has a positive control; bracket and destructured reads are noted as unseen
+
+Final validation (6j) at 5dde6a5c2: 15819 tests, 15592 pass, 0 fail, 227 skipped; VALRC=0 AUDITRC=0 (10:50 CDT 2026-10-07).
