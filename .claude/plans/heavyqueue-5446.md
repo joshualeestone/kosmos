@@ -25,12 +25,16 @@
 ## Weakest premise
 That a repo's main checkout is close enough to origin/main. Nothing updates it (this Mac's is at 10-01); the same is
 true of the default folder today. The stderr line names the folder and commit used, and a too-old lib now says the
-one command that fixes it, so a stale checkout is loud rather than a silent split.
+one command that fixes it, so a stale checkout is loud rather than a silent split. Not caught: a branch's queue
+script running against a main-checkout lib that has the same function names but different behaviour (the same risk
+the default folder carries today); the stderr line naming the folder and commit is what makes that visible.
+- The hint names the main checkout's copy only when that copy has the marker AND that checkout has cut-guard.sh; it
+  relies on the two files coming from one commit there.
 
 ## Tests
 - tools.heavy-gate-3805.test.js: BUSY names the queue on stderr with an existing path; CLEAR and --quiet do not.
 - tools/test-queued-heavy-4977.sh: four arms: in a throwaway git repo, the fallback joins and runs and names the
   folder and commit; without cut-guard.sh it still exits 3 and runs nothing; with an old lib it exits 3 and names the
   pull; a copy outside any repo (the installed one) still exits 3.
-- tools.heavy-gate-3805.test.js: in a throwaway clone plus worktree, the hint names the main checkout's queue only when
+- tools.heavy-gate-3805.test.js: in a throwaway repo plus a worktree of it, the hint names the main checkout's queue only when
   that copy carries the #5446-lib-fallback marker, else the worktree's own.

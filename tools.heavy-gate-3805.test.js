@@ -602,7 +602,7 @@ test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR an
   assert.doesNotMatch(quiet.stderr, /queued-heavy/, '--quiet printed the queue hint');
 });
 
-test('#5446: the hint names the main checkout\'s queue only when that copy has the fallback, else the worktree\'s own', () => {
+test('#5446: in a repo with a worktree, the hint names the main checkout\'s queue only when that copy has the fallback, else the worktree\'s own', () => {
   const { execFileSync } = require('node:child_process');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'hg5446-'));
   try {
