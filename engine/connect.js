@@ -169,17 +169,18 @@ function claudeBinPath() {
   return require('./runners').resolveBin('claude').bin;
 }
 
-/* #5419 review 5: Kosmos runs Claude's sign-in, and every agent, in tmux. On Linux with no tmux to be found, a
+/* #5419: Kosmos runs Claude's sign-in, and every agent, in tmux. On Linux with no tmux to be found, a
    download would fetch 200MB and then fail at sign-in with a bare ENOENT; download() asks this first instead. */
 function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runners').isRunnable(f)) {
   const t = tmuxBinPath('linux', env, runnable);
   return t === 'tmux' || !runnable(t);
 }
-/* review 6: a seam, so the guard as wired into download() is tested on any platform (not only on a real Linux host). */
+/* a seam, so the guard as wired into download() is tested on any platform (not only on a real Linux host). */
 let tmuxCheckOverride = null;
+let linuxTmuxMemo = null;
 function setTmuxCheckForTests(fn) { tmuxCheckOverride = typeof fn === 'function' ? fn : null; }
 function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
-  /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick. Review 6: on Linux that pick is not reliable:
+  /* #5419: the launcher (install/kosmos) exports its tmux pick. on Linux that pick is not reliable:
      with tmux installed but no tmux server running yet, the launcher falls back to the bundle path, which a Linux box
      may not have. So for sign-in on Linux the pick is used only when it is runnable, and otherwise create's
      linuxTmuxBin decides. (Review 8: agents still take create.binPaths' own pick, which trusts the launcher's; making
@@ -188,10 +189,16 @@ function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
     const can = runnable || ((f) => require('./runners').isRunnable(f));
     if (platform !== 'linux' || can(env.AGENT_WORKFORCE_TMUX_BIN)) return env.AGENT_WORKFORCE_TMUX_BIN;
   }
-  if (platform !== 'linux') return '/opt/homebrew/bin/tmux';   // review 7: the Mac and Windows defaults exactly as before
-  // review 3: create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
+  if (platform !== 'linux') return '/opt/homebrew/bin/tmux';   // the Mac and Windows defaults exactly as before
+  // create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
   // minimal PATH still finds /usr/bin/tmux. Required at call time: create requires this module.
-  return require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
+  /* #5419: the sign-in driver asks on every tick (700 ms), so the real pick (default env and runnable check) is held
+     for 30 s, keyed on the launcher's value, rather than walking PATH every tick. */
+  const real = env === process.env && !runnable;
+  if (real && linuxTmuxMemo && linuxTmuxMemo.key === (env.AGENT_WORKFORCE_TMUX_BIN || '') && Date.now() - linuxTmuxMemo.at < 30000) return linuxTmuxMemo.val;
+  const val = require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
+  if (real) linuxTmuxMemo = { key: env.AGENT_WORKFORCE_TMUX_BIN || '', val, at: Date.now() };
+  return val;
 }
 
 const STATE_FILE = () => path.join(store.ROOT, 'connect.json');
@@ -1085,22 +1092,22 @@ function detectMusl({ platform, report, exists }) {
   try { r = typeof report === 'function' ? report() : report; } catch { r = null; }
   const muslLoader = () => ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
   if (r && r.header && r.header.glibcVersionRuntime) return false;
-  // review 3: no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
+  // no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
   // can omit the field); without either, glibc, the common case. Review 4: a wrong guess is NOT caught by the checksum,
   // which proves the file is intact, not that it fits this machine: it surfaces as a failed `claude install`. Only the
   // x86_64 and aarch64 loaders are looked for because those are the only two arches Anthropic builds for Linux.
   return muslLoader();
 }
-/* review 2: without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
+/* without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
    the board mid-download. The C library is all this reads. */
 function readReportQuietly() {
   if (!process.report) return null;
   const prev = process.report.excludeNetwork;
   try { process.report.excludeNetwork = true; return process.report.getReport(); } finally { process.report.excludeNetwork = prev; }
 }
-let muslCache = null;   // review 1: a report is tens of milliseconds and the C library never changes under a process
+let muslCache = null;   // a report is tens of milliseconds and the C library never changes under a process
 const DEFAULT_IS_MUSL = () => {
-  if (process.platform !== 'linux') return false;   // review 5: never caches a non-Linux host's answer
+  if (process.platform !== 'linux') return false;   // never caches a non-Linux host's answer
   if (muslCache === null) {
     muslCache = detectMusl({ platform: process.platform, report: readReportQuietly, exists: fs.existsSync });
   }
@@ -1117,7 +1124,7 @@ function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : 
    ONE derivation of this key.
    On Linux an arch Anthropic does not build (armv7l, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
    manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
-   that fails with "exec format error" (#5419 review 1). */
+   that fails with "exec format error" (#5419). */
 function platformKey(platform = process.platform, rawArch = os.arch()) {
   if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
   const arch = rawArch === 'arm64' ? 'arm64' : 'x64';
@@ -1136,6 +1143,19 @@ function installEnvFor(installHome, platform = process.platform) {
   const env = { TERM: 'dumb', HOME: installHome };
   if (platform === 'win32') env.USERPROFILE = installHome;
   return env;
+}
+
+/* Streaming sha256 of a file on disk, so verifying a ~281MB reuse candidate
+   does not load the whole file into memory (#875). */
+function sha256File(p) {
+  const hash = crypto.createHash('sha256');
+  const fd = fs.openSync(p, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(1 << 20);
+    let n;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
+  } finally { fs.closeSync(fd); }
+  return hash.digest('hex');
 }
 
 /**
@@ -1162,18 +1182,6 @@ function installEnvFor(installHome, platform = process.platform) {
  * re-downloads rather than installs -- the same guarantee as the post-fetch
  * checksum below, applied to a file that has been sitting on disk.
  */
-/* Streaming sha256 of a file on disk, so verifying a ~281MB reuse candidate
-   does not load the whole file into memory (#875). */
-function sha256File(p) {
-  const hash = crypto.createHash('sha256');
-  const fd = fs.openSync(p, 'r');
-  try {
-    const buf = Buffer.allocUnsafe(1 << 20);
-    let n;
-    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
-  } finally { fs.closeSync(fd); }
-  return hash.digest('hex');
-}
 async function download(onProgress, track, platform = process.platform) {
   /* #3159: `canDownloadClaude`, NOT `canDownloadRunner`. This function fetches
      CLAUDE Code specifically, which now publishes a `win32-${arch}` build with its
@@ -1189,9 +1197,9 @@ async function download(onProgress, track, platform = process.platform) {
   if (!platformGate.canDownloadClaude(platform)) {
     throw new Error('this platform (' + platform + ') has no published Claude Code build, so it was not downloaded');
   }
-  // review 5: only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
+  // only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
   if (platform === 'linux' && (tmuxCheckOverride ? tmuxCheckOverride() : (process.platform === 'linux' && tmuxMissingOnLinux()))) {
-    // review 8: sign-in only (the agent path's tmux pick on Linux is piece D's); the install hint names no single package manager.
+    // sign-in only (the agent path's tmux pick on Linux is piece D's); the install hint names no single package manager.
     throw new Error('Kosmos needs tmux on this computer to sign Claude in, and none was found, so Claude was not downloaded. Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again');
   }
   const base = downloadBase();
@@ -3603,7 +3611,7 @@ function resetForTests() {
 
 module.exports = {
   setMuslDetectForTests,
-  detectMusl,   // #5419 review 1: pure, so each branch is tested
+  detectMusl,   // #5419: pure, so each branch is tested
   readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, setTmuxCheckForTests,   // #5419 reviews 2, 5, 6: tested directly
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,

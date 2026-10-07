@@ -29,6 +29,11 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const connect = require('./connect');
+/* #5419: download() refuses on a real Linux host with no tmux. Pinned to "present" for this whole file, so a Linux box
+   without tmux still runs these tests for what they name; the tests about the guard set their own answer and put this
+   one back. */
+const TMUX_PRESENT = () => false;
+connect.setTmuxCheckForTests(TMUX_PRESENT);
 const subscription = require('./subscription');
 const store = require('./store');
 
@@ -2901,8 +2906,8 @@ test('#248: a relative configDir is refused loudly before any state moves', asyn
 // musl build where the C library is musl. Driven with the `linux` platform seam so it runs on this Mac.
 test('#5419 a linux download fetches the linux build (glibc), verified and executable', async (t) => {
   connect.setMuslDetectForTests(() => false);
-  connect.setTmuxCheckForTests(() => false);   // review 7: not the host's tmux (a Linux runner may have none)
-  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(null); });
+  connect.setTmuxCheckForTests(() => false);   // not the host's tmux (a Linux runner may have none)
+  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(TMUX_PRESENT); });
   const binary = crypto.randomBytes(160 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.4', binary, checksum, platform: 'linux' });
@@ -2923,7 +2928,7 @@ test('#5419 the linux key follows the C library: linux-<arch> on glibc, linux-<a
   } finally { connect.setMuslDetectForTests(null); }
 });
 
-test('#5419 review 1: an arch Anthropic does not build keeps its own name on linux, a key no manifest carries', () => {
+test('#5419: an arch Anthropic does not build keeps its own name on linux, a key no manifest carries', () => {
   try {
     connect.setMuslDetectForTests(() => false);
     assert.equal(connect.platformKey('linux', 'riscv64'), 'linux-riscv64');
@@ -2933,20 +2938,20 @@ test('#5419 review 1: an arch Anthropic does not build keeps its own name on lin
   } finally { connect.setMuslDetectForTests(null); }
 });
 
-test('#5419 review 1: musl detection, every branch (report with glibc, report without, no report)', () => {
+test('#5419: musl detection, every branch (report with glibc, report without, no report)', () => {
   const none = () => false;
   assert.equal(connect.detectMusl({ platform: 'darwin', report: { header: {} }, exists: () => true }), false, 'off Linux, never musl');
   assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.35' } }, exists: () => true }), false, 'glibc named: glibc');
   assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: (f) => f === '/lib/ld-musl-aarch64.so.1' }), true, 'no glibc in the report and musl\'s loader: musl');
-  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: none }), false, 'review 3: no glibc field but no musl loader either: glibc, not a guess at musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: none }), false, 'no glibc field but no musl loader either: glibc, not a guess at musl');
   assert.equal(connect.detectMusl({ platform: 'linux', report: () => { throw new Error('no report'); }, exists: (f) => f === '/lib/ld-musl-x86_64.so.1' }), true, 'no report: musl\'s loader decides');
   assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: none }), false, 'no report, no musl loader: glibc');
 });
 
 test('#5419 a manifest with no build for this linux key refuses before anything is placed', async (t) => {
   connect.setMuslDetectForTests(() => true);   // ask for -musl; the release serves only the glibc key
-  connect.setTmuxCheckForTests(() => false);   // review 7: not the host's tmux
-  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(null); });
+  connect.setTmuxCheckForTests(() => false);   // not the host's tmux
+  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(TMUX_PRESENT); });
   const binary = crypto.randomBytes(64 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   connect.setMuslDetectForTests(() => false);
@@ -2954,12 +2959,12 @@ test('#5419 a manifest with no build for this linux key refuses before anything 
   connect.setMuslDetectForTests(() => true);
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = base;
   t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
-  // review 1: the matcher, so only the no-build refusal passes (a bare message argument accepted any throw).
+  // the matcher, so only the no-build refusal passes (a bare message argument accepted any throw).
   await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /no build for this kind of computer \(linux-(x64|arm64)-musl\)/);
 });
 
-test('#5419 review 2-4: on Linux the tmux for sign-in is create\'s picker (PATH, then the usual folders), never Homebrew\'s', () => {
-  // review 4: literal expectations, with the picker's PATH and runnable check injected, so a return of the hardcoded
+test('#5419: on Linux the tmux for sign-in is create\'s picker (PATH, then the usual folders), never Homebrew\'s', () => {
+  // literal expectations, with the picker's PATH and runnable check injected, so a return of the hardcoded
   // Homebrew path fails here (on this Mac the real picker would find /opt/homebrew/bin/tmux and hide it).
   const onPath = '/opt/custom/bin/tmux';
   const runnable = (f) => f === onPath || f === '/usr/bin/tmux';
@@ -2968,10 +2973,10 @@ test('#5419 review 2-4: on Linux the tmux for sign-in is create\'s picker (PATH,
   assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, () => false), 'tmux', 'none found: the bare name');
   assert.equal(connect.tmuxBinPath('linux', { AGENT_WORKFORCE_TMUX_BIN: '/x/tmux', PATH: '/opt/custom/bin' }, (f) => f === '/x/tmux' || runnable(f)), '/x/tmux', 'a runnable launcher pick wins');
   assert.equal(connect.tmuxBinPath('darwin', {}), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
-  assert.equal(connect.tmuxBinPath('win32', {}, () => false), '/opt/homebrew/bin/tmux', 'review 7: the Windows default is unchanged too');
+  assert.equal(connect.tmuxBinPath('win32', {}, () => false), '/opt/homebrew/bin/tmux', 'the Windows default is unchanged too');
 });
 
-test('#5419 review 2: the C-library report is read with network handles excluded, and the setting is put back', () => {
+test('#5419: the C-library report is read with network handles excluded, and the setting is put back', () => {
   if (!process.report) return;   // a Node built without report support has nothing to read
   const prevGet = process.report.getReport;
   const prevEx = process.report.excludeNetwork;
@@ -2984,7 +2989,7 @@ test('#5419 review 2: the C-library report is read with network handles excluded
   } finally { process.report.getReport = prevGet; }
 });
 
-test('#5419 review 5: on Linux a missing tmux is caught before a download, not at sign-in', () => {
+test('#5419: on Linux a missing tmux is caught before a download, not at sign-in', () => {
   const none = () => false;
   assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, none), true, 'no tmux anywhere: missing');
   assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux/bin/tmux', PATH: '/nowhere' }, none), true, 'the launcher named a tmux that is not there (a bundle with no Linux tmux): missing');
@@ -2992,7 +2997,7 @@ test('#5419 review 5: on Linux a missing tmux is caught before a download, not a
   assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', PATH: '/nowhere' }, (f) => f === '/k/tmux'), false, 'CONTROL: the launcher\'s runnable pick');
 });
 
-test('#5419 review 6: on Linux a launcher tmux pick that is not there falls through to the real picker', () => {
+test('#5419: on Linux a launcher tmux pick that is not there falls through to the real picker', () => {
   const runnable = (f) => f === '/usr/bin/tmux';
   const env = { AGENT_WORKFORCE_TMUX_BIN: '/home/u/.local/share/kosmos/tmux/bin/tmux', PATH: '/nowhere' };
   assert.equal(connect.tmuxBinPath('linux', env, runnable), '/usr/bin/tmux', 'a missing bundle path won over an installed tmux');
@@ -3000,7 +3005,7 @@ test('#5419 review 6: on Linux a launcher tmux pick that is not there falls thro
   assert.equal(connect.tmuxBinPath('darwin', env, runnable), env.AGENT_WORKFORCE_TMUX_BIN, 'CONTROL: on a Mac the launcher pick is used as before');
 });
 
-test('#5419 review 6: download refuses a Linux host with no tmux before any request is made', async (t) => {
+test('#5419: download refuses a Linux host with no tmux before any request is made', async (t) => {
   let requests = 0;
   const http = require('node:http');
   const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
@@ -3009,7 +3014,7 @@ test('#5419 review 6: download refuses a Linux host with no tmux before any requ
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
   connect.setTmuxCheckForTests(() => true);
   t.after(() => {
-    connect.setTmuxCheckForTests(null);
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
     server.close();
   });
@@ -3018,4 +3023,23 @@ test('#5419 review 6: download refuses a Linux host with no tmux before any requ
   connect.setTmuxCheckForTests(() => false);
   await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), (e) => !/needs tmux/.test(e.message), 'CONTROL: with tmux present it goes on to the service');
   assert.ok(requests > 0, 'CONTROL: with tmux present the service is asked');
+});
+
+test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new launcher value is asked again', () => {
+  const create = require('./create');
+  const orig = create.linuxTmuxBin;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let asked = 0;
+  create.linuxTmuxBin = () => { asked += 1; return '/usr/bin/tmux'; };
+  try {
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-a';   // not runnable, so the picker is asked
+    connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux');
+    assert.equal(asked, 1, 'the picker walked PATH on every tick');
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-b';
+    connect.tmuxBinPath('linux');
+    assert.equal(asked, 2, 'a changed launcher value reused the old answer');
+  } finally {
+    create.linuxTmuxBin = orig;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
 });
