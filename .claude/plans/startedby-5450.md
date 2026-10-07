@@ -80,3 +80,15 @@ though the login item did bring Kosmos back by itself.
   on the next relaunch (the mark went stale). It needs a two-minute startup crash loop on the first start after a boot.
 - Windows note for Homer: engine/win32board.js startedByTask already tells a task start from others, though a person's
   start may also go through the task.
+
+## Review 4
+- FIXED (dangerous direction, narrow): board-run removed a stale mark after reading it, which could remove a person's
+  fresh mark written in between and make the kicked board-run read the supervisor's. board-run now deletes no mark (the
+  board does once started, and `kosmos stop`); a stale one is simply not read as a person. The mark is written whole
+  (temp file, then rename), so board-run never reads it half-written.
+- FIXED: with no working clock, a mark that is there reads as a person's (no note), never the supervisor's.
+- FIXED: the direct start strips KOSMOS_BOARD_PERSON_MARK too.
+- ADDED behavioural tests: `kosmos start` (already-running path) writes a person's mark and the watchdog's does not;
+  `kosmos stop` removes the mark when no board is running. Mutations red.
+- Checked: the Mac app is not a login item (no SMAppService or login-item registration in native-app or setup.sh), so
+  its `kosmos start` is a person opening it, as assumed.
