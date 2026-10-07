@@ -19,7 +19,10 @@
     {
       "icon": "chat",
       "title": "See messages waiting for a busy agent",
-      "line": "When a Gemini agent on a Google subscription is mid-task, its card now says how many messages are waiting for it."
+      "line": "When a Gemini agent on a Google subscription is mid-task, its card now says how many messages are waiting for it.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "shield",
