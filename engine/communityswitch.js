@@ -27,7 +27,8 @@ const FILE = path.join(store.ROOT, 'community.json');
 /**
  * No file is a never-asked machine, fresh or existing, and reads ON (Josh's default). A present
  * file that cannot be read or parsed reads OFF with ok:false: it could be hiding an OFF we cannot
- * see, and what it gates is posts leaving the machine (the feedbacksend split, #2037).
+ * see, and what it gates is posts leaving the machine (the feedbacksend split, #2037). A brief failure is read again
+ * first (#5460, see RETRIES below).
  */
 function read() {
   let r = readOnce();
@@ -37,6 +38,11 @@ function read() {
   // read again: every reader would wait RETRIES pauses on every call until the person rewrites it. A file a writer is
   // part way through changes its size or time between reads, so it is retried.
   if (failureKey(r) === lastFailed) return { on: r.on, ok: r.ok };
+  // Review 2: a file that keeps changing (a slow writer) is a new failure every time, so retry rounds are spaced at
+  // least RETRY_GAP_MS apart: a reader never waits on more than one round in that span.
+  const now = Date.now();
+  if (now - lastRound < RETRY_GAP_MS) return { on: r.on, ok: r.ok };
+  lastRound = now;
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     pause(RETRY_MS);
     r = readOnce();
@@ -47,6 +53,8 @@ function read() {
   return { on: r.on, ok: r.ok };
 }
 let lastFailed = null;
+let lastRound = 0;
+const RETRY_GAP_MS = 2000;
 function failureKey(r) {
   let st = 'nostat';
   try { const x = fs.statSync(FILE); st = x.size + ':' + x.mtimeMs + ':' + x.ctimeMs; } catch { /* keyed on the error alone */ }
@@ -115,6 +123,8 @@ function participating() {
 
 /* Tests only: replace the pause between retries (null puts the real one back), and forget the last failure. */
 const realPause = pause;
-function _setPause(f) { pause = f || realPause; lastFailed = null; }
+function _setPause(f) { pause = f || realPause; lastFailed = null; lastRound = 0; }
+/* Tests only: as if RETRY_GAP_MS had passed, keeping the remembered failure. */
+function _endRetryGap() { lastRound = 0; }
 
-module.exports = { read, setOn, participating, migrate, FILE, RETRIES, _setPause };
+module.exports = { read, setOn, participating, migrate, FILE, RETRIES, _setPause, _endRetryGap };
