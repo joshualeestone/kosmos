@@ -94,15 +94,17 @@ for (const [name, write] of WRITERS) {
     assert.equal(write(file), true, 'CONTROL: this file saves normally, so a failure below is the planted one');
     const before = fs.readFileSync(file, 'utf8');
     const realOpen = fs.openSync;
+    let planted = 0;
     fs.openSync = (target, flags, ...rest) => {
       // every atomic attempt fails: 'wx' is the flag writeSecret opens its temp with (securewrite.js, the
       // atomic loop). If that flag ever changes, this stub stops matching and the arm fails loudly on `wrote`.
-      if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
+      if (flags === 'wx') { planted += 1; throw Object.assign(new Error('planted'), { code: 'EEXIST' }); }
       return realOpen.call(fs, target, flags, ...rest);
     };
     let wrote;
     try { wrote = write(file); } finally { fs.openSync = realOpen; }
     assert.equal(wrote, false, 'the save reported success though every atomic attempt failed');
+    assert.equal(planted, 3, 'the planted failure did not fire on all three atomic attempts, so this arm tested something else');
     assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file was rewritten in place');
   });
 }

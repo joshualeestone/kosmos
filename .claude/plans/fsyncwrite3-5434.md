@@ -32,6 +32,11 @@ and moved the account stores onto it. This slice moves three settings writers th
   - a flush the disk refuses (EIO, ENOSPC, EDQUOT) now fails the save, which the callers already report
     as "we could not save the settings file"; before, that error was never seen and the rename could
     publish bytes the disk had refused. Failing is the point of the slice.
+  - the other way round, for the mode: main's `chmodSync(tmp, prevMode)` was fatal, so on a mount that
+    refuses a chmod (SMB, exFAT, some FUSE, a file owned by someone else) the save failed. writeSecret's
+    chmod is best effort, so there the save now succeeds and the file takes `prevMode` less the umask
+    instead of `prevMode` exactly. A working save beats a refused one; "keeps its exact mode" holds
+    wherever the file system allows a chmod.
 - **Cost:** about 8 ms per save on this Mac (slice 1's measurement); these run once per agent birth or
   wiring, not in a loop.
 
@@ -53,5 +58,11 @@ Not in this slice, so these are NOT yet flushed (each a later slice on the card)
 Plus: an explicit mode is still exact over the umask; reporthook still writes through a symlink.
 
 ## Weakest premise
+Also: a symlinked settings file that resolves into a folder synced between two Macs (Dropbox, iCloud). A
+live writer's temp on the OTHER Mac has a pid that does not exist here, so the reaper would take it and
+the deletion syncs back; the worst case is that writer's rename failing once and retrying under a new
+name (three attempts, then the save reports failure). Small, stated rather than fixed.
+
+
 That nothing relied on the old `<file>.kosmos.<pid>.new` temp name (a cleanup or an ignore rule). A grep
 of engine/, install/ and tools/ found no reader of that name besides these three writers.
