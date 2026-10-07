@@ -638,8 +638,8 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
 }
 
 /* #4491 (post-rebase review): the board's credential files the token-only guard protects, for a board-side copier
-   (engine/undo.js keep) that must refuse them: board.token in every root above, the folder its temp copies sit in,
-   the per-agent sender tokens folder, and the token-only list. dataRoot/home as in tokenOnlySettingsRules. */
+   (engine/undo.js keep) that must refuse them: board.token in every root above, the per-agent sender tokens folder
+   in every root, and the token-only list. dataRoot/home as in tokenOnlySettingsRules. */
 function boardCredentialPaths(deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -647,7 +647,7 @@ function boardCredentialPaths(deps = {}) {
   const roots = tokenOnlyTokenRoots(dataRoot, home, deps);
   return {
     files: [...roots.map((r) => path.join(r, tokenFile)), require('./sendertoken').tokenOnlyFile()],
-    dirs: [require('./sendertoken').DIR],
+    dirs: [...new Set([require('./sendertoken').DIR, ...roots.map((r) => path.join(r, 'sendertokens'))])],
   };
 }
 
@@ -722,11 +722,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     }
   } catch { /* the concrete paths above only */ }
   // #4491 (post-rebase review): the undo copy store (engine/undo.js, #5153) holds copies of files the board read for an
-  // agent, so it is read-denied too: a copy of a credential there must not be readable by the agent's shell.
+  // agent, so it is read-denied (a copy there must not be readable by the agent's shell) and write-denied (restore
+  // writes its records back out).
   const undoDirs = tokenRoots.flatMap((r) => [path.join(r, 'undo'), path.join(r, 'undo-saved')]);
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...undoDirs.map((d) => `Read(${ruleAbs(d)}/**)`),
+    ...undoDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 2: a forged record there is what restore writes out
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
     ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
@@ -797,7 +799,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf)];
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (Kitty's re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.

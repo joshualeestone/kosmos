@@ -111,3 +111,19 @@ the caller supplies is a way around this guard. A new such route must refuse boa
 read-deny where it writes). Nothing ties the two together automatically yet.
 Residuals: the relay sign-in key (#5422, signin-device.key) is a person-held secret this guard does not deny; it does
 not reach this board as the person. #5247 (the gate's start-time world-token snapshot) has landed on main.
+Second post-rebase review (sonnet) found four gaps in that fix, all closed:
+- keep checked the path, then read it again by path later (a swap race). It now refuses a link, opens ONCE without
+  following a final link, and runs every check (credential identity, regular file, size) and the read on that open
+  file. O_NOFOLLOW/O_NONBLOCK are undefined on Windows (#1732 inventory rows added): there the lstat refusal and the
+  identity check on the opened file still refuse.
+- The sender-tokens check was case-sensitive (macOS disks are not) and had no identity check: paths are now compared
+  without case and with realpath.native, every file in every root's sender tokens folder is compared by device and
+  inode, and the name check is case-insensitive.
+- The undo stores were read-denied but not write-denied, so a forged record could make restore write a file (an agent
+  settings file, a credential). The guard now write-denies them in both layers, and plan/apply refuse a credential or
+  a Claude settings file (.claude or .claude-<label>) as "protected", whatever the record says (shown to fail with the
+  refusals removed).
+Reasoned, not measured: that the sandbox's denyRead/denyWrite of the undo folders stops a subprocess (the same as the
+existing token rules). Accepted: isCredential runs boardCredentialPaths on every keep (a folder listing per root;
+small). The secrets this list names are the board's own; other person-held secrets rely on the undo store being
+read-denied.
