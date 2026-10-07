@@ -18,8 +18,9 @@
 # .../tools/release.sh), because a path with a space arrives split and cannot be told apart from
 # it: that errs toward busy. These do not count either:
 #   - a queued-heavy.sh WAITER (#5470): its lead script is a queued-heavy.sh in any directory, and it
-#     carries its command only as arguments until its turn; that run counts once started, and the
-#     machine or side claim queued-heavy.sh takes first reads busy meanwhile;
+#     carries its command only as arguments until its turn. While queued it neither runs nor holds the
+#     box; when its turn comes it takes the machine (or side) claim, which reads busy, and then starts
+#     the run, which counts;
 #   - a process with a `node --test` ancestor (a unit test's fixture);
 #   - a process whose cwd or script sits in a kt<digits> folder under a folder named T or tmp, or
 #     directly under this shell's $TMPDIR
@@ -147,9 +148,9 @@ live_snapshot() {
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
 # run (it only mentions the name), and neither is -n, a syntax check: prints nothing.
 # #5470: nor is a queued-heavy.sh waiter (its lead script is a queued-heavy.sh, in any directory): prints
-# nothing. Its run counts once started, and queued-heavy.sh holds the machine claim (or, on a light side
-# turn, a side claim), which reads busy either way, from before it starts the run until it ends. Runs in a subshell with globbing off,
-# so a `*` in a command line stays one literal word.
+# nothing. While queued it neither runs nor holds the box; at its turn queued-heavy.sh takes the machine
+# claim (or, on a light side turn, a side claim), which reads busy, then starts the run, which counts.
+# Runs in a subshell with globbing off, so a `*` in a command line stays one literal word.
 script_of() (
   set -f
   first=1; lead=""; skip=0; inlead=0
