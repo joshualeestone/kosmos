@@ -11842,6 +11842,8 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     "const fs = require('node:fs'); const path = require('node:path');",
     'const a = process.argv.slice(2);',
     "const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i + 1]; };",
+    // kosmos#5422: an older tunnel, which refuses the device-key verb as a usage error (exit 2), as real ones do.
+    "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     // verify goes straight to a session here (the phone path is covered in the engine suite).
     // #3796: code 242424 answers with a text-message second step, so the route's pass-through is exercised.
