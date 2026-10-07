@@ -1116,6 +1116,8 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    not, so it is suppressed rather than left to contradict the cursor. */
 .acts .btn[aria-disabled="true"]:hover { background: var(--bg); }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
+/* #5481: the Mac app's "Turn on in Settings" button, just under the mic's message line. */
+.voice-settings { margin-top: 6px; }
 /* 🔑 A REFUSAL AT THE FIELD IT IS ABOUT (kosmos#1303 G). Josh: "The error was
    below the Save Changes button so when I scrolled down to hit the button, I
    couldn't see the error." `.fmsg` is the after-the-button slot and stays that
@@ -65494,7 +65496,7 @@ function voiceSettingsOffer(btn, pane) {
   voiceSettingsClear();
   const go = document.createElement('button');
   go.type = 'button';
-  go.className = 'voice-settings';
+  go.className = 'btn uprime voice-settings';   // the page's primary button: this is the one thing to do
   go.textContent = 'Turn on in Settings';
   go.addEventListener('click', () => {
     const h = voiceBridge();
