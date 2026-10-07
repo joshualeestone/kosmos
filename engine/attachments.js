@@ -14,8 +14,8 @@
  * with the absolute path of the stored file in the bracketed line, so `cat`
  * or `open` works on the spot, followed inside the same bracket by the
  * file's facts in parentheses (type, an image's pixel size, size on disk;
- * #5448) so the agent can tell a screenshot from a contract before deciding
- * to open it. Nothing else tells the agent where the folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
+ * #5448) so the agent can tell a screenshot from a contract before
+ * deciding to open it. Nothing else tells the agent where the folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
  * person; finding attachments it was not sent is a later card).
  *
  * ⚠️ A FILE FROM A PERSON IS BYTES, NOT A PROGRAM. The stored name is
@@ -215,9 +215,9 @@ function imageFacts(buf) {
   if (buf.toString('latin1', 0, 6) === 'GIF87a' || buf.toString('latin1', 0, 6) === 'GIF89a') {
     return ok('image/gif', buf.readUInt16LE(6), buf.readUInt16LE(8));
   }
-  if (buf[0] === 0xff && buf[1] === 0xd8) {
+  if (signatureType(buf) === 'image/jpeg') {
     let i = 2;
-    while (i + 9 < buf.length) {
+    while (i + 8 < buf.length) {
       if (buf[i] !== 0xff) { i += 1; continue; }   // stray padding some encoders leave between segments
       const marker = buf[i + 1];
       if (marker === 0xff) { i += 1; continue; }   // fill byte
@@ -269,7 +269,6 @@ const HEAD_BYTES = 256 * 1024;
 function headOf(file) {
   let fd = null;
   try {
-    if (!fs.statSync(file).isFile()) return null;   // never open a FIFO or device: the open could block
     fd = fs.openSync(file, 'r');
     const buf = Buffer.allocUnsafe(HEAD_BYTES);   // only the n bytes read are returned
     const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
@@ -292,20 +291,23 @@ function sizeWords(n) {
     bytes' signature proves (PNG, GIF, JPEG, WebP), with dimensions when the
     header could be read. A stored type naming one of those four whose bytes
     carry no such signature is not repeated ("unknown type"): the uploader
-    claimed it and the bytes say otherwise. Otherwise the stored type is used, kept to the plain characters a media
-    type has (the uploader chose it, and this line is typed into a terminal;
-    chat.js refuses a trailer with control characters). Size is read from the
-    disk, not the record. */
+    claimed it and the bytes say otherwise. Only a file stored as kind
+    'image' is read this way; any other file, and a HEIC or AVIF, is told by
+    its stored type, kept to the plain characters a media type has (the
+    uploader chose it, and this line is typed into a terminal; chat.js
+    refuses a trailer with control characters). Size is read from the disk,
+    not the record. */
 function factsOf(r) {
-  const head = r.kind === 'image' ? headOf(r.file) : null;
+  let st = null;
+  try { st = fs.statSync(r.file); } catch { /* the record's own count, below */ }
+  const head = r.kind === 'image' && st && st.isFile() ? headOf(r.file) : null;   // never open a FIFO or device
   const img = head ? imageFacts(head) : null;
   const proven = img ? img.type : (head ? signatureType(head) : null);
   const stored = String(r.type || '').toLowerCase();
   const PROVABLE = ['image/png', 'image/gif', 'image/jpeg', 'image/jpg', 'image/webp'];
-  const plain = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(stored) && !PROVABLE.includes(stored);
+  const plain = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/.test(stored) && !PROVABLE.includes(stored);
   const type = proven || (plain ? stored : null);
-  let bytes = r.size;
-  try { bytes = fs.statSync(r.file).size; } catch { /* the record's own count */ }
+  const bytes = st ? st.size : r.size;
   const parts = [type || 'unknown type'];
   if (img) parts.push(img.width + 'x' + img.height);
   const size = sizeWords(bytes);

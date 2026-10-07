@@ -110,11 +110,19 @@ test('#5448 controls: zero dimensions, image data before any frame header, and a
   const sos = Buffer.from([0xff, 0xda, 0x00, 0x08, 0, 0, 0, 0, 0, 0]);
   assert.equal(attachments.imageFacts(Buffer.concat([jpg.subarray(0, 2), sos, jpg.subarray(2)])), null, 'SOS before SOF');
   assert.equal(attachments.imageFacts(Buffer.concat([jpg.subarray(0, 2), Buffer.from([0xff, 0x00, 0, 0]), jpg.subarray(2)])), null, 'FF00 outside image data');
+  /* FF D8 then text then a frame header is not a JPEG: the signature is FF D8 FF, shared with signatureType. */
+  const sof = Buffer.from([0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x07, 0x00, 0x0d, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+  const fake = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.from('this is a text file, not a picture'), sof]);
+  assert.equal(attachments.imageFacts(fake), null);
+  assert.equal(attachments.signatureType(fake), null);
+  const rec = attachments.save('agent', 'april', { name: 'fake.jpg', type: 'image/jpeg', bytes: fake });
+  assert.match(attachments.wireNote(attachments.read(rec.id)), /\/fake\.jpg \(unknown type, \d+ bytes\)\]$/);
 });
 
 test('#5448: a JPEG with stray padding between segments is still read', () => {
   const jpg = bytesOf('base.jpg');
-  const padded = Buffer.concat([jpg.subarray(0, 2), Buffer.from([0x00, 0x00]), jpg.subarray(2)]);
+  const after = 4 + jpg.readUInt16BE(4);   // the end of the first segment after the start marker
+  const padded = Buffer.concat([jpg.subarray(0, after), Buffer.from([0x00, 0x00]), jpg.subarray(after)]);
   assert.deepEqual(attachments.imageFacts(padded), { type: 'image/jpeg', width: 13, height: 7 });
 });
 
