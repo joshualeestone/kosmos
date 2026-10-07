@@ -1232,6 +1232,7 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
       outcome: OUTCOME.REFUSED,
       because: verdict.absent
         ? `${spoken} has no startup unit in systemd (${task}), so there is nothing to change and we have not changed it.`
+        : verdict.masked ? `${spoken} is not changed: ${verdict.because}.`   // #5445: read and found masked, not unreadable
         : `we could not read ${spoken}'s startup unit in systemd (${verdict.because}), so we have not changed it.`,
     };
   }

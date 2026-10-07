@@ -192,7 +192,10 @@ function enableLinger() {
    undefined when it cannot be read. */
 function lingerFileOn() {
   if (typeof process.getuid !== 'function') return undefined;
-  try { return fs.existsSync(path.join('/var/lib/systemd/linger', os.userInfo().username)); } catch { return undefined; }
+  // A test never reads the host's linger (a Linux runner's would decide the wording), as enableLinger (review 24).
+  if (require('./live-execution').inTestProcess()) return undefined;
+  try { fs.statSync(path.join('/var/lib/systemd/linger', os.userInfo().username)); return true; }
+  catch (e) { return e && e.code === 'ENOENT' ? false : undefined; }   // only a proven absence is "off"
 }
 
 /* A value written into a unit file. systemd expands "%" specifiers in most directives and "$" in ExecStart, unescapes

@@ -56,6 +56,13 @@ machine.agentAutostartCheck passes the platform it was asked about; board tests 
 (server.world-offline-rows-1704, server.world-switch-agents-1704, server.offline-nextmove, server.socket-split) pin
 'darwin' with create.setProbePlatformForTests (found by a sweep for every test faking launchctl list/print-disabled).
 The lane run of this branch is compared, file by file, with the lane run of B's head (6a819cbde).
+- Review 3: worldstarts passes its platform to the disabled probe; createdroster.test.js's harness pins 'darwin'. The
+  class is now MEASURED, not swept: every engine test file that loads a changed module is run with process.platform
+  forced to 'linux', on B's head and on this branch, and the failing tests compared; the Linux lane run of each head is
+  compared by failing file (B's head: 446 failing tests in 63 files on 2026-10-07).
+- The board's offline row on Linux: switched off says systemd (not System Settings), a masked agent says masked with
+  the unmask command, and the self-starts clause uses selfStartsSentence. lingerFileOn reads only a proven absence as
+  off (an unreadable record is unknown) and never reads the host's record in a test process.
 - The masked sentence quotes the unit name (a named Kosmos's \x2b escape survives a paste) and says the agent is set up
   again after unmasking (unmasking removes the link and leaves no unit).
 
