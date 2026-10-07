@@ -102,7 +102,14 @@ function boardWithUnseenAgent(launchctlListStdout) {
   return JSON.parse(out);
 }
 
-test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', () => {
+
+/* #5432: on a Linux host an agent's job is a systemd user unit, so the launchd fixture below finds no agent there.
+   Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
+const LINUX_LAUNCHD = process.platform === 'linux'
+  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'it fakes the running job through a launchd plist and launchctl list; a Linux board finds agents from systemd units: linux-parity-5445.test.js (runningJobs reads the active units). The pill itself is drawn the same on every platform and stays covered on macOS and Windows' }
+  : {};
+
+test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', LINUX_LAUNCHD, () => {
   const status = boardWithUnseenAgent('PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n');
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row, 'the agent fell out of the roster entirely');
@@ -144,7 +151,7 @@ function renderOffline(which, a) {
     (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
 
-test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
+test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', LINUX_LAUNCHD, () => {
   const status = boardWithUnseenAgent('PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n');
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row && row.jobRunningUnseen === true, 'no unseen row to render; the route half of this fix regressed');
