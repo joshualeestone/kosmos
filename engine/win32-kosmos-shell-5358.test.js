@@ -9,6 +9,8 @@
  *   - PowerShell with the flags Claude Code's tool passes (a premise from #570, not measured here): finds and runs
  *     kosmos.ps1 under a Restricted policy;
  *   - Codex's `powershell -Command`: refused under Restricted WITHOUT the variable (the control), runs WITH it.
+ * And #5385's arm: under the CI step's PowerShell 7, a 5.1 given the inherited PSModulePath cannot load the Security
+ * module (control), while childEnv's env (which drops PSModulePath for every runner) can.
  * Plus pure arms (any OS) for what this card fixes: every name childEnv and the per-turn envs remove or set is matched
  * whatever its case (engine/win32env.js).
  *

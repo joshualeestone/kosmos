@@ -22,8 +22,13 @@ beside PowerShell scripts refused after a machine policy reset.
   one-key line, unchanged.
 - Measured on PR #5384's windows job (10-06 04:30): the Git Bash arm passed; the policy arm failed in its own setup,
   because the CI step's PowerShell 7 module path stopped Windows PowerShell 5.1 loading Set-ExecutionPolicy. The arms
-  now drop PSModulePath, which models a board started by Explorer or its logon task. NOT MODELLED: a board started from
-  a PowerShell 7 terminal, which would pass that path to its agents' PowerShell 5.1 (a gap stated, not measured: #5385).
+  now drop PSModulePath, which models a board started by Explorer or its logon task. #5385 is FOLDED IN: a board started
+  from a PowerShell 7 terminal passed pwsh 7's PSModulePath to its agents' 5.1, which then could not load
+  Microsoft.PowerShell.Security (Renet's measurement, run 37541077642). DECIDED: childEnv deletes PSModulePath in any
+  spelling for every runner (deleted, not set: 5.1 rebuilds its default from machine and user values). Tests: a unit
+  test in win32launch.test.js (every runner, three spellings, control), and a fourth Windows arm in
+  win32-kosmos-shell-5358.test.js (control: the inherited path breaks 5.1; fix: childEnv's env works for every runner),
+  which ran and passed on Windows run 37640906989.
 - New Windows-runner arms measure each shell: Git Bash, run as Claude Code's tool runs it (`bash -c`), finds `kosmos`
   on the agent's PATH (control: not without it; a red says whether it was the PATH or the shim); PowerShell with the flags Claude Code passes (taken from #570, not measured here) finds kosmos.ps1 and runs it under a Restricted policy; codex's `powershell -Command`
   is refused without the variable (control) and runs with it.
@@ -33,7 +38,8 @@ beside PowerShell scripts refused after a machine policy reset.
 ## Scope
 - This branch covers childEnv and the per-turn envs in win32agy and win32keyed. Other modules that copy process.env and
   delete or set a name by its exact spelling (create, subscription, orgchartfile, grokaccounts, boardrestart,
-  codexsigninlive) are card #5386.
+  codexsigninlive) are card #5386; add win32codex.runCodexTurn's process.env fallback (no childEnv when opts.env is
+  absent; production passes env through win32codexsup) to that list (review 20).
 
 ## Weakest premise
 That windows-latest (Server, admin) answers the same as a person's Windows 11 laptop for these shells.

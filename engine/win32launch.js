@@ -165,8 +165,9 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
   if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
     envSet(env, 'PSExecutionPolicyPreference', 'Bypass');   // one key, whatever case it arrived in (#5358)
   }
-  /* #5385: EVERY runner's PowerShell is Windows PowerShell 5.1 (codex, gemini, grok and antigravity run powershell.exe,
-     and Claude Code's PowerShell tool is 5.1 too). A board started from a PowerShell 7 terminal inherits pwsh 7's
+  /* #5385: the PowerShell runners (codex, gemini, grok, antigravity) run Windows PowerShell 5.1 (powershell.exe). Claude
+     Code's PowerShell tool being 5.1 too is a premise from #570, not measured here; the delete is harmless either way,
+     since pwsh 7 also rebuilds its own path when the variable is unset. A board started from a PowerShell 7 terminal inherits pwsh 7's
      PSModulePath, and a 5.1 shell given it cannot load Microsoft.PowerShell.Security (execution policy, Get-Acl, the
      Cert: drive) or Get-FileHash (measured on the Windows CI runner, run 37541077642). Deleted, not set: unset, 5.1
      rebuilds its own default from the machine and user values; what is lost is only a module path added in the
