@@ -667,7 +667,8 @@ function boardCredentialPaths(deps = {}) {
     }
   } catch { /* the files above */ }
   for (const h of accountConfigHomes(home)) files.push(path.join(h, 'settings.json'), path.join(h, 'settings.local.json'));
-  const dirs = [sendertoken.DIR, ...roots.map((r) => path.join(r, 'sendertokens'))];
+  // The undo stores too (the guard read- and write-denies them): a record must never move or replace undo's own files.
+  const dirs = [sendertoken.DIR, ...roots.flatMap((r) => [path.join(r, 'sendertokens'), path.join(r, 'undo'), path.join(r, 'undo-saved')])];
   let raw = null;
   try { raw = fs.readFileSync(listFile, 'utf8'); } catch (err) { if (!err || err.code !== 'ENOENT') throw new Error('the token-only list could not be read'); }
   if (raw !== null) {

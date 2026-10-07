@@ -242,3 +242,45 @@ test('#4491 review 6: a folder swapped for a link into a token-only agent .claud
   assert.deepEqual(r.skipped.find((x) => x.path === f), { path: f, why: 'moved' });
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
 });
+
+test('#4491 review 7: the check right before the rename is pinned on its own, and move-aside is checked too', () => {
+  undo.setOn(true, ms('08:00'));
+  const me = worker('ud-late');
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['ud-late'] }));
+  const guard = path.join(me, '.claude');
+  fs.mkdirSync(guard, { recursive: true });
+  fs.writeFileSync(path.join(guard, 'settings.json'), '{"guard":true}');
+  const sub = path.join(me, 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+  const f = path.join(sub, 'settings.json');
+  fs.writeFileSync(f, '{"sandbox":false}'); const t9 = new Date(ms('09:00')); fs.utimesSync(f, t9, t9);
+  const made = path.join(sub, 'made.txt');   // created by the agent in the task: undo moves it aside
+  const file = taskchat.taskChatFile('lt', 1);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [{ at: T('10:00'), kind: 'created', who: 'ud-late' }, { at: T('11:00'), kind: 'closed' }].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  assert.deepEqual(undo.keep(f, { cwd: me, session: 's', now: ms('10:10') }), { kept: true });
+  assert.deepEqual(undo.keep(made, { cwd: me, session: 's', now: ms('10:12') }), { kept: true });
+  fs.writeFileSync(f, '{"edited":1}'); const t10 = new Date(ms('10:11')); fs.utimesSync(f, t10, t10);
+  fs.writeFileSync(made, 'agent made this'); const t13 = new Date(ms('10:13')); fs.utimesSync(made, t13, t13);
+  // Restore: the swap happens AFTER the first check, with the restored bytes already in a temp beside the file.
+  undo._setBeforeWriteForTests((p, stage) => { if (stage === 'rename' && p === f) { fs.renameSync(sub, sub + '.was'); fs.symlinkSync(guard, sub); } });
+  let r;
+  try { r = undo.apply('lt', { number: 1, closedAt: T('11:00') }, [f], { now: ms('12:00') }); } finally { undo._setBeforeWriteForTests(null); }
+  assert.deepEqual(r.skipped.find((x) => x.path === f), { path: f, why: 'protected' }, 'the late check did not refuse');
+  assert.equal(fs.readFileSync(path.join(guard, 'settings.json'), 'utf8'), '{"guard":true}', 'the guard settings were rewritten');
+  assert.deepEqual(fs.readdirSync(guard).filter((n) => n.startsWith('.kosmos-undo-')), [], 'restored bytes landed in the guarded folder');
+  // Named residual: a folder RENAMED under the temp takes the temp with it, so it stays in the agent's own (renamed)
+  // folder holding the agent's own earlier content (never a credential, never in the guarded folder).
+  const left = fs.readdirSync(sub + '.was').filter((n) => n.startsWith('.kosmos-undo-'));
+  assert.ok(left.length <= 1 && left.every((n) => fs.readFileSync(path.join(sub + '.was', n), 'utf8') === '{"sandbox":false}'),
+    'something other than the agent\'s own kept content was left behind: ' + JSON.stringify(left));
+  fs.unlinkSync(sub); fs.renameSync(sub + '.was', sub);
+  // Move-aside: a created file whose folder is swapped for the guard folder at the start is refused, nothing moved.
+  fs.writeFileSync(path.join(guard, 'made.txt'), 'the guard folder file');
+  undo._setBeforeWriteForTests((p, stage) => { if (stage === 'start' && p === made) { fs.renameSync(sub, sub + '.was'); fs.symlinkSync(guard, sub); } });
+  try { r = undo.apply('lt', { number: 1, closedAt: T('11:00') }, [made], { now: ms('12:05') }); } finally { undo._setBeforeWriteForTests(null); }
+  assert.deepEqual(r.skipped.find((x) => x.path === made), { path: made, why: 'protected' }, 'move-aside went through the link');
+  assert.equal(fs.readFileSync(path.join(guard, 'made.txt'), 'utf8'), 'the guard folder file', 'a file in the guarded folder was moved');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+});

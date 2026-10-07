@@ -425,7 +425,7 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
     const cur = nowIs(f.path);
     if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
     try {
-      beforeWrite(f.path);                                 // tests only: change the world at exactly this point
+      beforeWrite(f.path, 'start');                        // tests only: change the world at exactly this point
       folderStillSafe(f.path, rec, protectedSet);          // before anything is written or saved aside (review 6)
       mkdirPrivate(savedIn);
       const keepAs = path.join(savedIn, sha(Buffer.from(f.path)).slice(0, 16) + '-' + path.basename(f.path));
@@ -442,13 +442,18 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
           if (sha(fs.readFileSync(f.path)) !== sha(fs.readFileSync(keepAs))) throw new Error('save differs');
         }
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
+        /* The temp's REAL place, taken before it is written: a folder swapped afterwards must not stop it being
+           removed from where it really is (review 7). */
+        let tmpReal = tmp;
+        try { tmpReal = path.join(fs.realpathSync(path.dirname(tmp)), path.basename(tmp)); } catch { tmpReal = tmp; }
         try {
           fs.copyFileSync(blobPath, tmp, fs.constants.COPYFILE_EXCL);
           if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
+          beforeWrite(f.path, 'rename');                   // tests only
           folderStillSafe(f.path, rec, protectedSet);       // again right before the rename (review 6)
           fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
         } catch (err) {
-          try { fs.unlinkSync(tmp); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
+          try { fs.unlinkSync(tmpReal); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
           throw err;
         }
       }
