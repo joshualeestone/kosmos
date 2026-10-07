@@ -695,15 +695,48 @@ test('#5431: a save that fails at the flush leaves no temp file behind', async (
   fresh();
   await on();
   agentPost('tmq', { topic: 't', body: 'u' });
-  const realSync = fs.fsyncSync;
+  // Aimed at a sent.json save (the record the card is about), not whichever save flushes first.
+  const realSync = fs.fsyncSync, realOpen = fs.openSync;
+  const opened = new Map();
   let failed = 0;
-  fs.fsyncSync = (fd) => { if (!failed) { failed += 1; const e = new Error('EIO: i/o error, fsync'); e.code = 'EIO'; throw e; } return realSync(fd); };
-  try { await cs.sweep(); } finally { fs.fsyncSync = realSync; }
-  assert.equal(failed, 1, 'control: a flush failed');
+  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => {
+    if (!failed && /sent\.json\.[0-9a-f]+\.tmp$/.test(opened.get(fd) || '')) { failed += 1; const e = new Error('EIO: i/o error, fsync'); e.code = 'EIO'; throw e; }
+    return realSync(fd);
+  };
+  try { await cs.sweep(); } finally { fs.fsyncSync = realSync; fs.openSync = realOpen; }
+  assert.equal(failed, 1, 'control: a sent.json flush failed');
   const tmps = [];
   const walk = (d) => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); if (fs.statSync(p).isDirectory()) walk(p); else if (n.endsWith('.tmp')) tmps.push(p); } };
   walk(path.dirname(cs._paths.stateFile()));
   assert.deepEqual(tmps, [], 'a failed save left its temp file');
+});
+
+test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP) still saves, and the post goes', async () => {
+  for (const code of ['EINVAL', 'ENOTSUP']) {
+    fresh();
+    await on();
+    const r = agentPost('nfs', { topic: code, body: 'no flush here' });
+    const realSync = fs.fsyncSync;
+    let refused = 0;
+    fs.fsyncSync = () => { refused += 1; const e = new Error(code); e.code = code; throw e; };
+    try { await cs.sweep(); } finally { fs.fsyncSync = realSync; }
+    assert.ok(refused > 0, `control (${code}): flushes were refused`);
+    assert.equal(cs.statuses()[r.id].state, 'sent', `${code}: an unsupported flush stopped the save`);
+  }
+});
+
+test('#5431: a large all-NUL record is torn; one with content past its first 4 KB is not', async () => {
+  for (const [bytes, resets] of [[Buffer.alloc(5000), true], [Buffer.concat([Buffer.alloc(4096), Buffer.from('{"x":1}')]), false]]) {
+    fresh();
+    await on();
+    fs.mkdirSync(path.dirname(cs._paths.sentFile()), { recursive: true });
+    fs.writeFileSync(cs._paths.sentFile(), bytes);
+    await cs.sweep();
+    const now = fs.readFileSync(cs._paths.sentFile());
+    if (resets) assert.equal(typeof JSON.parse(now.toString('utf8')), 'object', 'a 5000-byte zero-filled record was not reset');
+    else assert.ok(now.equals(bytes), 'a record with content past 4 KB was reset');
+  }
 });
 
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {

@@ -112,7 +112,8 @@ function saveJson(file, data) {
     const fd = fs.openSync(tmp, 'w', FILE_MODE);
     try {
       fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n');
-      fs.fsyncSync(fd);
+      // A file system that does not support a flush at all (some network or FUSE mounts) is not a failed save.
+      try { fs.fsyncSync(fd); } catch (e) { if (!e || (e.code !== 'EINVAL' && e.code !== 'ENOTSUP')) throw e; }
     } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
   } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
@@ -126,9 +127,15 @@ function saveJson(file, data) {
    torn file (keys.json above all: resetting it would give every agent a second public name) stays unreadable, and
    sending stays paused until a person repairs it. Runs only inside an exclusive section, so no writer races it. */
 function torn(file) {
-  let raw;
-  try { raw = fs.readFileSync(file); } catch { return false; }
-  return raw.length === 0 || raw.every((b) => b === 0);
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return false; }
+  try {
+    const size = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(Math.min(size, 4096));
+    fs.readSync(fd, head, 0, head.length, 0);
+    if (!head.every((b) => b === 0)) return false;           // the common case: real content, one small read
+    return size <= head.length || fs.readFileSync(file).every((b) => b === 0);
+  } catch { return false; } finally { fs.closeSync(fd); }
 }
 function repairTornRecords() {
   const records = [sentFile(), commentsSentFile()].filter(torn);
