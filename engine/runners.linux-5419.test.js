@@ -32,7 +32,7 @@ test('#5419: Linux Codex is the linux build for the CPU, pinned to the registry 
   assert.equal(arm.url, 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz');
   assert.equal(arm.binInPackage, 'vendor/aarch64-unknown-linux-musl/bin/codex');
   assert.equal(arm.arch, 'arm64');
-  assert.equal(x64.version, runners.manifestFor('openai', 'darwin', 'arm64').version, 'the same pinned release as the Mac');
+  assert.equal(x64.version, '0.149.1', 'the pinned release (literal, not read off the Mac entry)');
 });
 
 test('#5419: Linux Grok is the linux build for the CPU, laid out as the Mac one (bin/grok.br to bin/grok-native)', () => {

@@ -301,17 +301,25 @@ const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
     downloadBytes: 118078094,
   }),
 }));
+/* The layout is stated per entry (as GROK_WIN32 and CODEX_LINUX do), read from these tarballs, so a change to the Mac
+   base cannot move the Linux one. */
 const GROK_LINUX = Object.freeze(Object.assign(Object.create(null), {
   x64: Object.freeze({
     arch: 'x64',
     url: 'https://registry.npmjs.org/@xai-official/grok-linux-x64/-/grok-linux-x64-1.0.41.tgz',
     integrity: 'sha512-5KS0AMeGYQh3++0EEZPKVjAcalFQma8K5SKMhBu1k1OVNpA/lO+fRgecS1/kOsLaGaPDPfQm611Z+a5J9dLfAg==',
+    brotliFrom: 'bin/grok.br',
+    binInPackage: 'bin/grok-native',
+    binName: 'grok',
     downloadBytes: 49179836,
   }),
   arm64: Object.freeze({
     arch: 'arm64',
     url: 'https://registry.npmjs.org/@xai-official/grok-linux-arm64/-/grok-linux-arm64-1.0.41.tgz',
     integrity: 'sha512-6g8fHFwKb/jdo3XTGXMiA5FrzzUi6q5nKtT3+eXNbNKGtMOmN4t7NNh+IK3S6FlWcG+slL1Po2YDaNgMZ6swqg==',
+    brotliFrom: 'bin/grok.br',
+    binInPackage: 'bin/grok-native',
+    binName: 'grok',
     downloadBytes: 44233139,
   }),
 }));
@@ -1348,22 +1356,14 @@ function install(provider, opts) {
    */
   const refuse = (because) => ({ ...blankJob(), phase: 'failed', because });
 
-  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
-     Splinter's ruling 2026-09-01): the pinned runners are darwin builds (e.g.
-     codex-...-darwin-arm64.tgz), so on any other OS an install would download a Mac
-     binary that cannot run. Refuse BEFORE any bytes move, in the job shape the
-     screen already reads. This is the gate (refuse), NOT the Option C fix -- it
-     fetches no Windows build, so no part of Windows is made to look functional.
-     `o.platform` is the test seam (defaults to process.platform); the polished
-     user-facing wording is the operator's to refine (see engine/platform.js). */
-  /* #5419: Claude on Linux and Windows is installed by connect.download (checksum-verified per platform), not here,
-     so 'claude' keeps the darwin-only canDownloadRunner on purpose; provider runners on Linux are #5419 slice 2. */
-  /* 📌 openai reads its OWN list (canDownloadCodex: darwin + win32), because OpenAI
-     publishes a Windows Codex build and it is pinned above. Every other arm keeps the
-     darwin-only canDownloadRunner, including Claude's Mac-shaped link path. The
-     sentence is for a person: it names the thing and says nothing moved. */
-  /* Gemini and Grok read their own list too (canDownloadKeyedRunner: darwin + win32), since
-     their Windows builds are pinned above (GROK_WIN32; Gemini's bundle is one tarball). */
+  /* The platform gate (first a macOS-only gate, Splinter's ruling 2026-09-01): a runner installs only where a build
+     for that OS is pinned above, so no OS is handed another's binary. Refuse BEFORE any bytes move, in the job shape
+     the screen already reads; the sentence names the thing and says nothing moved. `o.platform` is the test seam.
+     - openai reads canDownloadCodex (darwin, win32, linux: CODEX_WIN32, CODEX_LINUX).
+     - gemini and grok read canDownloadKeyedRunner (darwin, win32, linux: GROK_WIN32, GROK_LINUX; Gemini's bundle is
+       one tarball).
+     - claude keeps the darwin-only canDownloadRunner on purpose: its link path here is Mac-shaped, and on Linux and
+       Windows Claude Code installs through connect.download, checksum-verified per platform (#5419). */
   const allowed = provider === 'openai'
     ? platformGate.canDownloadCodex(plat)
     : (provider === 'gemini' || provider === 'grok')
