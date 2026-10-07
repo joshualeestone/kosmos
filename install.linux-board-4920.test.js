@@ -48,7 +48,7 @@ test('#4920 setup.sh writes no systemd unit of its own (one unit: piece B\'s)', 
 });
 
 test('#4920 the install snippet passes KOSMOS_HOME and the port, and says lingering or not', () => {
-  const lb = standIn(`exports.loadedBoardJob = (home) => ({ ok: true, active: require('fs').existsSync(home + '/active') }); exports.installBoard = (home, port) => { require('fs').writeFileSync(${JSON.stringify(path.join(WORK, 'args'))}, JSON.stringify([home, port])); return { ok: true, lingering: home.endsWith('L') }; };`);
+  const lb = standIn(`exports.boardUnitPath = (home) => home + '/unit'; exports.loadedBoardJob = (home) => ({ ok: true, active: require('fs').existsSync(home + '/active') }); exports.installBoard = (home, port) => { require('fs').writeFileSync(${JSON.stringify(path.join(WORK, 'args'))}, JSON.stringify([home, port])); if (require('fs').existsSync(home + '/unit')) require('fs').writeFileSync(home + '/unit', 'new text'); return { ok: true, lingering: home.endsWith('L') }; };`);
   let r = run(installSnippet, [lb, '/home/u/kosmosL', '16180']);
   assert.equal(r.status, 0);
   assert.equal(r.stdout, 'loose lingering', 'systemd not running it: loose');
@@ -59,7 +59,10 @@ test('#4920 the install snippet passes KOSMOS_HOME and the port, and says linger
   const held = fs.mkdtempSync(path.join(WORK, 'held-'));
   fs.writeFileSync(path.join(held, 'active'), '');
   r = run(installSnippet, [lb, held, '16180']);
-  assert.equal(r.stdout, 'held not lingering', 'systemd already running it: held');
+  assert.equal(r.stdout, 'held not lingering', 'systemd already running it, no unit before: held');
+  fs.writeFileSync(path.join(held, 'unit'), 'old text');
+  r = run(installSnippet, [lb, held, '16180']);
+  assert.equal(r.stdout, 'held-changed not lingering', 'systemd running it and the update rewrote its unit: held-changed');
 });
 
 test('#4920 the install snippet exits non-zero with systemd\'s reason, for a refusal and for a throw', () => {
@@ -132,10 +135,10 @@ function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units =
   for (const u of units) fs.writeFileSync(path.join(unitDir, u), '');
   return { root, home, bin, unitDir, restarts: () => { try { return fs.readFileSync(path.join(root, 'kosmos.log'), 'utf8'); } catch { return ''; } } };
 }
-function runBlock(block, w, { off = 'no' } = {}) {
+function runBlock(block, w, { off = 'no', shell = '/bin/sh' } = {}) {
   const script = OPTS + 'info() { printf "INFO %s\\n" "$*"; }\n_kosmos_off_why() { printf "(set off)"; }\n'
     + '_kosmos_board_decide() { :; }\n_kosmos_board_off=' + off + '\nPORT=16180\n' + block;
-  return spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir } });
+  return spawnSync(shell, ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir } });
 }
 
 test('#4920 install: linger on hands the board to systemd and says it starts with the computer', () => {
@@ -151,7 +154,7 @@ test('#4920 install: linger off says it stops at logout and names the loginctl l
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(w.restarts(), '', 'without linger the hand-off would make the board die at logout');
-  assert.match(r.stdout, /stops when you log out: linger is off/);
+  assert.match(r.stdout, /running now and will start itself when you log in, but not at boot: linger is off/);
   assert.match(r.stdout, /loginctl enable-linger /);
   assert.doesNotMatch(r.stdout, /starts when this computer starts/);
 });
@@ -217,7 +220,7 @@ test('#4920 install: a board systemd already runs (an update) is not bounced a s
 });
 
 test('#4920 install: a launcher tmux pick is not written into the unit', () => {
-  const lb = standIn(`exports.loadedBoardJob = () => ({ ok: true, active: true }); exports.installBoard = () => { process.stdout.write('[' + (process.env.AGENT_WORKFORCE_TMUX_BIN || '') + ']'); return { ok: true, lingering: true }; };`);
+  const lb = standIn(`exports.boardUnitPath = () => '/nonexistent/u'; exports.loadedBoardJob = () => ({ ok: true, active: true }); exports.installBoard = () => { process.stdout.write('[' + (process.env.AGENT_WORKFORCE_TMUX_BIN || '') + ']'); return { ok: true, lingering: true }; };`);
   let r = spawnSync(process.execPath, ['-', lb, '/h', '16180'], { input: installSnippet, encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_TMUX_BIN: '/bundle/tmux', KOSMOS_TMUX_BIN_PICKED: '1' } });
   assert.equal(r.stdout, '[]held lingering', 'a launcher pick reached installBoard');
   r = spawnSync(process.execPath, ['-', lb, '/h', '16180'], { input: installSnippet, encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_TMUX_BIN: '/usr/bin/tmux', KOSMOS_TMUX_BIN_PICKED: '' } });
@@ -240,8 +243,41 @@ test('#4920 install: a hand-off that does not bring the board back is said, with
   let w = world({ nodeOut: 'loose lingering', restartRc: 1 });
   let r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, 'a failed hand-off must not stop the install: ' + r.stderr);
-  assert.match(r.stdout, /did not come back when handed over just now\. Start it with: kosmos start/);
+  assert.match(r.stdout, /did not confirm it is running\. Check with: kosmos status, and if it is not running: kosmos start/);
   w = world({ nodeOut: 'loose lingering' });
   r = runBlock(INSTALL_BLOCK, w);
-  assert.doesNotMatch(r.stdout, /did not come back/, 'CONTROL: a hand-off that worked says nothing extra');
+  assert.doesNotMatch(r.stdout, /did not confirm/, 'CONTROL: a hand-off that worked says nothing extra');
+});
+
+test('#4920 install: an update that changed the unit restarts the board systemd runs, once; unchanged, it does not', () => {
+  let w = world({ nodeOut: 'held-changed not lingering' });
+  let r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(w.restarts(), /^restart --force$/m, 'a changed unit was not applied to the running board');
+  assert.match(r.stdout, /linger is off/, 'the linger sentence reads the second word after held-changed');
+  w = world({ nodeOut: 'held not lingering' });
+  r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(w.restarts(), '', 'CONTROL: an unchanged unit is not bounced');
+  assert.match(r.stdout, /linger is off/);
+  w = world({ nodeOut: 'held-changed lingering' });
+  r = runBlock(INSTALL_BLOCK, w, { off: 'yes' });
+  assert.equal(w.restarts(), '', 'a board set off is never restarted, changed unit or not');
+});
+
+test('#4920 the install and uninstall blocks behave the same under dash (Ubuntu sh) when it is present', (t) => {
+  const dash = ['/usr/bin/dash', '/bin/dash', '/opt/homebrew/bin/dash', '/usr/local/bin/dash'].find((f) => fs.existsSync(f));
+  if (!dash) { t.skip('no dash on this host (the Linux runner sh is dash, which runs every test above)'); return; }
+  let w = world({ nodeOut: 'loose lingering' });
+  let r = runBlock(INSTALL_BLOCK, w, { shell: dash });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /start itself when this computer starts/);
+  assert.match(w.restarts(), /^restart --force$/m);
+  w = world({ nodeOut: 'held-changed not lingering', restartRc: 1 });
+  r = runBlock(INSTALL_BLOCK, w, { shell: dash });
+  assert.match(r.stdout, /did not confirm it is running/);
+  assert.match(r.stdout, /linger is off/);
+  w = world({ app: false, units: ['kosmos-board.service'] });
+  r = runBlock(UNINSTALL_BLOCK, w, { shell: dash });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /app code or runtime is missing/);
 });

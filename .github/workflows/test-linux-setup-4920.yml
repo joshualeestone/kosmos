@@ -52,8 +52,10 @@ jobs:
           echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
 
       - name: Execute install/setup.sh
+        # sh, not bash: people run curl ... | sh, and on Ubuntu sh is dash, so the installer is tested in the shell it
+        # really meets (the bash 3.2 parse is covered on the Mac by install.linux-board-4920.test.js).
         run: |
-          bash install/setup.sh
+          sh install/setup.sh
 
       - name: Verify installed pieces
         run: |
@@ -121,7 +123,7 @@ jobs:
 
       - name: Test uninstall
         run: |
-          bash install/setup.sh --uninstall
+          sh install/setup.sh --uninstall
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test ! -f "$UNIT_FILE"
           # The enable link is what a failed disable leaves behind (the file is deleted either way).
@@ -130,11 +132,11 @@ jobs:
       - name: Test custom KOSMOS_HOME unit derivation
         run: |
           CUSTOM_HOME="$HOME/custom-kosmos"
-          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh
+          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" sh install/setup.sh
           # B's name rule: sha256 of the resolved path, first 8 hex (CUSTOM_HOME is already absolute and clean).
           HASH=$(printf '%s' "$CUSTOM_HOME" | sha256sum | cut -c1-8)
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.${HASH}.service"
           test -f "$UNIT_FILE"
           grep -qF "Environment=\"KOSMOS_HOME=$CUSTOM_HOME\"" "$UNIT_FILE"
-          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh --uninstall
+          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" sh install/setup.sh --uninstall
           test ! -f "$UNIT_FILE"
