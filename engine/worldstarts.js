@@ -274,7 +274,7 @@ function actSucceeded(act) {
  * Both answer for THIS Kosmos only: `disabledJobs` names this world's agents, and the
  * task name is this world's key.
  */
-function switchedOffOnMac(platform) { return platform === 'win32' || platform === 'linux' ? null : create.disabledJobsResult(); }
+function switchedOffOnMac(platform) { return platform === 'win32' || platform === 'linux' ? null : create.disabledJobsResult(undefined, platform); }   // #5445: the platform asked about, not the host's
 function jobSwitchState(name, platform, macOff) {
   if (platform === 'win32') {
     /* The task's own definition, not the LIST text (win32-agent-job-read round 2):
