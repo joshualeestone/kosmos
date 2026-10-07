@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: qhhide-5467
-diff_hash: b70e7c5d35f5925dfba1dc1297a26c85f50be6a8e8ed3ba181cba17f23608ff7
-validation: rebased on origin/main 2026-10-07 05:45 CDT; tools/test-queued-heavy-4977.sh 99/99 (one earlier run had one BAD in an unchanged #5331 capper arm under load 3, passed on rerun); tools/test-light-side-4911.sh, test-pw-version-assert.sh, test-browser-gate-cut-claim-1398.sh pass; bash -n clean; full suite on CI
+diff_hash: e26dea79fe333082b288443546d9c4f7723be978a406d49d8f74e5d8df25e58d
+validation: rebased 2026-10-07 09:0x CDT onto main 61caea933 (after #5474, #5446); rebased on origin/main 2026-10-07 05:45 CDT; tools/test-queued-heavy-4977.sh 99/99 (one earlier run had one BAD in an unchanged #5331 capper arm under load 3, passed on rerun); tools/test-light-side-4911.sh, test-pw-version-assert.sh, test-browser-gate-cut-claim-1398.sh pass; bash -n clean; full suite on CI
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-07T10:46:14Z
+timestamp: 2026-10-07T14:05:11Z
 iterations: 8
 converged: true
 ---
