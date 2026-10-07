@@ -30,7 +30,8 @@ card can make it a setting.
   rule is picked (controls).
 - web.tasks-view-3559.test.js: the group order and label, the colour token, the row label, the project room card.
 - engine/assigner.test.js also: a lone scheduled task does not stop the goal ask and is not counted as a webhook task.
-- docs/browser-checks/render-onhold-4771.js: new checks: the tile count, its rows (with the control), Unassigned leaving it out (with the control).
+- docs/browser-checks/render-onhold-4771.js: new checks: the tile count, its rows (with the control), Unassigned leaving it out (with the control),
+  the project room card saying On a schedule, and Nobody yet while its project is paused (review 3: the card reads p.paused).
 - engine/tasks.state-3559.test.js also: held wins over scheduled.
 - docs/browser-checks/render-tasks-view-3559.js: the pinned tile keys/labels and the consolidated tile count (now 8).
 Both engine tests fail with the engine/assigner change removed (measured).

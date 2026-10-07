@@ -116,6 +116,28 @@ function chk(ok, label, extra) {
       chk(sched.includes('Check the price list') && !sched.includes('Pick a supplier'), `${tag} On a schedule shows it, and not the ordinary unassigned task (control)`, JSON.stringify(sched));
       const nobody = await tileRows(page, 'nobody');
       chk(nobody.includes('Pick a supplier') && !nobody.includes('Check the price list'), `${tag} Unassigned leaves the scheduled task out, and keeps the control`, JSON.stringify(nobody));
+      // #5456: the project room's task card says the same; in a paused project the task is held, so not "On a schedule".
+      const roomWho = async (pid, sentence) => {
+        await page.evaluate((id) => tskGoToProject(id), pid);
+        await page.waitForSelector('#pj-tasklist', { state: 'visible', timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(300);
+        return page.evaluate((want) => {
+          const card = [...document.querySelectorAll('#pj-tasklist .tkcard, #pj-tasklist li, #pj-tasklist > *')].find((c) => c.textContent.includes(want));
+          const w = card && card.querySelector('.tkcard-who-b');
+          return w ? w.textContent.trim() : null;
+        }, sentence);
+      };
+      const rw1 = await roomWho(watch.id, 'Check the price list');
+      chk(rw1 === 'On a schedule', `${tag} the project room card says On a schedule for it`, String(rw1));
+      projects.edit(watch.id, { paused: true });                 // briefly, from this process (the board's own store)
+      await page.reload({ waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      const rw2 = await roomWho(watch.id, 'Check the price list');
+      chk(rw2 === 'Nobody yet', `${tag} with its project paused the task is held, so its card does not say On a schedule`, String(rw2));
+      projects.edit(watch.id, { paused: false });
+      await page.reload({ waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.evaluate(() => showTab('tasks'));
 
       /* A task put on hold from its page. */
       await openTask(page, launch.id, 1);

@@ -18221,7 +18221,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Assigner</h3>
       <div class="setrow" id="asg-row" style="margin-top:14px;">
         <div><b>Turn your goals into assigned work</b>
-          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has not told Kosmos it is still holding work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first. If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a few toward it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has not told Kosmos it is still holding work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first (not a repeating task, which its schedule runs). If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a few toward it.</p></div>
         <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" hidden><i></i></button>
       </div>
       <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
@@ -58994,7 +58994,7 @@ function paintProjectTasks(p) {
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
       // Held (the task, or its paused project) wins, as in the Tasks view (tasks.taskState).
-      who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && t.projectPaused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
+      who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
          row per part -- including an unassigned one, "Nobody yet" per part
