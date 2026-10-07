@@ -132,7 +132,21 @@ test('#5448: a record whose path is a FIFO is told from the record, never opened
   const fifo = path.join(dir, 'pipe.png');
   execFileSync('mkfifo', [fifo]);
   const note = attachments.wireNote({ kind: 'image', type: 'image/gif', size: 42, file: fifo });
-  assert.equal(note, ' [attached file: ' + fifo + ' (unknown type, 42 bytes)]');
+  assert.equal(note, ' [attached file: ' + fifo + ' (image/gif, 42 bytes)]', 'not read, so the stored type is told, not contradicted');
+});
+
+test('#5448: signatures need more than their first bytes, and only zero padding is skipped', () => {
+  assert.equal(attachments.signatureType(Buffer.concat([Buffer.from('RIFF\x00\x00\x00\x00WEBP', 'latin1'), Buffer.from('text, not a chunk')])), null, 'RIFF WEBP with no VP8 chunk');
+  assert.equal(attachments.signatureType(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0x41]), Buffer.from('text after a fake start')])), null, 'FF D8 FF then no JPEG marker');
+  const jpg = bytesOf('base.jpg');
+  const after = 4 + jpg.readUInt16BE(4);
+  assert.equal(attachments.imageFacts(Buffer.concat([jpg.subarray(0, after), Buffer.from('junk'), jpg.subarray(after)])), null, 'non-zero bytes between segments');
+});
+
+test('#5448: a file that was not read keeps its stored image type', () => {
+  const rec = attachments.save('agent', 'april', { name: 'x.bin', type: 'image/jpg', bytes: bytesOf('base.jpg') });
+  assert.equal(attachments.read(rec.id).kind, 'other', 'image/jpg is not an image kind, so the bytes are not read');
+  assert.match(attachments.wireNote(attachments.read(rec.id)), /\/x\.bin \(image\/jpg, \d+ bytes\)\]$/);
 });
 
 test('#5448: a JPEG with stray padding between segments is still read', () => {
