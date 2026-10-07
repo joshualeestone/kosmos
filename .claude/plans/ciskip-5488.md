@@ -46,10 +46,15 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
   skipped suite ONLY with a numeric run id to reuse, and prints that run's URL.
 - `tools.shell-shard-4317.test.js`: `test` now needs `[scope, suite]`.
 - `tools/test-ci-plans-only-reuse-5488.sh` (in test:shell): real git repo; the gh stub refuses unless asked
-  for green pull_request test.yml runs of the branch with their age; 25 decision arms; the wiring parsed as YAML; the REAL `test`
-  step body run with each input (a skip is green only with scope success and a numeric id).
+  for green pull_request test.yml runs of the branch with their age; 24 decision arms; the wiring parsed as YAML; the REAL `test`
+  step body run with each input (a skip is green only with scope success and a numeric id); the REAL decide step
+  body run in a scratch clone whose origin/main holds the decider (reuse, no base copy, and push).
   Measured red: non-plans arm loosened, 2 failures; `--no-renames` dropped, 1 (the move); `--status success` dropped,
   2 (the stub refuses, so the reuse controls fail).
+
+## Cost
+- `suite` now waits for the ubuntu `scope` job on every PR run. Its checkout is full history with no file contents
+  (`filter: blob:none`), so it is seconds, not the ~340 MiB full clone.
 
 ## Weakest premises
 - A pull_request run tests the merge with main AS IT WAS. Reusing it skips re-testing this head against a main that

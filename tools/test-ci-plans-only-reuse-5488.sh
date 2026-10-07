@@ -121,8 +121,8 @@ if command -v ruby >/dev/null 2>&1; then
     t = j["test"]["steps"].find { |x| x["env"] && x["env"]["REUSE"] }
     raise "test reads REUSE" unless t && t["env"]["REUSE"] == "${{ needs.scope.outputs.reuse }}"
     raise "test reads the scope result" unless t["env"]["SCOPE_RESULT"] == "${{ needs.scope.result }}"
-    File.write(ARGV[1], t["run"])
-  ' "$WF" "$T/test-step.sh" 2>"$T/rb.err"; then
+    File.write(ARGV[1], t["run"]); File.write(ARGV[2], d["run"])
+  ' "$WF" "$T/test-step.sh" "$T/decide-step.sh" 2>"$T/rb.err"; then
     pass "test.yml wiring (parsed): decider from the base branch via env, suite skips only on a named run"
     # Run the REAL `test` step body with each input: a skip passes only with scope success and a numeric id.
     step() { SUITE_RESULT="$1" SCOPE_RESULT="$2" REUSE="$3" RUN_BASE=x bash "$T/test-step.sh" >/dev/null 2>&1; }
@@ -133,6 +133,27 @@ if command -v ruby >/dev/null 2>&1; then
       else pass "test step stays red: suite=$1 scope=$2 reuse='${3:-}'"; fi
     done
     step success success "" && pass "test step: suite success is green" || fail "test step: success must pass"
+    # Run the REAL decide body in the scratch repo, with origin/main holding this branch's decider: a
+    # broken ref or path there would leave the feature silently dead (it fails toward running).
+    H="$(commit_change .claude/plans/b-pre-challenge.md)"
+    dcommit="$(cd "$R" && \
+      blob="$(git hash-object -w "$SUBJECT")" && \
+      tree="$(printf '100644 blob %s\tci-plans-only-reuse.sh\n' "$blob" | git mktree)" && \
+      top="$(printf '040000 tree %s\ttools\n' "$tree" | git mktree)" && \
+      git -c user.name=t -c user.email=t@t commit-tree "$top" -m decider)"
+    git -C "$R" update-ref refs/remotes/origin/main "$dcommit"
+    decide_step() { # <base ref> -> the reuse= value the body wrote
+      : > "$T/gho"
+      (cd "$R" && PATH="$T/bin:$PATH" STUB_GH_OUT="77 $BASE 60" EVENT_NAME="${2:-pull_request}" HEAD_SHA="$H" HEAD_REF=br \
+        BASE_REF="$1" RUNNER_TEMP="$T" GITHUB_OUTPUT="$T/gho" bash "$T/decide-step.sh" >/dev/null 2>&1)
+      sed -n 's/^reuse=//p' "$T/gho"
+    }
+    out="$(decide_step main)"
+    [ "$out" = 77 ] && pass "decide step (real body): base main holds the decider, plans-only change: reuse=77" || fail "decide step must write reuse=77, got '$out'"
+    out="$(decide_step nope)"
+    [ -z "$out" ] && pass "decide step: no decider on the base ref: reuse empty (the suite runs)" || fail "missing base copy must leave reuse empty, got '$out'"
+    out="$(decide_step main push)"
+    [ -z "$out" ] && pass "decide step: on push it never decides (main always runs)" || fail "push must leave reuse empty, got '$out'"
   else
     fail "test.yml wiring: $(cat "$T/rb.err" | head -2)"
   fi

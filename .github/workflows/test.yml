@@ -78,11 +78,13 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # #5488: a pull_request push that changed ONLY plain plan files under .claude/plans/ since the newest
-  # green run on this head BRANCH whose suite actually ran (a proof or plan commit) reuses that run's verdict instead of taking three macOS runners. The
-  # decision and its reasons are in tools/ci-plans-only-reuse.sh; it prints nothing on any doubt, and
-  # nothing means the suite runs. Never on push: main always runs (#4021). Measured on #5488: about 4%
-  # of runs, at a time the macOS queue was 19 deep.
+  # #5488: a pull_request push that changed ONLY plain plan files under .claude/plans/ (a proof
+  # or plan commit) since the newest green run on this head BRANCH whose suite actually ran reuses
+  # that run's verdict instead of taking three macOS runners. The decision and its reasons are in
+  # tools/ci-plans-only-reuse.sh; it prints nothing on any doubt, and nothing means the suite runs.
+  # Never on push: main always runs (#4021). Measured on #5488: about 4% of runs, at a time the
+  # macOS queue was 19 deep. Cost: the suite now waits for this ubuntu job (a treeless checkout,
+  # seconds); a failed or timed-out scope job still runs the suite.
   scope:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -92,10 +94,13 @@ jobs:
     outputs:
       reuse: ${{ steps.decide.outputs.reuse }}
     steps:
+      # Full history but no file contents: the decider diffs trees (--raw needs no blobs), and the
+      # one blob `git show` reads is fetched on demand. Keeps the job the suite waits on short.
       - uses: actions/checkout@v4
         if: ${{ github.event_name == 'pull_request' }}
         with:
           fetch-depth: 0
+          filter: blob:none
       - id: decide
         name: reuse an earlier green verdict? (plans-only change)
         # Values arrive through env, never pasted into the script: a branch name can hold shell syntax.
@@ -106,9 +111,10 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
-        # The decider runs from the BASE branch, never from this PR's checkout: a PR that edits the
-        # decider must not be judged by its own edited copy. No copy on the base (the PR that adds it,
-        # or a fetch problem) means nothing to run, and the suite runs.
+        # The decider runs from the BASE branch, never from this PR's checkout, so a PR's own mistake
+        # in the decider cannot skip that PR's suite. (Not a security boundary: a PR can edit this
+        # workflow too.) No copy on the base (the PR that adds it, or a fetch problem) means nothing
+        # to run, and the suite runs.
         run: |
           reuse=""
           if [ "$EVENT_NAME" = pull_request ] &&
@@ -245,12 +251,14 @@ jobs:
             echo "$line" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # #4317: the one check named `test`, as it always was: green only when every suite job is green.
+  # #4317: the one check named `test`, as it always was: green when every suite job is green, or
+  # (#5488) when the suite was skipped because scope succeeded and named a green run to reuse, which
+  # it prints. Any other skip is red.
   # !cancelled(), not always(): a failed shard still gives a red `test`. A superseded run shows its
   # suite jobs as cancelled and `test` as SKIPPED. No check is required on this repo today (see the
   # top of this file); if `test` is ever made required, note that GitHub counts a skipped job as
   # passing.
-  # It runs no tests, only reads needs.suite.result, so it is on ubuntu-latest on purpose: the
+  # It runs no tests, only reads needs.suite and needs.scope, so it is on ubuntu-latest on purpose: the
   # macOS rule above is for the suite, and a fourth macOS runner per run would be waste.
   test:
     needs: [scope, suite]
