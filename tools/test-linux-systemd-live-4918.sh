@@ -58,6 +58,11 @@ cleanup() {
   systemctl --user stop kosmos-agent-testagent4918.service >/dev/null 2>&1 || true
   systemctl --user disable kosmos-agent-testagent4918.service >/dev/null 2>&1 || true
   rm -f "$HOME/.config/systemd/user/kosmos-agent-testagent4918.service" || true
+  # review 25: the create/restart/remove step's unit, if that step failed partway
+  systemctl --user stop kosmos-agent-livecreate4918.service >/dev/null 2>&1 || true
+  systemctl --user disable kosmos-agent-livecreate4918.service >/dev/null 2>&1 || true
+  rm -f "$HOME/.config/systemd/user/kosmos-agent-livecreate4918.service" || true
+  tmux kill-session -t livecreate4918 >/dev/null 2>&1 || true
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   tmux kill-session -t testagent4918 >/dev/null 2>&1 || true
 
