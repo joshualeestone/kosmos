@@ -41,9 +41,9 @@ function flushedBeforeRename(events, target) {
     'the temp renamed into ' + path.basename(target) + ' was never flushed before the rename: ' + JSON.stringify(events));
 }
 
-/* A pid with no process: the highest pid the OS hands out is far below this. Checked, not assumed. */
+/* A pid with no process: the highest pid the OS hands out is far below this. Checked in each arm
+   that relies on it, not assumed. */
 const DEAD_PID = 2147483646;
-assert.throws(() => process.kill(DEAD_PID, 0), (e) => e.code === 'ESRCH');
 
 function scratch(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acct5434-'));
@@ -66,6 +66,7 @@ for (const [name, mod] of [['claude', claude], ['grok', grok], ['gemini', gemini
     const dir = path.join(scratch(t), 'acct');
     fs.mkdirSync(dir);
     mod.storeKey(dir, 'sk-kept');
+    assert.throws(() => process.kill(DEAD_PID, 0), (e) => e.code === 'ESRCH');
     const base = mod.keyFile(dir) + '.kosmos-';
     const dead = base + DEAD_PID + '-t0-1-1.tmp';      // a writer that died between create and rename
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -118,6 +119,10 @@ test('#5434: settings.json keeps the mode it had, never writable by others; a ne
   fs.chmodSync(settings, 0o666);
   claude.unwireApiKeyHelper(settings);
   assert.equal(fs.statSync(settings).mode & 0o777, 0o644, 'a world-writable settings.json stayed writable by others');
+  fs.chmodSync(settings, 0o400);
+  claude.wireApiKeyHelper(settings, root);
+  assert.equal(fs.statSync(settings).mode & 0o777, 0o600, 'an owner-unwritable settings.json stayed that way');
+  assert.equal(JSON.parse(fs.readFileSync(settings, 'utf8')).theme, 'dark', 'another setting was lost');
   const fresh = path.join(root, 'fresh', 'settings.json');
   const prev = process.umask(0o022);
   try { claude.wireApiKeyHelper(fresh, root); } finally { process.umask(prev); }

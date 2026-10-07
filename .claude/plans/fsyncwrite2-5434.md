@@ -28,12 +28,12 @@ writes, not renames), and the other files the card lists.
     cleanup stays for temps an older version left.
   - After three failed atomic attempts writeSecret falls back to an in-place write; main threw. That is
     the fallback every other secret already has, and a refused flush never reaches it.
-  - `settings.json` keeps its existing mode masked to 0644 (no group or other write, no execute): it holds `apiKeyHelper`, a
-    command Claude Code runs, and writeSecret sets a mode exactly (no umask), so a 0666 file would
-    otherwise have stayed 0666 where main's fresh temp brought it back to 0644. On main every save
-    went through a fresh temp at the umask default, so a 0600 file became 0644, though the docblock
-    already said "mode-preserving". A new one is 0600: writeSecret sets the mode exactly, so a fixed looser default would override a
-    tighter umask, and only this user's Claude Code reads it.
+  - `settings.json` mode. writeSecret sets a mode exactly (no umask), so it is chosen here:
+    - an existing file keeps its mode, with owner read and write always set and no write or execute
+      for others (`(mode & 0o644) | 0o600`). It holds `apiKeyHelper`, a command Claude Code runs. On
+      main every save took the umask default: a 0600 file became 0644, a 0666 one 0644.
+    - a new file is 0600: a fixed looser default would override a tighter umask, and only this
+      user's Claude Code reads it.
 - **Cost:** about 8 ms per save on this Mac (slice 1's measurement). These saves happen once per key
   entered or account wired, not in a loop.
 
@@ -46,8 +46,8 @@ writes, not renames), and the other files the card lists.
 - each `forgetKey` removes a dead writer's writeSecret temp and leaves a live one (a child process
   the test starts and keeps alive); fails when the reap call is removed;
 - wire and unwire flush settings.json before its rename (fails on main);
-- settings.json keeps 0600 and 0644, a 0666 one comes back 0644 (fails with the mask removed), other
-  settings are kept, and a new one is 0600 under umask 022 (fails on main).
+- settings.json keeps 0600 and 0644, a 0666 one comes back 0644 (fails with the mask removed), a
+  0400 one comes back 0600 (fails without the owner bits), other settings are kept, and a new one is 0600 under umask 022 (fails on main).
 Locally: 153 files (the account and securewrite tests plus every repo-wide meta test), 4101 tests, 0 fail.
 
 ## Weakest premise
