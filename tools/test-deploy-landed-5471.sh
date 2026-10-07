@@ -96,6 +96,8 @@ out="$(run_step8 1 aaa111 1)"; rc=$?
 case "$out" in *"THE DEPLOY LANDED"*"DEPLOYED=1") ok "CLI failed, this cut's build served from the 2nd check: continues to DEPLOYED=1 (rc=$rc)" ;; *) bad "landed: rc=$rc out=$out" ;; esac
 [ "$rc" = 0 ] || bad "landed: the block should finish 0, got $rc"
 [ "$(sort -u "$T/curl.urls")" = "https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && [ "$(fetches)" = 2 ] && ok "it asked HOST for this cut's tarball .sha256, twice, then stopped" || bad "landed fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ') x$(fetches)"
+# A regression guard, not coverage of today's code (which never names verify-served.sh in step 8):
+# it stops the full verifier creeping back into the landed check.
 [ ! -f "$T/step8count" ] && ok "landed: step 8 does not run the full verifier; step 9 does, as after a CLI success" || bad "landed: the verifier ran in step 8"
 
 out="$(run_step8 1 bbb222)"; rc=$?
@@ -105,7 +107,8 @@ case "$out" in *"DEPLOYED="*) bad "earlier attempt: DEPLOYED was reached" ;; *) 
 out="$(run_step8 1 none)"; rc=$?
 [ "$rc" = 1 ] && ok "CLI failed and nothing served: exits with the CLI's code (1)" || bad "never served: rc=$rc"
 case "$out" in *"DEPLOYED="*) bad "never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "never served: DEPLOYED is never set, so the trap still restores and removes the tarball" ;; esac
-case "$out" in *"may still land"*"THIS cut's build is sha256 aaa111"*"https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"not seen served"*) ok "never served: the message says it may still land, records this cut's sha, names the served URL to compare, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
+case "$out" in *"THIS cut's build is sha256 aaa111; the served copy is https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"not served anyway"*) bad "the sha line came after polling" ;; *"THIS cut's build is sha256 aaa111; the served copy is https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"(#5471: not served yet, check 1"*) ok "this cut's sha and the URL to compare are printed BEFORE the poll (an interrupted wait still leaves the record)" ;; *) bad "sha record missing or after the poll (out=$out)" ;; esac
+case "$out" in *"may still land"*"compare the served .sha256 with this cut's sha"*"aaa111"*"not seen served"*) ok "never served: the message says it may still land, points at the recorded sha, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
 [ "$(fetches)" = 3 ] && ok "never served: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "never served: asked $(fetches) times"
 
 out="$(run_step8 7 none)"; rc=$?
@@ -114,7 +117,8 @@ out="$(run_step8 7 none)"; rc=$?
 out="$(run_step8 143 aaa111)"; rc=$?
 [ "$rc" = 143 ] && [ "$(fetches)" = 0 ] && ok "a deploy killed by a signal (143) fails at once, without polling" || bad "signal: rc=$rc fetches=$(fetches)"
 
-out="$(run_step8 1 aaa111 0 x3)"; rc=$?
+out="$(run_step8 1 aaa111 0 x3 2>&1)"; rc=$?
+case "$out" in *"KOSMOS_DEPLOY_LANDED_TRIES must be a whole number from 1 to 9999, got 'x3'"*"nothing was deployed"*) ok "the refusal names the variable, the allowed range and that nothing was deployed" ;; *) bad "bad override message: $out" ;; esac
 [ "$rc" = 1 ] && [ ! -f "$T/vercel.called" ] && ok "a mistyped KOSMOS_DEPLOY_LANDED_TRIES is refused BEFORE vercel deploy runs" || bad "bad override: rc=$rc vercel called=$([ -f "$T/vercel.called" ] && echo yes || echo no)"
 
 out="$(run_step8 0 none)"; rc=$?

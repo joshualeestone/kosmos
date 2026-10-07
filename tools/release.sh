@@ -1609,14 +1609,15 @@ if [ "$_vdep_rc" != 0 ]; then
   # up to about 18 min if every fetch times out at -m 30). Not seen landing: DEPLOYED stays unset and the
   # trap restores, exactly as before.
   echo "   vercel deploy exited $_vdep_rc; checking whether this cut's build is served anyway before calling it a failure (#5471)"
+  # Recorded BEFORE the poll: an interrupted cut (Ctrl-C during the wait) runs the trap, which deletes the local copy.
+  _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null)"
+  echo "   THIS cut's build is sha256 ${_my_sha:-<unreadable>}; the served copy is ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served)."
   if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
        site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
     echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served kosmos-$V-arm64.tar.gz.sha256 is this cut's. Continuing as a successful deploy; step 9 verifies the rest (#5471)."
   else
-    _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null)"
     echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks. It may still land."
-    echo "   THIS cut's build is sha256 ${_my_sha:-<unreadable>} (the local copy is about to be removed, so this line is the record)."
-    echo "   Before any revert or re-cut: fetch ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 and compare it with that sha (equal: this cut landed late; different: another build of $V is served)."
+    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above (${_my_sha:-<unreadable>}). The local copy is about to be removed."
     echo "   This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; where a line below says \"never served\", read \"not seen served\"."
     exit "$_vdep_rc"
   fi
