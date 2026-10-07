@@ -5814,7 +5814,13 @@ function createAgentInner(opts) {
       const lj = require('./linuxjob');
       linuxLingering = linuxRun(() => lj.enableLinger()).lingering;
       const r = linuxRun(() => lj.start(name));
-      if (!(r && r.ok === true)) linuxStartWhy = String((r && (r.because || r.stderr)) || '').trim().split('\n')[0].slice(0, 200);
+      if (!(r && r.ok === true)) {
+        const raw = String((r && (r.stderr || r.because)) || '');
+        // review 20: an unreachable user manager gets a plain sentence, not systemd's own text.
+        linuxStartWhy = /Failed to connect to bus|No medium found|XDG_RUNTIME_DIR/i.test(raw)
+          ? 'this computer\'s user services are not reachable from Kosmos; log in to this computer once, or turn on linger'
+          : raw.trim().split('\n')[0].slice(0, 200);
+      }
       return Boolean(r && r.ok === true);
     }
     /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`
