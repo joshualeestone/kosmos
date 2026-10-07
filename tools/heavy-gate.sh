@@ -142,7 +142,8 @@ live_snapshot() {
 # argument after the shell's own options and their values (-o/-O NAME, also as the last letter of
 # a cluster like -eo NAME, and --rcfile FILE), for a
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
-# run (it only mentions the name), and neither is -n, a syntax check: prints nothing. Runs in a subshell with globbing off,
+# run (it only mentions the name), and neither is -n, a syntax check, nor a tools/queued-heavy.sh
+# waiter (#5470: when the first .sh word is queued-heavy.sh): prints nothing. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f

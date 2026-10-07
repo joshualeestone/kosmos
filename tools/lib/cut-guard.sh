@@ -24,6 +24,9 @@ unset _kosmos_cut_guard_lib_dir
 # a cluster like -eo NAME) and --rcfile/--init-file FILE, but never a cluster holding c (a command string,
 # which only mentions the script) or n (a syntax check, which never runs it). A few shapes that are not
 # runs also match (`bash -s <script>`, a script given as an option's value): all fail toward busy.
+# LC_ALL=C on that grep: the option class is written as letter RANGES (any letter but c and n), and ranges
+# are collation-dependent outside the C locale. A queued-heavy waiter needs no rule of its own here: its
+# command starts with tools/queued-heavy.sh, not with <script>, so it never matches.
 # NOT SEEN: a run whose script path contains a space, because pgrep prints it split at the space (the
 # guards this replaced had the same gap; tools/heavy-gate.sh does count it). Every checkout this fleet
 # cuts or tests from has a space-free path. This prints the
@@ -38,7 +41,7 @@ kosmos_running_lines() {   # <script path>
   re="${script//./\\.}"
   raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return 2
-  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +([-+][A-Za-bd-mo-z]*[oO] +[A-Za-z_]+|--(rcfile|init-file) +[^ ]+|[-+][A-Za-bd-mo-z]+|--[a-z][a-z-]*|--))* +([^ ]*/)?${re}( |$)" || true)"
+  lines="$(printf '%s\n' "$raw" | LC_ALL=C grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +([-+][A-Za-bd-mo-z]*[oO] +[A-Za-z_]+|--(rcfile|init-file) +[^ ]+|[-+][A-Za-bd-mo-z]+|--[a-z][a-z-]*|--))* +([^ ]*/)?${re}( |$)" || true)"
   [ -n "$lines" ] || return 1
   printf '%s\n' "$lines"
 }
