@@ -17,7 +17,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-/* #4920 (Splinter 18:53): setup.sh's own option line (setup.sh:102-103), not `set -euo pipefail`: these scripts run
+/* #4920 (Splinter 18:53): setup.sh's own option line (read from the file below), not `set -euo pipefail`: these scripts run
    under sh, which is dash on Linux, and dash refuses `set -o pipefail`; so the functions run here as they really
    run there (pipefail only under bash). */
 const SETUP_SH_OPTIONS = (() => {

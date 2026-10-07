@@ -1427,7 +1427,7 @@ if (!r || !r.ok) {
     file = lb.boardUnitPath(process.argv[3]);
     fs.rmSync(file, { force: true });
     fs.rmSync(path.join(path.dirname(file), 'default.target.wants', path.basename(file)), { force: true });
-    process.stdout.write(why + '; its unit file was deleted, so it will not start again');
+    process.stdout.write(why + '; its unit file was deleted, so it will not start again, though it may keep running until you log out or restart');
   } catch (e2) {
     process.stdout.write(why + (file ? '; remove it with: systemctl --user disable --now ' + path.basename(file) + ' and delete ' + file : ''));
   }
@@ -4071,6 +4071,7 @@ if [ "$(uname -s)" = "Linux" ]; then
     info "note: systemctl not available; Kosmos was started in background and will not start itself after a restart"
   else
     _lb_rc=0
+    _lb_handoff=ok
     _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>/dev/null
 let r;
 let held = false;
@@ -4094,7 +4095,11 @@ if (!r || !r.ok) { process.stdout.write('refused: ' + String((r && r.because) ||
 process.stdout.write((held ? (changed ? 'held-changed ' : 'held ') : 'loose ') + (r.lingering ? 'lingering' : 'not lingering'));
 BOARDEOF
 )" || _lb_rc=$?
-    if [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
+    if [ "$_lb_rc" -ne 0 ] && case "$_lb_out" in *"sandboxed board does not manage"*) true ;; *) false ;; esac; then
+      # A sandboxed run (AGENT_WORKFORCE_LAUNCH without a systemd folder of its own) never touches real systemd, by
+      # design; said as what it is, not as a failure.
+      info "sandboxed run: the systemd step was skipped on purpose"
+    elif [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
       info "Kosmos could not set itself to start with systemd: its setup step did not run ($KOSMOS_HOME/runtime/bin/node with $KOSMOS_HOME/app/engine/linuxboard.js)"
     elif [ "$_lb_rc" -ne 0 ]; then
       info "Kosmos could not set itself to start with systemd: ${_lb_out#refused: }"
@@ -4115,16 +4120,18 @@ BOARDEOF
           if [ "$_kosmos_board_off" != yes ] && ! "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1; then
             # restart fails when the old board would not stop, or the new one was slow to answer: never a quiet success.
             info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running. Check with: kosmos status, and if it is not running: kosmos start"
+            _lb_handoff=failed
           fi ;;
       esac
       _lb_out="${_lb_out#* }"
     fi
     if [ "$_lb_rc" -ne 0 ]; then
-      :
+      :   # said above
     elif [ "$_kosmos_board_off" = yes ]; then
       info "Kosmos will not start itself at login $(_kosmos_off_why)"
     elif [ "$_lb_out" = lingering ]; then
-      info "Kosmos will start itself when this computer starts"
+      # Not after a failed hand-off: the line above already said to check; a success-shaped close would contradict it.
+      [ "$_lb_handoff" = failed ] || info "Kosmos will start itself when this computer starts"
     else
       info "Kosmos is running now and will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so after a restart it stops when you log out. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
     fi
