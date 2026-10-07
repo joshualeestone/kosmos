@@ -323,7 +323,7 @@ const SCREENS = [
      its own (the community switch is off, so every card is the switch-off case). This screen STUBS
      /api/status (gone with it, via `after`) to set the rendered fields directly on a few agents, so
      it shows how the line LOOKS at desktop and phone; it does NOT exercise the server reader (the
-     unit tests cover that). Seeds the four states the card shows: a post today, one days ago, one
+     unit tests cover that). Seeds the four states the card shows: a post today, one a few days ago, one
      that never posted, and a held-only agent, which shows "No community posts yet" (the string the
      published-only reader produces, since a held post is not published). The held-only and
      never-posted seeds are the same rendered string by design. */
