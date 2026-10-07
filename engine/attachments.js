@@ -16,13 +16,18 @@
  * file's facts in parentheses (type, an image's pixel size, size on disk;
  * #5448) so the agent can tell a screenshot from a contract before
  * deciding to open it. Nothing else tells the agent where the folder is
- * (Mona Lisa, 2026-08-23: the who-you-work-for block is about the person; finding attachments it was not sent is a later card).
+ * (Mona Lisa, 2026-08-23: the who-you-work-for block is about the person;
+ * finding attachments it was not sent is a later card).
  *
  * ⚠️ A FILE FROM A PERSON IS BYTES, NOT A PROGRAM. The stored name is
  * sanitised to one path segment, the file is written with the bytes it
  * arrived with and never executed, served back with content-disposition
  * attachment and nosniff, and the preview is made by macOS's own renderer in
- * a subprocess with a timeout, never by parsing the file here.
+ * a subprocess with a timeout, never by decoding the file here. The one
+ * read of its bytes here (#5448, imageFacts) is a bounded header read of at
+ * most 256 KB for an image's signature and pixel size: fixed offsets and a
+ * length-walked JPEG segment list, every read bounds-checked, nothing
+ * decoded.
  *
  * The record on a message row, the shape the page draws against:
  *   attachment: { id, name, type, size, kind, url, preview }
@@ -227,6 +232,7 @@ function imageFacts(buf) {
       if (len < 2) return null;
       /* SOF0-SOF15, but not DHT (C4), JPG (C8) or DAC (CC), which share the range. */
       if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        if (len < 8) return null;   // a frame header too short to hold its size: damaged
         return ok('image/jpeg', buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5));
       }
       if (marker === 0xda || marker === 0xd9) return null;   // image data or the end before any frame header
@@ -319,7 +325,9 @@ function factsOf(r) {
     bracket per file, in the order they were attached, each with the file's
     facts (#5448) so the agent knows what it is before deciding to open it:
       [attached file: /…/shot.png (image/png, 1280x720, 312 KB)]
-    The path already ends with the file's name, so the name is not repeated. */
+    The path already ends with the file's name, so the name is not repeated.
+    Reads up to 256 KB of each image synchronously (at most MAX_PER_MESSAGE
+    files), on the send path. */
 function wireNote(recs) {
   const list = Array.isArray(recs) ? recs : (recs ? [recs] : []);
   return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')]').join('');
