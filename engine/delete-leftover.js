@@ -179,7 +179,9 @@ function trashCanTake(p, platform) {
       /* #5445: a Linux desktop makes its Trash on first use, so a missing one is made at the move (as the Mac's
          mkdir does); the volume is then its home's. Anywhere else a missing Trash still cannot take it. */
       if (!(e && e.code === 'ENOENT' && (platform || process.platform) === 'linux' && !process.env.AGENT_WORKFORCE_TRASH)) throw e;
-      t = fs.statSync(homeDir());
+      // The nearest folder that exists on the way to it: the volume the mkdir will make the Trash on (review 1).
+      let at = path.dirname(TRASH(platform));
+      for (;;) { try { t = fs.statSync(at); break; } catch (e2) { if (!(e2 && e2.code === 'ENOENT') || path.dirname(at) === at) throw e2; at = path.dirname(at); } }
     }
     if (!t.isDirectory()) return false;
     return fs.statSync(p).dev === t.dev;

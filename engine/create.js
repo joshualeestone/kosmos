@@ -3381,8 +3381,8 @@ function linuxDisabledJobsResult(r) {
   }
   return { ok: true, jobs: names };
 }
-function disabledJobs() {
-  const r = disabledJobsResult();
+function disabledJobs(platform) {
+  const r = disabledJobsResult(undefined, platform);
   return r.ok ? r.jobs : new Set();
 }
 
@@ -6099,10 +6099,11 @@ function selfStarts(platform, lingering) {
   if ((platform || process.platform) === 'linux' && lingering === false) return 'it starts itself while you are logged in to this computer and it is not removed';
   return SELF_STARTS;
 }
-function selfStartsSentence() {
+function selfStartsSentence(platform) {
+  const plat = platform || process.platform;
   let lingering;
-  if (process.platform === 'linux') { try { lingering = require('./linuxjob').lingerFileOn(); } catch { lingering = undefined; } }
-  const t = selfStarts(process.platform, lingering);
+  if (plat === 'linux') { try { lingering = require('./linuxjob').lingerFileOn(); } catch { lingering = undefined; } }
+  const t = selfStarts(plat, lingering);
   return t.charAt(0).toUpperCase() + t.slice(1) + '.';
 }
 
