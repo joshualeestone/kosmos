@@ -30,10 +30,6 @@
  */
 
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -141,7 +137,9 @@ function born(name) {
    it refuses to report a restart over a live agent. A fake that answers `ok: true` to
    everything therefore says the session survived, and every switch lands on the partial
    branch. This fake answers the way a real tmux does once the session is closed. */
-const fakeRun = (_file, args) => (Array.isArray(args) && args[0] === 'has-session'
+// #5500: and systemctl, as systemd answers it, for the Linux job (on a Mac it answers nothing and falls through).
+const systemd = jobfix.systemdStub();
+const fakeRun = (file, args) => systemd(file, args) || (Array.isArray(args) && args[0] === 'has-session'
   ? { ok: false, code: 1 }
   : { ok: true, stdout: '' });
 create.setRunner(fakeRun);
@@ -229,7 +227,7 @@ test('#1373 route: the PARTIAL branch names the account in the future tense', as
     'control: the partial branch no longer says what it used to, so the tense assertion above is not about the sentence it was written for: ' + r.body.because);
 });
 
-test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', LINUX_PLIST_5432, async () => {
+test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {
   const name = born('route-1373-picked');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
@@ -247,7 +245,7 @@ test('#1373 route: a PICKED account is named back, and the sentence says the per
     'the launch job did not get the account the answer named, so the sentence and the agent disagree');
 });
 
-test('#1373 route: an UNPICKED account still travels, and the sentence does NOT claim a choice', LINUX_PLIST_5432, async () => {
+test('#1373 route: an UNPICKED account still travels, and the sentence does NOT claim a choice', async () => {
   const name = born('route-1373-unpicked');
   const r = await switchTo(name, { provider: 'openai', account: ALPHA, picked: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -302,7 +300,7 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
    sign-in Kosmos can never live-check, then sit idle with no red. The route now
    says so in the sentence that names the account, so the person is not left
    staring at a grey "not checked live" badge with no idea why or what to do. */
-test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', LINUX_PLIST_5432, async () => {
+test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', async () => {
   const name = born('route-2790-signin');
   const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: true });
   assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
@@ -322,7 +320,7 @@ test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be veri
 /* The control that gives the assertion above its meaning: an API-KEY account IS
    live-checkable, so it must get NO warning. Without this, a note that fired for
    every OpenAI account would pass the arm above for the wrong reason. */
-test('#2790 route (OK branch, control): an API-key landing does NOT warn', LINUX_PLIST_5432, async () => {
+test('#2790 route (OK branch, control): an API-key landing does NOT warn', async () => {
   const name = born('route-2790-apikey-control');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -380,7 +378,7 @@ test('#2790 coupling: the note predicate matches checkLive treating a sign-in as
    the `runsOn` sentence whose wording DOES branch on `chosen` -- so an unpicked
    arm proves the note attaches to the "your OpenAI sign-in" (default) wording as
    well as the "you picked" wording, not just by reading the code. */
-test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', LINUX_PLIST_5432, async () => {
+test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async () => {
   const name = born('route-2790-signin-unpicked');
   const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -394,7 +392,7 @@ test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', LINUX_P
 });
 
 /* #5145: the route answers the OpenAI sign-in it landed on (openaiAccount's dir), resolved. */
-test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', LINUX_PLIST_5432, async () => {
+test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', async () => {
   const name = born('route-5145-openai');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));

@@ -33,3 +33,15 @@ the real check (a linux-ci-* push), and it runs before merge.
 
 ## Validation
 create.test.js on forced Linux and macOS as above; the file-scanning guards 67/0.
+
+## Slice 2: the server and create test files on the card
+The card's other 13 files (server.test.js and 12 more) skipped about 39 tests on Linux for #5500; all now run on
+forced Linux and pass on macOS (per-file counts: every file 0 skipped on both). test-support/jobfixture.js gains
+systemdStub(): a stand-in for systemd that remembers what it started and enabled and answers is-active, is-enabled,
+the unit listings and linger; anything else returns null, so on a Mac every call falls through to the test's own
+fake. Where a sentence differs by platform the macOS assertion is unchanged and Linux asserts its own sentence
+(setprovider-writes-2811: create.js 1283). offline-nextmove's child board pins linger on (in the child only), else its
+sentence would follow the host machine. Removed assertions 11, added 11, one for one.
+Residual: systemdStub reports a failure by returning { ok:false }, as these files' fakes do; create's real runner
+throws instead. Both reach the same result inside create's systemd wrapper.
+Not this slice: create.test.js's LINUX_UNIT_UNTESTED_WHY and LINUX_TASK_STUB_WHY skips (the card's comments).

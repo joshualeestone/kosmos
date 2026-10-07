@@ -42,10 +42,12 @@ const create = require('./engine/create');
 const accountenv = require('./engine/accountenv');
 const geminiAccounts = require('./engine/geminiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it asserts the plist's environment text; on Linux the account folder is the unit's Environment= line: GEMINI_CLI_HOME and GROK_HOME are NOT round-tripped through the unit on Linux yet: #5500" } : {};
+/* #5500: one environment variable's line in the job text, as this platform writes it: the plist's key and string, the
+   systemd unit's Environment= line (linuxjob.unitFor). `val` is matched verbatim. */
+const envLine = (key, val) => {
+  const v = val.replace(/[.]/g, '\\.');
+  return process.platform === 'linux' ? new RegExp('^Environment="' + key + '=' + v + '"$', 'm') : new RegExp('<key>' + key + '</key><string>' + v + '</string>');
+};
 
 // DRY_RUN for the whole file: createAgent must never spawn a real agent here. The
 // engine refuses to leave dry-run without an injected runner (setDryRun(false)
@@ -68,10 +70,10 @@ test('geminiStorageHome: a per-account dir gets .gemini appended; the default (n
   assert.equal(create.geminiStorageHome(null), create.defaultAgentGeminiHome(), 'the default account keeps ~/.gemini directly');
 });
 
-test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir VERBATIM, readJob reads it back', LINUX_PLIST_5432, () => {
+test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir VERBATIM, readJob reads it back', () => {
   const acct = nodePath.join(SANDBOX, '.gemini-rt');
   const xml = jobfix.jobFor('grt', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', acct, 'gemini');
-  assert.match(xml, new RegExp('<key>GEMINI_CLI_HOME</key><string>' + acct.replace(/[.]/g, '\\.') + '</string>'), 'GEMINI_CLI_HOME is the account dir with NO .gemini transform in the plist');
+  assert.match(xml, envLine('GEMINI_CLI_HOME', acct), 'GEMINI_CLI_HOME is the account dir with NO .gemini transform in the plist');
   const pp = jobfix.jobPath('grt');
   fs.mkdirSync(nodePath.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, xml);
@@ -83,10 +85,10 @@ test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir V
   assert.equal(create.geminiStorageHome(job.configDir), nodePath.join(acct, '.gemini'));
 });
 
-test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads it back', LINUX_PLIST_5432, () => {
+test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads it back', () => {
   const acct = nodePath.join(SANDBOX, '.grok-rt');
   const xml = jobfix.jobFor('xrt', '/bin/grok', '/bin/tmux', 'grok-4.6', acct, 'grok');
-  assert.match(xml, new RegExp('<key>GROK_HOME</key><string>' + acct.replace(/[.]/g, '\\.') + '</string>'));
+  assert.match(xml, envLine('GROK_HOME', acct));
   const pp = jobfix.jobPath('xrt');
   fs.mkdirSync(nodePath.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, xml);
@@ -96,8 +98,8 @@ test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads i
 });
 
 test('a DEFAULT-account gemini/grok agent writes NO account-env line (absent means the default)', () => {
-  // #5432: this runs on Linux too, where jobFor is the unit text: there it checks only that no account line is written
-  // (the unit writer would name GEMINI_CLI_HOME / GROK_HOME if it did); the present-case round trip is #5500.
+  // #5432: this runs on Linux too, where jobFor is the unit text: the unit writer would name GEMINI_CLI_HOME / GROK_HOME
+  // if it wrote an account line (the two round trips above check that it does for a named account).
   const g = jobfix.jobFor('gd', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', null, 'gemini');
   assert.ok(!g.includes('GEMINI_CLI_HOME'), 'a default gemini agent carries no GEMINI_CLI_HOME');
   const x = jobfix.jobFor('xd', '/bin/grok', '/bin/tmux', 'grok-4.6', null, 'grok');

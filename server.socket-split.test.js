@@ -33,13 +33,15 @@ const { execFileSync } = require('node:child_process');
 
 const REPO = __dirname;
 const create = require('./engine/create');
+const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job as this platform keeps it (plist / systemd unit)
 
 /**
  * A board with one created-looking agent (profile, folder, job) that has no
  * visible session, with launchd answering `list` as the caller says. Returns
- * the parsed /api/status.
+ * the parsed /api/status. #5500: on Linux the job is a systemd unit and systemd answers `list-units` (the active
+ * units) as the caller says instead.
  */
-function boardWithUnseenAgent(launchctlListStdout) {
+function boardWithUnseenAgent(launchctlListStdout, systemdActiveUnits) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-split-'));
   const profiles = nodePath.join(sb, 'data', store.APP, 'profiles');
   const launch = nodePath.join(sb, 'launch');
@@ -50,8 +52,8 @@ function boardWithUnseenAgent(launchctlListStdout) {
 
   fs.writeFileSync(nodePath.join(profiles, 'ghost.json'),
     JSON.stringify({ role: 'Researcher', displayName: 'Ghost' }));
-  fs.writeFileSync(nodePath.join(launch, 'com.kosmos.agent.ghost.plist'),
-    create.plistFor('ghost', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
+  fs.writeFileSync(jobfix.jobPathIn(launch, 'ghost'),
+    jobfix.jobFor('ghost', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -65,10 +67,14 @@ function boardWithUnseenAgent(launchctlListStdout) {
     // launchd's half of the disagreement, faked at the one seam every
     // launchctl read goes through. Anything that is not the fleet list
     // answers empty, so no probe touches the real launchd.
-    create.setProbePlatformForTests('darwin');   // #5445: launchd's arm on any runner (a Linux one asks systemctl)
+    // #5445: launchd's arm on any runner but Linux; #5500: a Linux board asks systemctl, answered below.
+    if (process.platform !== 'linux') create.setProbePlatformForTests('darwin');
     create.setRunner((file, args) => {
       if (/launchctl$/.test(String(file)) && args && args[0] === 'list') {
         return { ok: true, stdout: ${JSON.stringify(launchctlListStdout)} };
+      }
+      if (/systemctl$/.test(String(file)) && args && args[1] === 'list-units') {
+        return { ok: true, stdout: ${JSON.stringify(systemdActiveUnits || '')} };
       }
       return { ok: true, stdout: '' };
     });
@@ -95,6 +101,8 @@ function boardWithUnseenAgent(launchctlListStdout) {
       AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
       AGENT_WORKFORCE_LAUNCH: launch,
+      // #5500: the unit folder jobPathIn wrote to; a sandbox without one refuses every systemd call.
+      AGENT_WORKFORCE_SYSTEMD_DIR: nodePath.join(launch, 'systemd', 'user'),
       AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
     },
   });
@@ -103,15 +111,12 @@ function boardWithUnseenAgent(launchctlListStdout) {
 }
 
 
-/* #5432: on a Linux host an agent's job is a systemd user unit, so the job-dependent part of these tests (a plist
-   launchctl answers for) does not hold there.
-   Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
-const LINUX_LAUNCHD = process.platform === 'linux'
-  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'the job-dependent sentence or flag comes from a macOS plist and launchctl answers. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it.' }
-  : {};
+/* #5500: what launchd and systemd answer for a job that holds a live process, and for a parked one. */
+const RUNNING = ['PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n', `${require('./engine/linuxjob').unitName('ghost')} loaded active running x\n`];
+const PARKED = ['PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n', ''];
 
-test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', LINUX_LAUNCHD, () => {
-  const status = boardWithUnseenAgent('PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n');
+test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', () => {
+  const status = boardWithUnseenAgent(...RUNNING);
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row, 'the agent fell out of the roster entirely');
   assert.equal(row.jobRunningUnseen, true,
@@ -152,8 +157,8 @@ function renderOffline(which, a) {
     (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
 
-test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', LINUX_LAUNCHD, () => {
-  const status = boardWithUnseenAgent('PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n');
+test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
+  const status = boardWithUnseenAgent(...RUNNING);
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row && row.jobRunningUnseen === true, 'no unseen row to render; the route half of this fix regressed');
   for (const which of ['card', 'lrow']) {
@@ -164,7 +169,7 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
       which + ' still claims "Not running" about an agent launchd says is running');
   }
   /* Control: an ordinary stopped row keeps the pill it always had. */
-  const parked = (boardWithUnseenAgent('PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n').agents || [])
+  const parked = (boardWithUnseenAgent(...PARKED).agents || [])
     .find((a) => a.sessionName === 'ghost');
   for (const which of ['card', 'lrow']) {
     const html = renderOffline(which, parked);
@@ -173,8 +178,8 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
   }
 });
 
-test('#668 control: the same agent with a parked job keeps the plain not-running verdict', LINUX_LAUNCHD, () => {   // #5432: a control for the tests skipped above; alone on Linux it proves nothing
-  const status = boardWithUnseenAgent('PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n');
+test('#668 control: the same agent with a parked job keeps the plain not-running verdict', () => {
+  const status = boardWithUnseenAgent(...PARKED);
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row, 'the agent fell out of the roster entirely');
   assert.equal(row.jobRunningUnseen, false, 'a parked job was dressed in running-unseen');
