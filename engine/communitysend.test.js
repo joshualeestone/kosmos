@@ -712,8 +712,8 @@ test('#5431: a save that fails at the flush leaves no temp file behind', async (
   assert.deepEqual(tmps, [], 'a failed save left its temp file');
 });
 
-test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP) still saves, and the post goes', async () => {
-  for (const code of ['EINVAL', 'ENOTSUP']) {
+test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP, EISDIR) still saves, and the post goes', async () => {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EISDIR']) {
     fresh();
     await on();
     const r = agentPost('nfs', { topic: code, body: 'no flush here' });
