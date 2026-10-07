@@ -23,7 +23,11 @@ though the login item did bring Kosmos back by itself.
 - 120 s: a kickstart brings the board up in seconds; a mark older than that is from a start that never ran board-run.
 - Unknown keeps the timer, so Windows behaves exactly as before until its launcher says who started the board.
 - Weakest premise: that every supervised start on a Mac goes through board-run and every person's start through
-  `kosmos start`. The Mac app's own start (if it does not call `kosmos start`) would read as the supervisor.
+  `kosmos start`. Checked: the Mac app starts the board with `kosmos start` (native-app/main.swift startBoard), and
+  `kosmos start` returns before the kickstart (and before writing the mark) whenever the board is already running or
+  busy, so opening the app after the login item brought the board up leaves no mark. Left: a person who opens the app
+  in the few seconds while launchd's board is starting but not yet listening kickstarts it with the mark, so that
+  restart reads as a person's and makes no note: the safe direction (a missing note, never a false one).
 
 ## Verification
 - cli.startedby-5450: board-run with no mark says supervisor; a fresh mark says person and is consumed; a stale or
