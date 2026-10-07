@@ -21953,13 +21953,18 @@ function paintRebootNote(note) {
     + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
     + '</div>';
   const btn = slot.querySelector('.ux');
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
+    /* Emptied only once the board has recorded it, as the login notice repaints: an X that did not stick shows the
+       note still there, never a dead button. */
+    let ok = false;
+    try { const r = await fetch('/api/board/restart-note/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
+    if (!ok) return;
     slot.innerHTML = '';
-    fetch('/api/board/restart-note/dismiss', { method: 'POST' }).then((r) => r.text()).catch(() => { /* shown again next open */ });
     const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   });
 }
+let REBOOT_SEEN_START = null;
 async function rebootNoteCheck() {
   try {
     const res = await fetch('/api/board/restart-note', { cache: 'no-store' });
@@ -23986,6 +23991,12 @@ async function tick() {
     try { paintRestartScreen(false); } catch { /* the board answered; its own paint must go on */ }
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
+    /* #5359: a board that started again under an open page may have a restart note: ask again when its start time
+       moves (a page that watched the outage is the one most likely to want the note). */
+    if (data.engine && data.engine.startedAt) {
+      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) rebootNoteCheck();
+      REBOOT_SEEN_START = data.engine.startedAt;
+    }
     paintBuildLine(data.version);
     // #3330: stamp the update channel on <html> (kept for other callers/back-compat).
     // Prod-by-default (anything but 'staging'), matching the server's default.
@@ -40365,6 +40376,9 @@ async function whatsNewCheck() {
 }
 whatsNewCheck();
 rebootNoteCheck();   // #5359
+/* Asked again every ten minutes, so its time words stay true across midnight ("at 11:30 PM" becomes "yesterday at"),
+   and a note gone stale or dismissed elsewhere goes. */
+setInterval(rebootNoteCheck, 10 * 60 * 1000);
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');

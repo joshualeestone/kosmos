@@ -4,11 +4,11 @@
  * by itself (a field report: a Windows box blue-screened, everything came back in about seven minutes, and the person
  * wanted to see that without asking an agent).
  *
- * The board has no shutdown hook (a clean stop and a crash look the same from inside it), so this does not ask how
- * the last run ended. It asks the computer instead: the board writes when it was last alive, once a minute, and at the
+ * The board process has no shutdown hook, so it does not ask how the last run ended; `kosmos stop` removes the
+ * last-alive record instead (install/kosmos), so a deliberate stop never makes a note. It asks the computer: the board writes when it was last alive, once a minute, and at the
  * next start compares that with the computer's boot time (os.uptime()). A note is made only when both hold:
  *   - the board was alive within WINDOW_MS before this boot (it was running when the computer went down), and
- *   - this start is within WINDOW_MS after the boot (Kosmos came back with the computer, not when a person opened it).
+ *   - this start is within WINDOW_MS after the boot (it came back with the computer, not long after it).
  * A person who quit Kosmos yesterday and opened it after a restart gets no note: their last-alive time is old.
  * The words say "restarted", true of a crash and of a person's restart alike; nothing here can tell them apart.
  *
@@ -30,13 +30,13 @@ function readJson(file) {
   try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
 }
 function writeJson(file, data) {
+  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data) + '\n', { mode: 0o600 });
     fs.renameSync(tmp, file);
     return true;
-  } catch { return false; }
+  } catch { try { fs.unlinkSync(tmp); } catch { /* not there */ } return false; }
 }
 const ms = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? t : null; };
 

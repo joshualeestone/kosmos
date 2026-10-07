@@ -1363,6 +1363,16 @@ cmd_board_run() {
   exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" "$NODE" "$APP"
 }
 
+# #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
+# board_token reads. Never fails the command that calls it.
+_kosmos_clear_board_alive() {
+  local _node _storemod _root
+  _node="$(kosmos_engine_node 2>/dev/null)" || return 0
+  _storemod="$(kosmos_engine_module store)"
+  _root="$("$_node" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$_storemod" 2>/dev/null)" || return 0
+  [ -n "$_root" ] && rm -f "$_root/board-alive.json" 2>/dev/null
+  return 0
+}
 cmd_stop() {
   local pid
   if pid="$(running_pid)"; then
@@ -1372,6 +1382,9 @@ cmd_stop() {
     # clears it again. `:` truncates/creates the file with nothing in it -- its
     # presence is the whole signal.
     : > "$STOP_MARKER" 2>/dev/null || true
+    # #5359: a deliberate stop is not a restart under a running Kosmos, so the board's last-alive record goes too;
+    # otherwise stopping, restarting the computer and starting Kosmos within minutes would say it came back by itself.
+    _kosmos_clear_board_alive
     # #2956: under launchd supervision the marker is what makes a stop STICK -- a
     # missing marker (unwritable home, full disk) means launchd relaunches the
     # board within ThrottleInterval. Pre-#2956 a failed marker write was harmless,
