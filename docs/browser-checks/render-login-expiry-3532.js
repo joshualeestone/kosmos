@@ -1,3 +1,4 @@
+// Browser-check-surface: topnotes uabort-slot login-adv-slot
 'use strict';
 
 /**
@@ -298,6 +299,47 @@ const CASES = [
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     chk(await shown(), '5018: after a renewal, the same notice later shows again (the dismissal was forgotten)');
     chk(errs.length === 0, '5018: no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+  }
+
+  /* #5443 (Mona Lisa): two notices showing at once read as one column. The update-abort notice (long, it wraps at the
+     stack's cap) and a short login notice sit in different slots; on desktop both take the width of the wider, so their
+     left and right edges line up. CONTROL in the same page: centred instead of stretched (the old rule), the same two
+     notices are different widths, so the fixture really holds two notices whose own widths differ. */
+  {
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }];
+      data.updateAbort = { count: 2 };
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#login-adv-slot .utoast') && document.querySelector('#uabort-slot .utoast'),
+      null, { timeout: 12000 }).catch(() => {});
+    const edges = () => pg.evaluate(() => {
+      const a = document.querySelector('#uabort-slot .utoast'); const l = document.querySelector('#login-adv-slot .utoast');
+      if (!a || !l) return null;
+      const ra = a.getBoundingClientRect(); const rl = l.getBoundingClientRect();
+      return { abort: [ra.left, ra.right].map((x) => Math.round(x * 10) / 10), login: [rl.left, rl.right].map((x) => Math.round(x * 10) / 10) };
+    });
+    const now = await edges();
+    chk(!!now, '5443: CONTROL: the update-abort and login notices both render', JSON.stringify(now));
+    chk(!!now && Math.abs(now.abort[0] - now.login[0]) < 1 && Math.abs(now.abort[1] - now.login[1]) < 1,
+      '5443: on desktop the two notices share both edges (one column)', JSON.stringify(now));
+    const box = await pg.$('#topnotes');
+    if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-two-notices-5443.png') });
+    await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = 'center'; });
+    const centred = await edges();
+    chk(!!centred && Math.abs((centred.abort[1] - centred.abort[0]) - (centred.login[1] - centred.login[0])) >= 8,
+      '5443: CONTROL: centred instead, the same two notices are different widths (so the line-up above is the rule, not the text)', JSON.stringify(centred));
+    await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = ''; });
+    chk(errs.length === 0, '5443: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
   }
