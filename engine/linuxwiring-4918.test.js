@@ -340,3 +340,22 @@ test('#4918 review 21: a sandboxed board with no deliberate unit folder never ru
     linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
   }
 });
+
+test('#4918 review 22: a sandboxed board never runs systemctl against the real board unit', () => {
+  const linuxboard = require('./linuxboard');
+  linuxboard.setSystemdDirForTests(null);
+  const saved = { d: process.env.AGENT_WORKFORCE_SYSTEMD_DIR, l: process.env.AGENT_WORKFORCE_LAUNCH };
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-bsbx-'));
+  let reached = 0;
+  linuxboard.setRunnerForTests(() => { reached += 1; return { ok: true, stdout: '' }; });
+  try {
+    linuxboard.removeBoard();
+    assert.equal(reached, 0, 'a sandboxed board ran systemctl against the real board unit');
+  } finally {
+    fs.rmSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true, force: true });
+    for (const [k, v] of [['AGENT_WORKFORCE_SYSTEMD_DIR', saved.d], ['AGENT_WORKFORCE_LAUNCH', saved.l]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    linuxboard.setSystemdDirForTests(null);
+    linuxboard.setRunnerForTests(null);
+  }
+});

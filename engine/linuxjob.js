@@ -132,7 +132,8 @@ function unitPath(name, worldId) {
 /* Linger keeps user units running with nobody logged in; without it an agent stops at logout and does not start at
    boot. Returns whether linger is ON afterwards (read back, not assumed from the enable call). */
 function enableLinger() {
-  const u = process.env.USER || (typeof process.getuid === 'function' ? String(process.getuid()) : '');
+  // The numeric uid, never $USER: under su without -l or cron, USER can name another account (review 22).
+  const u = typeof process.getuid === 'function' ? String(process.getuid()) : '';
   try { runner('loginctl', u ? ['enable-linger', u] : ['enable-linger']); } catch { /* read back below */ }
   let r = null;
   try { r = runner('loginctl', u ? ['show-user', u, '-p', 'Linger'] : ['show-user', '-p', 'Linger']); } catch { r = null; }
