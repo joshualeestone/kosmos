@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: schedowner-5456
-diff_hash: 5987a49c79f31c710884ebe62c005cbbd59fdd3f061d786a29fb8ba00b0c0a36
-validation: with tools/run-tests.sh's env: every web.* test + assigner/tasks/taskrepeat tests + file-scanning guards 2669/0 (before round 2/3 fixes), and the three changed test files 63/0 after them; both browser-check gates rc 0; the two edited browser checks queued on the shared machine (not yet run at this proof); full suite on CI
+diff_hash: 46e9755f74bd7c1e8eea4dfbb7149fed2afa2475900ba8e0bad010335f961291
+validation: with tools/run-tests.sh's env: every web.* test + assigner/tasks/taskrepeat tests + file-scanning guards 2669/0 (before round 2/3 fixes), and the three changed test files 63/0 after them; both browser-check gates rc 0; render-onhold-4771 78/0 and render-tasks-view-3559 296/0 locally; full suite on CI
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-07T05:28:56Z
+timestamp: 2026-10-07T05:34:54Z
 iterations: 4
 converged: true
 ---
@@ -64,3 +64,6 @@ converged: true
 
 ### After convergence (a3e6572f4, browser-check file only)
 The local run of render-tasks-view-3559.js found two more pins of the old seven tiles (its count map and its badge list); both now expect the eighth tile. No product code changed. render-onhold-4771.js passed locally (78/0).
+
+### Screenshot entry (b608215ef, b75900be2, docs/browser-checks/mobile-shots.js only)
+Adds the tasks-scheduled screen for /design-shots: one repeating task with nobody on it, made once per run and reused by every size and theme, its rule cleared after each shot. 4 shots, 0 flagged. No product code changed.
