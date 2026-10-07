@@ -517,11 +517,14 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
       // #5382: a failover move goes back to the agent it was taken from. If that is refused (it has left the project
       // since), the part goes to nobody, as an ordinary give's does, rather than staying on an agent never told.
-      let back;
-      try { back = tasks.assignPart(projectId, n, partId, failoverFrom, { via: 'assigner', onlyIfWho: who }); }
-      catch (err) { back = { ok: false, because: String((err && err.message) || err) }; }
-      if (failoverFrom && !back.ok) back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
+      // Nothing reached the pane, so the slot is free again FIRST: a take-back that throws must not keep it (merge review).
+      require('./engine/agyquota').releaseCapStart(capSlot);
+      const takeBack = (to) => {
+        try { return tasks.assignPart(projectId, n, partId, to, { via: 'assigner', onlyIfWho: who }); }
+        catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
+      };
+      let back = takeBack(failoverFrom);
+      if (failoverFrom && !back.ok) back = takeBack(null);
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };

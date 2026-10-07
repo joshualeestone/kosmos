@@ -158,3 +158,15 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
 
 ## Not measured
 - A real rate-limited agent on a live board (the tests use the fleet fixture's Claude limit line).
+
+## Merge with main (#4588 ask 3, the Gemini subscription cap), 2026-10-06
+- Merged origin/main (175 commits) at d3ac60480: engine/agyquota.js and server.js conflicted with the cap. Resolved as
+  unions (the cap's noteCapStart beside this branch's movedTold; both export lists; the failover note passed through
+  the cap's try/catch around heardBy; the failover take-back beside the cap's slot release). 276 related tests green.
+- Merge-resolution blind review: correct, and one WARNING. The fallback take-back (to nobody) could throw before the
+  slot release, keeping a Gemini cap slot for up to three minutes (main's single take-back had the same hole). FIXED:
+  the slot is released first, and both take-backs are guarded, so a failure is reported in the 409, not thrown.
+- No test covered the cap on the failover path. ADDED server.assigner-failover-cap-5382.test.js: held when the cap is
+  full (with a working Gemini colleague, so it can fail), kept when reached, freed when unreached (back to its source,
+  or to nobody when the source has left), and freed when the take-back fails. Mutations: the old order reddens 1,
+  skipping the release on a failover reddens 3. 311 related tests and guards green.
