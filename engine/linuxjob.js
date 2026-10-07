@@ -83,7 +83,14 @@ let runnerFn = realRunner;
 /* #4918 review 6: a caller with its own command seam (remove.js's run: setRunner, dry run, the live gate) runs
    these ops through it, so a dry-run or sandboxed board never reaches the real user manager by unit name. */
 let runOverride = null;
+/* review 21: a SANDBOXED board (AGENT_WORKFORCE_LAUNCH, no deliberate AGENT_WORKFORCE_SYSTEMD_DIR) keeps its units where
+   systemd never reads them, and systemctl names units in the person's REAL user manager. It never acts on a unit by
+   name from a sandbox: that could re-enable a real removed agent of the same name. */
+function sandboxedWithoutSystemd() {
+  return Boolean(process.env.AGENT_WORKFORCE_LAUNCH) && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !systemdDirOverridden;
+}
 function runner(cmd, args) {
+  if (sandboxedWithoutSystemd()) return { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
   return runOverride ? runOverride(cmd, args) : runnerFn(cmd, args);
 }
 function runWith(fn, body) {
@@ -377,6 +384,7 @@ function enabledState(name, worldId) {
 function loaded(name, worldId) {
   const u = unitName(name, worldId);
   const r = runner('systemctl', ['--user', 'is-active', u]);
+  if (r && r.dryRun) return true;   // a dry run answers as loaded, as the Mac's ok-means-loaded does (review 21)
   const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
   return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
 }

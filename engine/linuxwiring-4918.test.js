@@ -321,3 +321,22 @@ test('#4918 review 20: a never-loaded unit is read by systemctl\'s exit 5 too, w
   answer = (cmd, args) => (args[1] === 'stop' || args[1] === 'disable' ? { ok: false, code: 5, stderr: 'Einheit nicht geladen.' } : { ok: true, stdout: '' });
   try { assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }); } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
 });
+
+test('#4918 review 21: a sandboxed board with no deliberate unit folder never runs systemctl by name', () => {
+  linuxjob.setSystemdDirForTests(null);
+  const saved = { d: process.env.AGENT_WORKFORCE_SYSTEMD_DIR, l: process.env.AGENT_WORKFORCE_LAUNCH };
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-sbx-'));
+  let reached = 0;
+  linuxjob.setRunnerForTests(() => { reached += 1; return { ok: true, stdout: '' }; });
+  try {
+    const r = linuxjob.start('kenshi', 'w1');
+    assert.equal(r.ok, false);
+    assert.equal(reached, 0, 'a sandboxed board ran systemctl against the real user manager');
+  } finally {
+    fs.rmSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true, force: true });
+    for (const [k, v] of [['AGENT_WORKFORCE_SYSTEMD_DIR', saved.d], ['AGENT_WORKFORCE_LAUNCH', saved.l]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    linuxjob.setSystemdDirForTests(() => unitDir);
+    linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); });
+  }
+});

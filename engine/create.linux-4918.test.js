@@ -21,7 +21,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify({ projects: {} }));
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
-delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+// review 21: a deliberate unit folder: a sandbox without one refuses every systemctl (it would name real units).
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = path.join(SANDBOX, 'systemd-user');
 
 const create = require('./create');
 const linuxjob = require('./linuxjob');
@@ -62,7 +63,7 @@ test('#4918 create on Linux writes the unit under the sandbox and starts it thro
   const r = create.createAgent({ ...BINS, name: 'linbot', role: 'pm', platform: 'linux' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, JSON.stringify(r));
   const unit = linuxjob.unitPath('linbot');
-  assert.ok(unit.startsWith(process.env.AGENT_WORKFORCE_LAUNCH), 'the unit is not under the sandbox: ' + unit);
+  assert.ok(unit.startsWith(process.env.AGENT_WORKFORCE_SYSTEMD_DIR), 'the unit is not in the test unit folder: ' + unit);
   assert.ok(fs.existsSync(unit), 'no unit file was written');
   assert.ok(calls.some((c) => c[0] === 'systemctl' && c.includes('start')), 'systemd was never asked to start it');
   assert.equal(r.because, 'linbot is set up and starting');
