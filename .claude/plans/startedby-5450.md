@@ -25,12 +25,13 @@ though the login item did bring Kosmos back by itself.
 - 120 s: a kickstart brings the board up in seconds; a mark older than that is from a start that never ran board-run.
 - Unknown keeps the timer, so Windows behaves exactly as before until its launcher says who started the board.
 - Weakest premise: that every supervised start on a Mac goes through board-run and every person's start through
-  `kosmos start`. Checked: the Mac app starts the board with `kosmos start` (native-app/main.swift startBoard), and
-  `kosmos start` returns before the kickstart (and before writing the mark) whenever the board is already running or
-  busy, so opening the app after the login item brought the board up leaves no mark. Left: a person who opens the app
-  in the few seconds while launchd's board is starting but not yet listening kickstarts it with the mark, so that
-  restart reads as a person's and makes no note: the safe direction (a missing note, never a false one).
-
+  `kosmos start`. Checked: the Mac app starts the board with `kosmos start` (native-app/main.swift startBoard), and is
+  not registered as a login item. Since review 3, `kosmos start` writes the person's mark FIRST, even when it then
+  finds the board already running; such a mark goes stale in 120 s and can only make a relaunch read as a person's.
+  Left (review 7, the safe direction): macOS reopens apps that were open at shutdown ("Reopen windows when logging
+  back in"). If Kosmos was open, its relaunch runs `kosmos start`, whose mark can reach board-run before the login job
+  reads it, so the note is not made. Telling a system relaunch from a person's open needs the app (Swift) to pass
+  KOSMOS_START_BY=supervisor on that launch: recorded on #5450 for whoever takes the app's half.
 ## Verification
 - cli.startedby-5450: board-run with no mark says supervisor; a fresh mark says person and is consumed; a stale or
   unreadable mark is not a person and is consumed; source pins for the mark before the kickstart and the direct start.
@@ -63,8 +64,9 @@ though the login item did bring Kosmos back by itself.
   person later started Kosmos from, making their start read as the supervisor's. Both launchers strip it and server.js
   deletes it as a backstop; pinned behaviourally (an inherited value never reaches the stub board) and by source.
 - FIXED: `kosmos stop` removes a start's mark on every branch, not only when it killed a running board.
-- Left: a supervisor-started board deleting a person's fresh mark cannot happen in practice: board-run writes the pidfile
-  before exec, so the person's `kosmos start` stops at its running-board check long before that board reaches atStart. And the watchdog's kickstart escalation reads a person's mark if one is under 120 s
+- Left: a supervisor-started board can delete a person's fresh mark (since review 3 the mark is written before the
+  running-board check, and that board's atStart removes it). Harmless: that person's start finds the board running
+  and starts nothing, and the deleting board really was the supervisor's. And the watchdog's kickstart escalation reads a person's mark if one is under 120 s
   old (vanishingly rare, and fails toward no note).
 
 ## Review 3
@@ -107,3 +109,8 @@ though the login item did bring Kosmos back by itself.
   missing value as unknown would have let board-run's 'unknown' switch the timer off. Pinned (a late unknown start
   makes no note; control: a quick one does).
 - ADDED: the 120 s bound on both sides (110 s fresh, 125 s stale); `kosmos stop` also removes a killed start's temp mark.
+
+## Review 7
+- PINNED: the board removes the mark whoever started it (supervisor, unknown), not only for a person; limiting it
+  would leave an unjudgeable mark in place and bring the timer back on every later relaunch.
+- Plan text brought up to date (the mark is written first since review 3); the app reopened at login is named above.

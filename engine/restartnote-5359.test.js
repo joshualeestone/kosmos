@@ -131,15 +131,22 @@ test('#5450: atStart uses the launcher\'s word it is given, and consumes the per
   assert.ok(rn.atStart({ now: () => NOW, uptime: () => up(40), startedBy: 'supervisor' }), 'the supervisor\'s late start made no note');
   // A person's start: no note, and the mark it left is removed now that it has been read (review 1).
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-5450-mark-'));
-  const mark = path.join(dir, 'board.person-start');
-  fs.writeFileSync(mark, '1');
-  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(6 * MIN) }));
-  assert.equal(rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: mark }), null);
-  assert.equal(fs.existsSync(mark), false, 'the mark was left, so the next start would read as a person\'s too');
-  // Only the launcher's own mark file, by its name: a stray path is never deleted.
-  const other = path.join(dir, 'something-else');
-  fs.writeFileSync(other, 'x');
-  rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: other });
-  assert.equal(fs.existsSync(other), true, 'a file that is not the mark was deleted');
-  fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    const mark = path.join(dir, 'board.person-start');
+    fs.writeFileSync(mark, '1');
+    fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(6 * MIN) }));
+    assert.equal(rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: mark }), null);
+    assert.equal(fs.existsSync(mark), false, 'the mark was left, so the next start would read as a person\'s too');
+    // Review 7: removed whoever started the board, or an unjudgeable mark would make every later relaunch unknown.
+    for (const who of ['supervisor', 'unknown']) {
+      fs.writeFileSync(mark, '1');
+      rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: who, personMark: mark });
+      assert.equal(fs.existsSync(mark), false, 'the mark was left after a start by ' + who);
+    }
+    // Only the launcher's own mark file, by its name: a stray path is never deleted.
+    const other = path.join(dir, 'something-else');
+    fs.writeFileSync(other, 'x');
+    rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: other });
+    assert.equal(fs.existsSync(other), true, 'a file that is not the mark was deleted');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -136,7 +136,7 @@ kosmos_loopback_route() {
 }
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
-# it (before it kills), `kosmos start` clears it (at the very top, before any bind
+# it (before it kills), `kosmos start` clears it (at the top, after only the #5450 person's mark, before any bind
 # that can fail). While it is present the watchdog leaves the board alone, so a
 # stop stays stopped; once any start clears it the watchdog resumes recovering a
 # board that has died. See bin/board-watchdog.sh.
