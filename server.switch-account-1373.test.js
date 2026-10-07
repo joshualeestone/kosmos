@@ -30,6 +30,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -49,6 +50,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 /* 🛑 ALL THREE ROOTS, NOT ONE. `defaultHome()` reads
    `AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME || AGENT_WORKFORCE_HOME/.codex`, so
@@ -112,8 +116,8 @@ const GAMMA_SIGNIN = seedChatgpt('gamma', 'david.pickrell@example.com');
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   /* Make it read as RUNNING, or the route answers on its partial branch and the
      sentence this file exists to pin is never produced. */
@@ -234,7 +238,7 @@ test('#1373 route: a PICKED account is named back, and the sentence says the per
   assert.match(r.body.because, /API key ending BETA/,
     'the answer names no account, so the person cannot tell which sign-in they got: ' + r.body.because);
   /* And what the route SAYS must equal what the launch job GOT. */
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const plist = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   assert.ok(plist.includes(BETA),
     'the launch job did not get the account the answer named, so the sentence and the agent disagree');
 });
@@ -247,7 +251,7 @@ test('#1373 route: an UNPICKED account still travels, and the sentence does NOT 
     'the unpicked sentence is missing: ' + r.body.because);
   assert.doesNotMatch(r.body.because, /you picked/,
     'the route claims the person picked an account they never touched: ' + r.body.because);
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const plist = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   assert.ok(plist.includes(ALPHA),
     'the visible row was not the row used, which is the wrong-account bug this card exists to fix');
 });
@@ -283,7 +287,7 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
     'the refusal does not say WHY, so a person cannot act on it: ' + JSON.stringify(r.body));
   /* The control that makes the refusal mean something: the job must be UNCHANGED,
      not merely missing a codex home. A Claude plist has no CODEX_HOME either. */
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const plist = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   assert.ok(plist.includes(CLAUDE_BIN),
     'the refusal still rewrote the launch job, so "nothing was changed" is false');
   assert.equal(store.readProfile(name).provider, 'anthropic',

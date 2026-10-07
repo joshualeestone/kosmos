@@ -26,6 +26,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -44,6 +45,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 /* 🛑 EVERY ROOT THAT COULD FALL BACK TO A REAL CONFIG, both providers. A
    default-account claude trust write targets defaultAgentConfig(), a default
@@ -85,8 +89,8 @@ function born(name, { runner = 'claude', configDir = null } = {}) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   const bin = runner === 'codex' ? CODEX_BIN : CLAUDE_BIN;
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, bin, TMUX_BIN, null, configDir, runner), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, bin, TMUX_BIN, null, configDir, runner), 'utf8');
   store.writeProfile(name, { provider: runner === 'codex' ? 'openai' : 'anthropic' });
   /* Running, or restart answers on a refusal branch and the arm proves nothing. */
   fs.writeFileSync(PANES, fleet.line({ session: name + '-discord', title: 'working' }) + '\n');
