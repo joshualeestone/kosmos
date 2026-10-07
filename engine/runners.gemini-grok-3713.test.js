@@ -82,9 +82,6 @@ test('#3713: Grok installs from its compressed binary, expanded after the checks
 
 test('#5419: on Linux, Grok installs the same way: expanded after the checksum, made executable, found afterwards', async (t) => {
   // The Linux path through install() is the Mac's POSIX one; this drives it end to end with platform 'linux'.
-  const connect = require('./connect');
-  connect.setMuslDetectForTests(() => false);   // a glibc host (a musl one is refused before the download)
-  t.after(() => connect.setMuslDetectForTests(null));
   clean();
   const program = '#!/bin/sh\necho "grok 1.0.41 $1"\n';
   const { tgz, integrity } = tarball([['package/bin/grok.br', zlib.brotliCompressSync(Buffer.from(program))],

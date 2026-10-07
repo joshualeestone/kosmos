@@ -11,7 +11,9 @@
 # and 37531000100) that this branch leaves red, each carried by a card:
 #   #4920 (setup on Linux): install.reachable-1662, install.claude-gate, install.uninstall-litter-1547,
 #     install.uninstall-watchdog-2955
-#   #5419 slice 2 (provider runners on Linux): engine/runners, server.runners, engine/muserun. Slice 1 (Claude Code
+#   #5419 slice 2 (provider runners on Linux) pins engine/runners' Mac-shaped fixtures to darwin; what stays red there
+#     on Linux is for the Linux skip sweep (#4919): server.runners (the claude route and an Antigravity check) and
+#     engine/muserun (turn timing), neither touched by the runner pins. Slice 1 (Claude Code
 #     downloads) turned engine/connect, connect.install-997, connect.nobinary-1580 and connect.hookwiring-1569
 #     green: run 37599038975 on linuxclaude-5419 7f6ccadbe (the final connect code, and the test of the real C-library
 #     detection on this glibc host, which ran and passed), read per file: none of its 82 failing test names is in

@@ -79,6 +79,8 @@ test('#5419: tar on Linux is /usr/bin/tar where /usr is merged and /bin/tar wher
 
 test('#5419: Grok\'s Linux builds are static, so a musl host is not refused: the download is asked for', async (t) => {
   // Measured 2026-10-06: the x64 binary is static-pie and the arm64 one static (neither names a program loader).
+  // Limit: this catches a refusal that reads connect's musl detector; a refusal on some other signal would need its own
+  // test. Grep says install() has no musl branch at all today.
   const connect = require('./connect');
   connect.setMuslDetectForTests(() => true);
   t.after(() => connect.setMuslDetectForTests(null));
