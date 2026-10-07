@@ -53,3 +53,6 @@ ops.stopNow fails), so its Linux arm is the same disabled-but-still-running stat
 Review 3: the child boards in offline-nextmove and socket-split now get a systemd folder, which turns off linuxjob's
 own sandbox refusal; each child also sets linuxjob's runner to fail closed, so a call that bypasses create's runner
 never reaches a real Linux runner's systemd. (The removed-list control was NOT given a unit-path check: the stored record keeps no unit path, measured.)
+Review 5 (accepted gap, same stub): list-unit-files reports only the units the stub started or enabled, while real
+systemd lists every unit file in the folder; no current test relies on an untouched unit being listed. The
+write-fails control on Linux now also checks that its one remaining call is the start.
