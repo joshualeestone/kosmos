@@ -16824,8 +16824,8 @@ const server = http.createServer(async (req, res) => {
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { asked = ''; }
     const problem = projects.folderNameProblem(asked);
     if (problem) { sendJson(res, 200, { path: null, problem }); return; }
-    // ⚠️ `folderPathPreview`, which does NOT create anything (it only lists
-    // the parent). Somebody typing into a name box must not leave a trail of
+    // ⚠️ `folderPathPreview`, which does NOT create anything (it lists the
+    // parent and stats the path). Somebody typing into a name box must not leave a trail of
     // empty directories behind them; the folder is made once, by `create`,
     // when they press the button. The preview carries makeFolder's own
     // case correction, so the path shown is the path the act produces.
