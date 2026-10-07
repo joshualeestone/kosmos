@@ -147,7 +147,7 @@ function voiceHarness() {
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
     'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = { \'speech-denied\': \'(speech refused)\', \'mic-denied\': \'(mic refused)\', \'mic-restricted\': \'(mic restricted)\' }; const VOICE_SAYS_PHONE = {};\n'
-    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE =', 'const VOICE_SETTINGS_PANE =', 'const VOICE_SETTINGS ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
+    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE =', 'const VOICE_SETTINGS_PANE =', 'const VOICE_SETTINGS =', 'const VOICE_SETTINGS_WAIT =', 'const VOICE_SETTINGS_WAIT_MS ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
     + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceSettingsClear', 'voiceSettingsOffer', 'voiceWho', 'voiceStop', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
@@ -355,6 +355,12 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   // button that does nothing, which no pure selftest row can see.
   assert.match(bridge, /case "settings":[\s\S]{0,300}body\["pane"\] as\? String[\s\S]{0,900}body\["id"\] as\? String/, 'the app no longer reads pane and id from the settings op');
   assert.match(PAGE, /h\.postMessage\(\{ op: 'settings', pane: VOICE_SETTINGS\.pane, id: VOICE_SETTINGS\.id \}\)/, 'the page no longer posts op settings with pane and id');
+  // ...and the names the app answers with, each seen on both sides.
+  for (const kind of ['allowed', 'settings-next', 'refused']) {
+    assert.ok(bridge.includes('"kind": "' + kind + '"'), 'the app no longer sends ' + kind);
+    assert.ok(PAGE.includes("ev.kind === '" + kind + "'"), 'the page no longer reads ' + kind);
+  }
+  assert.ok(bridge.includes('"canOpenSettings": true') && PAGE.includes('ev.canOpenSettings === true'), 'the app and the page no longer agree on canOpenSettings');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
@@ -470,7 +476,9 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(ask2.id, ask.id, 'a second press minted a new visit id the app never saw (it ignores a press within a second)');
   doc.hidden = true;   // the page can still read hidden at the instant the app comes back from Settings
   const beforeAllowed = posted.length;
+  go().focus();
   h.voiceOnEvent({ kind: 'allowed', id: ask2.id });
+  assert.equal(doc.activeElement, btn, 'the pill had focus and the restart left it on the page');
   assert.equal(posted.length, beforeAllowed, 'the mic started while the page still read hidden (the watcher would cancel it on its first look)');
   doc.hidden = false;
   listeners.slice().forEach((f) => f());
@@ -545,6 +553,28 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.voiceOnEvent({ kind: 'allowed', id: retired });
   assert.equal(posted.length, late, 'a late allowed for a retired visit started the mic');
+  // A restart waiting for the page to show expires after a minute, and a new start drops it.
+  const pend = () => {
+    h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+    h.voiceToggle(btn);
+    h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: posted.at(-1).id });
+    h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+    go().handlers.click();
+    const v = posted.at(-1).id;
+    doc.hidden = true;
+    h.voiceOnEvent({ kind: 'allowed', id: v });
+    assert.equal(listeners.length, 1, 'fixture: no restart is waiting for the page to show');
+  };
+  pend();
+  const realNow = Date.now;
+  const waitFrom = posted.length;
+  try { Date.now = () => realNow() + 61000; doc.hidden = false; listeners.slice().forEach((f) => f()); } finally { Date.now = realNow; }
+  assert.equal(posted.length, waitFrom, 'the page showed a minute later and the mic started with no press');
+  assert.equal(listeners.length, 0, 'the expired wait was left behind');
+  pend();
+  doc.hidden = false;
+  h.voiceToggle(btn);
+  assert.equal(listeners.length, 0, 'a new start left an old restart waiting for the page to show');
   // An older app still running after an update cannot open Settings (no `canOpenSettings` on its refusal): the sentence, no pill.
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.voiceToggle(btn);

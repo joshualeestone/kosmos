@@ -7745,6 +7745,7 @@ html.has-voice .micbtn.has-pill { display: none; }
 /* in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
    makes room for it (the box's own mic padding rules are more specific, hence !important while the pill shows). */
 .micwrap > .voice-pill .vp-pre { display: none; }
+.micwrap > :disabled ~ .voice-pill { display: none; }   /* like its mic: no pill over a box that takes no words */
 /* 124px = the short pill's width plus its 8px offset and a margin; render-voice-4409.js V6e measures that the text ends
    before the pill begins, so a font change that outgrows it reds there. */
 html.has-voice .micwrap:has(> .voice-pill) > textarea, html.has-voice .micwrap:has(> .voice-pill) > input { padding-right: calc(124px + var(--scrollbar-width, 0px)) !important; }
@@ -65513,7 +65514,12 @@ function voiceCancel() {
    When the person comes back with both allowed, the app says "allowed" and the same mic starts listening. */
 const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
 const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '', alert: null, keys: [] };
+/* A restart waiting for the page to show (see voiceOnEvent's "allowed"): bounded, because the app's own visit is, and
+   dropped by anything that clears the pill (a new start, X). */
+const VOICE_SETTINGS_WAIT = { once: null };
+const VOICE_SETTINGS_WAIT_MS = 60000;
 function voiceSettingsClear() {
+  if (VOICE_SETTINGS_WAIT.once) { document.removeEventListener('visibilitychange', VOICE_SETTINGS_WAIT.once); VOICE_SETTINGS_WAIT.once = null; }
   document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
   document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
   Object.assign(VOICE_SETTINGS, { btn: null, id: '', pane: '', where: '', alert: null, keys: [] });
@@ -65570,12 +65576,19 @@ function voiceOnEvent(ev) {
     const still = !!box && voiceWhere(box, true) === where;
     const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
     voiceSettingsClear();
-    if (!still || !document.body.contains(btn)) { if (hadFocus) btn.focus(); return; }   // back to the mic, never the page
+    if (hadFocus) btn.focus();   // the pill's button is gone: back to the mic, never the page (a start then moves it on)
+    if (!still || !document.body.contains(btn)) return;
     /* Started only once the page is visible: a start while it still reads hidden records a hidden place, and the
        watcher's first look after it shows would see a move and cancel the mic it just started. */
     const begin = () => { if (!VOICE.btn && document.body.contains(btn) && voiceWhere(box, true) === where) voiceToggle(btn); };
     if (!document.hidden) { begin(); return; }
-    const once = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', once); begin(); };
+    const asked = Date.now();
+    const once = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', once); VOICE_SETTINGS_WAIT.once = null;
+      if (Date.now() - asked <= VOICE_SETTINGS_WAIT_MS) begin();   // shown much later is not "came back from Settings"
+    };
+    VOICE_SETTINGS_WAIT.once = once;
     document.addEventListener('visibilitychange', once);
     return;
   }

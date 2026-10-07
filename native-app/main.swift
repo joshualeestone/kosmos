@@ -1565,7 +1565,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane),
                   Self.settingsAccepted(lastRefusal: lastRefusal) else { return }
             // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
-            // holds; only re-opening the pane is limited to once a second.
+            // holds; only re-opening the pane is limited to once a second (a press inside that second still refreshes the
+            // visit and its 10 minutes, and opens nothing).
             settingsId = String(((body["id"] as? String) ?? "").prefix(64))
             settingsAt = Date()
             settingsPane = pane
@@ -1726,6 +1727,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// mode only hides it, so the page gets no pagehide), minimised, or (review 3) the page's process died or a new
     /// page loaded, which would draw the mic as off while it listened. No-op when not listening.
     func hostCancel(_ why: String) {
+        // A new page or a crashed one has seen no refusal: its Settings visit and the denial it answers are gone too.
+        awaitingAllow = false; lastRefusal = ""
         guard pending || engine != nil || request != nil || task != nil else { return }
         logLine("voice: cancelled, " + why)
         cancel()
