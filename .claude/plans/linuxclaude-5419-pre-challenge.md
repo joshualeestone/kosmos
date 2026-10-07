@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: linuxclaude-5419
-diff_hash: 0157c91d177a484e7739256d6157d98749766784d585c3aba774202ca37d4be3
-timestamp: 2026-10-07T03:47:05Z
+diff_hash: 3edb65f080149eefe0a875c1b6bef719e6e4d9bc57113bf65cc1489e9d29b8b1
+timestamp: 2026-10-07T09:38:49Z
 converged: true
 ---
 
@@ -11,8 +11,10 @@ converged: true
 The board on Linux downloads Anthropic's own linux-<arch> or linux-<arch>-musl build, checksum-verified against the
 manifest before it is placed or run, and refuses in plain words where it cannot finish (an arch Anthropic does not
 build; no tmux to sign in with, checked at the start of the flow, at download and at sign-in). Blind reviewers
-alternated Sonnet and Opus for 19 iterations; iteration 19 found nothing new after deduplication, so the loop
-converged. Every FIXED finding with a behaviour change has a test that went red with its defect planted. The Linux
+alternated Sonnet and Opus for 33 iterations. Iteration 19 converged; the full validation then found one failure (two
+test seams unexcused in the reachability guard), whose fix re-entered the loop, and iterations 20 to 32 found further
+real gaps (the musl library check, the C-library rule with gcompat and Debian musl, the tmux hint, a lane test of
+the real detection); iteration 33 found nothing beyond NITs, so the loop converged again. Every FIXED finding with a behaviour change has a test that went red with its defect planted. The Linux
 lane (linux.yml, dispatched on the branch) was read per file: the four connect files it had listed as red for #5419
 pass on Linux; runners, server.runners and muserun stay red for slice 2.
 
@@ -127,3 +129,85 @@ pass on Linux; runners, server.runners and muserun stay red for slice 2.
 - Deferred with reasons: the agent path's Linux tmux pick (#4920), the Linux stuck copy (#5449), Linux install-and-resolve
   (the lane and piece D), musl on multi-libc hosts, runners.install('claude') (slice 2).
 - converged: true
+
+#### Iteration 19 (6j)
+- [BLOCKER] engine.reachable.test.js:49 (BRANCH): final-validation: two test seams unexcused in the reachability guard. FIXED: 08eb8e5e1 (EXCUSED rows; control red)
+
+#### Iteration 20
+- [WARNING] engine.reachable.test.js:50 (SELF(6j fix)): excuse names runners.linux-5419.test.js, absent on this branch. FIXED: 8dbc7289b
+- [WARNING] engine/connect.js:2425 (SELF(it8/9)): runFlow refuses Linux-no-tmux even with Claude installed. DEFERRED: decided at it8/9 (agents run in tmux); stated in the PR body
+- [WARNING] engine/connect.js:1128 (BRANCH): musl cache/compat-loader edge. DEFERRED: reviewer accepts; detectMusl glibc-named branch covers it
+- [NIT] comment order above LINUX_NO_TMUX (left); "Review N" residue (left); memo scope comment (left); linux.yml header run claim (posted on PR, left: editing invalidates proof).
+
+#### Iteration 21
+- [WARNING] .github/workflows/linux.yml:14 (SELF(it10 header)): lane claim predates later connect changes. FIXED: 1535c8153 (dated to 3870c0826; fresh lane 37585561715 dispatched on HEAD)
+- [WARNING] engine/connect.js:1099 (BRANCH): Alpine musl build needs libgcc/libstdc++/ripgrep. DEFERRED: unreachable until D; plan records it for D (#5445 list)
+- [NIT] tmuxMissingOnLinux comment order (FIXED); tmux seam excuse wording (FIXED); setTmuxCheckForTests not test-gated (left: siblings vary); dead setMusl line (FIXED).
+
+#### Iteration 22
+- [WARNING] engine/connect.js:208 (BRANCH): memo hit arm untested. FIXED: d6680ad89 (hit test + control; no-memo plant red)
+- [WARNING] engine/connect.js:1143 (SELF(it21)): musl runtime gap stated only in the plan. FIXED: d6680ad89 (code comment at platformKey)
+- [WARNING] .github/workflows/linux.yml:14 (SELF(it21 fix)): dated green claim still in a long-lived header. FIXED: rewrite to cite lane 37585561715 once read per file
+- [WARNING] .github/workflows/linux.yml:14 (SELF(it21 fix)): dated green claim. FIXED: 9447d6ced (cites 37585561715 on the connect code)
+- [NIT] comment placement above LINUX_NO_TMUX (dup it20, left); "Review N" residue (dup, left); excuse "when runnable" (left); bare 'tmux' sentinel (not reachable, left).
+
+#### Iteration 23
+- [WARNING] engine/connect.js:187 (BRANCH): tmux elsewhere reads as missing; hint says only install. FIXED: d6307e2d0 (hint names the folders searched + link into /usr/local/bin)
+- [WARNING] engine/connect.js:194 (SELF(it2/3, plan)): sign-in and agents pick tmux differently. DEFERRED: D's plan now carries it (linux-setup-4920 plan, 02:32)
+- [NIT] excuse wording (FIXED); plan overlong line (left); serveRelease key via platformKey (literal asserts compensate, left).
+
+#### Iteration 24
+- [WARNING] engine/connect.js:1145 (SELF(it21/22 deferral)): musl host without libstdc++/libgcc downloads 200MB then fails. FIXED: 4118afef6 (pre-download refusal, headline + download; 2 plants red). REVERSES the it21/22 deferral
+- [WARNING] engine/connect.js:1131 (BRANCH): Debian musl pkg + null process.report -> musl guess. DEFERRED: process.report is present on every supported Node; the loader-only branch is detectMusl's documented fallback
+- [WARNING] engine.reachable.test.js:51 (SELF): excuse wording. FIXED: 4118afef6 ("when it is runnable")
+- [NIT] comment tangle (dup, left); download() check only defence in depth (by design); memo comment (left); header run id (left, cites the measurement); platform-gate test seams (fine).
+
+#### Iteration 25
+- [WARNING] .github/workflows/linux.yml:14 (SELF(it24 code)): cited lane predates the musl library code. FIXED: lane re-dispatched on bb49620e1; header to cite it once read
+- [WARNING] engine/connect.test.js (SELF(it24)): no test for an installed Claude on a musl host missing libraries. FIXED: bb49620e1 (driver test; !haveBinary plant red)
+- [WARNING] .github/workflows/linux.yml:14 (SELF(it24 code)): cited lane predated the musl library code. FIXED: 2ee82a680 (cites 37591886707 on the final connect code)
+- [NIT] plan fossil (FIXED); hint list (FIXED); armv7l (FIXED); siblings pin musl seam (FIXED); host-arch tests (left: CI is x64).
+
+#### Iteration 26
+- [WARNING] engine/connect.js detectMusl (BRANCH): gcompat glibc Node on Alpine picks glibc build. DEFERRED: accepted: same compat layer runs it; plan records
+- [WARNING] engine/connect.js MUSL_LIBS_MISSING (SELF(it24)): says not installed; only 3 folders searched. FIXED: cb984dd5f (names the folders)
+- [WARNING] engine/connect.js runFlow (SELF(it8/9/17/20)): tmux refusal with Claude installed. DEFERRED: dup, decided and stated in the PR
+- [NIT] comment placement (dup, left); memo comment (FIXED); gate test null restore (left, per-process).
+
+#### Iteration 27
+- [WARNING] engine/connect.js:1137 (SELF(it24)): musl library check nearly never fires on a running board; overclaimed as Alpine cover. FIXED: febeaade8 (comment + plan corrected; ripgrep open with D)
+- [NIT] Debian musl pkg + no report (dup it24, left); header wording (FIXED); memo tests reset (FIXED); comment line break (left).
+
+#### Iteration 28
+- [WARNING] engine/connect.js:1107 (SELF(it24/27)): Debian musl pkg + no report picks musl. FIXED: f9f51685c (glibc loader wins; plant red)
+- [WARNING] engine/connect.test.js memo test (SELF): no-tmux-found test leaves a held pick. FIXED: f9f51685c (reset in finally)
+- [WARNING] engine/connect.js download() (SELF): sign-in sentence in a general entry point. DEFERRED: measured: one production caller (installClaudeCode); plan
+- [NIT] review labels in comments (left); header run claim (left: cites the measurement); 700 ms literal (left).
+
+#### Iteration 29
+- [WARNING] engine/connect.js:1121 (SELF(it28 fix)): glibc-loader veto applied with a readable musl report (Alpine + gcompat got glibc). FIXED: 96ca3afba (veto only for unreadable report; plant red)
+- [WARNING] .github/workflows/linux.yml:131 (SELF(it25 header)): header says later commits are copy only; it28/29 changed detectMusl. FIXED: lane re-dispatched on 96ca3afba; cite it once read
+- [WARNING] .github/workflows/linux.yml:131 (SELF): header claimed copy-only later commits. FIXED: 9d8c1a671 (cites 37596187037 on the final rule)
+- [NIT] doc comment rule (FIXED); plan line (FIXED); muslLibsMissing Linux wiring test (left); sha256File move note (left).
+
+#### Iteration 30
+- [WARNING] engine/connect.js musl check (SELF(it26)): gcompat glibc Node path. DEFERRED: dup of it26, accepted and recorded
+- [WARNING] engine/connect.test.js memo tests (SELF): no reset in finally. FIXED: 90b576b44
+- [CONVENTION] plan:101 (SELF(it25 edit)): review-24 bullet garbled by my regex edit. FIXED: 90b576b44
+- [NIT] overlapping tmux comments (dup, left); runnable default note (left); excuse wording (left).
+
+#### Iteration 31
+- [WARNING] engine/connect.js DEFAULT_IS_MUSL (BRANCH): real detection never asserted on a real host. FIXED: 7f6ccadbe (Linux-lane test, seams cleared); lane dispatched to prove it runs
+- [WARNING] engine/connect.js sign-in tmux (BRANCH): tmux 2.x joins new-session args; premise misnamed as glibc. DEFERRED: plan names tmux version as the unmeasured premise; carried to D
+- [NIT] arch refusal after tmux/libs (left, rare); hint omits explicit AGENT_WORKFORCE_TMUX_BIN (left); plan line 45 (FIXED); excuse (FIXED).
+
+#### Iteration 32
+- [WARNING] engine/connect.js platformKey (SELF(it26/30)): gcompat glibc Node path. DEFERRED: dup, accepted at it26
+- [WARNING] engine/connect.js LINUX_TMUX_HINT (SELF(it23)): hint offers only a root-level fix. FIXED: 106424428 (says it needs administrator rights)
+- [NIT] comment interleave (dup, left); Review N labels (dup, left); muslCache vs resetForTests (left); gate test null restore (dup, left); header run claim (cites the run).
+
+#### Iteration 33
+- No BLOCKER, WARNING or CONVENTION: NITs only (hint folder list copied from create.js; header cites a run one copy edit back; plan cites an older run in one bullet; a test reads the report directly; constant names). CONVERGED.
+
+#### Iteration (Linux lane findings)
+- [WARNING] engine/connect.test.js:2951 (SELF(it24)): test forcing musl on is host-dependent via the real library check. FIXED: 86df3a487 (file-wide MUSL_LIBS_PRESENT pin; reproduced red/green)
