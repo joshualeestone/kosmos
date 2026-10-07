@@ -507,3 +507,22 @@ test('#4918 review 34: a Linux repair counts an agent systemd already runs as st
     assert.ok(r.started >= mine && mine === 1, 'an agent already running was not counted as started: ' + JSON.stringify(r));
   } finally { create.installJob = orig; fs.rmSync(create.workerDir(name), { recursive: true, force: true }); }
 });
+
+test('#4918 review 39: an import whose agent is running is started; one running but refused its enable says so plainly', () => {
+  const create = require('./create');
+  const trust = require('./trust');
+  const worldstarts = require('./worldstarts');
+  const origInstall = create.installJob;
+  const origTrust = trust.trustFolder;
+  trust.trustFolder = () => ({ ok: true });   // never the real Claude trust file
+  try {
+    create.installJob = () => ({ ok: true, started: false, alreadyRunning: true, atLogin: true, because: 'x' });
+    assert.equal(worldstarts.firstStartOfImport({ name: 'importlin' }, 'linux'), null, 'a running agent was reported as held');
+    create.installJob = () => ({ ok: true, started: false, alreadyRunning: false, runningButNotEnabled: true, atLogin: false, because: 'x' });
+    const said = worldstarts.firstStartOfImport({ name: 'importlin' }, 'linux');
+    assert.match(String(said), /running now on its old settings/);
+    assert.doesNotMatch(String(said), /could not start/, 'the sentence says it did not start and is running');
+    create.installJob = () => ({ ok: true, started: false, atLogin: false, because: 'systemd did not enable the agent' });
+    assert.match(String(worldstarts.firstStartOfImport({ name: 'importlin' }, 'linux')), /could not start/, 'CONTROL: a real failure still says so');
+  } finally { create.installJob = origInstall; trust.trustFolder = origTrust; }
+});

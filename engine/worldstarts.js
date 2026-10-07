@@ -556,7 +556,10 @@ function firstStartOfImport(entry, platform) {
   }
   if (!out || !out.ok) return `we could not set ${entry.name} up to start: ${(out && out.because) || 'no reason was given'}`;
   // #4918 review 15: on Linux a refused enable leaves nothing to start it at login, so the promise is not made.
-  if (out.alreadyRunning) return `${entry.name} is already loaded in systemd; its new settings take effect at its next restart`;   // #4918 review 25, 27
+  /* #4918 review 39: a running agent is started, not held (null, as register.repair counts it); one running whose
+     enable systemd refused gets its own sentence rather than "could not start ... (it is running now ...)". */
+  if (out.alreadyRunning) return null;
+  if (out.runningButNotEnabled) return `${entry.name} is running now on its old settings, but systemd would not take the new ones, so it will not start again on its own`;
   if (out.started === false && out.atLogin === false) return `we could not start ${entry.name}, and it is not set to start at login either (${out.because})`;
   if (out.started === false) return `we could not start ${entry.name} now; it starts at your next login`;
   return null;
@@ -696,6 +699,7 @@ function drainAtBoot(opts) {
 module.exports = {
   AGENT_CHOICES,
   jobSwitchState,   // #4918 review 5: exported so the Linux arm is tested directly
+  firstStartOfImport,   // #4918 review 39: its sentences are tested directly
   DEFAULT_AGENT_CHOICE,
   RECORD_FILE,
   recordFileIn,

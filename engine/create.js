@@ -3759,6 +3759,7 @@ function installJob(name, opts) {
       ok: true,
       started,
       alreadyRunning,
+      runningButNotEnabled,   // #4918 review 39: worldstarts words this case itself
       atLogin,
       model: modelArg,
       guessed: {
