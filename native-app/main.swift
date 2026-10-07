@@ -2730,6 +2730,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// A board reclaim started from the wake check is in flight; guards against a second wake
     /// (or a Cmd-R) starting a second reclaim over the first. Separate from boardStartInFlight
     /// only so the read-and-set stays on the main thread; it is cleared when the reclaim resolves.
+    /// Like boardStartInFlight, it is cleared only on the generation-matching path (the completion
+    /// handler or the 300s re-arm). The interlock that keeps that from latching it true forever is
+    /// the same one loadBoard/ensureBoardRunning rely on: reloadDecision returns .ignore while
+    /// boardStartInFlight is true, and no other board-start entry runs mid-reclaim, so nothing can
+    /// bump boardStartGeneration before this reclaim resolves and clears the flag.
     private var boardWakeReclaimInFlight = false
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
     /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
@@ -2826,10 +2831,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#4342: woke mid-update; the update's own restart owns the board, staying out")
             return
         }
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/health") else { return }
         var req = URLRequest(url: url)
-        // Any HTTP answer, even a refusal, means the board is alive -- this is only liveness, so it
-        // carries no token (a 403 from a token-gated board is still an answer). #4562's 10s stuck limit.
+        // #4342: /api/health, NOT /api/status, and the difference is load-bearing here. This is only
+        // a liveness check -- any HTTP answer at all, even a refusal or a 404 from an older board,
+        // means the board is alive and no reclaim is needed, so it carries no token. /api/health is
+        // public (before the token gate), a few-byte fixed body with no snapshot() work, so it answers
+        // fast even on a board BUSY with many agents. /api/status runs the heavy snapshot() path, which
+        // a loaded board can take seconds to serve -- long enough to blow the 10s window and get a
+        // busy-but-alive board wrongly reclaimed, the exact #4466 harm this wake path must not cause.
+        // 10s is #4562's stuck threshold (a frozen board accepts the connection and never replies).
         req.timeoutInterval = 10
         req.cachePolicy = .reloadIgnoringLocalCacheData
         logLine("#4342: woke on a run computer; checking whether the board answers on \(port)")

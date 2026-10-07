@@ -87,7 +87,7 @@ test('#4342: the handler recovers only a genuinely-stuck board, and stays out of
     'a board the person stopped on purpose would be resurrected');
   assert.match(body, /Self\.installUnderWay\(kosmosHome: home\)/,
     'a board that an update is deliberately restarting would be fought');
-  assert.match(body, /\/api\/status/, 'the probe does not ask /api/status');
+  assert.match(body, /\/api\/health/, 'the probe does not ask the light /api/health route (a busy board can be slow to serve /api/status\'s snapshot and get falsely reclaimed)');
   assert.match(body, /127\.0\.0\.1/, 'the probe is not aimed at the loopback board');
   assert.match(body, /req\.timeoutInterval = 10/,
     'the probe has no 10s stuck limit; a frozen board accepts the connection and would hang the check');
