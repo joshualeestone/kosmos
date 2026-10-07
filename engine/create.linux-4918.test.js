@@ -112,9 +112,29 @@ test('#4918 review 23: an install over a unit that is already active is not "sta
   systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' } : lingerIs(true)(cmd, args));
   const r = create.installJob('activebot', { ...BINS, platform: 'linux' });
   assert.equal(r.started, false, 'a start of an active unit (a no-op) was reported as started: ' + JSON.stringify(r));
-  assert.match(r.because, /already running/, 'an agent that is running was told it could not start (review 25)');
+  assert.match(r.because, /already has it loaded/, 'an agent systemd has loaded was told it could not start (review 25)');
   systemd = lingerIs(true);
   fs.mkdirSync(create.workerDir('activebot2'), { recursive: true });
   const c = create.installJob('activebot2', { ...BINS, platform: 'linux' });
   assert.equal(c.started, true, 'CONTROL: a fresh install starts: ' + JSON.stringify(c));
+});
+
+test('#4918 review 27: an orphan unit with no folder holds its name on Linux, as a plist does on the Mac', () => {
+  systemd = lingerIs(true);
+  const u = linuxjob.unitPath('orphanbot');
+  fs.mkdirSync(path.dirname(u), { recursive: true });
+  fs.writeFileSync(u, '[Service]\n');
+  try {
+    const r = create.createAgent({ ...BINS, name: 'orphanbot', role: 'pm', platform: 'linux' });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, 'an orphan unit did not hold its name: ' + JSON.stringify(r));
+  } finally { fs.rmSync(u, { force: true }); }
+});
+
+test('#4918 review 27: with the user bus unreachable, the roll back removes the never-loaded unit, so the name is free', () => {
+  const bus = { ok: false, code: 1, stderr: 'Failed to connect to bus: No such file or directory' };
+  systemd = (cmd, args) => (cmd === 'systemctl' && args[1] !== 'is-active' ? bus : lingerIs(true)(cmd, args));
+  const r = create.createAgent({ ...BINS, name: 'busbot', role: 'pm', platform: 'linux' });
+  assert.notEqual(r.outcome, create.OUTCOME.CREATED, JSON.stringify(r));
+  assert.equal(fs.existsSync(linuxjob.unitPath('busbot')), false, 'a never-loaded unit was left holding the name');
+  assert.match(r.because, /user services are not reachable/);
 });

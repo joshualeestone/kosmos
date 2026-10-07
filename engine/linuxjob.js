@@ -10,7 +10,7 @@
  * with Restart=always, RestartSec=10, and KillMode=process.
  *
  * Systemd user units run without sudo/root privileges via systemctl --user,
- * and survive disconnect/logout via loginctl enable-linger.
+ * and survive disconnect/logout when linger is on (loginctl enable-linger, read back; the person is told when it is off).
  */
 
 const { execFileSync } = require('node:child_process');
