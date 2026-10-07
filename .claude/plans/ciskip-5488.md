@@ -38,13 +38,16 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
   that sha, BOTH sides of a rename (`--no-renames`; a code file moved into plans must not read as a plan change), is a
   plain plan file as above and not a goldencard-2519 plan. Prints nothing on any doubt: no green run, sha not in the clone (force-push), diff fails, gh
   fails, nothing changed (a deliberate re-run), missing arguments. Always exits 0.
-- `test.yml`: a `scope` job (ubuntu, `actions: read`) runs it on pull_request only, with the branch name and sha
+- `test.yml`: a `scope` job (ubuntu, `actions: read`) runs THE BASE BRANCH's copy of it (`git show
+  origin/<base>:tools/ci-plans-only-reuse.sh`), so a PR that edits the decider is never judged by its own copy (no
+  copy on the base, as on this PR itself, means the suite runs), on pull_request only, with the branch name and sha
   passed through `env:` (a branch name can hold shell syntax), and keeps only a numeric answer. `suite` runs when
   `!cancelled() && needs.scope.outputs.reuse == ''`, so a failed scope job still runs the suite. `test` passes a
   skipped suite ONLY with a numeric run id to reuse, and prints that run's URL.
 - `tools.shell-shard-4317.test.js`: `test` now needs `[scope, suite]`.
 - `tools/test-ci-plans-only-reuse-5488.sh` (in test:shell): real git repo; the gh stub refuses unless asked
-  for green pull_request test.yml runs of the branch with their age; 20 decision arms; the wiring parsed as YAML.
+  for green pull_request test.yml runs of the branch with their age; 25 decision arms; the wiring parsed as YAML; the REAL `test`
+  step body run with each input (a skip is green only with scope success and a numeric id).
   Measured red: non-plans arm loosened, 2 failures; `--no-renames` dropped, 1 (the move); `--status success` dropped,
   2 (the stub refuses, so the reuse controls fail).
 

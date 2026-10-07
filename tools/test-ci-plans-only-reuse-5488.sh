@@ -114,14 +114,25 @@ if command -v ruby >/dev/null 2>&1; then
     raise "values through env" unless d["env"]["HEAD_REF"] == "${{ github.head_ref }}" && d["env"]["HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
     raise "no pasted head_ref" if d["run"].include?("${{")
     raise "decides on pull_request only" unless d["run"].include?(%q{if [ "$EVENT_NAME" = pull_request ]})
-    raise "calls the script" unless d["run"].include?("bash tools/ci-plans-only-reuse.sh")
+    raise "decider from the base branch" unless d["run"].include?(%q{git show "origin/$BASE_REF:tools/ci-plans-only-reuse.sh"}) && d["env"]["BASE_REF"] == "${{ github.base_ref }}"
+    raise "never the PR checkout copy" if d["run"].include?("bash tools/ci-plans-only-reuse.sh")
     raise "suite needs scope" unless j["suite"]["needs"] == "scope"
     raise "suite if" unless j["suite"]["if"] == %q{${{ !cancelled() && needs.scope.outputs.reuse == '"'"''"'"' }}}
     t = j["test"]["steps"].find { |x| x["env"] && x["env"]["REUSE"] }
     raise "test reads REUSE" unless t && t["env"]["REUSE"] == "${{ needs.scope.outputs.reuse }}"
-    raise "test reuse arm" unless t["run"].include?(%q{if [ "$SUITE_RESULT" = skipped ] && [[ "$REUSE" =~ ^[0-9]+$ ]]; then})
-  ' "$WF" 2>"$T/rb.err"; then
-    pass "test.yml wiring (parsed): scope on pull_request via env, suite skips only on a named run, test accepts only a numeric reuse"
+    raise "test reads the scope result" unless t["env"]["SCOPE_RESULT"] == "${{ needs.scope.result }}"
+    File.write(ARGV[1], t["run"])
+  ' "$WF" "$T/test-step.sh" 2>"$T/rb.err"; then
+    pass "test.yml wiring (parsed): decider from the base branch via env, suite skips only on a named run"
+    # Run the REAL `test` step body with each input: a skip passes only with scope success and a numeric id.
+    step() { SUITE_RESULT="$1" SCOPE_RESULT="$2" REUSE="$3" RUN_BASE=x bash "$T/test-step.sh" >/dev/null 2>&1; }
+    step skipped success 77 && pass "test step: suite skipped, scope ok, run 77 named: green" || fail "test step: a named reuse must pass"
+    for c in "skipped success " "skipped success 7x" "skipped failure 77" "failure success 77" "cancelled success 77"; do
+      set -- $c
+      if step "$1" "$2" "${3:-}"; then fail "test step must stay red for suite=$1 scope=$2 reuse='${3:-}'"
+      else pass "test step stays red: suite=$1 scope=$2 reuse='${3:-}'"; fi
+    done
+    step success success "" && pass "test step: suite success is green" || fail "test step: success must pass"
   else
     fail "test.yml wiring: $(cat "$T/rb.err" | head -2)"
   fi
