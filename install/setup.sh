@@ -197,7 +197,8 @@ _kosmos_linux_unit_name() {
 # #4920 review 11: a unit an earlier release wrote (0.7.27) has no KillMode=, so systemd's default control-group kill
 # applies: stopping the board kills every process in its cgroup, and an in-app update runs this script there, beside
 # the agents' tmux server. Before the update pauses the board, give that unit KillMode=process, as linuxboard's unit
-# has, and reload, so the pause stops the board only. Reasoned from systemd's documented default, not yet measured.
+# has, and reload, so the pause stops the board only. Measured both ways on real systemd by the setup workflow's
+# KillMode step (control: the old unit kills its child; fixed: the child survives).
 _kosmos_linux_unit_killmode() {
   [ "$(uname -s)" = "Linux" ] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
