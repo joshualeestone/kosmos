@@ -94,7 +94,14 @@ function boardWithStoppedAgent({ job, named = true }) {
   return JSON.parse(out);
 }
 
-test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', () => {
+
+/* #5432: on a Linux host an agent's job is a systemd user unit, so the launchd fixture below finds no agent there.
+   Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
+const LINUX_LAUNCHD = process.platform === 'linux'
+  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'its agent is found from a launchd plist; a Linux board finds agents from systemd units: linux-parity-5445.test.js (the self-starts sentence on Linux, linger on and off). The sentence is built the same on every platform and stays covered on macOS and Windows' }
+  : {};
+
+test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', LINUX_LAUNCHD, () => {
   const row = (boardWithStoppedAgent({ job: true }).agents || []).find((a) => a.sessionName === 'quiet');
   assert.ok(row, 'the stopped agent fell out of the roster');
   assert.equal(row.running, false);
@@ -121,7 +128,7 @@ test('#671: a job-less agent gets no self-starting claim, because nothing will s
     'the sentence promises a self-start to an agent with no job, which is false');
 });
 
-test('#671: the composer speaks the row\'s own cause at the decision point, and leaves live-pane reasons alone', () => {
+test('#671: the composer speaks the row\'s own cause at the decision point, and leaves live-pane reasons alone', LINUX_LAUNCHD, () => {
   const PAGE_SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(REPO, 'web', 'index.html'), 'utf8'));
   // eslint-disable-next-line no-new-func
   const dmOffLine = new Function(
