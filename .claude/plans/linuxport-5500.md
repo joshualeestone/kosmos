@@ -48,5 +48,8 @@ Not this slice: create.test.js's LINUX_UNIT_UNTESTED_WHY and LINUX_TASK_STUB_WHY
 Review 2 (accepted gap): systemdStub answers start/stop/enable/disable ok for a unit with no file (real systemctl
 exits 5) and says "disabled" for an unknown unit (real systemd: empty, enabledState known:false), so tests using it
 never reach linuxjob's not-loaded or unknown-enabled paths. Those are tested in engine/linuxjob.test.js.
-Review 2: the will-not-unload test on Linux also asserts the unit was disabled (linuxjob.remove stops, disables, then
-reports the failed stop), so its Linux arm is the same disabled-but-still-running state as on macOS.
+Review 2: the will-not-unload test on Linux also asserts the unit was disabled (remove.js: ops.disable, then
+ops.stopNow fails), so its Linux arm is the same disabled-but-still-running state as on macOS.
+Review 3: the child boards in offline-nextmove and socket-split now get a systemd folder, which turns off linuxjob's
+own sandbox refusal; each child also sets linuxjob's runner to fail closed, so a call that bypasses create's runner
+never reaches a real Linux runner's systemd. (The removed-list control was NOT given a unit-path check: the stored record keeps no unit path, measured.)

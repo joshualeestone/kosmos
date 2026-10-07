@@ -69,6 +69,9 @@ function boardWithUnseenAgent(launchctlListStdout, systemdActiveUnits) {
     // answers empty, so no probe touches the real launchd.
     // #5445: launchd's arm on any runner but Linux; #5500: a Linux board asks systemctl, answered below.
     if (process.platform !== 'linux') create.setProbePlatformForTests('darwin');
+    /* #5500 review 3: with a systemd folder set, linuxjob no longer refuses systemctl on its own in this child (it is
+       not a test process), so a call that bypasses create's runner fails closed here and never reaches the host. */
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'linuxjob.js'))}).setRunnerForTests(() => ({ ok: false, code: 1, stdout: '', because: 'test child: no real systemd' }));
     create.setRunner((file, args) => {
       if (/launchctl$/.test(String(file)) && args && args[0] === 'list') {
         return { ok: true, stdout: ${JSON.stringify(launchctlListStdout)} };

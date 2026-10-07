@@ -70,7 +70,7 @@ test.before(async () => {
   fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'ava'), { recursive: true });
   fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
   for (const world of [undefined, WORLD]) {
-    fs.writeFileSync(jobfix.jobPath('ava', world), '<plist/>');   // #5500: the systemd unit's path on Linux
+    fs.writeFileSync(jobfix.jobPath('ava', world), '<plist/>');   // #5500: the systemd unit's path on Linux; only its presence is read
   }
 
   // #5445: create's two fleet probes (switched off, running) ask the launchctl fake below on any runner; the roster and

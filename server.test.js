@@ -5400,8 +5400,8 @@ test('a job that is disabled but will not unload is recorded, not reported as un
     removalCalls.push([String(f), a]);
     const cmd = a && a[0];
     if (cmd === 'bootout') return { ok: false, code: 9 };   // the failure under test
-    // #5500: the same on Linux. linuxjob.remove stops, then disables either way, then reports the failed stop, so the
-    // job is disabled and still running there too (asserted below).
+    // #5500: the same on Linux: remove.js disables the unit (ops.disable), then the stop fails (ops.stopNow), so the job
+    // is disabled and still running there too (asserted below).
     if (/systemctl$/.test(String(f)) && a[1] === 'stop') return { ok: false, code: 9 };
     if (cmd === 'has-session') return { ok: false, code: 1 };
     return { ok: true, stdout: '' };
