@@ -350,6 +350,7 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(SWIFT, /didCommit navigation: WKNavigation!\) \{\n        voice\?\.hostCancel\("new page loaded"\)/, 'a reload draws the mic off while it listens');
   assert.match(SWIFT, /delegate\.voice = voice/, 'the app has no handle on the bridge, so hostCancel is never reached');
   assert.match(bridge, /event\["id"\] = pageId/, 'events carry no session id, so a late one ends the next session');
+  assert.match(bridge, /private func emit\(_ event: \[String: Any\]\) \{\n        let event = Self\.stampId\(event, pageId: pageId\)/, 'emit no longer stamps the session id (#5481 moved it into stampId)');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
@@ -437,6 +438,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.deepEqual(pills[0].kids.map((k) => k.className), ['vh', 'vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings] with its hidden alert');
   assert.equal(go().attrs['aria-label'], 'Turn on in Settings');
   assert.match(go().innerHTML, /^<span class="vp-pre">Turn on in&nbsp;<\/span>Settings$/, 'the narrow label is not [X  Settings]');
+  assert.equal(doc.activeElement, go(), 'a mic that had focus handed it to nothing when the pill replaced it');
   const msg = doc.boxes['d-say-msg'];
   const alert = pills[0].kids[0];
   assert.ok(alert.attrs.role === 'alert' && alert.textContent === '(speech refused)', 'the refusal is not said to a screen reader');

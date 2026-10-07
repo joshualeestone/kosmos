@@ -26,12 +26,15 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
   `settings-next` repoints the same pill to the Microphone pane; `refused` swaps it for the restricted sentence. Other refusals keep their sentence.
 
 ## Measured (not built)
+Ask 1 is NOT REPRODUCED, not fixed. Measured with two throwaway apps of my own bundle ids, built from one probe
+that calls requestAuthorization and records the answer and its milliseconds, launched by `open` and directly: neither
+was refused without a prompt. The permission log lines in start() are what will show the cause on the next refusal.
 The shipped binary is signed alone (identifier kosmos-app, Info.plist not bound). Two throwaway apps, signed both ways,
 both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-signing is not done here: it changes
 the identity existing grants are keyed on.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 35 rows, including visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 37 rows, including stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

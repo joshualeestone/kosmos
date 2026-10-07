@@ -1453,6 +1453,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     private var settingsId = ""   // the Settings visit's own id, apart from the listening session's pageId
     private var settingsAt: Date?   // when the visit was opened (bounds how long it may start the mic by itself)
     private var settingsPane = ""   // which pane the visit opened
+    private var settingsOpenedAt: Date?   // when Settings was last opened (the once-a-second limit)
     private var activeObserver: NSObjectProtocol?
     init(_ owner: AppDelegate) {
         self.owner = owner
@@ -1557,11 +1558,14 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         case "settings":
             // #5481: open the exact pane for a denied permission (only the two named panes, never a URL from the page).
             guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane) else { return }
-            guard Self.settingsOpenAllowed(sinceLast: settingsAt.map { Date().timeIntervalSince($0) }) else { return }
+            // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
+            // holds; only re-opening the pane is limited to once a second.
             settingsId = (body["id"] as? String) ?? ""
             settingsAt = Date()
             settingsPane = pane
             awaitingAllow = true
+            guard Self.settingsOpenAllowed(sinceLast: settingsOpenedAt.map { Date().timeIntervalSince($0) }) else { return }
+            settingsOpenedAt = Date()
             NSWorkspace.shared.open(url)
         default: return
         }
@@ -1597,9 +1601,15 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             && (info["NSSpeechRecognitionUsageDescription"] as? String)?.isEmpty == false
     }
 
-    private func emit(_ event: [String: Any]) {
+    /// The id an event carries: its own when it names one (a Settings visit's), else the listening session's, read at
+    /// emit time. PURE, selftested.
+    static func stampId(_ event: [String: Any], pageId: String) -> [String: Any] {
         var event = event
-        if event["id"] == nil { event["id"] = pageId }   // read NOW: a cancel's "stopped" carries the id of the session it ended
+        if event["id"] == nil { event["id"] = pageId }
+        return event
+    }
+    private func emit(_ event: [String: Any]) {
+        let event = Self.stampId(event, pageId: pageId)   // read NOW: a cancel's "stopped" carries the id of the session it ended
         guard let web = webView,
               let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -6581,7 +6591,9 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     let micStill = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "mic", speech: .authorized, mic: .denied, settingsId: "set7")
     row(micStill.event == nil && micStill.keepOpen, "#5481 review 5: back from the Microphone pane before the switch is flipped keeps the visit open")
     row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .restricted, settingsId: "set7") == ["kind": "refused", "reason": "mic-restricted", "id": "set7"], "#5481 review 5: a restricted mic is said as that, not left on a pill")
-    let expected = 35   // #5311: + Dictation off, + its control; #5481: + 19
+    row(VoiceBridge.stampId(["kind": "allowed", "id": "set7"], pageId: "s3")["id"] as? String == "set7", "#5481: a Settings visit's event keeps its own id")
+    row(VoiceBridge.stampId(["kind": "stopped"], pageId: "s3")["id"] as? String == "s3", "#5481 CONTROL: any other event carries the listening session's id")
+    let expected = 37   // #5311: + Dictation off, + its control; #5481: + 21
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")

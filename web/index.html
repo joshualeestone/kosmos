@@ -65516,9 +65516,10 @@ function voiceSettingsClear() {
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
   voiceSettingsClear();
+  const hadFocus = document.activeElement === btn;   // the pill hides the mic; a keyboard user on it must not drop to the page
   VOICE.seq += 1;
-  /* Review 5: ONE visit id per pill, minted here, not per press: the app ignores a second press within a second and
-     keeps the first id, and a page that minted a new one would then refuse the app's "allowed". */
+  /* ONE visit id per pill, minted here, not per press: the app re-opens Settings at most once a second, and it always
+     records the id of the latest press, so the page and the app hold the same id. */
   const visitId = 'set' + VOICE.seq;
   VOICE_SETTINGS.pane = pane;
   const pill = document.createElement('span');
@@ -65548,6 +65549,7 @@ function voiceSettingsOffer(btn, pane, said) {
   pill.append(alert, x, go);
   btn.classList.add('has-pill');
   btn.insertAdjacentElement('afterend', pill);
+  if (hadFocus) go.focus();
 }
 function voiceOnEvent(ev) {
   // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.
