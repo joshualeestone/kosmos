@@ -3,6 +3,8 @@
 # CI runs (it used to live only in ~/.cache, covered by a dry harness run by hand). Seeded from PigeonPete's #4911 dry
 # harness (74 arms). Every run of the wrapper goes through a shim that REFUSES unless KOSMOS_RUN_MARKER_DIR is inside
 # this test's own temp dir: a reviewer's sandbox once lost that variable and three copies waited in the real queue.
+# (The two #5446 arms run a copy inside a throwaway git repo instead, with the same two protections set by hand: an
+# in-test KOSMOS_RUN_MARKER_DIR and the perl deadline.)
 # Processes this test starts are stopped by exact match on a sleep length unique to this run (never a broad pattern).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
@@ -207,9 +209,12 @@ qh_repo() {   # qh_repo <dir> <with lib: 1|0>
 }
 qh_repo $S/fbrepo 1; qh_repo $S/fbnolib 0
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfb perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbrepo/tools/queued-heavy.sh "fallback" touch $S/fb-ran 2>&1); rc=$?
-ok "#5446: no QUEUED_HEAVY_LIB and no default folder: the repo's main checkout supplies the guards, it says so, and runs" '[ "$rc" = 0 ] && [ -e $S/fb-ran ] && [[ "$o" == *"main checkout "*"/fbrepo for the queue"* ]] && [[ "$o" != *"No such file"* ]]'
+ok "#5446: no QUEUED_HEAVY_LIB and no default folder: the repo's main checkout supplies the guards, it says so, and runs" '[ "$rc" = 0 ] && [ -e $S/fb-ran ] && [[ "$o" == *"main checkout "*"/fbrepo at "*" for the queue"* ]] && [[ "$o" != *"No such file"* ]]'
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnolib/h KOSMOS_RUN_MARKER_DIR=$S/mfbn perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnolib/tools/queued-heavy.sh "fallback-nolib" touch $S/fbn-ran 2>&1); rc=$?
 ok "#5446 CONTROL: the same with no cut-guard.sh in that checkout still exits 3 and runs nothing" '[ "$rc" = 3 ] && [ ! -e $S/fbn-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]]'
+qh_repo $S/fbold 1; echo 'unset -f kosmos_release_machine' >> $S/fbold/tools/lib/cut-guard.sh
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbold/h KOSMOS_RUN_MARKER_DIR=$S/mfbo perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbold/tools/queued-heavy.sh "fallback-old" touch $S/fbo-ran 2>&1); rc=$?
+ok "#5446: a fallen-back main checkout with an old lib exits 3, names the missing function and the pull that fixes it" '[ "$rc" = 3 ] && [ ! -e $S/fbo-ran ] && [[ "$o" == *"has no kosmos_release_machine"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
@@ -272,7 +277,7 @@ side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-EXPECTED=89   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, two #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms
+EXPECTED=90   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

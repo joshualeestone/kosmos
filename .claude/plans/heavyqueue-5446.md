@@ -5,9 +5,13 @@
   and names the queue command with its absolute path: `bash <repo>/tools/queued-heavy.sh "<what>" <command>`, and
   `--light` for one browser check or one test file. The stdout verdict stays one line.
 - `tools/queued-heavy.sh` run with QUEUED_HEAVY_LIB unset on a machine without `~/work/kosmos-bc-main-4610` uses
-  the MAIN checkout of the repo it lives in (git common dir's parent), says so on stderr, and joins the queue. Every
-  agent on a Mac resolves the same folder, so the queue keeps one lib generation (#4977's reason for a shared lib). A
+  the MAIN checkout of the repo it lives in (git common dir's parent; GIT_DIR and friends ignored), says so on stderr
+  with that checkout's commit, and joins the queue. Every worktree of one clone resolves the same folder; a second clone
+  or a set QUEUED_HEAVY_LIB can still bring another lib generation, which the stderr line makes visible. If that main
+  checkout's lib is too old (a needed function missing), it exits 3 and names `git -C <it> pull --ff-only`. A
   QUEUED_HEAVY_LIB that is set and wrong still exits 3 (unchanged).
+- The BUSY hint names the MAIN checkout's queued-heavy.sh (one wrapper generation per Mac, review 1), else the one
+  beside heavy-gate.sh (measured here: the main checkout was at 10-01, before the script existed).
 
 ## Rejected
 - Falling back to the worktree the script runs from: several branches' libs would share one queue (#4977 item 1).
@@ -15,10 +19,11 @@
   repo copy, which now works everywhere.
 
 ## Weakest premise
-That a repo's main checkout is close enough to origin/main. Nothing updates it; the same is true of the default
-folder today. The stderr line names the folder used, so a stale one is visible.
+That a repo's main checkout is close enough to origin/main. Nothing updates it (this Mac's is at 10-01); the same is
+true of the default folder today. The stderr line names the folder and commit used, and a too-old lib now says the
+one command that fixes it, so a stale checkout is loud rather than a silent split.
 
 ## Tests
 - tools.heavy-gate-3805.test.js: BUSY names the queue on stderr with an existing path; CLEAR and --quiet do not.
 - tools/test-queued-heavy-4977.sh: two arms in a throwaway git repo: fallback joins and runs (and says so); without
-  cut-guard.sh it still exits 3 and runs nothing.
+  cut-guard.sh it still exits 3 and runs nothing; with an old lib it exits 3 and names the pull.

@@ -29,7 +29,8 @@
 #     folder passed by mistake is exit 2, not a clear. An install harness (test-install.sh) is
 #     never ruled out this way: your own harness collides with your own suite too, and
 #     run-tests.sh would refuse beside it (#4410).
-# --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
+# --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code. (Without it, a BUSY
+#   answer also prints, on stderr, how to wait your turn in the fair queue instead of polling: #5446.)
 # --quiet-box: for timing-sensitive work, also count a live tools/run-tests.sh validation
 #   suite. The default deliberately does not count validation suites, which may overlap.
 #   Use it before tools/test-install.sh, which refuses beside a live suite (#4410).
@@ -247,5 +248,11 @@ say "heavy-gate: BUSY"
 # #5446: polling holds no place in line. On a night of back-to-back suites a poller loses to every one that queued
 # (90 reads, all BUSY, 2026-10-06), so the BUSY answer names the queue that does give a turn. stderr, and not with
 # --quiet, so a caller reading the verdict on stdout sees the same single line as before.
-[ "$QUIET" = 1 ] || printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: bash $(cd "$(dirname "$0")" && pwd)/queued-heavy.sh \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
+# The queue named is the MAIN checkout's copy (one wrapper generation on a Mac, as its lib), else the one beside this.
+if [ "$QUIET" != 1 ]; then
+  _hg_qh="$(cd "$(dirname "$0")" && pwd)/queued-heavy.sh"
+  _hg_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _hg_common=""
+  case "$_hg_common" in */.git) [ -f "${_hg_common%/.git}/tools/queued-heavy.sh" ] && _hg_qh="${_hg_common%/.git}/tools/queued-heavy.sh" ;; esac
+  printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: bash '$_hg_qh' \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
+fi
 exit 1
