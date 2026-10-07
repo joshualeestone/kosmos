@@ -51,6 +51,8 @@ The guard derives the runner's event path from where it is installed, not from a
 **Must be checked live on the Mac before the switch goes on** (no test here can reach them):
 - FIRST: the job-started hook receives GITHUB_EVENT_NAME, GITHUB_REPOSITORY and GITHUB_EVENT_PATH, and the event
   file exists when it runs. If not, every job is refused (safe, but nothing runs).
+- The job-completed hook receives RUNNER_TEMP (it empties the job's temp only when it is the runner's own `_temp`;
+  if unset it silently does nothing, which only leaves files behind).
 - The runner, registered from a terminal in the Screen Sharing session (a LaunchAgent may not load over ssh), shows
   online and survives a logout and login.
 - A same-repo PR whose workflow sets `env: GITHUB_EVENT_NAME / GITHUB_REPOSITORY / GITHUB_EVENT_PATH` to false
