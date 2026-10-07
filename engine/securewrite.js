@@ -166,9 +166,24 @@ const reapedDirs = new Set();
 function reapOrphanTemps(dir) {
   if (reapedDirs.has(dir)) return;
   reapedDirs.add(dir);
+  reapDeadTemps(dir, () => true);
+}
+
+/* #5434 slice 2: remove the dead temps of ONE file, every time it is called (not once per directory
+   like the reap above), by the same proof of death. For a caller that is deleting `file` itself, such
+   as an account's forgetKey: a temp a crash left between create and rename holds the same secret, and
+   without this it outlived the forget until some later write into that folder. Best effort, never
+   throws. */
+function reapDeadTempsOf(file) {
+  const base = path.basename(file) + '.kosmos-';
+  reapDeadTemps(path.dirname(file), (name) => name.startsWith(base));
+}
+
+function reapDeadTemps(dir, wanted) {
   let entries;
   try { entries = fs.readdirSync(dir); } catch { return; /* dir gone / unreadable: nothing to reap */ }
   for (const name of entries) {
+    if (!wanted(name)) continue;
     const m = TEMP_RE.exec(name);
     if (!m) continue;
     const pid = Number(m[1]);
@@ -511,4 +526,4 @@ function writeSecret(file, data, mode) {
    and `engine/trust.js` keeps its equivalent private for the same reason: a name
    generator is an implementation detail of the writer, and exporting it invites a
    caller to build a temp path the writer will not clean up. */
-module.exports = { writeSecret, secureDir, refuseSymlinkTarget };
+module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf };
