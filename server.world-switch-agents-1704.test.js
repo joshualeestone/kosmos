@@ -73,6 +73,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
   await fetch(base + '/api/worlds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Alpha World' }) });
   worldstarts.setPlatformForTests('darwin');
+  create.setProbePlatformForTests('darwin');   // #5445: create's fleet probes too, on any runner
   remove.setRunner(runner);
   // create.disabledJobs (launchd's per-user overrides) goes through create's own
   // runner: answer "nothing is switched off" rather than reach a real launchctl.
@@ -95,6 +96,7 @@ test.after(() => {
   remove.resetForTests();
   create.setRunner(null);
   worldstarts.setPlatformForTests(null);
+  create.setProbePlatformForTests(null);
   liveExec.resetForTests();
   boardrestart.canSelfRestart = origCanSelfRestart;
   boardrestart.selfRestart = origSelfRestart;

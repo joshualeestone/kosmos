@@ -330,6 +330,9 @@ test('#5445 a masked unit (a link to /dev/null) reads as masked, with how to und
     fs.rmSync(linuxjob.unitPath('scorpion', ''));
     fs.symlinkSync('/dev/null', linuxjob.unitPath('scorpion', ''));
     assert.equal(linuxjob.masked('scorpion', ''), true);
-    assert.match(linuxjob.maskedSentence('scorpion', ''), /systemctl --user unmask kosmos-agent-scorpion\.service/);
+    assert.match(linuxjob.maskedSentence('scorpion', ''), /systemctl --user unmask 'kosmos-agent-scorpion\.service'/);
+    // A named Kosmos's unit name carries a \x2b escape: quoted, so a pasted command keeps the backslash.
+    assert.match(linuxjob.maskedSentence('scorpion', 'testworld'), /unmask 'kosmos-agent-scorpion\\x2btestworld\.service'/);
+    assert.match(linuxjob.maskedSentence('scorpion', ''), /set the agent up again/);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });

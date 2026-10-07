@@ -48,6 +48,7 @@ const EXCUSED = {
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   setChatgptBrowserOpener: 'test seam (0.6.96 OpenAI sign-in): engine/openaiaccounts.js records the device page it would open, so a suite never starts a real browser and a Mac can drive the win32 arm',
   resetForTests: 'test seam',
+  setProbePlatformForTests: 'test seam (#5445): engine/create.js pins the platform its fleet probes (disabledJobsResult, runningJobs) ask when the caller names none, so a board test on a launchctl fake (server.world-offline-rows-1704, server.world-switch-agents-1704) keeps the Mac arm on a Linux CI runner. Production never sets it.',
   resetUnloadWaitsForTests: 'test seam (#4964): engine/remove.js empties the restart unload-wait burst ledger, so one test\'s waits do not spend the next test\'s allowance. Production never resets it.',
   _sendWithDelivery: 'test seam (#4580 item 1): engine/messages.js\'s send core with an injected (slow, or unconfirmed) deliver, so two concurrent identical sends can be held in flight and the fold asserted (the second waits on the first, one delivery). Production reaches the same core through send/sendAsync with chat.deliver(Async).',
   _sendPostWithDelivery: 'test seam (#4580 item 1): engine/messages.js\'s post core with an injected deliver, the post-side twin of _sendWithDelivery (a retried room post folds onto the one still in flight). Production reaches it through sendPost/sendPostAsync.',

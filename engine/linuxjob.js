@@ -160,7 +160,9 @@ function masked(name, worldId) {
   try { return fs.readlinkSync(unitPath(name, worldId)) === '/dev/null'; } catch { return false; }
 }
 function maskedSentence(name, worldId) {
-  return `you masked it in systemd, so it does not start; run systemctl --user unmask ${unitName(name, worldId)} to let Kosmos start it again`;
+  /* Quoted: a named Kosmos's unit name carries a \x2b escape, which an unquoted shell word loses (review 2). Unmasking
+     removes the link and leaves no unit file, so the agent is set up again afterwards (review 2). */
+  return `you masked it in systemd, so it does not start; to undo that, run systemctl --user unmask '${unitName(name, worldId)}', then set the agent up again in Kosmos (unmasking leaves it with no unit to start)`;
 }
 
 function unitPath(name, worldId) {
