@@ -67,6 +67,9 @@
 //      asymmetry is worth knowing before adding a test that writes.
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it asserts what launchctl was asked (load, enable, bootout, kickstart) or the plist's own fields; Linux create, remove, restore and restart: create.linux-4918.test.js and linuxwiring-4918.test.js (reviews 8, 33, 34), and linux-parity-5445.test.js" } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');
@@ -1910,7 +1913,7 @@ test('a session that merely borrows an agent name cannot rewrite its instruction
   }
 });
 
-test('an untied card carries no commitments and no boot-file hash of the name it borrowed', async () => {
+test('an untied card carries no commitments and no boot-file hash of the name it borrowed', LINUX_PLIST_5432, async () => {
   // ⚠️ The snapshot closed this leak and `/api/status` reopened it one layer up.
   // Both enrichments are keyed on the NAME, so an untied stranger's card came
   // back carrying the real agent's commitment TEXT, its boot-file hash, and a
@@ -3046,7 +3049,7 @@ test('a write another website could send is refused, whatever route it names', a
   }
 });
 
-test('the create route answers a real creation with the record the screen is built on', async () => {
+test('the create route answers a real creation with the record the screen is built on', LINUX_PLIST_5432, async () => {
   // ⚠️ The route test beside this one is named "makes an agent" and never makes
   // one — both its cases assert 400. So the 200 answer, which is the ENTIRE
   // contract the creation screen consumes (`outcome`, the ordered `steps` list
@@ -4356,7 +4359,7 @@ test('the open-sleep-settings route: guard-inherited, honest 409, and the engine
   }
 });
 
-test('the removal routes ask, remove, and put back, over the wire', async () => {
+test('the removal routes ask, remove, and put back, over the wire', LINUX_PLIST_5432, async () => {
   // ⚠️ The engine was well covered and the surface a browser talks to was not.
   // These routes are how the fleet is managed, and the restore route is what
   // makes the removal safe to offer.
@@ -4727,7 +4730,7 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
   }
 });
 
-test('the removed list gives the browser only what it draws', async () => {
+test('the removed list gives the browser only what it draws', LINUX_PLIST_5432, async () => {
   /**
    * ⚠️ Pins an ALLOWLIST, which is the only shape that can catch the regression
    * that matters. The stored record carries the launchd label, the absolute
@@ -5352,7 +5355,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
 });
 
 
-test('a job that is disabled but will not unload is recorded, not reported as untouched', async () => {
+test('a job that is disabled but will not unload is recorded, not reported as untouched', LINUX_PLIST_5432, async () => {
   /**
    * ⚠️ THE WORST STATE THIS MODULE CAN REACH, and it used to be invisible.
    *
@@ -10297,7 +10300,7 @@ test('the footer answers only a question that was asked, and never sits on news'
     'a failure stayed silent until it was asked for');
 });
 
-test('the model route writes the choice AND restarts, because either alone is a lie', async () => {
+test('the model route writes the choice AND restarts, because either alone is a lie', LINUX_PLIST_5432, async () => {
   /**
    * 🛑 TWO WRITES AND THE SECOND IS NOT OPTIONAL. `setModel` rewrites the
    * startup file; the restart is what makes launchd read it. Ship the first
@@ -10368,7 +10371,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
   }
 });
 
-test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', async () => {
+test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', LINUX_PLIST_5432, async () => {
   /* The route was rewritten from a synchronous handler to an async readBody so
      the stale-instructions notice can send {cause:'instructions'} and the board
      can name WHY the agent went quiet. A bodyless POST (a plain Restart click)

@@ -19,6 +19,9 @@
  *   node --test server.world-offline-rows-1704.test.js
  */
 const test = require('node:test');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it fakes launchd's list and print-disabled; Linux reads systemctl list-units and list-unit-files: engine/linux-parity-5445.test.js (#5445, PR #5469)" } : {};
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -111,7 +114,7 @@ const running = (key) => ({ list: `PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agen
 const switchedOff = (key) => ({ disabled: `disabled services = {\n\t"com.kosmos.agent.${key}" => disabled\n}\n` });
 const SWITCHED_OFF = /background job was switched off/;
 
-test('a named Kosmos\'s offline ava is NOT running-unseen because Kosmos 1\'s ava is running; its own ava+test running is', async () => {
+test('a named Kosmos\'s offline ava is NOT running-unseen because Kosmos 1\'s ava is running; its own ava+test running is', LINUX_PLIST_5432, async () => {
   const kosmos1Running = await avaRow(WORLD, running('ava'));
   assert.equal(kosmos1Running.jobRunningUnseen, false, 'Kosmos 1\'s running ava dressed the named Kosmos\'s ava in running-unseen');
   assert.equal(kosmos1Running.state, 'stopped');
@@ -120,7 +123,7 @@ test('a named Kosmos\'s offline ava is NOT running-unseen because Kosmos 1\'s av
   assert.equal(ownRunning.jobRunningUnseen, true, 'the control: the named Kosmos\'s own running job is its fact');
 });
 
-test('a named Kosmos\'s offline ava is NOT "switched off" because Kosmos 1\'s ava is; its own ava+test switched off IS', async () => {
+test('a named Kosmos\'s offline ava is NOT "switched off" because Kosmos 1\'s ava is; its own ava+test switched off IS', LINUX_PLIST_5432, async () => {
   const kosmos1Off = await avaRow(WORLD, switchedOff('ava'));
   assert.doesNotMatch(String(kosmos1Off.because), SWITCHED_OFF, 'Kosmos 1\'s switched-off job was told as the named Kosmos\'s');
 
@@ -128,7 +131,7 @@ test('a named Kosmos\'s offline ava is NOT "switched off" because Kosmos 1\'s av
   assert.match(String(ownOff.because), SWITCHED_OFF, 'the named Kosmos\'s own switched-off job fell through to another sentence');
 });
 
-test('control: Kosmos 1 still reads its own ava running and switched off', async () => {
+test('control: Kosmos 1 still reads its own ava running and switched off', LINUX_PLIST_5432, async () => {
   assert.equal((await avaRow(undefined, running('ava'))).jobRunningUnseen, true);
   assert.match(String((await avaRow(undefined, switchedOff('ava'))).because), SWITCHED_OFF);
   assert.equal((await avaRow(undefined, running(launchidentity.launchKey('ava', WORLD)))).jobRunningUnseen, false,
