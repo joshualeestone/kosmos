@@ -87,6 +87,9 @@ function make(opts) {
   const status = o.status || require('./status');
   const store = o.store || require('./store');
   const launchidentity = o.launchidentity || require('./launchidentity'); // #1704: this board's Kosmos
+  // #5445 (display parity): on Linux the jobs are systemd user units, not plists (linuxjob.listUnits).
+  const platform = o.platform || process.platform;
+  const linuxjob = o.linuxjob || (platform === 'linux' ? require('./linuxjob') : null);
   return function createdRoster(excludeKeys, callOpts) {
     const includeRemoved = !!(callOpts && callOpts.includeRemoved);
     // A failed look must refuse honestly, exactly like the discover sources. Every
@@ -112,21 +115,30 @@ function make(opts) {
     // key with remove.js, NOT that it equals slugFor.
     const removedSet = new Set(removed.names.map((n) => create.cleanName(n)));
     const exclude = excludeKeys instanceof Set ? excludeKeys : new Set();
-    let files;
-    try { files = fsMod.readdirSync(create.AGENTS_DIR); } catch { return []; }
-    const SUFFIX = '.plist';
+    let jobs;
+    if (platform === 'linux') {
+      // A unit folder that cannot be read lists nothing (fail closed), as an unreadable LaunchAgents folder does.
+      try { jobs = linuxjob.listUnits(); } catch { return []; }
+    } else {
+      let files;
+      try { files = fsMod.readdirSync(create.AGENTS_DIR); } catch { return []; }
+      const SUFFIX = '.plist';
+      /* #1704: attribute each plist to a Kosmos by its label. The prefix match is world-independent
+         (create.SERVICE_LABEL_PREFIX), because serviceLabel('') is not any more. */
+      jobs = [];
+      for (const f of files) {
+        if (!f.endsWith(SUFFIX)) continue;
+        const parsed = create.parseServiceLabel(f.slice(0, f.length - SUFFIX.length));
+        if (parsed) jobs.push(parsed);
+      }
+    }
     const myWorld = launchidentity.currentWorldId();
     const seen = new Set();
     const out = [];
-    for (const f of files) {
-      if (!f.endsWith(SUFFIX)) continue;
-      /* #1704: attribute each plist to a Kosmos by its label. This board rosters
-         ONLY its own world (a default board drops `*+*`, a named board keeps only
-         its own), and `name` is the BARE agent name -- never the `<name>+<world>`
-         key -- so readJob/workerDir/safeKey below re-key it correctly to this
-         world instead of double-keying it. The prefix match is world-independent
-         (create.SERVICE_LABEL_PREFIX), because serviceLabel('') is not any more. */
-      const parsed = create.parseServiceLabel(f.slice(0, f.length - SUFFIX.length));
+    for (const parsed of jobs) {
+      /* #1704: this board rosters ONLY its own world (a default board drops `*+*`, a named board keeps only its
+         own), and `name` is the BARE agent name -- never the `<name>+<world>` key -- so readJob/workerDir/safeKey
+         below re-key it correctly to this world instead of double-keying it. */
       if (!parsed || parsed.worldId !== myWorld) continue;
       const name = parsed.name;
       // readJob validates the plist is a real Kosmos job; a foreign/malformed

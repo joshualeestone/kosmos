@@ -179,7 +179,7 @@ function jobReader(platform) {
      the plist check said no Linux agent comes back after a restart. */
   if (platform === 'linux') {
     const lj = require('./linuxjob');
-    return { win32: false, known: true, fleet: null, of: (name) => lj.presence(name) };
+    return { win32: false, linux: true, known: true, fleet: null, of: (name) => lj.presence(name) };
   }
   if (platform !== 'win32') {
     return { win32: false, known: true, fleet: null, of: (name) => fs.existsSync(create.plistPath(name)) };
@@ -252,6 +252,13 @@ function strays(profileNames, jobs) {
   if (jobs.win32) {
     if (!jobs.known) failed = true;
     else for (const n of jobs.fleet) note(n, 'job');
+  } else if (jobs.linux) {
+    /* #5445 (display parity): on Linux the jobs are systemd user units, so the walk is the unit folder's, read by
+       name and world as the plist walk below reads labels; a folder that cannot be read is could-not-look. */
+    try {
+      const myWorld = launchidentity.currentWorldId();
+      for (const u of require('./linuxjob').listUnits()) if (u.worldId === myWorld) note(u.name, 'job');
+    } catch { failed = true; }
   } else {
     try {
       const myWorld = launchidentity.currentWorldId();

@@ -2032,7 +2032,7 @@ function restartInner(name, cause, platform, startIfDead) {
       steps: [],
       /* The launch model in create's words (#671): one spelling of the self-starting fact. */
       because: `${shown} is not running, so there is nothing to restart. `
-        + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1) + '.',
+        + create.selfStartsSentence(),
     };
   }
   if (!fromDead && found.kind !== FOUND.OURS) {
