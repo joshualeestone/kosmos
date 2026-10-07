@@ -151,3 +151,14 @@ test('#4918 review 35: a value a systemd unit cannot hold is said to the person,
     assert.doesNotMatch(r.because, /you can try that name again/);
   } finally { if (saved === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = saved; }
 });
+
+test('#4918 review 37: an active unit whose enable systemd refuses (masked) is not "already loaded"', () => {
+  fs.mkdirSync(create.workerDir('maskbot'), { recursive: true });
+  systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' }
+    : (cmd === 'systemctl' && args[1] === 'enable') ? { ok: false, code: 1, stderr: 'Failed to enable unit: Unit file kosmos-agent-maskbot.service is masked.' }
+      : lingerIs(true)(cmd, args));
+  const r = create.installJob('maskbot', { ...BINS, platform: 'linux' });
+  assert.equal(r.alreadyRunning, false, 'a refused enable was reported as already loaded: ' + JSON.stringify(r));
+  assert.match(r.because, /will not start again on its own/);
+  assert.equal(r.atLogin, false);
+});

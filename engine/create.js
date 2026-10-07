@@ -3735,6 +3735,7 @@ function installJob(name, opts) {
     }
     let started = false;
     let alreadyRunning = false;   // review 25: an active unit keeps running on its old settings; that is not a failure
+    let runningButNotEnabled = false;   // review 37: active, but systemd refused the reload or enable
     let lingering = true;
     let atLogin = true;   // #4918 review 15: false when systemd refused the reload or enable (nothing brings it back)
     if (DRY_RUN) {
@@ -3745,8 +3746,11 @@ function installJob(name, opts) {
         /* review 23: a start of an already-active unit does nothing and exits 0, leaving the old ExecStart running.
            As the Mac's bootstrap of a loaded job, that is "next start", not "started now". */
         const wasActive = Boolean(linuxRun(() => lj.loaded(clean)));
-        alreadyRunning = wasActive;
         const r = linuxRun(() => lj.start(clean));
+        // review 37: "already loaded" only when systemd took the change; a refused reload or enable (masked, say)
+        // leaves it running on its old settings and starting at no login, which is its own sentence.
+        alreadyRunning = wasActive && Boolean(r && r.ok === true);
+        runningButNotEnabled = wasActive && !(r && r.ok === true);
         started = !wasActive && Boolean(r && r.ok === true);
         if (!started && /did not (enable|reload)/.test(String((r && r.because) || ''))) atLogin = false;
       } catch { started = false; }
@@ -3763,6 +3767,8 @@ function installJob(name, opts) {
       },
       because: alreadyRunning
         ? 'set up; systemd already has it loaded, so the new settings take effect at its next restart'
+        : runningButNotEnabled
+        ? 'it is running now on its old settings, but systemd would not take the new ones, so it will not start again on its own'
         : !started
         ? 'set up, but systemd could not start it just now'
         : lingering

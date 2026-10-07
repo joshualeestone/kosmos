@@ -476,7 +476,8 @@ function del(name, opts) {
        them would bring the agent back as an ordinary one with dead tokens and nothing on screen to retry from. */
     return {
       outcome: OUTCOME.REFUSED,
-      because: `systemd would not remove ${p.shown}'s startup job, so its folder was kept too. The name stays taken; try again once this computer's user services are reachable.`,
+      // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
+      because: `systemd would not remove ${p.shown}'s startup job, so its folder was kept too. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
       steps,
     };
   } else if (p.folder) move(p.folder.path, 'its folder');

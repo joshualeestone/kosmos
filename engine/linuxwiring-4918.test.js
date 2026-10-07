@@ -453,6 +453,7 @@ test('#4918 review 32: with a Trash, a startup job systemd will not remove still
     assert.notEqual(r.outcome, del.OUTCOME.DELETED, JSON.stringify(r));
     assert.match(r.because, /folder was kept too/, 'the sentence says the folder could not move, not that it was kept (review 34)');
     assert.equal(forgot, 0, 'the removal record was dropped though nothing was deleted (review 35)');
+    assert.match(r.because, /standing in the community was reset/, 'the irreversible standing reset is not said (review 37)');
   } finally {
     fs.rmSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true, force: true });
     if (savedTrash === undefined) delete process.env.AGENT_WORKFORCE_TRASH; else process.env.AGENT_WORKFORCE_TRASH = savedTrash;
