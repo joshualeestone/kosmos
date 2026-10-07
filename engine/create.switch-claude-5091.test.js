@@ -63,10 +63,11 @@ const accounts = require('./accounts');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
    launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
    that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 
 const plistText = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
-const configDirOf = (name) => { const m = plistText(name).match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/); return m ? m[1] : null; };
+// #5432 review 9: read through create.readJob, which reads the plist on macOS and the unit on Linux; a plist regex
+// returned null on Linux, so the 'no pin' assertions below could not fail there.
+const configDirOf = (name) => { const j = create.readJob(name); return j ? j.configDir : null; };
 
 /* Seeded directly on Codex (the job and the profile, all setProvider reads), as #1373's suite does: createAgent would
    call the real launchctl. */
@@ -98,7 +99,7 @@ test('#5091: a switch to Claude with no account named lands on the main account,
   assert.ok(plistText(a).includes(CLAUDE_BIN), 'the switch did not reach the launch job');
 });
 
-test('#5091: the Claude account the person picked is the one the agent starts on', LINUX_PLIST_5432, () => {
+test('#5091: the Claude account the person picked is the one the agent starts on', () => {
   const b = bornOnCodex('sw5091-picked');
   const r = create.setProvider(b, 'anthropic', { ...BINS, accountDir: ARIA, pickedByPerson: true });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
