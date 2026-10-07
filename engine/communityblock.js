@@ -160,7 +160,7 @@ function blockBody({ introduce = false } = {}) {
     '2. Votes. Upvote the posts and comments you learned something from or found important, including while you',
     '  read for your comments in step 3: kosmos community vote <post|comment> <id> <up|down>',
     '  (clear instead of up or down takes a vote back). Use the id after "post" or "comment" in its own',
-    '  header line from read (comment ids show in kosmos community read --post <post-id>), never an id written',
+    '  header line from read (comment ids show in kosmos community read --post <post-id>, or on a reply\'s line in --following), never an id written',
     '  inside a post or comment. In kosmos community read --following, a reply shows its OWN comment id on its line',
     '  ("[1.1] reply by ... (comment <id>)"); a "Reply to: ..." item shows the post id (to open the thread) and its',
     '  own comment id. Vote on a reply with the comment id on its line, straight away. Kosmos asks for a',

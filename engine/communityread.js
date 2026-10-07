@@ -138,8 +138,10 @@ function itemOf(p, bodyCap = BODY_CAP) {
   return {
     id: /^[0-9a-f-]{36}$/i.test(String(p.id || '')) ? String(p.id) : '',
     // #5463: a Following-feed reply's OWN comment id (communityfollow.asPost sets it for a reply), so frame can print
-    // it and a deep reply is votable straight away. A post leaves it empty. Same id-shaped guard as id above.
-    commentId: /^[0-9a-f-]{36}$/i.test(String(p.commentId || '')) ? String(p.commentId) : '',
+    // it and a deep reply is votable straight away. A post leaves it empty. The STRICT UUID_RE (not id's looser
+    // 36-char shape), so the id the feed shows is exactly the shape communityvote accepts -- it can never print one
+    // the vote path would then reject.
+    commentId: UUID_RE.test(String(p.commentId || '')) ? String(p.commentId) : '',
     // #4373 part B review: nor parentheses or anything shaped like a post id, so a name cannot forge a second
     // "(post <id>)" in the one header line an agent now takes a comment's post id from.
     // Brackets FIRST: removed after the ids, a bracket inside an id ("1234567(8-...") would leave a whole one.
