@@ -21946,15 +21946,16 @@ function paintRebootNote(note) {
   const down = note && rebootWhen(note.bootAt);
   const up = note && rebootWhen(note.upAt);
   if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; return; }
-  /* The ten-minute re-check repaints only a different note: a repaint of the same one would take focus off its
-     Dismiss button and re-announce the status line. */
-  const key = note.bootAt + '|' + note.upAt;
+  const head = 'This computer restarted ' + down;
+  const line = 'Kosmos was running and started again by itself ' + up + '.';
+  /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
+     11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
+  const key = head + '|' + line;
   if (slot.dataset.shown === key && slot.firstElementChild) return;
   slot.dataset.shown = key;
-  const head = 'This computer restarted ' + down;
   slot.innerHTML = '<div class="utoast reboot">'
     + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc('Kosmos was running and started again by itself ' + up + '.') + '</small></div>'
+    + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc(line) + '</small></div>'
     + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
     + '</div>';
   const btn = slot.querySelector('.ux');

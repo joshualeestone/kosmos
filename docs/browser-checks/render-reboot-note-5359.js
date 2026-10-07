@@ -108,6 +108,28 @@ const CASES = [
     say(errs.length === 0, c.key + ': no page errors', errs.join(' | '));
     await pg.close();
   }
+  /* Review 3: the same note repaints when its words change across midnight. The page's clock is pinned at 23:30 with a
+     restart at 23:20; moved to 00:10, a re-check of the SAME note must say "yesterday at", which a guard keyed on the
+     note's times (not its words) would block. */
+  {
+    const base = new Date(); base.setHours(23, 30, 0, 0);
+    const note = { lastAliveAt: new Date(base.getTime() - 11 * MIN).toISOString(), bootAt: new Date(base.getTime() - 10 * MIN).toISOString(), upAt: new Date(base.getTime() - 5 * MIN).toISOString() };
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.clock.setFixedTime(base);
+    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});
+    const before = await pg.$eval('#reboot-slot', (el) => el.textContent).catch(() => '');
+    say(new RegExp('This computer restarted at 11:20\\s?PM').test(before), 'midnight: at 23:30 the head says "at 11:20 PM"', JSON.stringify(before));
+    await pg.clock.setFixedTime(new Date(base.getTime() + 40 * MIN));   // 00:10 the next day
+    const after = await pg.evaluate(async () => { await rebootNoteCheck(); return document.getElementById('reboot-slot').textContent; });
+    say(new RegExp('This computer restarted yesterday at 11:20\\s?PM').test(after), 'midnight: after midnight the same note says "yesterday at"', JSON.stringify(after));
+    say(errs.length === 0, 'midnight: no page errors', errs.join(' | '));
+    await pg.close();
+  }
   await b.close();
   console.log(fail.length ? '\nFAILED: ' + fail.length : '\nall reboot-note checks passed');
   process.exit(fail.length ? 1 : 0);

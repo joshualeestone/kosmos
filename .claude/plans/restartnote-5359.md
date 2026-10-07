@@ -42,3 +42,19 @@
 - The restart-note routes moved above the what's-new comment block, which they had split from its route.
 - Decided, not missed: the rule takes now minus uptime as the boot time, so a clock corrected after boot can move it
   and miss or fake a note. Accepted for a courtesy note.
+
+## Review 3
+- FIXED (a regression of my review 2 fix): the re-check guard keyed on the note's times, so "at 11:30 PM" never became
+  "yesterday at 11:30 PM" after midnight. It now keys on the painted words. Pinned by a midnight arm in
+  render-reboot-note-5359.js (the page clock pinned at 23:30, then 00:10); keying on the times again reddens it.
+- Decided, not missed: an outage longer than WINDOW_MS (a machine back after 20 minutes, a laptop dead overnight) makes
+  no note. Widening the "alive before boot" window was rejected: a record left by a stop that does not clear it
+  (quitting the app, Windows) would then say "Kosmos was running" after any quit within the wider window. Weakest
+  premise: that long outages are rarer than quits followed by a restart. What would change it: every stop path
+  clearing the record, after which the window could widen safely.
+- Decided, unmeasured: Windows Fast Startup. A "Shut down" there hibernates the kernel, and os.uptime() may not reset,
+  so a shutdown and power-on may make no note. A blue screen and a power cut are cold boots and reset it, which is the
+  card's case. A deliberate shutdown making no note is acceptable. Not measured: no Windows machine here.
+- Left as consistent with the login notice: the status region is inserted with its words (the login notice does the
+  same); REBOOT_SEEN_START's position (tick() runs after the script body); a temp file left by a kill mid-write
+  (one write a minute, harmless); a dismiss racing a new note (a courtesy note).
