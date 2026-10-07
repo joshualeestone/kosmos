@@ -1591,7 +1591,7 @@ async function verbConnections(ctx) {
 }
 
 /* #5359, as install/kosmos cmd_accounts: which providers' accounts this board has and whether each is signed in, from
-   GET /api/accounts (each account checked live, so a moment that needs it, never a loop). Board token, as connections. */
+   GET /api/accounts (most accounts checked live, so a moment that needs it, never a loop). Board token, as connections. */
 const ACCOUNTS_TIMEOUT_MS = 60000;
 /* One account's line, the same words as install/kosmos cmd_accounts: the badge first, as the board's Settings > AI
    Models row reads it (a credential on disk is state "connected" even when its login was refused, #874). */
@@ -1609,10 +1609,12 @@ function accountLine(a, now = Date.now()) {
     : c.badge === 'signed_out' ? 'not signed in' + why
     : c.badge === 'unchecked' ? 'could not be checked just now' + why
     : c.liveCheckPending === true ? 'being checked now; it is known on the next read'
+    : a.authMode === 'chatgpt' && c.state === 'unknown' ? 'signed in by its own record, not yet confirmed by a real request'
     : c.state === 'connected' ? 'signed in'
     : c.state === 'none' ? 'not signed in' + why
     : 'could not be checked just now' + why;
-  return (typeof a.providerName === 'string' && a.providerName ? a.providerName : (a.provider || 'a provider')) + ': ' + who + how + ': ' + state;
+  const line = (typeof a.providerName === 'string' && a.providerName ? a.providerName : (a.provider || 'a provider')) + ': ' + who + how + ': ' + state;
+  return line.replace(/[\u0000-\u001f\u007f]+/g, ' ');   // board text never prints as an extra line
 }
 async function verbAccounts(ctx) {
   const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
@@ -1621,7 +1623,7 @@ async function verbAccounts(ctx) {
   const err = r.json && typeof r.json.error === 'string' ? r.json.error.replace(/[.\s]+$/, '') : '';
   if (r.status >= 500) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
   // No token hint (#5333) here: this verb sends the board token only, never an agent's, so it cannot be about one.
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (r.status >= 400 && ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
   if (r.status >= 400) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
   const accounts = r.json && Array.isArray(r.json.accounts) ? r.json.accounts : null;
   if (!accounts) { ctx.err('Kosmos gave an answer we could not read about its accounts.'); return 1; }

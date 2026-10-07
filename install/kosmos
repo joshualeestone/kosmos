@@ -2361,9 +2361,10 @@ cmd_connections() {
 }
 
 # ---- kosmos accounts      (#5359)
-# Which providers' accounts this board has, and whether each is signed in, from GET /api/accounts (the board's
-# own record, each account checked live), so an agent no longer hand-rolls that authenticated read. The route checks
-# every account when asked, so it is for a moment that needs the answer, never a loop. Board token, as connections.
+# Which providers' accounts this board has, and whether each is signed in, from GET /api/accounts (most accounts
+# checked live, some from Kosmos's own record), so an agent no longer hand-rolls that authenticated read. The route
+# checks most accounts when asked, so it is for a moment that needs the answer, never a loop. Board token, as
+# connections.
 cmd_accounts() {
   if ! healthy; then
     say_not_up "it cannot say which accounts are set up"
@@ -2387,8 +2388,9 @@ cmd_accounts() {
       const err = j && typeof j.error === "string" ? j.error.replace(/[.\s]+$/, "") : "";
       // The same classes as tools/windows/kosmos-cli.js verbAccounts: a fault on the board (5xx) is never a refusal,
       // and a 4xx is a refusal only when the board said why.
-      if (code >= 500 || (code >= 400 && !err)) { console.log("  Kosmos could not read its accounts just now" + (err ? ": " + err : "") + ". Try again in a minute."); process.exit(3); }
-      if (code >= 400) { console.log("  Kosmos refused that request: " + err + "."); process.exit(3); }
+      const ind = process.env.KOSMOS_SAY_INDENT === undefined ? "  " : process.env.KOSMOS_SAY_INDENT;   // as say()
+      if (code >= 500 || (code >= 400 && !err)) { console.log(ind + "Kosmos could not read its accounts just now" + (err ? ": " + err : "") + ". Try again in a minute."); process.exit(3); }
+      if (code >= 400) { console.log(ind + "Kosmos refused that request: " + err + "."); process.exit(3); }
       if (!j || !Array.isArray(j.accounts)) process.exit(1);
       if (!j.accounts.length) { console.log("No provider accounts are set up on this board yet. The person adds one in Settings > AI Models."); return; }
       const when = (t) => new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
@@ -2406,10 +2408,12 @@ cmd_accounts() {
           : c.badge === "signed_out" ? "not signed in" + why
           : c.badge === "unchecked" ? "could not be checked just now" + why
           : c.liveCheckPending === true ? "being checked now; it is known on the next read"
+          : a.authMode === "chatgpt" && c.state === "unknown" ? "signed in by its own record, not yet confirmed by a real request"
           : c.state === "connected" ? "signed in"
           : c.state === "none" ? "not signed in" + why
           : "could not be checked just now" + why;
-        console.log((typeof a.providerName === "string" && a.providerName ? a.providerName : (a.provider || "a provider")) + ": " + who + how + ": " + state);
+        const line = (typeof a.providerName === "string" && a.providerName ? a.providerName : (a.provider || "a provider")) + ": " + who + how + ": " + state;
+        console.log(line.replace(/[\u0000-\u001f\u007f]+/g, " "));   // board text never prints as an extra line
       }
     });' || prc=$?
   if [ "$prc" -eq 3 ]; then exit 1; fi

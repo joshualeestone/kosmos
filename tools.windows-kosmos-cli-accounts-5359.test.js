@@ -41,6 +41,8 @@ const ACCOUNTS = { accounts: [
   // Review 2: a key row with no badge (state alone), a stop time already past (falls through to the badge), and a
   // refused login whose stop time is ahead (the stop notice comes first, as on the board).
   { provider: 'google', providerName: 'Google Gemini', email: 'k@example.com', authMode: 'apikey', connection: { state: 'connected' } },
+  // Review 3: a ChatGPT sign-in whose free check finished with no answer: the board shows it as signed in (amber).
+  { provider: 'openai', providerName: 'OpenAI', email: 'g@example.com', authMode: 'chatgpt', connection: { state: 'unknown', because: 'not yet checked' } },
   { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'p@example.com', connection: { state: 'connected', badge: 'working', loginStopsAt: Date.now() - 3600 * 1000 } },
   { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'x@example.com', connection: { state: 'connected', badge: 'rejected', loginStopsAt: Date.now() + 3600 * 1000 } },
 ] };
@@ -60,6 +62,7 @@ test('#5359: kosmos accounts reads /api/accounts with the board token only, and 
   assert.match(out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
   assert.match(out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
   assert.match(out, /^Google Gemini: k@example\.com \(apikey\): signed in$/m, 'a row with no badge lost its state');
+  assert.match(out, /^OpenAI: g@example\.com \(chatgpt\): signed in by its own record, not yet confirmed by a real request$/m, 'a ChatGPT row read unlike the board');
   assert.match(out, /^Anthropic \/ Claude: p@example\.com: signed in$/m, 'a stop time already past still said they stop');
   assert.match(out, /^Anthropic \/ Claude: x@example\.com: its sign-in has run out; its agents keep working until /m, 'the stop notice did not come first');
   assert.match(out, /^Google Gemini: an account with no email on record \(apikey\): not signed in: the key was refused$/m);
@@ -86,6 +89,11 @@ test('#5359: kosmos accounts says when there are none, and when the board is unr
   assert.equal(await cli.main(['accounts'], bare.io), 1);
   assert.match(bare.all(), /Kosmos could not read its accounts just now\. Try again in a minute\./);
   assert.doesNotMatch(bare.all(), /refused/);
+  // Review 3: an error on a 200 is not a refusal (refusals are 4xx, as on the Mac).
+  const okErr = harness({ answer: () => [200, { error: 'something odd' }] });
+  assert.equal(await cli.main(['accounts'], okErr.io), 1);
+  assert.match(okErr.all(), /an answer we could not read about its accounts/);
+  assert.doesNotMatch(okErr.all(), /refused/);
   const odd = harness({ answer: () => [200, { something: 'else' }] });
   assert.equal(await cli.main(['accounts'], odd.io), 1);
   assert.match(odd.all(), /an answer we could not read about its accounts/);

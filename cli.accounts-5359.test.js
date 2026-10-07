@@ -34,6 +34,7 @@ function withStub(answers, fn) {
     req.on('end', () => {
       seen.push({ method: req.method, url: req.url, headers: req.headers });
       const a = answers[req.method + ' ' + req.url];
+      if (a && typeof a.raw === 'string') { res.writeHead(a.status || 200, { 'content-type': 'text/html' }); return res.end(a.raw); }
       if (a) { res.writeHead(a.status || 200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(a.json)); }
       res.writeHead(200, { 'content-type': 'text/html' });
       res.end('<title>Kosmos</title>Agent Workforce');
@@ -79,6 +80,8 @@ const ACCOUNTS = { accounts: [
   // Review 2: a key row with no badge (state alone), a stop time already past (falls through to the badge), and a
   // refused login whose stop time is ahead (the stop notice comes first, as on the board).
   { provider: 'google', providerName: 'Google Gemini', email: 'k@example.com', authMode: 'apikey', connection: { state: 'connected' } },
+  // Review 3: a ChatGPT sign-in whose free check finished with no answer: the board shows it as signed in (amber).
+  { provider: 'openai', providerName: 'OpenAI', email: 'g@example.com', authMode: 'chatgpt', connection: { state: 'unknown', because: 'not yet checked' } },
   { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'p@example.com', connection: { state: 'connected', badge: 'working', loginStopsAt: Date.now() - 3600 * 1000 } },
   { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'x@example.com', connection: { state: 'connected', badge: 'rejected', loginStopsAt: Date.now() + 3600 * 1000 } },
 ] };
@@ -92,6 +95,7 @@ test('#5359: kosmos accounts reads /api/accounts with the board token, and says 
   assert.match(r.out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
   assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
   assert.match(r.out, /^Google Gemini: k@example\.com \(apikey\): signed in$/m, 'a row with no badge lost its state');
+  assert.match(r.out, /^OpenAI: g@example\.com \(chatgpt\): signed in by its own record, not yet confirmed by a real request$/m, 'a ChatGPT row read unlike the board');
   assert.match(r.out, /^Anthropic \/ Claude: p@example\.com: signed in$/m, 'a stop time already past still said they stop');
   assert.match(r.out, /^Anthropic \/ Claude: x@example\.com: its sign-in has run out; its agents keep working until /m, 'the stop notice did not come first');
   assert.match(r.out, /^Google Gemini: an account with no email on record \(apikey\): not signed in: the key was refused$/m);
@@ -126,6 +130,12 @@ test('#5359: kosmos accounts says when there are none, when the board refuses, a
     assert.match(r.out, /Kosmos could not read its accounts just now\. Try again in a minute\./);
     assert.doesNotMatch(r.out, /refused/);
   });
+  // Review 3: a 5xx that is not JSON (a proxy's page) is still a fault, never "could not read the answer".
+  await withStub({ 'GET /api/accounts': { status: 502, raw: '<html>Bad gateway</html>' } }, async (port) => {
+    const r = await cli(port, ['accounts']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not read its accounts just now\. Try again in a minute\./);
+  });
   await withStub({ 'GET /api/accounts': { json: { something: 'else' } } }, async (port) => {
     const r = await cli(port, ['accounts']);
     assert.equal(r.code, 1, r.out);
@@ -139,3 +149,11 @@ test('#5359: kosmos accounts --help prints its usage and never runs the live che
   assert.match(r.out, /^Usage: kosmos accounts /m);
   assert.equal(seen.filter((x) => x.url === '/api/accounts').length, 0, '--help ran the live check');
 }));
+
+test('#5359: kosmos accounts says so when no board answers', async () => {
+  // A port nothing listens on: taken from a stub that is then closed.
+  const port = await new Promise((resolve) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => { const p = sv.address().port; sv.close(() => resolve(p)); }); });
+  const r = await cli(port, ['accounts']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /which accounts are set up/);
+});

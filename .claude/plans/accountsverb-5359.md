@@ -15,7 +15,9 @@ accounts, so it is a direct read of the route", with the port, the board token a
   a Claude credential on disk is state "connected" even when its last request was refused, #874, so reading state
   alone printed "signed in" for a refused login). In words: a sign-in that has run out says when its agents stop
   (#5168); working is signed in; signed_in_unverified is signed in by Kosmos's record, not yet confirmed; rejected
-  and signed_out are not signed in; unchecked could not be checked; with no badge, the state as before.
+  and signed_out are not signed in; unchecked could not be checked; a ChatGPT sign-in whose free check gave no
+  answer reads as signed in by its own record, as the board shows it (review 3); with no badge, the state as before.
+- Board text (an email, a reason) is printed with control characters replaced, so it never prints as an extra line.
 - One class rule on both CLIs: a fault on the board (5xx, JSON or not) is told as a fault, never a refusal; a 4xx is
   a refusal only when the board says why, and otherwise "could not read, try again". No accounts, an unreachable
   board and an unreadable answer each get their own sentence.
