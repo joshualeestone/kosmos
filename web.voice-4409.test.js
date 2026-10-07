@@ -464,6 +464,16 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
   go().handlers.click();
   assert.equal(posted.at(-1).pane, 'mic');
+  // review 2: "allowed" after the person moved to another agent clears the pill but does not start the mic there.
+  const visit = posted.at(-1).id;
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });   // the app always ends a refusal with stopped
+  assert.equal(h.VOICE.btn, null, 'fixture: the mic is still on, so nothing below could start it either way');
+  h.set(CARD('casey'), null);
+  const before = posted.length;
+  h.voiceOnEvent({ kind: 'allowed', id: visit });
+  assert.equal(pills.length, 0, 'the pill stayed after allowed in another view');
+  assert.equal(posted.length, before, 'the mic started in a view the person had left: ' + JSON.stringify(posted.slice(before)));
+  h.set(CARD('april'), null);
   // CONTROL: not a denial, or restricted (Settings cannot undo it), offers no pill and says a sentence instead.
   for (const reason of ['speech-unanswered', 'speech-restricted', 'mic-restricted']) {
     h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });

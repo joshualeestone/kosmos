@@ -1470,7 +1470,6 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         default: return nil
         }
     }
-    /// #5481: both permissions the mic needs are now granted. PURE, so the selftest drives it.
     /// #5481: restricted (Screen Time or a device profile) is told apart from denied, because the
     /// Privacy pane cannot undo it and the page must not offer that pane for it. PURE, selftested.
     static func speechRefusal(_ s: SFSpeechRecognizerAuthorizationStatus) -> String {
@@ -1505,11 +1504,17 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     static func readyToStart(speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus) -> Bool {
         return speech == .authorized && (mic == .authorized || mic == .notDetermined)
     }
+    /// #5481 review 2: the whole decision on coming back from Settings, PURE so the selftest pins the event and its
+    /// id (the page matches "allowed" to the Settings visit by that id, never to the listening session's).
+    static func allowedEvent(awaiting: Bool, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> [String: String]? {
+        guard awaiting, readyToStart(speech: speech, mic: mic) else { return nil }
+        return ["kind": "allowed", "id": settingsId]
+    }
     private func recheckAfterSettings() {
-        guard awaitingAllow else { return }
-        guard Self.readyToStart(speech: SFSpeechRecognizer.authorizationStatus(), mic: AVCaptureDevice.authorizationStatus(for: .audio)) else { return }
+        guard let event = Self.allowedEvent(awaiting: awaitingAllow, speech: SFSpeechRecognizer.authorizationStatus(),
+                                            mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId) else { return }
         awaitingAllow = false
-        emit(["kind": "allowed", "id": settingsId])
+        emit(event)
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -6534,7 +6539,10 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.speechRefusal(.restricted) == "speech-restricted" && VoiceBridge.micRefusal(.restricted) == "mic-restricted", "#5481: restricted is said as restricted")
     row(VoiceBridge.speechRefusal(.denied) == "speech-denied" && VoiceBridge.micRefusal(.denied) == "mic-denied", "#5481 CONTROL: denied stays denied")
     row(VoiceBridge.speechRefusal(.notDetermined) == "speech-unanswered", "#5481: no answer stays unanswered")
-    let expected = 25   // #5311: + Dictation off, + its control; #5481: + 9
+    row(VoiceBridge.allowedEvent(awaiting: true, speech: .authorized, mic: .notDetermined, settingsId: "set7") == ["kind": "allowed", "id": "set7"], "#5481 review 2: coming back ready says allowed with the Settings visit's own id")
+    row(VoiceBridge.allowedEvent(awaiting: false, speech: .authorized, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2: no Settings visit, no allowed")
+    row(VoiceBridge.allowedEvent(awaiting: true, speech: .denied, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2 CONTROL: still off says nothing")
+    let expected = 28   // #5311: + Dictation off, + its control; #5481: + 12
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")

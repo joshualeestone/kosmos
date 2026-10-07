@@ -65507,13 +65507,13 @@ function voiceCancel() {
    Settings pane (the app opens only the two panes it knows, never a URL from the page); X puts the plain mic back.
    When the person comes back with both allowed, the app says "allowed" and the same mic starts listening. */
 const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
-const VOICE_SETTINGS = { btn: null, id: '', msg: null, said: '' };
+const VOICE_SETTINGS = { btn: null, id: '', msg: null, said: '', where: '' };
 function voiceSettingsClear() {
   document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
   document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
   const m = VOICE_SETTINGS.msg;
   if (m) { m.classList.remove('vh'); if (m.textContent === VOICE_SETTINGS.said) m.textContent = ''; }   // never shown, so never left behind
-  Object.assign(VOICE_SETTINGS, { btn: null, id: '', msg: null, said: '' });
+  Object.assign(VOICE_SETTINGS, { btn: null, id: '', msg: null, said: '', where: '' });
 }
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
@@ -65524,6 +65524,8 @@ function voiceSettingsOffer(btn, pane, said) {
   voiceSay(btn, said);
   const m = voiceMsgEl(btn);
   if (m) { m.classList.add('vh'); VOICE_SETTINGS.msg = m; VOICE_SETTINGS.said = m.textContent; }
+  const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+  VOICE_SETTINGS.where = box ? voiceWhere(box) : '';   // review 2: "allowed" restarts only if the person is still here
   const pill = document.createElement('span');
   pill.className = 'voice-pill';
   const x = document.createElement('button');
@@ -65551,8 +65553,10 @@ function voiceOnEvent(ev) {
   if (ev && ev.kind === 'allowed') {
     const btn = VOICE_SETTINGS.btn;
     if (!btn || (ev.id != null && ev.id !== VOICE_SETTINGS.id)) return;
+    const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+    const still = !!box && voiceWhere(box) === VOICE_SETTINGS.where;   // review 2: another agent, room or a closed dialog
     voiceSettingsClear();
-    if (document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
+    if (still && document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
     return;
   }
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere

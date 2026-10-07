@@ -18,7 +18,9 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
   - Each permission answer is logged with its duration, so a refusal without a prompt shows as a few milliseconds.
 - web/index.html: on a desktop-bridge `mic-denied` or `speech-denied`, the mic gets class `has-pill` (hidden) and a
   `.voice-pill` is inserted after it. The label posts `{op:'settings', pane, id}`; `allowed` with that id clears the pill
-  and calls voiceToggle on the same mic; X clears it and focuses the mic. Other refusals keep their sentence.
+  and calls voiceToggle on the same mic, but only if the box is where it was when the pill was offered (voiceWhere: same
+  agent or room, shown, open); X clears it and focuses the mic. The refusal stays in the mic's live line, visually hidden
+  (.vh) while the pill shows. Other refusals keep their sentence.
 
 ## Measured (not built)
 The shipped binary is signed alone (identifier kosmos-app, Info.plist not bound). Two throwaway apps, signed both ways,
@@ -26,7 +28,7 @@ both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-s
 the identity existing grants are keyed on.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 25 rows, including pane mapping, readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 28 rows, including pane mapping, allowedEvent (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c and V6d.
 - design shots: the screen agent-chat-mic-settings.
