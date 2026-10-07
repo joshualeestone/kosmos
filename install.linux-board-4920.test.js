@@ -109,7 +109,7 @@ function cut(start, end) {
 const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
 const UNINSTALL_BLOCK = cut('    if [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl', '\n      done\n    fi\n');
 
-function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units = [] } = {}) {
+function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units = [], restartRc = 0 } = {}) {
   const root = fs.mkdtempSync(path.join(WORK, 'w-'));
   const home = path.join(root, 'kosmos');
   const bin = path.join(root, 'stubs');
@@ -118,7 +118,7 @@ function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units =
   fs.symlinkSync('/bin/cat', path.join(bin, 'cat'));   // the fake node reads its heredoc
   if (systemctl) { fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\nexit 0\n'); fs.chmodSync(path.join(bin, 'systemctl'), 0o755); }
   fs.mkdirSync(path.join(home, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'bin', 'kosmos'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'kosmos.log') + '"\n');
+  fs.writeFileSync(path.join(home, 'bin', 'kosmos'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'kosmos.log') + '"\nexit ' + restartRc + '\n');
   fs.chmodSync(path.join(home, 'bin', 'kosmos'), 0o755);
   if (app) {
     fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
@@ -224,7 +224,7 @@ test('#4920 install: a launcher tmux pick is not written into the unit', () => {
   assert.equal(r.stdout, '[/usr/bin/tmux]held lingering', 'CONTROL: a person choice (no marker) is kept');
 });
 
-test('#4920 the board snippets survive bash 3.2 (the Mac sh): no shell comment, balanced parens, paired quotes', () => {
+test('#4920 the board snippets avoid the three shapes that broke bash 3.2 here: a space-#, unbalanced parens, an odd apostrophe count', () => {
   /* bash 3.2 parses a heredoc body nested in $( ) as shell text: a space then # starts a comment that eats the rest of
      the line, an apostrophe opens a string, and an unbalanced paren ends the substitution early. Two of these broke
      setup.sh during review (bash -n on the whole file did not catch one; running the block under /bin/sh did). */
@@ -234,4 +234,14 @@ test('#4920 the board snippets survive bash 3.2 (the Mac sh): no shell comment, 
     assert.equal((body.match(/\(/g) || []).length, (body.match(/\)/g) || []).length, 'unbalanced parens in a snippet');
     assert.equal((body.match(/'/g) || []).length % 2, 0, 'an odd number of apostrophes in a snippet');
   }
+});
+
+test('#4920 install: a hand-off that does not bring the board back is said, with kosmos start', () => {
+  let w = world({ nodeOut: 'loose lingering', restartRc: 1 });
+  let r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, 'a failed hand-off must not stop the install: ' + r.stderr);
+  assert.match(r.stdout, /did not come back when handed over just now\. Start it with: kosmos start/);
+  w = world({ nodeOut: 'loose lingering' });
+  r = runBlock(INSTALL_BLOCK, w);
+  assert.doesNotMatch(r.stdout, /did not come back/, 'CONTROL: a hand-off that worked says nothing extra');
 });
