@@ -13,8 +13,8 @@
 #     install.uninstall-watchdog-2955
 #   #5419 slice 2 (provider runners on Linux): engine/runners, server.runners, engine/muserun. Slice 1 (Claude Code
 #     downloads) turned engine/connect, connect.install-997, connect.nobinary-1580 and connect.hookwiring-1569
-#     green at linuxclaude-5419 3870c0826 (run 37563836935, read per file: none of its 84 failing test names is in
-#     those four); later commits changed engine/connect, so the branch's head is re-checked by its own lane run.
+#     green: run 37585561715 on linuxclaude-5419 8dbc7289b (the branch's connect code; later commits there are
+#     comments and one host-neutral test), read per file: none of its 82 failing test names is in those four.
 #   #5420 (kill guard timing): report-hook-killguard-4671
 #   #5424 (folder preview vs act on a case-sensitive disk): engine/projects (one test)
 # A red in any other file is new. A known-red list is a follow-up once those land (#4919).
