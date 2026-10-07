@@ -248,7 +248,7 @@ say "heavy-gate: BUSY"
 # #5446: polling holds no place in line. On a night of back-to-back suites a poller loses to every one that queued
 # (90 reads, all BUSY, 2026-10-06), so the BUSY answer names the queue that does give a turn. stderr, and not with
 # --quiet, so a caller reading the verdict on stdout sees the same single line as before.
-# The queue named: the installed copy agents already run, when it is there (so a Mac where the documented route works
+# The queue named: the installed copy agents already run, when it and its lib are there (so a Mac where that route works
 # keeps one wrapper generation); else the MAIN checkout's copy when it has the fallback and a lib (one generation per
 # clone); else the one beside this. KOSMOS_HG_INSTALLED_QH is a test seam for the installed copy's path.
 if [ "$QUIET" != 1 ]; then
@@ -257,8 +257,9 @@ if [ "$QUIET" != 1 ]; then
   # Only a main-checkout copy that already has #5446's fallback: an older one fails on a Mac without the default lib.
   case "$_hg_common" in */.git) grep -q '#5446-lib-fallback' "${_hg_common%/.git}/tools/queued-heavy.sh" 2>/dev/null \
     && [ -f "${_hg_common%/.git}/tools/lib/cut-guard.sh" ] && _hg_qh="${_hg_common%/.git}/tools/queued-heavy.sh" ;; esac
-  _hg_inst="${KOSMOS_HG_INSTALLED_QH:-$HOME/.cache/claude-handoffs/queued-heavy.sh}"
-  [ -f "$_hg_inst" ] && _hg_qh="$_hg_inst"
+  _hg_inst="${KOSMOS_HG_INSTALLED_QH:-${HOME:-}/.cache/claude-handoffs/queued-heavy.sh}"
+  # Only with the lib it loads (it is outside any repo, so it has no fallback): QUEUED_HEAVY_LIB, else its default folder.
+  [ -f "$_hg_inst" ] && [ -f "${QUEUED_HEAVY_LIB:-${HOME:-}/work/kosmos-bc-main-4610}/tools/lib/cut-guard.sh" ] && _hg_qh="$_hg_inst"
   # Name a path only if it is there; otherwise say where the script lives, rather than a command that cannot run.
   [ -f "$_hg_qh" ] && _hg_cmd="bash '$_hg_qh'" || _hg_cmd="bash <a Kosmos checkout>/tools/queued-heavy.sh"
   printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: $_hg_cmd \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
