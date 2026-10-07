@@ -88,11 +88,21 @@ jobs:
       - name: Test stop and restart
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
+          # setup.sh started the board itself (no unit yet), so first hand it to systemd: stop, then start, which on a
+          # supervised install restarts the unit. Only a systemd-owned board can show a restart loop.
           "$KOSMOS_HOME/bin/kosmos" stop
-          # Board should be stopped, and STAY stopped past RestartSec=5 (#4918: Restart=always brought it back).
+          "$KOSMOS_HOME/bin/kosmos" start
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          # Now stop it, and it must STAY stopped past RestartSec=5 (#4918: Restart=always brought it back).
+          "$KOSMOS_HOME/bin/kosmos" stop
           sleep 12
           if curl -fsS -m 2 http://127.0.0.1:16180/ >/dev/null 2>&1; then
             echo "FAIL: board responding 12 s after stop" >&2
+            exit 1
+          fi
+          if [ "$(systemctl --user is-active kosmos-board.service 2>/dev/null)" = active ]; then
+            echo "FAIL: systemd restarted the stopped board" >&2
             exit 1
           fi
           "$KOSMOS_HOME/bin/kosmos" start
@@ -103,7 +113,8 @@ jobs:
           bash install/setup.sh --uninstall
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test ! -f "$UNIT_FILE"
-          if systemctl --user is-enabled kosmos-board.service 2>/dev/null; then echo "FAIL: unit still enabled after uninstall" >&2; exit 1; fi
+          # The enable link is what a failed disable leaves behind (the file is deleted either way).
+          test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.service"
 
       - name: Test custom KOSMOS_HOME unit derivation
         run: |

@@ -20,7 +20,12 @@ const assert = require('node:assert/strict');
 /* #4920 (Splinter 18:53): setup.sh's own option line (setup.sh:102-103), not `set -euo pipefail`: these scripts run
    under sh, which is dash on Linux, and dash refuses `set -o pipefail`; so the functions run here as they really
    run there (pipefail only under bash). */
-const SETUP_SH_OPTIONS = 'set -eu\n[ -n "${BASH_VERSION:-}" ] && set -o pipefail || true\n';
+const SETUP_SH_OPTIONS = (() => {
+  const m = require('node:fs').readFileSync(require('node:path').join(__dirname, 'install', 'setup.sh'), 'utf8')
+    .match(/^set -eu\n\[ -n "\$\{BASH_VERSION:-\}" \] && set -o pipefail \|\| true\n/m);
+  if (!m) throw new Error('setup.sh option line not found: update SETUP_SH_OPTIONS with it');
+  return m[0];
+})();
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -227,8 +232,8 @@ test.after(() => server && server.close());
    failed, and the passes were TIMEOUTS, not refusals. A must-fail arm that
    fails because nothing answered is not evidence of anything. */
 async function reachable(url) {
-  /* 🛑 `set -euo pipefail`, BECAUSE THE SHIPPED FILE RUNS UNDER IT
-     (the shipped file's `set -euo pipefail`). Without these options the harness cannot see a
+  /* 🛑 SETUP.SH'S OWN OPTIONS, BECAUSE THE SHIPPED FILE RUNS UNDER THEM
+     (`set -eu`, plus pipefail under bash). Without these options the harness cannot see a
      whole class of defect: an unprotected `x=$(cmd)` inside reachable()
      aborts the shell under -e before the range-GET fallback runs, and a
      no-options harness reports a cheerful YES. That is exactly how a real
@@ -501,9 +506,9 @@ test('#1662: a download with NO content-type header at all is accepted', async (
   assert.equal(r, 'YES', 'a real download with no content-type header was refused');
 });
 
-test('#1662: reachable() does not abort the shell under set -euo pipefail when HEAD fails', async () => {
+test('#1662: reachable() does not abort the shell under setup.sh\'s options when HEAD fails', async () => {
   /* 🛑 THE ARM THE NO-OPTIONS HARNESS COULD NOT HAVE. The shipped file runs
-     under `set -euo pipefail`, where a bare `_r_ct=$(curl …)` is an
+     under `set -eu` (plus pipefail under bash), where a bare `_r_ct=$(curl …)` is an
      unprotected simple command: a failing HEAD probe kills the shell before
      the fallback runs. All three current callers are `if`/`&&` conditions
      where -e is suspended, so the break is LATENT, and a test that only ever
