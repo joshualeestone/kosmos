@@ -5395,10 +5395,14 @@ test('a job that is disabled but will not unload is recorded, not reported as un
     status.setPaneSource(null);
   }
 
+  const removalCalls = [];
   removal.setRunner((f, a) => {
+    removalCalls.push([String(f), a]);
     const cmd = a && a[0];
     if (cmd === 'bootout') return { ok: false, code: 9 };   // the failure under test
-    if (/systemctl$/.test(String(f)) && a[1] === 'stop') return { ok: false, code: 9 };   // #5500: the same, on Linux
+    // #5500: the same on Linux. linuxjob.remove stops, then disables either way, then reports the failed stop, so the
+    // job is disabled and still running there too (asserted below).
+    if (/systemctl$/.test(String(f)) && a[1] === 'stop') return { ok: false, code: 9 };
     if (cmd === 'has-session') return { ok: false, code: 1 };
     return { ok: true, stdout: '' };
   });
@@ -5412,6 +5416,10 @@ test('a job that is disabled but will not unload is recorded, not reported as un
       'it says nothing changed while the job is disabled and will not start at the next login');
     assert.match(done.because, /still running/,
       'nothing tells the person the agent they removed is still going');
+    if (process.platform === 'linux') {
+      assert.ok(removalCalls.some(([f, a]) => /systemctl$/.test(f) && a && a[1] === 'disable'),
+        'on Linux the unit was never disabled, so this is not the disabled-but-still-running state');
+    }
 
     // ⚠️ AND THERE IS A WAY BACK. This is the half that made the old behaviour
     // unrecoverable rather than merely mis-worded.
