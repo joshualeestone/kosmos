@@ -1596,7 +1596,14 @@ const ACCOUNTS_TIMEOUT_MS = 60000;
 /* One account's line, the same words as install/kosmos cmd_accounts: the badge first, as the board's Settings > AI
    Models row reads it (a credential on disk is state "connected" even when its login was refused, #874). */
 function accountLine(a, now = Date.now()) {
-  const who = typeof a.email === 'string' && a.email ? a.email : 'an account with no email on record';
+  // Named as the board names a row (acctPrimaryName), short of its folder: the chosen name, the email, a keyed
+  // provider's key ending, the label; then which sign-in it is for the two that carry none of those.
+  const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  const who = str(a.name) || str(a.email)
+    || (/^(openai|google|xai)$/i.test(String(a.provider || '')) && str(a.keyTail) ? 'API key ending ' + str(a.keyTail) : '')
+    || str(a.label)
+    || (a.authMode === 'antigravity' ? 'its Google subscription sign-in' : a.authMode === 'muse' ? 'its Meta account sign-in' : '')
+    || 'an account with no name or email on record';
   const how = typeof a.authMode === 'string' && a.authMode ? ' (' + a.authMode + ')' : '';
   const c = a.connection && typeof a.connection === 'object' ? a.connection : {};
   const why = typeof c.because === 'string' && c.because ? ': ' + c.because : '';
@@ -1620,7 +1627,7 @@ async function verbAccounts(ctx) {
   const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
   if (!r.reached) return ctx.unreachable('read which accounts are set up');
   // A fault on the board (5xx) is not a refusal and is not told as one; ctx.refusedBy reads any error answer.
-  const err = r.json && typeof r.json.error === 'string' ? r.json.error.replace(/[.\s]+$/, '') : '';
+  const err = r.json && typeof r.json.error === 'string' ? r.json.error.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/[.\s]+$/, '') : '';
   if (r.status >= 500) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
   // No token hint (#5333) here: this verb sends the board token only, never an agent's, so it cannot be about one.
   if (r.status >= 400 && ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }

@@ -18,6 +18,11 @@ accounts, so it is a direct read of the route", with the port, the board token a
   and signed_out are not signed in; unchecked could not be checked; a ChatGPT sign-in whose free check gave no
   answer reads as signed in by its own record, as the board shows it (review 3); with no badge, the state as before.
 - Board text (an email, a reason) is printed with control characters replaced, so it never prints as an extra line.
+- Each account is named as the board names its row (acctPrimaryName), short of its folder path: the chosen name, the
+  email, "API key ending <tail>" for a keyed provider, the label; the Google subscription and Meta sign-ins, which
+  carry none of those, are named as such (review 4: two keyed accounts of one provider printed as identical lines).
+- The line gives the state the board shows, not every detail: a login's "good until" date is left to Settings >
+  AI Models (decided, review 4's NIT).
 - One class rule on both CLIs: a fault on the board (5xx, JSON or not) is told as a fault, never a refusal; a 4xx is
   a refusal only when the board says why, and otherwise "could not read, try again". No accounts, an unreachable
   board and an unreadable answer each get their own sentence.

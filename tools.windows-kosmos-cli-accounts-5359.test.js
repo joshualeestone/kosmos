@@ -41,6 +41,11 @@ const ACCOUNTS = { accounts: [
   // Review 2: a key row with no badge (state alone), a stop time already past (falls through to the badge), and a
   // refused login whose stop time is ahead (the stop notice comes first, as on the board).
   { provider: 'google', providerName: 'Google Gemini', email: 'k@example.com', authMode: 'apikey', connection: { state: 'connected' } },
+  // Review 4: rows the board names without an email: a key ending, a chosen name, and the two subscription sign-ins.
+  { provider: 'xai', providerName: 'xAI Grok', authMode: 'apikey', keyTail: '7f3q', connection: { state: 'connected' } },
+  { provider: 'openai', providerName: 'OpenAI', authMode: 'apikey', name: 'Research key', keyTail: '9a1b', connection: { state: 'connected' } },
+  { provider: 'antigravity', providerName: 'Gemini', authMode: 'antigravity', email: null, connection: { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' } },
+  { provider: 'meta', providerName: 'Meta', authMode: 'muse', email: null, connection: { state: 'none', checkedLive: false, badge: 'rejected' } },
   // Review 3: a ChatGPT sign-in whose free check finished with no answer: the board shows it as signed in (amber).
   { provider: 'openai', providerName: 'OpenAI', email: 'g@example.com', authMode: 'chatgpt', connection: { state: 'unknown', because: 'not yet checked' } },
   { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'p@example.com', connection: { state: 'connected', badge: 'working', loginStopsAt: Date.now() - 3600 * 1000 } },
@@ -62,10 +67,14 @@ test('#5359: kosmos accounts reads /api/accounts with the board token only, and 
   assert.match(out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
   assert.match(out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
   assert.match(out, /^Google Gemini: k@example\.com \(apikey\): signed in$/m, 'a row with no badge lost its state');
+  assert.match(out, /^xAI Grok: API key ending 7f3q \(apikey\): signed in$/m, 'a keyed account was not named by its key ending');
+  assert.match(out, /^OpenAI: Research key \(apikey\): signed in$/m, 'a chosen name was not used');
+  assert.match(out, /^Gemini: its Google subscription sign-in \(antigravity\): signed in by Kosmos's record, not yet confirmed by a real request$/m);
+  assert.match(out, /^Meta: its Meta account sign-in \(muse\): not signed in: its last request was refused\./m);
   assert.match(out, /^OpenAI: g@example\.com \(chatgpt\): signed in by its own record, not yet confirmed by a real request$/m, 'a ChatGPT row read unlike the board');
   assert.match(out, /^Anthropic \/ Claude: p@example\.com: signed in$/m, 'a stop time already past still said they stop');
   assert.match(out, /^Anthropic \/ Claude: x@example\.com: its sign-in has run out; its agents keep working until /m, 'the stop notice did not come first');
-  assert.match(out, /^Google Gemini: an account with no email on record \(apikey\): not signed in: the key was refused$/m);
+  assert.match(out, /^Google Gemini: an account with no name or email on record \(apikey\): not signed in: the key was refused$/m);
   assert.match(out, /^xAI Grok: c@example\.com: could not be checked just now: we could not check this account just now$/m);
 });
 
