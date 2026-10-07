@@ -313,8 +313,10 @@ function plan(name, opts) {
      speak of. Calling a Scheduled Task an "auto-start file" sends somebody
      hunting for something that does not exist. */
   const jobIsTask = Boolean(job && job.task);
+  // #4918 review 30: a systemd unit is a registration too, not a file the person keeps: same nouns as a Scheduled Task.
+  const jobIsService = jobIsTask || Boolean(job && job.unit);
   if (job) {
-    loses.push(jobIsTask
+    loses.push(jobIsService
       ? 'Its startup job, so nothing tries to start it again'
       : 'Its auto-start file, so nothing tries to start it again');
   }
@@ -331,21 +333,24 @@ function plan(name, opts) {
   const question = `Delete what is left of ${shown}?`;
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
      not the "gone for good" case the Trash sentence is written for. */
-  const jobOnlyTask = jobIsTask && !folder;
+  const jobOnlyTask = jobIsService && !folder;
   const reassurance = toTrash
     ? (community || waiting
       ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
       : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
       ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
-      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+      : job && job.unit
+        // #4918 review 30: on Linux the reason is the startup job (a systemd unit is removed, never moved), not the Trash.
+        ? `This cannot be undone: its files are deleted for good, not moved to a Trash, because its startup job is removed with them${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
+        : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
-    : jobIsTask ? 'Remove its startup job'
+    : jobIsService ? 'Remove its startup job'
       : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
   const hint = folder
     ? `${shown}'s folder is still on this computer (${filesWords(folder)}${folder.newest ? ', last changed ' + agoWords(folder.newest, now) : ''}), and the name stays taken until it is gone.`
-    : jobIsTask
+    : jobIsService
       ? `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`
       : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
   return {

@@ -98,6 +98,10 @@ test('#4918 delete-leftover never promises the Trash for a systemd unit (it is d
     assert.ok(p.job && p.job.unit, 'the unit is not in the plan');
     assert.equal(p.toTrash, false, 'the plan promises the Trash for a unit it deletes');
     assert.doesNotMatch(p.reassurance, /goes to the Trash|move .* to the Trash/i, 'the sentence promises the Trash');
+    // review 30: the sentence gives the real reason and names a startup job, not an auto-start file or the Trash's limits.
+    assert.match(p.reassurance, /startup job is removed/);
+    assert.doesNotMatch(p.reassurance, /Trash cannot take/);
+    assert.ok(p.loses.some((l) => /^Its startup job/.test(l)), 'the unit is called an auto-start file: ' + JSON.stringify(p.loses));
   } finally {
     fs.rmSync(linuxjob.unitPath(name), { force: true });
     fs.rmSync(create.workerDir(name), { recursive: true, force: true });
