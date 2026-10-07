@@ -86,6 +86,12 @@ if (args[0] === 'signin') {
     process.exit(0);
   }
   if (verb === 'start') {
+    // kosmos#5422: as the real tunnel does, a keyed start makes a missing key (slowly in devkey-slow-start).
+    if (flag('--device-key')) {
+      if (mode.includes('devkey-slow-start')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
+      fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
+      if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), 'fake key ' + Date.now());
+    }
     // Anti-enum: the same answer whatever the email, except an unreachable
     // coordinator (email carrying 'down'), which fails like setup start.
     if ((flag('--email') || '').includes('down')) {
@@ -1898,6 +1904,18 @@ test('kosmos#5422: the key\'s folder is owner-only from the first ask (the tunne
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+});
+
+test('kosmos#5422: Forget waits for a keyed start too (the tunnel\'s start makes a missing key)', async () => {
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-slow-start';
+  try {
+    const starting = remote.signinStart('her@example.com');
+    await until(() => recorded().some((c) => c[1] === 'start'), 'the keyed start to go out');
+    const forgot = remote.forget();
+    await Promise.allSettled([starting, forgot]);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(fs.existsSync(keyFile), false, 'a key made by the start during the Forget survived it');
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {

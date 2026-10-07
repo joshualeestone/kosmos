@@ -1691,7 +1691,10 @@ function signinDeviceId() {
    key. The key file is deterministic, so a start and its verify name one device. */
 const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
 const DEVICE_ID_ASK_MS = 15000;
+/* Calls that can make the device key (the ask, and a keyed start: the tunnel's start makes a missing key too). Forget
+   waits for them, since they write into the folder it empties. Each is bounded. */
 const deviceIdInFlight = new Set();
+function trackKeyCall(p) { deviceIdInFlight.add(p); const done = () => deviceIdInFlight.delete(p); p.then(done, done); return p; }
 async function signinDeviceArgs(forVerify) {
   /* A verify never makes a key (the tunnel's own rule): one made now could not answer a code sent for the key that is
      gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
@@ -1706,9 +1709,7 @@ async function signinDeviceArgs(forVerify) {
   secureStateDir();
   const asking = setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS);
   // A Forget waits for this (it may be making the key in the folder the Forget empties).
-  deviceIdInFlight.add(asking);
-  let asked;
-  try { asked = await asking; } finally { deviceIdInFlight.delete(asking); }
+  const asked = await trackKeyCall(asking);
   // clap prints "error: unrecognized subcommand 'device-id'" first and the usage after it (exit 2); match it as the
   // other verbs here do, so no other failure is read as an older tunnel.
   if (!asked.ok && asked.code === 2 && /unrecognized subcommand|invalid subcommand/i.test(String(asked.stderr || '') + '\n' + String(asked.because || ''))) {
@@ -1921,7 +1922,8 @@ async function signinStart(email, deviceName) {
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
     '--email', email, ...dev.args];
   pushDeviceName(args, deviceName);
-  const r = parseSaid(await setupRun(args));
+  // kosmos#5422: a keyed start can make the key too (the tunnel's start makes a missing one), so Forget waits for it.
+  const r = parseSaid(await (dev.args[0] === '--device-key' ? trackKeyCall(setupRun(args)) : setupRun(args)));
   // kosmos#5422: the id (a key's or the opaque one) becomes this computer's once the coordinator has taken a start with
   // it; not after a cancel or a Forget meanwhile (the Forget emptied the folder that held the key).
   if (r.ok && dev.id && epoch === signinEpoch && !forgetting) useDeviceId(dev.id);
