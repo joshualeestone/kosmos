@@ -1506,16 +1506,21 @@ BOARDEOF
       fi
     elif [ -f "$KOSMOS_HOME/app/server.js" ]; then
       # The app is here (this release or an older one) but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
-      # loaded one. Say so rather than blaming a missing app folder.
-      info "systemctl is not available, so no board service was removed (none can be running without it)"
+      # loaded one. Say so rather than blaming a missing app folder, and still delete this home's unit file and link.
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+      info "systemctl is not available, so no board service could be stopped (none can be running without it); its unit file, if any, was deleted"
     else
       # The app is gone. This home's own unit is named by _kosmos_linux_unit_name (the name carries a hash of
       # KOSMOS_HOME, so it can only be this install's): remove it, or it restarts against a missing folder every 5 s at
       # every boot. Any other kosmos-board unit may be another install's, so it is named, never touched.
-      # The folder is linuxjob.defaultSystemdDir's (a sandboxed run, the LAUNCH case, returned at the top).
+      # The folder is linuxjob.defaultSystemdDir's (a sandboxed run, the LAUNCH case, took the first branch above).
       _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
       _lb_name="$(_kosmos_linux_unit_name)"
-      if [ -f "$_lb_dir/$_lb_name" ] && command -v systemctl >/dev/null 2>&1; then
+      if [ -f "$_lb_dir/$_lb_name" ] && ! command -v systemctl >/dev/null 2>&1; then
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"   # no user manager: just the file and link
+      elif [ -f "$_lb_dir/$_lb_name" ]; then
         info "removing the systemd service for the board"
         systemctl --user stop "$_lb_name" 2>/dev/null || true
         systemctl --user disable "$_lb_name" 2>/dev/null || true

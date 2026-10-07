@@ -93,8 +93,10 @@ test('#4920 the remove snippet passes KOSMOS_HOME and exits non-zero with the re
 
 test('#4920 CONTROL: the real linuxboard exports what the snippets call', () => {
   const real = require('./engine/linuxboard');
-  assert.equal(typeof real.installBoard, 'function');
-  assert.equal(typeof real.removeBoard, 'function');
+  for (const fn of ['installBoard', 'removeBoard', 'loadedBoardJob', 'boardUnitPath']) {
+    assert.equal(typeof real[fn], 'function', 'the snippets call linuxboard.' + fn);
+    assert.ok(SETUP.includes('.' + fn + '('), 'CONTROL: setup.sh really calls ' + fn);
+  }
 });
 
 /* The shell around the snippets: which sentence the person reads, and whether the board is handed to systemd. The two
@@ -372,6 +374,15 @@ test('#4920 uninstall: an older install on a box without systemctl says systemct
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /systemctl is not available/);
   assert.doesNotMatch(r.stdout, /app code or runtime is missing/);
+});
+
+test('#4920 uninstall without systemctl still deletes this home\'s unit file', () => {
+  const w = world({ app: false, legacy: true, systemctl: false });
+  const name = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  fs.writeFileSync(path.join(w.unitDir, name), '[Service]\n');
+  const r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'the unit file was left behind');
 });
 
 test('#4920 uninstall: linuxboard present but its node gone (system node uninstalled) still removes the unit', () => {
