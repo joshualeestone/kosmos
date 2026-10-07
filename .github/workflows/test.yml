@@ -98,14 +98,19 @@ jobs:
           fetch-depth: 0
       - id: decide
         name: reuse an earlier green verdict? (plans-only change)
+        # Values arrive through env, never pasted into the script: a branch name can hold shell syntax.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           reuse=""
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            reuse="$(bash tools/ci-plans-only-reuse.sh "${{ github.event.pull_request.head.sha }}" "${{ github.head_ref }}")" || reuse=""
+          if [ "$EVENT_NAME" = pull_request ]; then
+            reuse="$(bash tools/ci-plans-only-reuse.sh "$HEAD_SHA" "$HEAD_REF")" || reuse=""
           fi
+          case "$reuse" in ''|*[!0-9]*) reuse="" ;; esac
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
@@ -248,13 +253,16 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: every suite job passed
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+          REUSE: ${{ needs.scope.outputs.reuse }}
+          RUN_BASE: ${{ github.server_url }}/${{ github.repository }}/actions/runs
         run: |
-          echo "suite: ${{ needs.suite.result }}"
-          reuse="${{ needs.scope.outputs.reuse }}"
-          # #5488: skipped ONLY because scope named a green run to reuse; any other skip stays red.
-          if [ "${{ needs.suite.result }}" = skipped ] && [ -n "$reuse" ]; then
-            echo "only .claude/plans/ changed since green run $reuse; reusing its verdict:"
-            echo "  ${{ github.server_url }}/${{ github.repository }}/actions/runs/$reuse"
+          echo "suite: $SUITE_RESULT"
+          # #5488: skipped ONLY because scope named a green run (a number) to reuse; any other skip stays red.
+          if [ "$SUITE_RESULT" = skipped ] && [[ "$REUSE" =~ ^[0-9]+$ ]]; then
+            echo "only plan files changed since green run $REUSE; reusing its verdict:"
+            echo "  $RUN_BASE/$REUSE"
             exit 0
           fi
-          [ "${{ needs.suite.result }}" = success ]
+          [ "$SUITE_RESULT" = success ]

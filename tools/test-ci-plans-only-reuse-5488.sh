@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# #5488: tools/ci-plans-only-reuse.sh reuses a green verdict ONLY for a plans-only change, and prints
-# nothing (= run the suite) on every other shape, including every way it could fail to find out.
-# A real git repo; `gh` is a stub on PATH that prints "<run id> <head sha>" lines as --jq would.
+# #5488: tools/ci-plans-only-reuse.sh reuses a green verdict ONLY for a plain plan-file change, and
+# prints nothing (= run the suite) on every other shape, including every way it could fail to find out.
+# A real git repo; `gh` is a stub on PATH that refuses unless it was asked for green pull_request
+# test.yml runs of this branch, then prints "<run id> <head sha> <age s>" lines as --jq would.
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SUBJECT="$HERE/ci-plans-only-reuse.sh"
@@ -14,6 +15,10 @@ mkdir -p "$T/bin" "$T/repo"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 [ -n "${STUB_GH_FAIL:-}" ] && exit 1
+a=" $* "
+for want in " run list " " --workflow test.yml " " --branch br " " --event pull_request " " --status success " "createdAt"; do
+  case "$a" in *"$want"*) ;; *) echo "gh stub: missing '$want' in: $*" >&2; exit 3 ;; esac
+done
 printf '%s' "${STUB_GH_OUT:-}"
 EOF
 chmod +x "$T/bin/gh"
@@ -25,62 +30,77 @@ echo a > "$R/tools/x.sh"; echo p > "$R/.claude/plans/b-pre-challenge.md"; echo d
 g add -A; g commit -qm base; BASE="$(git -C "$R" rev-parse HEAD)"
 
 commit_change() { # <path> -> prints the new sha, on a fresh branch from BASE
-  g checkout -q -B "c$RANDOM" "$BASE"; mkdir -p "$R/$(dirname "$1")"; echo "$RANDOM" >> "$R/$1"; g add -A; g commit -qm change
+  g checkout -q -B "c$RANDOM$RANDOM" "$BASE"; mkdir -p "$R/$(dirname "$1")"; echo "$RANDOM" >> "$R/$1"; g add -A; g commit -qm change
   git -C "$R" rev-parse HEAD
 }
-decide() { # <head> <gh output> [extra env] -> stdout of the subject
+decide() { # <head> <gh output> -> stdout of the subject
   (cd "$R" && PATH="$T/bin:$PATH" STUB_GH_OUT="$2" bash "$SUBJECT" "$1" br 2>/dev/null)
 }
+expect_run() { # <label> <head> <gh output>
+  local out; out="$(decide "$2" "$3")"
+  [ -z "$out" ] && pass "$1: the suite runs" || fail "$1: must run the suite, got '$out'"
+}
 
+# CONTROL FOR EVERY "the suite runs" ARM BELOW: these two reuse, so the stub accepted the script's real
+# gh arguments (they are the same in every arm). Without them, a stub that refused everything would make
+# every "runs the suite" arm pass for the wrong reason.
 H="$(commit_change .claude/plans/b-pre-challenge.md)"
-out="$(decide "$H" "77 $BASE")"
+out="$(decide "$H" "77 $BASE 60")"
 [ "$out" = 77 ] && pass "a proof-only change since a green run reuses that run (77)" || fail "plans-only must reuse 77, got '$out'"
-
-out="$(decide "$H" "90 $H
-77 $BASE")"
+out="$(decide "$H" "90 $H 30
+77 $BASE 60")"
 [ "$out" = 77 ] && pass "a green run at this same sha is skipped over; the older green one is reused" || fail "same-sha skip-over: got '$out'"
-
-H="$(commit_change tools/x.sh)"
-out="$(decide "$H" "77 $BASE")"
-[ -z "$out" ] && pass "a code change runs the suite" || fail "code change must run the suite, got '$out'"
-
-H="$(commit_change docs/d.md)"
-out="$(decide "$H" "77 $BASE")"
-[ -z "$out" ] && pass "a docs change runs the suite (the brand and name scans read docs/)" || fail "docs change must run the suite, got '$out'"
-
-H="$(commit_change .claude/plans/goldencard-2519-2026-09-01.md)"
-out="$(decide "$H" "77 $BASE")"
-[ -z "$out" ] && pass "a goldencard-2519 plan runs the suite (render-talk-goldencard-2519 reads it)" || fail "goldencard plan must run the suite, got '$out'"
-
-H="$(commit_change .claude/plans/b-pre-challenge.md)"
-out="$(decide "$H" "")"
-[ -z "$out" ] && pass "no earlier green run: the suite runs" || fail "no green run must run the suite, got '$out'"
-
-out="$(decide "$H" "90 $H")"
-[ -z "$out" ] && pass "the only green run is at this same sha: the suite runs" || fail "same-sha-only must run the suite, got '$out'"
-
-out="$(decide "$H" "77 0123456789abcdef0123456789abcdef01234567")"
-[ -z "$out" ] && pass "the green run's sha is not in the clone (force-pushed): the suite runs" || fail "missing sha must run the suite, got '$out'"
-
+expect_run "the newest green run is older than six hours" "$H" "77 $BASE 21601"
+out="$(cd "$R" && PATH="$T/bin:$PATH" STUB_GH_OUT="77 $BASE 100" KOSMOS_REUSE_MAX_AGE_S=99 bash "$SUBJECT" "$H" br 2>/dev/null)"
+[ -z "$out" ] && pass "KOSMOS_REUSE_MAX_AGE_S lowers the cap (100s old, cap 99): the suite runs" || fail "age override: got '$out'"
+expect_run "a non-numeric age in the listing" "$H" "77 $BASE soon"
+expect_run "no earlier green run" "$H" ""
+expect_run "the only green run is at this same sha" "$H" "90 $H 30"
+expect_run "the green run's sha is not in the clone (force-pushed)" "$H" "77 0123456789abcdef0123456789abcdef01234567 60"
 out="$(cd "$R" && PATH="$T/bin:$PATH" STUB_GH_FAIL=1 bash "$SUBJECT" "$H" br 2>/dev/null)"; rc=$?
 [ -z "$out" ] && [ "$rc" -eq 0 ] && pass "gh failing: nothing printed, exit 0 (the suite runs)" || fail "gh failure must print nothing and exit 0, got '$out' rc=$rc"
-
-g checkout -q -B empty "$BASE"; g commit -q --allow-empty -m empty; E="$(git -C "$R" rev-parse HEAD)"
-out="$(decide "$E" "77 $BASE")"
-[ -z "$out" ] && pass "nothing changed since the green run (a deliberate re-run): the suite runs" || fail "empty diff must run the suite, got '$out'"
-
 out="$(cd "$R" && PATH="$T/bin:$PATH" bash "$SUBJECT" "" "" 2>/dev/null)"
 [ -z "$out" ] && pass "no sha or branch given: the suite runs" || fail "missing args must run the suite, got '$out'"
 
-# The workflow wiring the script depends on.
+expect_run "a code change" "$(commit_change tools/x.sh)" "77 $BASE 60"
+expect_run "a docs change (the brand and name scans read docs/)" "$(commit_change docs/d.md)" "77 $BASE 60"
+expect_run "a goldencard-2519 plan (render-talk-goldencard-2519 reads it)" "$(commit_change .claude/plans/goldencard-2519-2026-09-01.md)" "77 $BASE 60"
+expect_run "a plan in a subdirectory" "$(commit_change .claude/plans/sub/x.md)" "77 $BASE 60"
+expect_run "a .test.js file under plans (no-phone-home reads every tracked *.test.js)" "$(commit_change .claude/plans/x.test.js)" "77 $BASE 60"
+expect_run "a plan name with a colon (fixture-discipline rejects 'foo:' segments)" "$(commit_change '.claude/plans/http:.md')" "77 $BASE 60"
+
+# A MOVE of a code file into plans: plain `git diff` would list only the new path (rename detection).
+g checkout -q -B mv "$BASE"; g mv tools/x.sh .claude/plans/x.md; g commit -qm move
+expect_run "a code file MOVED into .claude/plans/ (both sides of the rename count)" "$(git -C "$R" rev-parse HEAD)" "77 $BASE 60"
+
+g checkout -q -B empty "$BASE"; g commit -q --allow-empty -m empty
+expect_run "nothing changed since the green run (a deliberate re-run)" "$(git -C "$R" rev-parse HEAD)" "77 $BASE 60"
+
+# The workflow wiring, parsed as YAML (as tools.shell-shard-4317.test.js does), not grepped.
 WF="$HERE/../.github/workflows/test.yml"
-grep -q 'bash tools/ci-plans-only-reuse.sh' "$WF" && pass "test.yml's scope job calls the script" || fail "test.yml does not call the script"
-grep -q "if: \${{ !cancelled() && needs.scope.outputs.reuse == '' }}" "$WF" \
-  && pass "suite runs unless scope named a run (and still runs if scope failed)" || fail "suite's if is not the fail-toward-testing form"
-grep -q 'if \[ "\${{ needs.suite.result }}" = skipped \] && \[ -n "\$reuse" \]' "$WF" \
-  && pass "test accepts a skipped suite only with a named run to reuse" || fail "test's reuse arm is missing or looser"
-grep -q 'if \[ "\${{ github.event_name }}" = pull_request \]' "$WF" \
-  && pass "scope decides only on pull_request (main always runs)" || fail "scope is not gated to pull_request"
+if command -v ruby >/dev/null 2>&1; then
+  if ruby -ryaml -e '
+    j = YAML.load_file(ARGV[0])["jobs"]
+    s = j.fetch("scope"); d = s["steps"].find { |x| x["id"] == "decide" }
+    raise "scope must read actions" unless s["permissions"]["actions"] == "read"
+    raise "scope output" unless s["outputs"]["reuse"] == "${{ steps.decide.outputs.reuse }}"
+    raise "values through env" unless d["env"]["HEAD_REF"] == "${{ github.head_ref }}" && d["env"]["HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
+    raise "no pasted head_ref" if d["run"].include?("${{")
+    raise "decides on pull_request only" unless d["run"].include?(%q{if [ "$EVENT_NAME" = pull_request ]})
+    raise "calls the script" unless d["run"].include?("bash tools/ci-plans-only-reuse.sh")
+    raise "suite needs scope" unless j["suite"]["needs"] == "scope"
+    raise "suite if" unless j["suite"]["if"] == %q{${{ !cancelled() && needs.scope.outputs.reuse == '"'"''"'"' }}}
+    t = j["test"]["steps"].find { |x| x["env"] && x["env"]["REUSE"] }
+    raise "test reads REUSE" unless t && t["env"]["REUSE"] == "${{ needs.scope.outputs.reuse }}"
+    raise "test reuse arm" unless t["run"].include?(%q{if [ "$SUITE_RESULT" = skipped ] && [[ "$REUSE" =~ ^[0-9]+$ ]]; then})
+  ' "$WF" 2>"$T/rb.err"; then
+    pass "test.yml wiring (parsed): scope on pull_request via env, suite skips only on a named run, test accepts only a numeric reuse"
+  else
+    fail "test.yml wiring: $(cat "$T/rb.err" | head -2)"
+  fi
+else
+  echo "skip test.yml wiring: no ruby to parse YAML (tools.shell-shard-4317.test.js skips the same way)"
+fi
 
 if [ "$fails" -eq 0 ]; then echo "test-ci-plans-only-reuse-5488: 0 failures"; exit 0; fi
 echo "test-ci-plans-only-reuse-5488: $fails failure(s)"; exit 1
