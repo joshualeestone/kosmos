@@ -374,6 +374,12 @@ function refuseRealUnitDirInTests(targetPath) {
 
 function writeUnitFile(targetPath, content) {
   refuseRealUnitDirInTests(targetPath);
+  // #5445 review 12: a masked unit is a link to /dev/null; a write would follow it, land nowhere and report success.
+  let st = null;
+  try { st = fs.lstatSync(targetPath); } catch { st = null; }
+  if (st && st.isSymbolicLink() && (() => { try { return fs.readlinkSync(targetPath) === '/dev/null'; } catch { return false; } })()) {
+    throw new Error('the agent\'s systemd unit is masked, so Kosmos cannot write it (unmask it first)');
+  }
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content, 'utf8');
 }
