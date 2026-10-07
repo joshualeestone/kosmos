@@ -94,6 +94,7 @@ chk "control: outside a sandbox, a free port passes the pause" '[[ "$OUT" == *"P
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
 chk "control: outside a sandbox, a silent listener still gets the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
 chk "control: outside a sandbox, that stop keeps the put-back armed (#4818: the board was paused)" '[[ "$OUT" == *"STATE put-back=yes take-back=no"* ]]'
+chk "control: outside a sandbox, no hand-back note (the put-back speaks there)" '[[ "$OUT" != *"It will start again by itself"* ]]'
 
 # Outside a sandbox, a listener that speaks first and not HTTP keeps the existing pid advice too.
 P="$(free_port)"; start_listener "$P" banner; OUT="$(run_pause "" "$P")"; stop_listener
@@ -114,6 +115,7 @@ P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_A" "$P")"
 chk "sandbox A, live board: the update stops before changing anything" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox A, live board: says to use a normal Terminal, never to kill the pid" '[[ "$OUT" == *"normal Terminal"* && "$OUT" != *"kill "* ]]'
 chk "sandbox A, live board: no put-back from a shell that cannot start one; its own marker is taken back instead" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
+chk "sandbox A, live board: says the board will start again by itself (not silence)" '[[ "$OUT" == *"It will start again by itself"* ]]'
 
 # B: lsof is denied too. Before #4651 this PASSED the pause under a live board.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"; stop_listener
@@ -124,10 +126,12 @@ chk "sandbox B, live board: no put-back; its own marker is taken back instead" '
 # C: no file can be written, and lsof is denied. Must still stop.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
 chk "sandbox C (no temp writes either), live board: the update stops, and says to use a normal Terminal" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
+chk "sandbox C, live board: no put-back; its own marker is taken back instead" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
 
 # B with nothing listening: the shell still cannot tell, so it stops too (fail closed, by decision).
 P="$(free_port)"; OUT="$(run_pause "$PROFILE_B" "$P")"
 chk "sandbox B, free port: still stops, because this shell cannot tell (fail closed)" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* ]]'
+chk "sandbox B, free port: no put-back; its own marker is taken back instead" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
 
 echo "test-setup-pause-sandbox-4651: $FAILS failures"
 [ "$FAILS" -eq 0 ]
