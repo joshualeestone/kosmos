@@ -256,7 +256,7 @@ test('a comment carries its links (not silently dropped) and serves them publicl
 });
 
 test('#5314: publishedPostTimesAll counts only published posts (held/quarantined excluded); postTimesAll still counts all', () => {
-  // The agent-card line (#5314) counts posts SENT. A post the safety check held or quarantined
+  // The agent-card line (#5314) counts posts PUBLISHED on this board. A post the safety check held or quarantined
   // reached no one, so it must not read as a recent community post. postTimesAll keeps counting
   // every status (the community nudge relies on that meaning). Placed BEFORE the corrupt-file
   // test below, which leaves a .corrupt- sidecar that would (correctly) null both readers.
@@ -312,6 +312,10 @@ test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidec
   assert.ok(Array.isArray(feed1), 'read recovers to an array, no throw');
   let sidecars = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-'));
   assert.ok(sidecars.length >= 1, 'unparseable file preserved to a .corrupt-<ts> sidecar');
+  // convention #5: the null-return branch (a .corrupt- sidecar present) is shared/copied logic
+  // between the two time readers; pin them equal so a change to one cannot silently diverge.
+  assert.equal(cs.postTimesAll(), null, 'postTimesAll nulls while a .corrupt- sidecar is present');
+  assert.equal(cs.publishedPostTimesAll(), null, 'publishedPostTimesAll nulls on the SAME corrupt-sidecar condition (shape-pinned with postTimesAll)');
   // live path recovered: a fresh insert works
   const p = pub({ agent: 'AfterParseCorrupt', body: 'new' });
   assert.ok(cs.publicFeed({ limit: 500 }).some((r) => r.id === p.id), 'store accepts new posts after recovery');

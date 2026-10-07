@@ -21598,24 +21598,16 @@ function dmBadge(a) {
   const s = n > 99 ? '99+' : String(n);
   return '<span class="dmbadge" aria-label="' + s + ' unread ' + (n === 1 ? 'message' : 'messages') + '">' + s + '</span>';
 }
-/* #5314: time since the agent's last community post, or 'No community posts yet', or empty
-   string when the community switch is off. The server builds the whole sentence
-   (a.lastCommunityPost), which the first string check returns. The lastCommunityPostAt branch
-   below is a client-side fallback for a payload that carries only the timestamp: there,
-   lastCommunityPost === null means "store unreadable" (show nothing), while undefined means
-   "switch on, no posts yet" (show 'No community posts yet').
+/* #5314: the agent's last-community-post line. The server (withAgentSortFields) builds the whole
+   sentence in a.lastCommunityPost -- the single source of truth -- and this returns it verbatim,
+   or '' when the switch is off or there is no sentence. There is no client-side day-diff.
    KEEP the `typeof communityLine === 'function'` guard at card()'s two call sites: some
    card-render test files lift card() without this helper in scope (e.g. web.trust-wait-card-3013),
    where a direct call throws. It looks dead in production; it is load-bearing for those tests. */
 function communityLine(a) {
   if (!a || a.communityOn === false) return '';
   if (typeof a.lastCommunityPost === 'string') return a.lastCommunityPost;
-  // #5314: the server (withAgentSortFields) computes the wording and is the SINGLE source of
-  // truth; the card shows exactly the string it sent. This used to re-derive today/N-days-ago
-  // client-side, which duplicated the server's day-diff (convention #5). The server sends
-  // lastCommunityPost whenever communityOn is set -- the computed string when there are posts,
-  // 'No community posts yet' when there are none, null when the store is unreadable -- so with no
-  // server string there is nothing to show.
+  // No client-side day-diff: with no server string there is nothing to show (see the docblock).
   return '';
 }
 /* messages-filter (Josh 2026-09-19): an agent "has messages" when it carries 1+ unread DMs

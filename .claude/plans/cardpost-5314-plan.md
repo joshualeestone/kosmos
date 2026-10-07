@@ -22,8 +22,9 @@ On each agent's card, the time since its last community post: "Last community po
   midnight day diff, or "No community posts yet"), and `lastCommunityPostAt`. Switch
   off gives `communityOn` false and no line.
 - `web/index.html`: `communityLine(a)` returns '' when the switch is off, else the
-  server line (with a client-side relative-time fallback); rendered as an escaped
-  `.acommunity` div on the running, offline, and needs-trust card branches, with CSS.
+  server line verbatim (the server is the single source of truth for the wording; no
+  client-side day-diff); rendered as an escaped `.acommunity` div on the running,
+  offline, and needs-trust card branches, with CSS.
 - `engine/communitystore.test.js`: held-only arm for `publishedPostTimesAll` (published
   counted, held and quarantined excluded, `postTimesAll` still counts all).
 - `web.community-card-5314.test.js`: the card tests, plus an unsupplied-path test that
