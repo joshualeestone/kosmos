@@ -24,6 +24,14 @@ and moved the account stores onto it. This slice moves three settings writers th
   death in the window is reaped by writeSecret's existing reaper on the next write into that folder.
   An old-format `<file>.kosmos.<pid>.new` an earlier release left is NOT reaped (it does not match the
   reaper's shape); nothing removed those before either.
+- **Two visible changes, accepted:**
+  - writeSecret sweeps the target's folder once per process for ITS OWN dead temps (the #1793 reaper),
+    so it now runs in the person's config folders too (`~/.claude`, the Grok and Gemini homes, or where
+    a symlinked settings file resolves). It deletes only names of writeSecret's anchored
+    `.kosmos-<pid>-...tmp` shape whose writer is provably dead, never anything else.
+  - a flush the disk refuses (EIO, ENOSPC, EDQUOT) now fails the save, which the callers already report
+    as "we could not save the settings file"; before, that error was never seen and the rename could
+    publish bytes the disk had refused. Failing is the point of the slice.
 - **Cost:** about 8 ms per save on this Mac (slice 1's measurement); these run once per agent birth or
   wiring, not in a loop.
 
