@@ -354,10 +354,11 @@ function syncDir(dir) {
  * reads the folder on every save, which is fine at a once-per-birth call rate.
  *
  * `mode` null or undefined WITH `opts.umaskDefault` (#5434 slice 3): create at the process umask
- * default (0666 less the umask) and set no mode, exactly as a plain writeFileSync would. Without
- * `opts.umaskDefault` a missing mode throws, so a secret caller cannot loosen a file by a slip. For callers that write a
- * person's own config file, keep an existing file's mode by passing it, and must not choose a
- * mode for a new one.
+ * default (0666 less the umask) and set no mode, exactly as a plain writeFileSync would. This is
+ * for callers that write a person's own config file: they keep an existing file's mode by passing
+ * it, and must not choose a mode for a new one. Without `opts.umaskDefault` a missing mode throws a
+ * TypeError, so a secret caller cannot loosen a file by a slip; a new caller must pass a mode or
+ * opt in (every caller in this tree does, checked when this was added).
  */
 function writeSecret(file, data, mode, opts) {
   const exactMode = mode !== null && mode !== undefined;
@@ -367,14 +368,17 @@ function writeSecret(file, data, mode, opts) {
     throw new TypeError('writeSecret: no mode given (pass a mode, or opts.umaskDefault for a person\'s own config file)');
   }
   const createMode = exactMode ? mode : 0o666;
-  /* #1793: sweep this target's directory of orphan temps a prior death left behind,
-     once per directory per process, before we add our own. Best-effort: it never
-     throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
-     so it cannot take a concurrent writer's in-flight temp. */
-  // #5434 slice 3: `opts.ownTempsOnly` (a person's own config folder) reaps only THIS file's dead
-  // temps, never a folder-wide sweep of a folder Kosmos does not own.
-  if (opts && opts.ownTempsOnly) reapDeadTempsOf(file);
-  else reapOrphanTemps(path.dirname(file));
+  if (opts && opts.ownTempsOnly) {
+    // #5434 slice 3: a person's own config folder. Reap only THIS file's dead temps, every call,
+    // never a folder-wide sweep of a folder Kosmos does not own.
+    reapDeadTempsOf(file);
+  } else {
+    /* #1793: sweep this target's directory of orphan temps a prior death left behind,
+       once per directory per process, before we add our own. Best-effort: it never
+       throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
+       so it cannot take a concurrent writer's in-flight temp. */
+    reapOrphanTemps(path.dirname(file));
+  }
   /* Up to three attempts at the atomic path before abandoning it. `++SEQ` gives
      a fresh name each time, so the one realistic trigger after the unique-name
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is
