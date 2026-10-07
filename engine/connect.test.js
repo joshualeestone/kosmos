@@ -3147,3 +3147,31 @@ driverTest('#5419: with Claude installed and no tmux at the start, the flow stop
     connect.setTmuxCheckForTests(TMUX_PRESENT);
   }
 });
+
+test('#5419: the real (unseamed) no-tmux check: true on a Linux host with no tmux, false off Linux', (t) => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const origPick = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  connect.setTmuxCheckForTests(null);   // the production branch, not the seam
+  t.after(() => {
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  });
+  if (process.platform !== 'linux') {
+    // Off Linux the real branch must never refuse (a Mac or Windows board is not asked about Linux tmux).
+    assert.equal(connect.tmuxMissingForSignin('linux'), false, 'a non-Linux host was refused for Linux tmux');
+    assert.equal(connect.tmuxMissingForSignin(process.platform), false);
+    return;
+  }
+  // On the Linux lane: no launcher pick that runs, and a picker that finds nothing, so the real answer is "missing".
+  process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-real';
+  create.linuxTmuxBin = () => null;
+  runners.isRunnable = (f) => (f === '/nowhere/tmux-real' ? false : origRunnable(f));
+  assert.equal(connect.tmuxMissingForSignin('linux'), true, 'the wired check said tmux is there when nothing runs');
+  create.linuxTmuxBin = () => '/usr/bin/tmux';
+  runners.isRunnable = (f) => (f === '/usr/bin/tmux' ? true : f === '/nowhere/tmux-real' ? false : origRunnable(f));
+  assert.equal(connect.tmuxMissingForSignin('linux'), false, 'CONTROL: a found tmux is not missing');
+});
