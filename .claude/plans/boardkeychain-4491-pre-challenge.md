@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 4f307f515b356f286d7d84873df48797ce8bbb06f6bf05461d2a92265e23faff
+diff_hash: 4ec71d3f1b1578025979bcfd065e066bec4d4c3a39864f47614e02ceec294a89
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -121,3 +121,4 @@ Third post-rebase review (opus): 5 WARNINGs (protected set derived from the guar
 Fourth post-rebase review (sonnet): 4 WARNINGs (scope too broad, misreported fail-closed, per-file cost, future temp/home names), all fixed; 303 + 45 + 16 tests pass.
 Fifth post-rebase review (opus): 4 WARNINGs (restore-rename folder race narrowed and named, cannot-check logged, two tests made real), all addressed; 304 + 46 + 16 tests pass.
 Sixth post-rebase review (sonnet): 5 WARNINGs (re-check untested, reasons conflated, temp written before the check, cannot-check log once, log cause), all fixed; 305 + 47 + 16 tests pass.
+Seventh post-rebase review (opus): 2 WARNINGs (pre-rename check and move-aside untested; plan overclaimed the page) fixed, plus NITs; 306 + 48 + 16 tests pass.
