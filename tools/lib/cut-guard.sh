@@ -14,6 +14,27 @@ if ! . "$_kosmos_cut_guard_lib_dir/process-fixture.sh"; then
 fi
 unset _kosmos_cut_guard_lib_dir
 
+# --- Shared: is <script> RUNNING, as opposed to queued or merely mentioned? (#5470) -----
+# `pgrep -f <script>` matches every process whose command line CONTAINS the name: a run, but also a
+# tools/queued-heavy.sh waiter that carries it as an argument, the `sh -c "... bash <script>"` shell that
+# started that waiter, and any command that only names it. On the 0.7.27 cut a wait written that way
+# held the machine for a waiter that was waiting for the same machine (#5467). A run's command line
+# STARTS with the interpreter and the script: `[path/](ba)sh [path/]<script>[ args]`. This prints the
+# "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
+# there is none, 2 when pgrep itself failed (so a caller can tell "nothing" from "could not tell").
+# <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
+# its dots are matched literally.
+kosmos_running_lines() {   # <script path>
+  local script="$1" raw rc re lines
+  case "$script" in ''|*[!A-Za-z0-9._/-]*) return 2 ;; esac   # a path, nothing a regex would read as syntax
+  re="${script//./\\.}"
+  raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
+  [ "$rc" -ge 2 ] && return 2
+  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?${re}( |$)" || true)"
+  [ -n "$lines" ] || return 1
+  printf '%s\n' "$lines"
+}
+
 # --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
 # Both guards below match a process by its command line and must then exclude
 # the caller's OWN run so it does not refuse itself. A single-pid exclusion is
@@ -332,9 +353,7 @@ kosmos_refuse_if_browser_run_live() {
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
-    raw="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+    out="$(kosmos_running_lines tools/browser-checks.sh)"; rc=$?   # #5470: the shared anchored match
   fi
   # ⚠️ EXCLUDE THE CALLER'S OWN SUBTREE, NOT JUST ITS PID (#1391). browser-checks.sh
   # IS a `bash tools/browser-checks.sh` and forks subshells that inherit that
@@ -1489,8 +1508,7 @@ kosmos_light_side_intruder() {
   if [ -n "${KOSMOS_BC_PROBE:-}" ]; then lines="$("$KOSMOS_BC_PROBE" 2>/dev/null)"; rc=$?
   else
     # Review 6: pgrep's own status, not the filter's (a pgrep that failed read as "nothing live").
-    lines="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] && rc=0
-    lines="$(printf '%s\n' "$lines" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
+    lines="$(kosmos_running_lines tools/browser-checks.sh)"; rc=$?; [ "$rc" -le 1 ] && rc=0   # #5470: the shared anchored match
   fi
   [ "$rc" -ge 2 ] && { echo "could not tell whether a browser run is live"; return 0; }
   [ -n "$lines" ] && lines="$(printf '%s\n' "$lines" | _kosmos_drop_test_fixtures || true)"   # a suite's fixture is not a run
