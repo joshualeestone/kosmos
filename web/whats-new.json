@@ -4,7 +4,7 @@
     {
       "icon": "tasks",
       "title": "Pause a project in one click",
-      "line": "A Pause button now sits beside each project's name. A paused project says so on its page and on its card."
+      "line": "A Pause button now sits beside the name on each project's page. A paused project says so there and on its card."
     },
     {
       "icon": "swarm",
@@ -24,7 +24,7 @@
     {
       "icon": "shield",
       "title": "Codex agents in their own space",
-      "line": "From their next start, Codex agents run with their own settings, so your own Codex app's plugins no longer affect them.",
+      "line": "From their next start, Codex agents run with their own settings, so the plugins and settings of your own Codex app no longer reach them.",
       "platforms": [
         "mac"
       ]
