@@ -1476,6 +1476,17 @@ if (!r || !r.ok) {
 BOARDEOF
 )" || _lb_rc=$?
       [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: ${_lb_out:-its removal step did not run ($KOSMOS_HOME/runtime/bin/node)}"
+      # Review 16: when the node step could not even load linuxboard (a broken app folder, a node too old), its own
+      # fallback could not name the file. The app folder is deleted next, so remove the unit by the shell rule here.
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      if [ "$_lb_rc" -ne 0 ] && [ -f "$_lb_dir/$_lb_name" ]; then
+        systemctl --user stop "$_lb_name" 2>/dev/null || true
+        systemctl --user disable "$_lb_name" 2>/dev/null || true
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+        systemctl --user daemon-reload 2>/dev/null || true
+        info "its unit file was removed by name instead, so it will not start again"
+      fi
     elif [ -f "$KOSMOS_HOME/app/server.js" ] && command -v systemctl >/dev/null 2>&1; then
       # The app is here but its linuxboard cannot run: an install from a release before linuxboard.js (#4918), whose
       # shell-written unit carries the old name rule, or one whose runtime/bin/node is gone (on Linux it links the system

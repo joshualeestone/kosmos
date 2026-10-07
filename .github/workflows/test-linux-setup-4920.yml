@@ -129,6 +129,31 @@ jobs:
 
       - name: A board that exits while stopped is not restarted (#4918's loop)
         run: |
+          # CONTROL first, on a throwaway unit shaped like the board's: with Restart=always a TERM exit while the marker
+          # is present IS restarted (systemd does not re-check ConditionPathExists on an automatic restart) and NRestarts
+          # grows; with Restart=on-failure and SuccessExitStatus=143 it does not. This proves the counter can show the
+          # loop, so the check on the real unit below can fail.
+          LOOP_UNIT="$HOME/.config/systemd/user/kosmos-looptest.service"
+          MARK="$RUNNER_TEMP/looptest.stopped"
+          loop_arm() {
+            rm -f "$MARK"
+            printf '[Unit]\nConditionPathExists=!%s\n\n[Service]\nExecStart=/bin/sh -c "[ -e %s ] && exit 0; exec sleep 1000"\nRestart=%s\nSuccessExitStatus=143\nRestartSec=1\n' "$MARK" "$MARK" "$1" > "$LOOP_UNIT"
+            systemctl --user daemon-reload
+            systemctl --user start kosmos-looptest.service
+            sleep 1
+            B="$(systemctl --user show -p NRestarts --value kosmos-looptest.service)"
+            touch "$MARK"
+            kill -TERM "$(systemctl --user show -p MainPID --value kosmos-looptest.service)"
+            sleep 6
+            A="$(systemctl --user show -p NRestarts --value kosmos-looptest.service)"
+            systemctl --user stop kosmos-looptest.service 2>/dev/null || true
+            test -n "$B" && test -n "$A"
+            echo "$1: NRestarts $B -> $A"
+            [ "$A" != "$B" ]
+          }
+          if ! loop_arm always; then echo "CONTROL FAILED: Restart=always did not move NRestarts, so the check below proves nothing" >&2; exit 1; fi
+          if loop_arm on-failure; then echo "CONTROL FAILED: Restart=on-failure moved NRestarts" >&2; exit 1; fi
+          rm -f "$LOOP_UNIT" "$MARK"; systemctl --user daemon-reload
           # The #4918 loop, reproduced: with board.stopped present the board's own exit is clean, and Restart=always
           # restarted it every RestartSec (board-run then exited 0 at once, forever). kosmos stop cannot show this: its
           # systemctl stop cancels any pending restart. So: mark stopped, end the board with a plain TERM (not through

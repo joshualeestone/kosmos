@@ -414,3 +414,15 @@ test('#4920 uninstall runs the KillMode fix before it stops the board', () => {
   const j = SETUP.indexOf('"$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', i);
   assert.ok(i > 0 && j > i && j - i < 200, 'the KillMode fix is not right before the uninstall stop');
 });
+
+test('#4920 uninstall: when the node step cannot even load linuxboard, the unit is removed by name', () => {
+  const w = world({ nodeOut: '', nodeRc: 1 });   // node ran nothing useful: a broken app folder or an old node
+  fs.mkdirSync(path.join(w.home, 'app', 'engine'), { recursive: true });
+  for (const tool of ['rm']) { const src = ['/bin/' + tool, '/usr/bin/' + tool].find((f) => fs.existsSync(f)); if (src && !fs.existsSync(path.join(w.bin, tool))) fs.symlinkSync(src, path.join(w.bin, tool)); }
+  const name = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  fs.writeFileSync(path.join(w.unitDir, name), '[Service]\n');
+  const r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /its unit file was removed by name instead/);
+  assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'a unit left after a failed node step loops on the deleted folder');
+});
