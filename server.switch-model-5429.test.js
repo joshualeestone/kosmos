@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273: CI fails a run that leaves them)
 
 /**
  * kosmos#5429: a provider switch carries the MODEL too, so provider, account and model change in ONE restart.
