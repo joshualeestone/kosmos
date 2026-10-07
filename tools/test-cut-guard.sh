@@ -352,7 +352,7 @@ else
   if kill -0 "$harness" 2>/dev/null; then
     # #4410: another agent's sandboxed stand-in would also refuse cut-start.sh (it keeps fixtures),
     # so the pass also needs OUR stand-in in the name arm's own candidate lines.
-    ours="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E "^$harness +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |\$)" || true)"
+    ours="$( { kosmos_running_lines tools/test-install.sh || true; } | grep -E "^$harness " || true)"
     { [ "$rc" -ne 0 ] && [ -n "$ours" ]; } && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
       || fail "a live harness was not detected: rc=$rc ours='$ours' out=$out"
     # A REAL harness another agent started after the pre-flight would refuse the plain caller too;
