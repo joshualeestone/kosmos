@@ -75,16 +75,12 @@ const BETA = signIn('beta', 'BETA');
 
 const create = require('./create');
 
-const codexHomeOf = (name) => {
-  const text = fs.readFileSync(jobfix.jobPath(name), 'utf8');
-  const m = text.match(/<key>CODEX_HOME<\/key><string>([\s\S]*?)<\/string>/);
-  return m ? m[1] : null;
-};
+// #5432 review 9: through create.readJob (plist on macOS, unit on Linux); a plist regex read null on Linux.
+const codexHomeOf = (name) => { const j = create.readJob(name); return j ? j.configDir : null; };
 const store = require('./store');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
    launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
    that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 /**
  * An agent seeded DIRECTLY: its launch job and its profile, which is all
  * `setProvider` reads.
@@ -114,7 +110,7 @@ function born(name) {
   return name;
 }
 
-test('#1373: the engine offers a real choice, and the choice reaches the launch job', LINUX_PLIST_5432, () => {
+test('#1373: the engine offers a real choice, and the choice reaches the launch job', () => {
   /* THE FIXTURE'S OWN CONTROL. If both accounts are not visible, every
      assertion below is about a one-account world and proves nothing. */
   const seen = require('./openaiaccounts').list().map((a) => a.dir);
@@ -167,7 +163,7 @@ test('#1373: the engine offers a real choice, and the choice reaches the launch 
    AGENT_WORKFORCE_CODEX_HOME at the top precisely so the rest of the suite sees a
    real list, so this arm has to set it back for its own duration and put it back
    after, or every other test in the file changes meaning. */
-test('#1373: with an override home in force, the refusal says THAT, not "it is gone"', LINUX_PLIST_5432, () => {
+test('#1373: with an override home in force, the refusal says THAT, not "it is gone"', () => {
   const d = born('switch-1373-override');
   process.env.AGENT_WORKFORCE_CODEX_HOME = ALPHA;
   try {
@@ -213,7 +209,7 @@ test('#1373: with an override home in force, the refusal says THAT, not "it is g
    list, which is exactly the pre-branch behaviour for that person.
    ⚠️ Both halves, or the fix is half a fix: unpicked must SUCCEED, and picked must
    still REFUSE, or the refusal has been quietly deleted. */
-test('#1373: an unpicked account the engine cannot use falls back instead of refusing', LINUX_PLIST_5432, () => {
+test('#1373: an unpicked account the engine cannot use falls back instead of refusing', () => {
   const g = born('switch-1373-unpicked-ghost');
   const ghost = nodePath.join(HOME, '.codex-not-here-at-all');
   assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist');
@@ -243,7 +239,7 @@ test('#1373: an unpicked account the engine cannot use falls back instead of ref
    ⭐ The load-bearing assertion is the last one: what the answer SAYS must equal what
    the launch job actually GOT. Pinning the answer alone would pass on an engine that
    names one account and starts another. */
-test('#1373: when the unpicked fallback lands elsewhere, the answer NAMES where it landed', LINUX_PLIST_5432, () => {
+test('#1373: when the unpicked fallback lands elsewhere, the answer NAMES where it landed', () => {
   const g = born('switch-1373-fallback-names-it');
   const ghost = nodePath.join(HOME, '.codex-gone-and-unpicked');
   assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist');
