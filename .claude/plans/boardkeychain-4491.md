@@ -127,3 +127,16 @@ Reasoned, not measured: that the sandbox's denyRead/denyWrite of the undo folder
 existing token rules). Accepted: isCredential runs boardCredentialPaths on every keep (a folder listing per root;
 small). The secrets this list names are the board's own; other person-held secrets rely on the undo store being
 read-denied.
+Third post-rebase review (opus), all fixed:
+- The protected set was a hand-kept subset. boardCredentialPaths now lists what the guard protects: board.token and its
+  temp copies in every root, the token-only list, the worlds registry and its temp and lock names, the account config
+  homes' settings files, the sender tokens folder in every root, and every Kosmos agent's own .claude folder (the
+  guard write-denies the whole folder). The agent list must be readable, else it throws and isCredential refuses.
+- A folder is judged on its REAL path, so a link of another name to an agent's .claude does not get past (also caught
+  by identity, since every file in a protected folder is in the identity list; disabling both routes turns the test
+  red). A code repo's own .claude/settings.json is no longer refused (only Kosmos agents' .claude folders are).
+- apply re-checks with the file's identity at the write (lstat), not only its name.
+- keep refuses a link or a non-file BEFORE opening it; a drive reporting inode 0 gets name and place checks only.
+- The guard test now asserts the undo stores are write-denied in both layers.
+Residual: a hard link made between apply's last check and its copy would put the token's bytes into undo-saved,
+which the agent cannot read or write.

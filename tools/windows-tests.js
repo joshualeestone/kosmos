@@ -67,6 +67,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/communitysend.test.js': 'its win32 branch (#5431) only skips a POSIX file-mode arm',
   'engine/communitysend-why-5435.test.js': 'its win32 branch (#5435) skips the read-only-folder arm; its other arms are platform-free and run on the Mac',
+  'engine/undo-credential-4491.test.js': 'its win32 branch only skips the FIFO arm (Windows has no FIFOs); it makes symlinks, which Windows allows only with a privilege, and its sibling undo-5153.test.js is not run on Windows either',
   'engine/attachments.facts-5448.test.js': 'its win32 branch only skips the mkfifo arm (Windows has no FIFOs); its sibling attachments.test.js is not run on Windows either',
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',

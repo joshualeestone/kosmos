@@ -344,7 +344,7 @@ test('re-review (Kitty): the worlds registry is write-denied, and a world added 
   }
 });
 
-test('#4491 post-rebase review: the undo copy store is read-denied in both layers (a copy there must stay unreadable)', () => {
+test('#4491 post-rebase review: the undo copy store is read- and write-denied in both layers', () => {
   const dir = agentDir('pilot-undo');
   setup.guardTokenOnlyFolder(dir, 'pilot-undo', DEPS);
   const s = readSettings(dir);
@@ -352,5 +352,8 @@ test('#4491 post-rebase review: the undo copy store is read-denied in both layer
     const d = path.join(store.ROOT, leaf);
     assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(d)}/**)`), leaf + ' is not Read-denied: ' + JSON.stringify(s.permissions.deny));
     assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(d)), leaf + ' is not in the sandbox denyRead');
+    // Write-denied too: a forged record there is what restore would write out.
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(d)}/**)`), leaf + ' is not Edit-denied');
+    assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(d)), leaf + ' is not in the sandbox denyWrite');
   }
 });

@@ -115,3 +115,36 @@ test('#4491: a forged undo record naming board.token is never restored, moved or
   const savedHolds = (d) => { try { return fs.readdirSync(d, { recursive: true }).some((n) => { try { return fs.readFileSync(path.join(d, n), 'utf8').includes(SECRET); } catch { return false; } }); } catch { return false; } };
   assert.equal(savedHolds(saved), false, 'a copy of board.token was saved aside');
 });
+
+test('#4491 review 3: a guarded folder reached by a link of another name is refused; a repo .claude, a FIFO and a linked parent behave as before', (t) => {
+  undo.setOn(true);
+  const me = worker('ud-paths');
+  const own = path.join(me, '.claude');
+  fs.mkdirSync(own, { recursive: true });
+  fs.writeFileSync(path.join(own, 'settings.json'), '{}');
+  fs.symlinkSync(own, path.join(me, 'l'));
+  assert.equal(undo.keep(path.join(me, 'l', 'settings.json'), { cwd: me }).because, 'credential', 'the guard settings were kept through a link named l');
+  fs.writeFileSync(path.join(own, 'hook.sh'), 'echo');
+  assert.equal(undo.keep(path.join(own, 'hook.sh'), { cwd: me }).because, 'credential', 'another file in the agent .claude (write-denied by the guard) was kept');
+  // A code repo's own .claude settings, edited by an agent: an ordinary file, still kept.
+  const repo = path.join(SB, 'somerepo', '.claude');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'settings.json'), '{"repo":true}');
+  assert.deepEqual(undo.keep(path.join(repo, 'settings.json'), { cwd: me }), { kept: true }, 'a repo .claude/settings.json lost its undo copy');
+  // A link as the final name is still refused as a link.
+  fs.writeFileSync(path.join(me, 'real.txt'), 'real');
+  fs.symlinkSync(path.join(me, 'real.txt'), path.join(me, 'alias.txt'));
+  assert.equal(undo.keep(path.join(me, 'alias.txt'), { cwd: me }).because, 'link');
+  // An ordinary file reached through a linked parent folder is still kept (the old code allowed it).
+  const realDir = path.join(SB, 'elsewhere');
+  fs.mkdirSync(realDir, { recursive: true });
+  fs.writeFileSync(path.join(realDir, 'doc.txt'), 'doc');
+  fs.symlinkSync(realDir, path.join(me, 'linked'));
+  assert.deepEqual(undo.keep(path.join(me, 'linked', 'doc.txt'), { cwd: me }), { kept: true }, 'a file under a linked folder lost its undo copy');
+  // A FIFO is refused as not a file, without hanging on the open.
+  if (process.platform === 'win32') { t.diagnostic('no FIFOs on Windows'); return; }
+  const fifo = path.join(me, 'pipe');
+  const mk = require('node:child_process').spawnSync('mkfifo', [fifo]);
+  assert.equal(mk.status, 0, 'mkfifo failed, so the FIFO arm would prove nothing');
+  assert.equal(undo.keep(fifo, { cwd: me }).because, 'not-a-file');
+});

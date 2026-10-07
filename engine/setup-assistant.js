@@ -637,18 +637,35 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
   return roots;
 }
 
-/* #4491 (post-rebase review): the board's credential files the token-only guard protects, for a board-side copier
-   (engine/undo.js keep) that must refuse them: board.token in every root above, the per-agent sender tokens folder
-   in every root, and the token-only list. dataRoot/home as in tokenOnlySettingsRules. */
+/* #4491 (post-rebase review): what the token-only guard protects, for a board-side copier or restorer (engine/undo.js)
+   that must refuse it. files: board.token in every root and its temp copies there, the token-only list, the worlds
+   registry and its temp and lock names, the account config homes' settings files. dirs: the sender tokens folder in
+   every root, and every Kosmos agent's own .claude folder (the guard write-denies the whole folder). Derived from the
+   same pieces tokenOnlySettingsRules uses, so the two describe the same set. dataRoot/home as there. */
 function boardCredentialPaths(deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
   const tokenFile = require('./boardauth').TOKEN_FILE;
   const roots = tokenOnlyTokenRoots(dataRoot, home, deps);
-  return {
-    files: [...roots.map((r) => path.join(r, tokenFile)), require('./sendertoken').tokenOnlyFile()],
-    dirs: [...new Set([require('./sendertoken').DIR, ...roots.map((r) => path.join(r, 'sendertokens'))])],
-  };
+  const files = [...roots.map((r) => path.join(r, tokenFile)), require('./sendertoken').tokenOnlyFile()];
+  const dotNamed = (dir, prefix) => { try { return fs.readdirSync(dir).filter((n) => n.startsWith(prefix)).map((n) => path.join(dir, n)); } catch { return []; } };
+  for (const r of roots) files.push(...dotNamed(r, '.' + tokenFile + '.'));
+  try {
+    const base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    if (base) {
+      const reg = (deps.worlds || require('./worlds')).registryPath(base);
+      files.push(reg, ...dotNamed(path.dirname(reg), '.' + path.basename(reg) + '.'));
+    }
+  } catch { /* the files above */ }
+  for (const h of accountConfigHomes(home)) files.push(path.join(h, 'settings.json'), path.join(h, 'settings.local.json'));
+  const dirs = [require('./sendertoken').DIR, ...roots.map((r) => path.join(r, 'sendertokens'))];
+  /* Every agent's own .claude. The agent list must be readable: without it these folders would go unprotected, so
+     that throws, and a caller that fails closed (undo.isCredential) refuses. */
+  const known = require('./register').known();
+  if (!known || !known.ok) throw new Error('the agent list could not be read');
+  const create = require('./create');
+  for (const name of known.names) { try { dirs.push(path.join(create.workerDir(name), '.claude')); } catch { /* no folder */ } }
+  return { files: [...new Set(files)], dirs: [...new Set(dirs)] };
 }
 
 /* #4491: ~/.claude plus every EXISTING ~/.claude-<label> (a CLAUDE_CONFIG_DIR account home). Enumerated

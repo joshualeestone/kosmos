@@ -131,17 +131,17 @@ function readIndex() {
 const NOFOLLOW = fs.constants.O_NOFOLLOW;
 const NONBLOCK = fs.constants.O_NONBLOCK;
 
-/* #4491 (post-rebase review): the board reads the file for the caller, so a copy of one of the board's own credentials
-   would hand it to an agent whose shell is denied reading it. Refused by name (board.token and its temp names, in any
-   case), by place (a sender tokens folder in any root), and by identity on disk (the same device and inode as a
-   credential file, which catches a hard link under another name or a symlinked parent), whether or not the file
-   exists yet. Paths are compared without case (macOS and Windows disks ignore it; on Linux that can only refuse more,
-   never less). Fails closed: a check that cannot run refuses. Also refused: a Claude settings file in a .claude or
-   .claude-<label> folder, which restore must never rewrite (it could switch an agent's guard off). */
+/* #4491 (post-rebase review): the board reads (keep) and writes (restore) files for an agent, so it must refuse
+   what the token-only guard protects (setup-assistant.boardCredentialPaths): a copy of a credential would hand it to
+   an agent whose shell cannot read it, and a restore of a guarded file could roll the guard back. Refused by name
+   (board.token and its temp names, any case), by place (inside a protected folder, judged on the REAL folder, so a
+   link with another name does not get past), and by identity on disk (the same device and inode as a protected file:
+   a hard link under another name). Paths are compared without case (macOS and Windows disks ignore it; on Linux that
+   only refuses more). A drive that reports inode 0 gives no identity, so only name and place apply there. Fails
+   closed: a check that cannot run refuses. */
 function isCredential(abs, st) {
   try {
     if (/^\.?board\.token(\..*)?$/i.test(path.basename(abs))) return true;
-    if (/^settings(\.local)?\.json$/i.test(path.basename(abs)) && /^\.claude(-.*)?$/i.test(path.basename(path.dirname(abs)))) return true;
     const cred = require('./setup-assistant').boardCredentialPaths();
     const realOf = (q) => { try { return fs.realpathSync.native(q); } catch { return null; } };
     const lc = (q) => String(q).toLowerCase();
@@ -155,7 +155,7 @@ function isCredential(abs, st) {
     }
     for (const f of files) {
       if (lc(abs) === lc(f) || lc(real) === lc(f) || lc(real) === lc(realOf(f) || f)) return true;
-      if (st) { try { const c = fs.statSync(f); if (c.dev === st.dev && c.ino === st.ino) return true; } catch { /* that one is absent */ } }
+      if (st && st.ino) { try { const c = fs.statSync(f); if (c.ino && c.dev === st.dev && c.ino === st.ino) return true; } catch { /* absent */ } }
     }
     return false;
   } catch { return true; }
@@ -188,7 +188,12 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
        path cannot be swapped (for a link or another file) between the check and the read. */
     let fd = null;
     let st = null;
-    try { const l = fs.lstatSync(abs); if (l.isSymbolicLink()) return { kept: false, because: 'link' }; } catch { /* absent: the open says so */ }
+    /* A link or anything but a plain file is refused BEFORE it is opened (opening a device can do something). */
+    try {
+      const l = fs.lstatSync(abs);
+      if (l.isSymbolicLink()) return { kept: false, because: 'link' };
+      if (!l.isFile()) return { kept: false, because: 'not-a-file' };
+    } catch { /* absent: the open says so */ }
     try { fd = fs.openSync(abs, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0)); }
     catch (err) {
       if (err.code === 'ELOOP' || err.code === 'EMLINK') return { kept: false, because: 'link' };
@@ -373,7 +378,9 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   for (const f of p.files) {
     if (!chosen.has(f.path)) continue;
     if (!f.ok && !CHOOSABLE.has(f.why)) { skipped.push({ path: f.path, why: f.why }); continue; }
-    if (isCredential(f.path, null)) { skipped.push({ path: f.path, why: 'protected' }); continue; }   // again, at the write
+    let atWrite = null;
+    try { atWrite = fs.lstatSync(f.path); } catch { atWrite = null; }
+    if (isCredential(f.path, atWrite)) { skipped.push({ path: f.path, why: 'protected' }); continue; }   // again, with its identity now
     const rec = byId.get(f.copyId);
     const cur = nowIs(f.path);
     if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
