@@ -83,8 +83,8 @@ jobs:
   # that run's verdict instead of taking three macOS runners. The decision and its reasons are in
   # tools/ci-plans-only-reuse.sh; it prints nothing on any doubt, and nothing means the suite runs.
   # Never on push: main always runs (#4021). Measured on #5488: about 4% of runs, at a time the
-  # macOS queue was 19 deep. Cost: the suite now waits for this ubuntu job (a treeless checkout,
-  # seconds); a failed or timed-out scope job still runs the suite.
+  # macOS queue was 19 deep. Cost: the suite now waits for this ubuntu job (a blobless checkout;
+  # NOT treeless, the diff needs trees); a failed or timed-out scope job still runs the suite.
   scope:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -94,8 +94,9 @@ jobs:
     outputs:
       reuse: ${{ steps.decide.outputs.reuse }}
     steps:
-      # Full history but no file contents: the decider diffs trees (--raw needs no blobs), and the
-      # one blob `git show` reads is fetched on demand. Keeps the job the suite waits on short.
+      # Full history without PAST file contents (only the checked-out tree's files download): the
+      # decider diffs trees (--raw needs no blobs), and the one blob `git show` reads is fetched on
+      # demand with the credentials checkout leaves. Keeps the job the suite waits on short.
       - uses: actions/checkout@v4
         if: ${{ github.event_name == 'pull_request' }}
         with:
