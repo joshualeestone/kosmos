@@ -115,3 +115,13 @@ tell the switch from a record, an address it does not send to, or an agent the c
   why the period ended); any failed read counts as a tear; the narrow window before the sweep notices. Main behaves
   the same today, so this card does not make any of it worse.
 - Stale text fixed: the plan's and a test comment's fallback ("records", not the switch's) and switchOn's docblock.
+
+## Review 8
+- Confirmed by the reviewer: nothing sent differs from tornsend-5431 (willSend's yes/no, the start, the sweep and
+  markNotSent are unchanged apart from the reason and the logs).
+- FIXED: a refused agent's comment is marked not to go, and status read that mark before the refusal, saying "was not
+  sending" after the command had said "the community has refused this agent". Status now says `agent_refused` for it.
+  Pinned route to status; mutation red.
+- FIXED: the comment route's "published only" guard on `notSending` is pinned (a held comment while Community is off
+  gets no reason); mutation red.
+- Added to #5460: a start that could not be written reads `before_on` in status.

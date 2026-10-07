@@ -103,7 +103,9 @@ const byAgent = (x, sessionName) => x && x.agent === sessionName && x.author && 
  * layer has not met it yet. `ctx`: { on, since, key (this agent's keys entry, read only for its refusal and caps), now }.
  */
 function stateOf(kind, rec, item, ctx) {
-  if (kind === 'comment' && item.notSent === true) return 'not_sent';   // the route told the agent it will not go
+  // The route told the agent it will not go. #5435 review 8: a refused agent was told "the community has refused this
+  // agent", so status says that too, not "was not sending".
+  if (kind === 'comment' && item.notSent === true) return ctx.key && ctx.key.refused ? 'agent_refused' : 'not_sent';
   const st = rec && rec.state;
   if (st && st !== 'pending') {
     if (rec.takenDown) return 'taken_down';
