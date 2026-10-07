@@ -211,12 +211,28 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const nAsk = await page.evaluate(() => window.__voice.length);
     await page.click('.voice-pill .vp-go');
     const askSet = await page.evaluate((n) => window.__voice.slice(n), nAsk);
-    chk(pill.n === 1 && !pill.micShown && /^\u00d7\s*Turn on in Settings$/.test(pill.words) && pill.said === '' && pillRowOk
+    chk(pill.n === 1 && !pill.micShown && /^\u00d7\s*Turn on in\s+Settings$/.test(pill.words) && pill.said === '' && pillRowOk
         && askSet.length === 1 && askSet[0].op === 'settings' && askSet[0].pane === 'mic',
       'V6 a refused microphone becomes one [X   Turn on in Settings] pill where the mic was, no sentence, and the label asks for the Microphone pane', JSON.stringify({ pill, micAt, askSet }));
     await page.click('.voice-pill .vp-x');
     const back = await page.evaluate(() => ({ n: document.querySelectorAll('.voice-pill').length, micShown: getComputedStyle(document.getElementById('d-mic')).display !== 'none', focus: document.activeElement && document.activeElement.id }));
     chk(back.n === 0 && back.micShown && back.focus === 'd-mic', 'V6b X dismisses the pill and the plain mic is back, focused', JSON.stringify(back));
+    // V6d (Splinter 08:33): a window under 480 px shows [X  Settings], the same button; and the composer's placeholder
+    // stays one line ending in an ellipsis at any width.
+    await page.click('#d-mic');
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied' }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    await page.setViewportSize({ width: 420, height: 800 });
+    const narrow = await page.evaluate(() => {
+      const go = document.querySelector('.voice-pill .vp-go');
+      const say = document.getElementById('d-say');
+      return { seen: go ? go.innerText.trim() : '', name: go ? go.getAttribute('aria-label') : '', ph: getComputedStyle(say, '::placeholder').whiteSpace };
+    });
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'voice-dm-settings-pill-narrow.png') });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const wide = await page.evaluate(() => document.querySelector('.voice-pill .vp-go').innerText.replace(/\s+/g, ' ').trim());
+    await page.click('.voice-pill .vp-x');
+    chk(narrow.seen === 'Settings' && narrow.name === 'Turn on in Settings' && narrow.ph === 'nowrap' && wide === 'Turn on in Settings',
+      'V6d under 480 px the pill reads Settings (named in full for a screen reader), the full label comes back when wide, and the placeholder never wraps', JSON.stringify({ narrow, wide }));
     // V6c CONTROL: restricted (Screen Time or a profile) is not a switch in the Privacy pane, so it is said, with no pill.
     await page.click('#d-mic');
     await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-restricted' }); window.kosmosVoiceEvent({ kind: 'stopped' }); });

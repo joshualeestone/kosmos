@@ -7742,6 +7742,7 @@ html.has-voice .micbtn.has-pill { display: none; }
 .asp-in .voice-pill, .micwrap > .voice-pill { height: 28px; }
 .micwrap > .voice-pill { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; z-index: 1; }   /* where the field's mic sat */
 .micwrap.line > .voice-pill { top: 50%; right: 8px; transform: translateY(-50%); }
+@media (max-width: 479px) { .voice-pill .vp-pre { display: none; } }   /* Splinter 08:33: [X  Settings] when narrow, same pane */
 /* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
 .rxn-speak { display: none; align-items: center; justify-content: center; font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-left: 4px; cursor: pointer; min-height: 24px; }
 html.has-speak .rxn-speak { display: inline-flex; }
@@ -7863,6 +7864,9 @@ html.has-speak .asp-speak { display: grid; }
 .cpost-count { text-align: right; padding: 2px 8px 0; font: var(--text-caption) var(--font-ui); color: var(--label-2); }
 .cpost-count.near { color: var(--warn-ink); }
 .cinput::placeholder { color: var(--k-ink-2); }
+/* #5481 (Splinter 08:33): a composer's placeholder is one line ending in an ellipsis at any width, never wrapped, so
+   whatever shares its row (the mic's Settings pill) cannot fold it onto a second line. */
+.cinput::placeholder, #pj-post::placeholder, #asp-say::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* #2922 part 2 (Josh 6.59): the LIVE @-mention highlight in the project-room
    composer. A native <textarea> cannot colour one word, so #pj-post is backed by
    a mirror (#pj-post-mirror) that renders the same text with recognized @agent
@@ -65518,7 +65522,9 @@ function voiceSettingsOffer(btn, pane, said) {
   x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss, back to the microphone');
   x.addEventListener('click', () => { voiceSettingsClear(); btn.focus(); });
   const go = document.createElement('button');
-  go.type = 'button'; go.className = 'vp-go'; go.textContent = 'Turn on in Settings';
+  go.type = 'button'; go.className = 'vp-go';
+  go.innerHTML = '<span class="vp-pre">Turn on in&nbsp;</span>Settings';   // fixed words; narrow windows show only Settings
+  go.setAttribute('aria-label', 'Turn on in Settings');
   go.addEventListener('click', () => {
     const h = voiceBridge();
     if (!h || h.phone) return;

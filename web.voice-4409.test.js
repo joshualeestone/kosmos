@@ -435,7 +435,8 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(pills.length, 1, 'not exactly one pill');
   assert.ok(btn.classList.contains('has-pill'), 'the mic still shows beside the pill instead of being replaced by it');
   assert.deepEqual(pills[0].kids.map((k) => k.className), ['vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings]');
-  assert.equal(go().textContent, 'Turn on in Settings');
+  assert.equal(go().attrs['aria-label'], 'Turn on in Settings');
+  assert.match(go().innerHTML, /^<span class="vp-pre">Turn on in&nbsp;<\/span>Settings$/, 'the narrow label is not [X  Settings]');
   assert.equal(doc.boxes['d-say-msg'].textContent, '', 'a sentence was said below the input');
   assert.equal(doc.activeElement, go(), 'the keyboard focus was lost with the mic it replaced');
   go().handlers.click();
