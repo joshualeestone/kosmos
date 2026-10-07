@@ -372,8 +372,31 @@ test('#4381: the Mac selftest\'s rows, and Windows\' own, all run and all pass (
   const mac = fs.readFileSync(path.join(REPO, 'native-app', 'main.swift'), 'utf8');
   const selftest = mac.slice(mac.indexOf('if CommandLine.arguments.contains("--kosmos-app-mode-selftest")'), mac.indexOf('/* #3996: the Dock badge\'s number'));
   const macWhys = [...selftest.matchAll(/^\s+(?:mode|link)\([^\n]*, "([^"]+)"\)$/gm)].map((m) => m[1]);
-  assert.equal(macWhys.length, 34, 'the Mac selftest\'s rows could not be read');
-  for (const why of macWhys) assert.ok(r.stdout.includes(why), 'the Mac row "' + why + '" is not run on Windows');
+  // #5169 (follow-up #5483): the Mac now BLOCKS an unclicked foreign nav where the Windows launcher
+  // still opens it in the browser. Windows cancels the in-window nav either way, so it has no
+  // board-replacement bug; KosmosLauncher.cs is simply not ported yet (#5483). These exact Mac 'why'
+  // strings therefore have no Windows counterpart today, so skip ONLY them in the parity loop below.
+  // Every other shared rule is still enforced. The assertion right after keeps this list honest: an
+  // entry that no longer names a real Mac row fails here, so the exception cannot outlive its rows.
+  const MAC_ONLY_WHYS = new Set([
+    'another port is not ours; an unclicked nav to it is refused',
+    'two labels deep is not a computer; refused unclicked',
+    'a label must not start with a hyphen; refused unclicked',
+    'nor end with one; refused unclicked',
+    'an underscore is not a host label (iOS refuses it too); refused unclicked',
+    'a punycode lookalike is refused (#5169), not sent to the browser',
+    'a label over 63 characters is not a host; refused unclicked',
+    'a lookalike suffix is refused unclicked, not browsered (#5169)',
+    'a user part is not ours; refused unclicked',
+    '#5169: an UNCLICKED foreign nav (a redirect or script) is refused, not sent to the browser',
+    '#5169: a CLICKED foreign link still opens in the browser (only an unclicked nav is refused)',
+  ]);
+  assert.equal(macWhys.length, 35, 'the Mac selftest\'s rows could not be read');   // 34 before #5169; +1 for the clicked-foreign link row
+  for (const why of MAC_ONLY_WHYS) assert.ok(macWhys.includes(why), 'a MAC_ONLY_WHYS entry (#5483) is no longer a Mac selftest row; remove it: ' + why);
+  for (const why of macWhys) {
+    if (MAC_ONLY_WHYS.has(why)) continue;   // #5169: diverged on Windows, tracked by #5483
+    assert.ok(r.stdout.includes(why), 'the Mac row "' + why + '" is not run on Windows');
+  }
 });
 
 test('#4381: the window opens the board with what the page must know, keeping the boot nonce', WINDOWS_ONLY, (t) => {
