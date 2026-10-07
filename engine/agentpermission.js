@@ -64,7 +64,7 @@ function ensureSettings(opts) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const tmp = file + '.tmp-' + process.pid;
       fs.writeFileSync(tmp, text, { mode: 0o600 });
-      fs.renameSync(tmp, file);
+      try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone already */ } throw e; }   // no leftover temp (review 5)
     }
     return file;
   } catch { return null; }
