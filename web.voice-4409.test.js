@@ -519,16 +519,18 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(pills.length, 0, 'the pill stayed after allowed in another view');
   assert.equal(posted.length, before, 'the mic started in a view the person had left: ' + JSON.stringify(posted.slice(before)));
   h.set(CARD('april'), null);
-  // the place is where the person PRESSED Settings. Offered in one chat, pressed in another (the DM's mic is
-  // shared), "allowed" restarts the mic in the chat it was pressed from.
+  // The pill belongs to the chat it was offered in: switching agent (the DM's mic is shared) puts the plain mic back.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.voiceToggle(btn);
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  assert.equal(pills.length, 1, 'fixture: no pill');
+  tick();
+  assert.equal(pills.length, 1, 'the pill went while nothing changed');
   h.set(CARD('casey'), null);
-  go().handlers.click();
-  const pressed = posted.at(-1).id;
-  h.voiceOnEvent({ kind: 'allowed', id: pressed });
-  assert.equal(posted.at(-1).op, 'start', 'the mic did not restart in the chat Settings was pressed from');
+  tick();
+  assert.equal(pills.length, 0, 'the pill stayed in a chat that was never refused');
+  assert.ok(!btn.classList.contains('has-pill'), 'the mic stayed hidden in another chat');
   h.set(CARD('april'), null);
   // back with the mic restricted, the pill gives way to the restricted sentence.
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });

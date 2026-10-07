@@ -27,6 +27,8 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
   steady: same agent or room, the box laid out, open, without the page-hidden part), and only once the page is
   visible (a start while it reads hidden would be cancelled by the watcher's first look); that wait lasts a minute at most and
   is dropped by a new start or X; X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
+  The pill belongs to the place it was offered: a view change (another agent or room, the box closing) clears it
+  and puts the plain mic back (a 500 ms watch while it shows).
   `settings-next` repoints the same pill to the Microphone pane and says so again (a fresh alert); `refused` swaps it for the restricted sentence. Other refusals keep their sentence.
 
 ## Measured (not built)
@@ -44,7 +46,7 @@ running process without a relaunch, and the order of didBecomeActive against the
 waits for visibilitychange either way). Words shipped and mechanism built; the behaviour is to be seen on first use.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 40 rows, including settingsAccepted (Settings only after a denial), stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 42 rows, including pageGone (only a reloaded or crashed page drops the visit), settingsAccepted (Settings only after a denial), stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

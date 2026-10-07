@@ -1536,6 +1536,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     }
     /// the page may name a pane, never a URL; it also may not open Settings over and over (more than once a
     /// second; a clock moved backwards counts as a second gone by, which only ever allows one more open).
+    /// The cancels that mean the page itself is gone (reloaded or crashed), not merely out of sight. PURE, selftested.
+    static func pageGone(_ why: String) -> Bool { why == "page process ended" || why == "new page loaded" }
     /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else). PURE.
     static func settingsAccepted(lastRefusal: String) -> Bool { lastRefusal == "speech-denied" || lastRefusal == "mic-denied" }
     static func settingsOpenAllowed(sinceLast: TimeInterval?) -> Bool { sinceLast.map { $0 < 0 || $0 >= 1 } ?? true }
@@ -1727,8 +1729,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// mode only hides it, so the page gets no pagehide), minimised, or (review 3) the page's process died or a new
     /// page loaded, which would draw the mic as off while it listened. No-op when not listening.
     func hostCancel(_ why: String) {
-        // A new page or a crashed one has seen no refusal: its Settings visit and the denial it answers are gone too.
-        awaitingAllow = false; lastRefusal = ""
+        // A new page or a crashed one has seen no refusal: its Settings visit and the denial it answers go with it. A
+        // hidden or minimised window keeps both: its page keeps its pill, and the visit may still come back.
+        if Self.pageGone(why) { awaitingAllow = false; lastRefusal = "" }
         guard pending || engine != nil || request != nil || task != nil else { return }
         logLine("voice: cancelled, " + why)
         cancel()
@@ -6609,7 +6612,9 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481: speech restricted is said as that, not left on a pill")
     row(VoiceBridge.settingsAccepted(lastRefusal: "speech-denied") && VoiceBridge.settingsAccepted(lastRefusal: "mic-denied"), "#5481: Settings opens after a denial")
     row(!VoiceBridge.settingsAccepted(lastRefusal: "") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted"), "#5481 CONTROL: and after nothing else")
-    let expected = 40   // #5311: + Dictation off, + its control; #5481: + 24
+    row(VoiceBridge.pageGone("page process ended") && VoiceBridge.pageGone("new page loaded"), "#5481: a reloaded or crashed page drops its Settings visit")
+    row(!VoiceBridge.pageGone("window hidden") && !VoiceBridge.pageGone("window minimised"), "#5481 CONTROL: a hidden or minimised window keeps it (its page keeps the pill)")
+    let expected = 42   // #5311: + Dictation off, + its control; #5481: + 26
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")
