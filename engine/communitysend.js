@@ -108,13 +108,15 @@ function installGroupFile() { return path.join(endpointDir(), 'install-group.jso
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  const fd = fs.openSync(tmp, 'w', FILE_MODE);
   try {
-    fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n');
-    fs.fsyncSync(fd);
-  } finally { fs.closeSync(fd); }
-  fs.renameSync(tmp, file);
-  // A folder cannot be opened for this on Windows; there the rename is what NTFS journals.
+    const fd = fs.openSync(tmp, 'w', FILE_MODE);
+    try {
+      fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n');
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
+  } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
+  // Windows cannot flush a folder (the call fails and is ignored); there the rename is what NTFS journals.
   try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } } catch { /* best effort */ }
 }
 
@@ -138,9 +140,11 @@ function repairTornRecords() {
   for (const f of records) {
     try {
       saveJson(f, {});
-      reportedCorrupt.delete(f);
+      reportedCorrupt.delete(f); reportedCorrupt.delete('torn:' + f);
       log(`${path.basename(f)} was empty or zero-filled (a write cut off by a crash or power loss) and no agent has a key on this service, so nothing was sent: reset it`);
-    } catch (e) { log(`${path.basename(f)} is torn and could not be reset (${e && e.code ? e.code : 'unknown'})`); }
+    } catch (e) {
+      if (!reportedCorrupt.has('torn:' + f)) { reportedCorrupt.add('torn:' + f); log(`${path.basename(f)} is torn and could not be reset (${e && e.code ? e.code : 'unknown'})`); }
+    }
   }
 }
 

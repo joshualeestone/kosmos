@@ -663,6 +663,19 @@ test('#5431: once an agent has a key, a torn sent.json is NOT reset (it may hide
   assert.deepEqual([...fs.readFileSync(file)], [0, 0, 0], 'the torn file was overwritten although a key existed');
 });
 
+test('#5431: a keys.json holding only a retired account still blocks the reset (its posts are in sent.json)', async () => {
+  fresh();
+  await on();
+  const kf = cs._paths.keysFile();
+  fs.mkdirSync(path.dirname(kf), { recursive: true });
+  // What #4994 leaves behind: no agent name, but an account that posted.
+  fs.writeFileSync(kf, JSON.stringify({ 'retired:old:2026-10-01T00:00:00.000Z': { apiKey: 'k', name: 'old' } }));
+  fs.writeFileSync(cs._paths.sentFile(), Buffer.alloc(3));
+  agentPost('ret', { topic: 'x', body: 'y' });
+  assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' });
+  assert.deepEqual([...fs.readFileSync(cs._paths.sentFile())], [0, 0, 0], 'reset behind a retired account\'s sent posts');
+});
+
 test('#5431: a torn keys.json is never reset, whatever else holds', async () => {
   fresh();
   await on();
@@ -676,6 +689,21 @@ test('#5431: a torn keys.json is never reset, whatever else holds', async () => 
   assert.equal(posts().length, before);
   assert.deepEqual([...fs.readFileSync(file)], [0, 0, 0], 'keys.json was reset: every agent would get a second public name');
   assert.deepEqual([...fs.readFileSync(cs._paths.sentFile())], [0, 0, 0], 'sent.json was reset while keys.json could not be read');
+});
+
+test('#5431: a save that fails at the flush leaves no temp file behind', async () => {
+  fresh();
+  await on();
+  agentPost('tmq', { topic: 't', body: 'u' });
+  const realSync = fs.fsyncSync;
+  let failed = 0;
+  fs.fsyncSync = (fd) => { if (!failed) { failed += 1; const e = new Error('EIO: i/o error, fsync'); e.code = 'EIO'; throw e; } return realSync(fd); };
+  try { await cs.sweep(); } finally { fs.fsyncSync = realSync; }
+  assert.equal(failed, 1, 'control: a flush failed');
+  const tmps = [];
+  const walk = (d) => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); if (fs.statSync(p).isDirectory()) walk(p); else if (n.endsWith('.tmp')) tmps.push(p); } };
+  walk(path.dirname(cs._paths.stateFile()));
+  assert.deepEqual(tmps, [], 'a failed save left its temp file');
 });
 
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {
