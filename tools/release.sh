@@ -1600,7 +1600,8 @@ _vdep_rc=0
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote: only this cut's upload can serve it (an
-  # earlier attempt at $V passes a pointer check, never this; the bundle embeds build timestamps). That
+  # earlier attempt at $V passes a pointer check, never this; no two bundles share bytes, see
+  # site_deploy_serves_this_build). That
   # is the same position as a CLI success, so DEPLOYED=1 follows and step 9 verifies everything a user
   # receives, with its own retries, exactly as it does after a CLI success. Asked up to
   # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s, about 6 min;

@@ -38,15 +38,15 @@ export COUNT="$T/c3" PASS_ON=1
 out="$(site_deploy_landed 4 0 "$T/verify")"; rc=$?
 [ "$rc" = 0 ] && [ "$(calls)" = 1 ] && [ -z "$out" ] && ok "served at once: one call, no waiting line" || bad "at once: rc=$rc calls=$(calls) out=$out"
 
-for bad_tries in 0 00 "" x3; do
-  site_deploy_landed "$bad_tries" 0 true 2>/dev/null && bad "tries '$bad_tries' was accepted" || ok "tries '$bad_tries' is refused (not a positive whole number; BSD seq would count 0 down to 1 and run the check twice)"
+for bad_tries in 0 00 "" x3 12345; do
+  site_deploy_landed "$bad_tries" 0 true 2>/dev/null && bad "tries '$bad_tries' was accepted" || ok "tries '$bad_tries' is refused (not a whole number from 1 to 9999; 0 would make BSD seq count down and run the check twice)"
 done
 
 # ---- site_deploy_serves_this_build ----------------------------------------------------
 printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/mine.sha256"
 # The stub records the URL it was asked for (its last argument), so a wrong host, a lost /dist/ or a wrong
 # name fails here instead of passing against a stub that ignores its arguments.
-curl() { local a; for a in "$@"; do :; done; printf '%s\n' "$a" >> "$T/curl.urls"; [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
+curl() { local a; for a in "$@"; do :; done; printf '%s\n' "${a%%\?*}" >> "$T/curl.urls"; printf '%s\n' "$*" >> "$T/curl.args"; [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
 printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/served.sha256"
 site_deploy_serves_this_build https://h "$T/mine.sha256" kosmos-9.9.9-arm64.tar.gz && ok "the served .sha256 equals this cut's: this build" || bad "same sha not recognised"
 printf 'bbb222  kosmos-9.9.9-arm64.tar.gz\n' > "$T/served.sha256"
@@ -54,6 +54,7 @@ site_deploy_serves_this_build https://h "$T/mine.sha256" kosmos-9.9.9-arm64.tar.
 rm -f "$T/served.sha256"
 site_deploy_serves_this_build https://h "$T/mine.sha256" kosmos-9.9.9-arm64.tar.gz && bad "an unreadable served .sha256 passed" || ok "nothing served: not this build"
 site_deploy_serves_this_build https://h "$T/missing.sha256" kosmos-9.9.9-arm64.tar.gz && bad "a missing local .sha256 passed" || ok "no local .sha256: not this build (never a blank-equals-blank pass)"
+grep -q -- '-f' "$T/curl.args" && grep -q -- '-m 30' "$T/curl.args" && grep -q '?landed=' "$T/curl.args" && ok "it fails on an HTTP error (-f), times out (-m 30) and busts the edge cache (?landed=)" || bad "curl args: $(sort -u "$T/curl.args")"
 [ "$(sort -u "$T/curl.urls")" = "https://h/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "it fetches <host>/dist/<name>.sha256 and nothing else" || bad "fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ')"
 
 # ---- release.sh's real step-8 block ---------------------------------------------------
@@ -76,7 +77,7 @@ run_step8() {
     export COUNT="$T/step8count" PASS_ON=1; rm -f "$COUNT" "$T/curl.urls" "$T/vercel.called"
     if [ "$2" = none ]; then rm -f "$T/served.sha256"; else printf '%s  kosmos-9.9.9-arm64.tar.gz\n' "$2" > "$T/served.sha256"; fi
     LATE="${3:-0}"
-    curl() { local a n; for a in "$@"; do :; done; printf '%s\n' "$a" >> "$T/curl.urls"; n=$(wc -l < "$T/curl.urls")
+    curl() { local a n; for a in "$@"; do :; done; printf '%s\n' "${a%%\?*}" >> "$T/curl.urls"; n=$(wc -l < "$T/curl.urls")
              [ "$n" -gt "$LATE" ] && [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
     VERCEL_RC="$1"; vercel() { : > "$T/vercel.called"; return "$VERCEL_RC"; }
     REPO="$FR"; SITE="$T/site"; V=9.9.9; POINTER_FILE=latest-staging.json; SETUP_FILE=setup-staging
