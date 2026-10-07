@@ -124,6 +124,30 @@ function readIndex() {
   return out;
 }
 
+/* #4491 (post-rebase review): the board reads the file for the caller, so a copy of one of the board's own credentials
+   would hand it to an agent whose shell is denied reading it. Refused by name (board.token and its temp names), by
+   place (the sender tokens folder), and by identity on disk (the same device and inode as a credential file, which
+   catches a hard link under another name), whether or not the file exists yet. Fails closed: a check that cannot
+   run refuses. */
+function isCredential(abs, st) {
+  try {
+    if (/^\.?board\.token(\..*)?$/.test(path.basename(abs))) return true;
+    const cred = require('./setup-assistant').boardCredentialPaths();
+    let real = abs;
+    try { real = fs.realpathSync(path.dirname(abs)) + path.sep + path.basename(abs); } catch { /* the path as given */ }
+    for (const d of cred.dirs) {
+      let dr = d;
+      try { dr = fs.realpathSync(d); } catch { /* as given */ }
+      if (real === dr || real.startsWith(dr + path.sep) || abs.startsWith(d + path.sep)) return true;
+    }
+    for (const f of cred.files) {
+      if (abs === f || real === f) return true;
+      if (st) { try { const c = fs.statSync(f); if (c.dev === st.dev && c.ino === st.ino) return true; } catch { /* that one is absent */ } }
+    }
+    return false;
+  } catch { return true; }
+}
+
 /**
  * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }. A missing file is
  * recorded as not existing (an undo then moves the created file aside). Not kept: switch off, a path that is not
@@ -150,6 +174,7 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
     let st = null;
     try { st = fs.lstatSync(abs); } catch (err) { if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' }; }
     if (st && st.isSymbolicLink()) return { kept: false, because: 'link' };
+    if (isCredential(abs, st)) return { kept: false, because: 'credential' };
     if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
     if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
     let dirReal = '';
@@ -352,4 +377,5 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   return { done, skipped, savedIn: done.length ? savedIn : null };
 }
 
-module.exports = { read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+module.exports = {
+  isCredential, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };

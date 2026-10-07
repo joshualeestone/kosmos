@@ -343,3 +343,14 @@ test('re-review (Kitty): the worlds registry is write-denied, and a world added 
     assert.ok(st.permissions.deny.includes(`${verb}(${wd}/*/${store.APP}/${TOKEN_FILE})`), verb + ': a world made after the guard is uncovered');
   }
 });
+
+test('#4491 post-rebase review: the undo copy store is read-denied in both layers (a copy there must stay unreadable)', () => {
+  const dir = agentDir('pilot-undo');
+  setup.guardTokenOnlyFolder(dir, 'pilot-undo', DEPS);
+  const s = readSettings(dir);
+  for (const leaf of ['undo', 'undo-saved']) {
+    const d = path.join(store.ROOT, leaf);
+    assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(d)}/**)`), leaf + ' is not Read-denied: ' + JSON.stringify(s.permissions.deny));
+    assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(d)), leaf + ' is not in the sandbox denyRead');
+  }
+});
