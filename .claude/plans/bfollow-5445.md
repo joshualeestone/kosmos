@@ -71,6 +71,8 @@ The lane run of this branch is compared, file by file, with the lane run of B's 
 - The Linux switched-off and masked sentences name systemctl commands. Decided against the board's no-terminal-words
   rule for this one case: a Linux user unit has no settings screen to point at (the Mac sentence names System
   Settings), and a sentence that says "switch it back on there" with nowhere to go is the worse failure.
+- runningJobs on Linux lists units in the active state only: one restarting (activating) between tries reads as not
+  running, as a launchd job with no pid does on the Mac (launchctl list shows "-"; the Mac arm skips it too).
 - An unreadable linger record keeps the default self-starts sentence: unknown is not evidence for the weaker claim.
 - The board's offline row on Linux: switched off says systemd (not System Settings), a masked agent says masked with
   the unmask command, and the self-starts clause uses selfStartsSentence. lingerFileOn reads only a proven absence as

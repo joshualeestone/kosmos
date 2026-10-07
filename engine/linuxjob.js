@@ -159,12 +159,15 @@ function masked(name, worldId) {
   if (!st.isSymbolicLink()) return false;
   try { return fs.readlinkSync(unitPath(name, worldId)) === '/dev/null'; } catch { return false; }
 }
-function maskedSentence(name, worldId) {
-  /* Quoted: a named Kosmos's unit name carries a \x2b escape, which an unquoted shell word loses (review 2). Unmasking
-     removes the link and leaves no unit file, so the agent is set up again afterwards (review 2). */
-  // "it is masked", not "you masked it": a package or an administrator can mask a unit too (review 6).
-  return `it is masked in systemd, so it does not start. To undo that, run systemctl --user unmask '${unitName(name, worldId)}', then set the agent up again in Kosmos, because unmasking leaves it with no unit to start`;
+/* Two pieces, so each caller places them in its own sentence (review 8): the FACT continues "... because", the REMEDY
+   is a sentence of its own. "it is masked", not "you masked it": a package or an administrator can mask a unit too
+   (review 6). Quoted: a named Kosmos's unit name carries a \x2b escape, which an unquoted shell word loses (review 2).
+   Unmasking removes the link and leaves no unit file, so the agent is set up again afterwards (review 2). */
+function maskedFact() { return 'it is masked in systemd, so it does not start'; }
+function maskedRemedy(name, worldId) {
+  return `To undo that, run systemctl --user unmask '${unitName(name, worldId)}' and then set the agent up again in Kosmos (unmasking leaves it with no unit to start).`;
 }
+function maskedSentence(name, worldId) { return `${maskedFact()}. ${maskedRemedy(name, worldId)}`; }
 
 function unitPath(name, worldId) {
   return path.join(systemdDir(), unitName(name, worldId));
@@ -542,6 +545,8 @@ module.exports = {
   keyFromUnitName,
   masked,
   maskedSentence,
+  maskedFact,
+  maskedRemedy,
   stoppedOrNotLoaded,
   unitSafe,
   escapeUnitNamePart,
