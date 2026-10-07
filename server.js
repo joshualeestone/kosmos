@@ -15875,11 +15875,6 @@ const server = http.createServer(async (req, res) => {
      one preference, GET to learn it, PUT to set it, and the READ is echoed
      back after a write rather than the request body -- so the screen paints
      what is stored, never what was asked for. */
-  // --- what changed under a running board (#541) ---------------------------
-  /* The seen-version record: one tiny file, so dismissed stays dismissed
-     across restarts and browsers. First sight of a machine records the
-     current version silently; the line only ever describes a CHANGE. Since #4928 it also holds which
-     highlights were dismissed (highlightsFor), so the same words are not opened twice. */
   /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
      (engine/restartnote.js says when one is made). Read once by the page; dismissed by the person. */
   if (pathname === '/api/board/restart-note' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -15895,6 +15890,11 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { dismissed: true });
     return;
   }
+  // --- what changed under a running board (#541) ---------------------------
+  /* The seen-version record: one tiny file, so dismissed stays dismissed
+     across restarts and browsers. First sight of a machine records the
+     current version silently; the line only ever describes a CHANGE. Since #4928 it also holds which
+     highlights were dismissed (highlightsFor), so the same words are not opened twice. */
   if (pathname === '/api/whats-new' && (req.method === 'GET' || req.method === 'HEAD')) {
     let seen = null;
     // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves

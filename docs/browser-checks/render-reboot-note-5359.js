@@ -46,7 +46,8 @@ const CASES = [
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
     const dismissed = [];
-    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: c.note }) }).catch(() => {}));
+    let served = c.note;   // what the route answers; the repaint arm below changes it
+    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: served }) }).catch(() => {}));
     await pg.route('**/api/board/restart-note/dismiss', (route) => { dismissed.push(route.request().method()); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"dismissed":true}' }).catch(() => {}); });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
@@ -78,6 +79,25 @@ const CASES = [
       say(got.tone !== '' && got.tone === got.label2, c.key + ': neutral tone (--label-2), not amber or red', got.tone + ' vs ' + got.label2);
       await pg.screenshot({ path: path.join(OUT, 'reboot-' + c.key + '.png') }).catch(() => {});
       if (c.key === 'today') {
+        /* Review 2: the ten-minute re-check must not repaint the same note, which would take focus off Dismiss. The
+           control serves a DIFFERENT note and expects a new button, so the first arm can tell a repaint from none. */
+        const same = await pg.evaluate(async () => {
+          const before = document.querySelector('#reboot-slot .ux');
+          before.focus();
+          await rebootNoteCheck();
+          const now = document.querySelector('#reboot-slot .ux');
+          return { kept: now === before, focused: document.activeElement === before };
+        });
+        say(same.kept && same.focused, 'repaint: re-checking the same note keeps its Dismiss button and its focus', JSON.stringify(same));
+        served = { ...c.note, upAt: new Date(Date.parse(c.note.upAt) + 60000).toISOString() };
+        const changed = await pg.evaluate(async () => {
+          const before = document.querySelector('#reboot-slot .ux');
+          await rebootNoteCheck();
+          const now = document.querySelector('#reboot-slot .ux');
+          return { replaced: Boolean(now) && now !== before };
+        });
+        say(changed.replaced, 'repaint (control): a different note is painted again', JSON.stringify(changed));
+        served = c.note;
         await pg.click('#reboot-slot .ux');
         await pg.waitForTimeout(300);
         const after = await pg.evaluate(() => document.getElementById('reboot-slot').innerHTML.trim());

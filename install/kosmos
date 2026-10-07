@@ -1382,9 +1382,6 @@ cmd_stop() {
     # clears it again. `:` truncates/creates the file with nothing in it -- its
     # presence is the whole signal.
     : > "$STOP_MARKER" 2>/dev/null || true
-    # #5359: a deliberate stop is not a restart under a running Kosmos, so the board's last-alive record goes too;
-    # otherwise stopping, restarting the computer and starting Kosmos within minutes would say it came back by itself.
-    _kosmos_clear_board_alive
     # #2956: under launchd supervision the marker is what makes a stop STICK -- a
     # missing marker (unwritable home, full disk) means launchd relaunches the
     # board within ThrottleInterval. Pre-#2956 a failed marker write was harmless,
@@ -1432,6 +1429,11 @@ cmd_stop() {
       exit 1
     fi
     rm -f "$PIDFILE"
+    # #5359: a deliberate stop is not a restart under a running Kosmos, so the board's last-alive record goes too;
+    # otherwise stopping, restarting the computer and starting Kosmos within minutes would say it came back by itself.
+    # Only here, once the board is gone: before the kill its once-a-minute beat could write the record back, and a stop
+    # that failed must not erase the record of a board still running.
+    _kosmos_clear_board_alive
     say "Stopped."
   elif healthy --once; then
     # Answering on the port but not our recorded process: somebody started it

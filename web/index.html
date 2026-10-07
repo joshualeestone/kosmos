@@ -21945,7 +21945,12 @@ function paintRebootNote(note) {
   if (!slot) return;
   const down = note && rebootWhen(note.bootAt);
   const up = note && rebootWhen(note.upAt);
-  if (!down || !up) { slot.innerHTML = ''; return; }
+  if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; return; }
+  /* The ten-minute re-check repaints only a different note: a repaint of the same one would take focus off its
+     Dismiss button and re-announce the status line. */
+  const key = note.bootAt + '|' + note.upAt;
+  if (slot.dataset.shown === key && slot.firstElementChild) return;
+  slot.dataset.shown = key;
   const head = 'This computer restarted ' + down;
   slot.innerHTML = '<div class="utoast reboot">'
     + '<span class="udot" aria-hidden="true"></span>'
@@ -21960,6 +21965,7 @@ function paintRebootNote(note) {
     try { const r = await fetch('/api/board/restart-note/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
     if (!ok) return;
     slot.innerHTML = '';
+    delete slot.dataset.shown;
     const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   });

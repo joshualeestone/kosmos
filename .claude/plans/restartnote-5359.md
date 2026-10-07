@@ -24,3 +24,21 @@
   README row, SITE_COUNTS line; the four wiring guards green.
 - To do: design shots for Mona (light/dark, desktop/phone, with the login notice, phone over Settings tabs), the
   server route test, the challenge loop.
+
+## Review 2 (fixed)
+- `kosmos stop` clears board-alive.json only after the board is confirmed gone (next to removing the pidfile): before
+  the kill a beat could write it back, and a failed stop must not erase a live board's record. Pinned in
+  cli.restartnote-stop-5359.test.js (clear after death; a failed stop keeps it; only that file is removed); moving the
+  clear back before the kill reddens two arms (measured).
+- The claim "a deliberate stop never makes a note" was true only of the Mac `kosmos stop`. Narrowed in
+  engine/restartnote.js: quitting the app, and every stop on Windows, leaves the record, so stop + computer restart +
+  start within the window still makes a note.
+- REJECTED: clearing the record on SIGTERM in the board. An ordinary shutdown SIGTERMs every process, so a Mac would
+  lose the note for every restart, and the two platforms would differ. Weakest premise: that a person who stops Kosmos
+  and restarts within 15 minutes is rare enough that a mistaken note costs less than losing the note on every Mac
+  restart. What would change it: a report of that note being wrong in practice.
+- The ten-minute re-check no longer repaints the same note (it took focus off Dismiss and re-announced the status).
+  Pinned in render-reboot-note-5359.js with a control that serves a different note; removing the guard reddens it.
+- The restart-note routes moved above the what's-new comment block, which they had split from its route.
+- Decided, not missed: the rule takes now minus uptime as the boot time, so a clock corrected after boot can move it
+  and miss or fake a note. Accepted for a courtesy note.

@@ -4,13 +4,17 @@
  * by itself (a field report: a Windows box blue-screened, everything came back in about seven minutes, and the person
  * wanted to see that without asking an agent).
  *
- * The board process has no shutdown hook, so it does not ask how the last run ended; `kosmos stop` removes the
- * last-alive record instead (install/kosmos), so a deliberate stop never makes a note. It asks the computer: the board writes when it was last alive, once a minute, and at the
- * next start compares that with the computer's boot time (os.uptime()). A note is made only when both hold:
+ * It asks the computer, not the last run: the board writes when it was last alive, once a minute, and at the next
+ * start compares that with the computer's boot time (os.uptime()). A note is made only when both hold:
  *   - the board was alive within WINDOW_MS before this boot (it was running when the computer went down), and
  *   - this start is within WINDOW_MS after the boot (it came back with the computer, not long after it).
  * A person who quit Kosmos yesterday and opened it after a restart gets no note: their last-alive time is old.
  * The words say "restarted", true of a crash and of a person's restart alike; nothing here can tell them apart.
+ *
+ * A deliberate stop: on a Mac, `kosmos stop` removes the last-alive record once the board is gone (install/kosmos).
+ * Every other stop (quitting the app, Windows, which has no stop verb) leaves it, so stopping Kosmos, restarting the
+ * computer and starting Kosmos again within the window still makes a note. Clearing on SIGTERM in the board was
+ * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
  *
  * Kept for SHOW_MS or until dismissed. Every read and write is best effort: this is a courtesy, never a gate.
  */
