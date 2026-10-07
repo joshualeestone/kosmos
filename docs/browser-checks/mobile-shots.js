@@ -346,11 +346,26 @@ const SCREENS = [
     // The default board view already shows the .acard agents grid (like the agents-list and
     // allow-card screens, which use .acard with no tab switch), so no openTab here.
     await page.waitForSelector('.acard .acommunity', { state: 'visible', timeout: 12000 });
+    // The shot is viewport-only (no fullPage, see the capture at page.screenshot below), and the
+    // community line sits at the BOTTOM of each card, below the fold at every phone width. The
+    // first 16 shots framed only the top of the screen and never showed the line (Sonya's m4641).
+    // Scroll the first line (the "today" card) to the middle of the viewport so the shot frames it;
+    // the verify below asserts it actually landed in view, so a re-render that reset scroll fails
+    // the shot loudly instead of silently producing a line-less image.
+    await page.$eval('.acard .acommunity', (el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    await page.waitForTimeout(400);
   }, after: async (page) => { await page.unroute('**/api/status').catch(() => {}); },
   verify: async (page) => {
     const texts = await page.$$eval('.acard .acommunity', (els) => els.map((e) => e.textContent.trim()));
     if (!texts.some((t) => t === 'Last community post: today')) throw new Error('community-card-5314: the "today" line did not render: ' + JSON.stringify(texts));
     if (!texts.some((t) => t === 'No community posts yet')) throw new Error('community-card-5314: the "No community posts yet" line did not render: ' + JSON.stringify(texts));
+    // A shot is only useful if the line is in the CAPTURED viewport, not merely in the DOM below the
+    // fold (m4641). Assert the first .acommunity is wholly within the viewport the screenshot took.
+    const seen = await page.$eval('.acard .acommunity', (el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: window.innerHeight, ok: r.top >= 0 && r.bottom <= window.innerHeight };
+    });
+    if (!seen.ok) throw new Error('community-card-5314: the community line is not within the captured viewport (top ' + Math.round(seen.top) + ', bottom ' + Math.round(seen.bottom) + ', viewport height ' + seen.h + '); the shot would not show it');
   } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
