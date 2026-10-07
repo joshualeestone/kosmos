@@ -14,8 +14,9 @@
   generation per clone, review 1; an older copy would fail where the default lib is missing, review 2), else the one
   beside heavy-gate.sh (measured here: the main checkout was at 10-01, before the script existed).
 - Scope: the fallback reaches REPO copies only. The installed copy under ~/.cache sits outside any repo and still exits
-  3 without QUEUED_HEAVY_LIB (pinned by a test); the BUSY hint names a repo copy, which is how an agent on any machine
-  now reaches a working queue.
+  3 without QUEUED_HEAVY_LIB (pinned by a test); the BUSY hint names a repo copy, which reaches a working queue when
+  that repo's main checkout carries a current lib. When it does not (this Mac's is at 10-01, with no lib), the stop
+  message now names that checkout and the pull that fixes it, instead of only the default folder.
 
 ## Rejected
 - Falling back to the worktree the script runs from: several branches' libs would share one queue (#4977 item 1).
@@ -37,4 +38,6 @@ the default folder carries today); the stderr line naming the folder and commit 
   folder and commit; without cut-guard.sh it still exits 3 and runs nothing; with an old lib it exits 3 and names the
   pull; a copy outside any repo (the installed one) still exits 3.
 - tools.heavy-gate-3805.test.js: in a throwaway repo plus a worktree of it, the hint names the main checkout's queue only when
-  that copy carries the #5446-lib-fallback marker, else the worktree's own.
+  that copy carries the #5446-lib-fallback marker AND that checkout has cut-guard.sh, else the worktree's own.
+- tools/test-queued-heavy-4977.sh also: a worktree's copy falls back to its MAIN checkout (not its own tree); a main
+  checkout with no lib at all gets the pull line.

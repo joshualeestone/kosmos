@@ -3,7 +3,7 @@
 # CI runs (it used to live only in ~/.cache, covered by a dry harness run by hand). Seeded from PigeonPete's #4911 dry
 # harness (74 arms). Every run of the wrapper goes through a shim that REFUSES unless KOSMOS_RUN_MARKER_DIR is inside
 # this test's own temp dir: a reviewer's sandbox once lost that variable and three copies waited in the real queue.
-# (The four #5446 arms run a copy in a throwaway git repo or outside any repo instead, with the same two protections set
+# (The six #5446 arms run a copy in a throwaway git repo or outside any repo instead, with the same two protections set
 # by hand, an in-test KOSMOS_RUN_MARKER_DIR and the perl deadline, plus the probe stubs and fake PATH exported above.)
 # Processes this test starts are stopped by exact match on a sleep length unique to this run (never a broad pattern).
 set -u
@@ -219,6 +219,13 @@ ok "#5446: a fallen-back main checkout with an old lib exits 3, names the missin
 mkdir -p $S/fbout && cp "$REAL_QH" $S/fbout/queued-heavy.sh   # a copy outside any repo, as the installed one is
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbout KOSMOS_RUN_MARKER_DIR=$S/mfbx perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbout/queued-heavy.sh "outside" touch $S/fbx-ran 2>&1); rc=$?
 ok "#5446: a copy outside any git repo (the installed one) has no fallback and still exits 3" '[ "$rc" = 3 ] && [ ! -e $S/fbx-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]]'
+GE="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR"
+$GE git -C $S/fbrepo worktree add -q $S/fbwt 2>/dev/null; echo '# a worktree edit: if this lib were used the run would still pass, so the line is what we check' >> $S/fbwt/tools/queued-heavy.sh
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfbw perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbwt/tools/queued-heavy.sh "fallback-wt" touch $S/fbw-ran 2>&1); rc=$?
+ok "#5446: a worktree's copy falls back to its MAIN checkout, not its own tree" '[ "$rc" = 0 ] && [ -e $S/fbw-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at ]] && [[ "$o" != *"/fbwt at"* ]]'
+qh_repo $S/fbnone 0; mkdir -p $S/fbnone/x && cp "$REAL_QH" $S/fbnone/x/queued-heavy.sh
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnone/h KOSMOS_RUN_MARKER_DIR=$S/mfbz perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnone/x/queued-heavy.sh "fallback-none" touch $S/fbz-ran 2>&1); rc=$?
+ok "#5446: a main checkout with no lib at all: exits 3, names that checkout and the pull" '[ "$rc" = 3 ] && [ ! -e $S/fbz-ran ] && [[ "$o" == *"/fbnone has none either"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
@@ -281,7 +288,7 @@ side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-EXPECTED=91   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, four #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms
+EXPECTED=93   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
