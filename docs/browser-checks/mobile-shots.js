@@ -274,6 +274,21 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
+  // #5481: the Mac app's refused mic, which becomes [X   Turn on in Settings] in the mic's place. A stand-in bridge
+  // (the app's message handler) answers the press with the refusal the app sends; nothing reaches System Settings.
+  { name: 'agent-chat-mic-settings', owner: 'Renet Tilley', go: async (page, data) => {
+    await at(page, '?agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => {
+      window.webkit = { messageHandlers: { kosmosVoice: { postMessage() {} } } };
+      document.documentElement.classList.add('has-voice');
+      document.getElementById('d-mic').click();
+      window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true });
+      window.kosmosVoiceEvent({ kind: 'stopped' });
+    });
+    await page.waitForSelector('.voice-pill', { state: 'visible', timeout: 5000 });
+  } },
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
   { name: 'project-room', owner: 'Kano', go: async (page, data) => {

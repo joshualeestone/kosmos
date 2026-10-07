@@ -1447,7 +1447,121 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// A start is waiting on a permission answer: nothing to stop yet, but a hidden window must still cancel it.
     private var pending = false
     private var limit: DispatchWorkItem?
-    init(_ owner: AppDelegate) { self.owner = owner }
+    /// #5481: the page asked to open a privacy pane after a denial; when the app comes back to the front, look again and
+    /// say "allowed" if both permissions are now on, so the page starts listening without another click.
+    private var awaitingAllow = false
+    private var settingsId = ""   // the Settings visit's own id, apart from the listening session's pageId
+    private var settingsAt: Date?   // when the visit was opened (bounds how long it may start the mic by itself)
+    private var settingsPane = ""   // which pane the visit opened
+    private var settingsOpenedAt: Date?   // when Settings was last opened (the once-a-second limit)
+    private var lastRefusal = ""   // the last refusal said to the page; Settings opens only after a denial
+    private var activeObserver: NSObjectProtocol?
+    init(_ owner: AppDelegate) {
+        self.owner = owner
+        super.init()
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.recheckAfterSettings()
+        }
+    }
+    deinit { if let o = activeObserver { NotificationCenter.default.removeObserver(o) } }
+
+    /// #5481: the exact System Settings pane for a denied permission, or nil for anything else (a WHITELIST: the page
+    /// names a pane, never a URL). PURE, so --kosmos-app-voice-selftest drives it.
+    static func settingsURL(pane: String) -> URL? {
+        switch pane {
+        case "speech": return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")
+        case "mic": return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        default: return nil
+        }
+    }
+    /// #5481: restricted (Screen Time or a device profile) is told apart from denied, because the
+    /// Privacy pane cannot undo it and the page must not offer that pane for it. PURE, selftested.
+    static func speechRefusal(_ s: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch s {
+        case .notDetermined: return "speech-unanswered"
+        case .restricted: return "speech-restricted"
+        default: return "speech-denied"   // .denied; .authorized never reaches here (it is not a refusal)
+        }
+    }
+    /// A mic refused while still never asked (the no-prompt case) is not "denied": the Microphone pane lists no app that
+    /// never asked, so a pill there would open a pane with no switch for Kosmos.
+    static func micRefusal(_ s: AVAuthorizationStatus) -> String {
+        switch s {
+        case .restricted: return "mic-restricted"
+        case .notDetermined: return "mic-unanswered"
+        default: return "mic-denied"
+        }
+    }
+    static func statusName(_ s: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch s {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "not-asked"
+        @unknown default: return "unknown"
+        }
+    }
+    static func statusName(_ s: AVAuthorizationStatus) -> String {
+        switch s {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "not-asked"
+        @unknown default: return "unknown"
+        }
+    }
+    /// #5481: ready means a fresh start can only succeed or prompt. Speech is asked FIRST, so after a speech
+    /// refusal the mic has usually never been asked; requiring it "authorized" here would leave the pill up forever (the
+    /// Microphone pane does not list an app that never asked). Not asked is fine: the next start shows its prompt.
+    static func readyToStart(speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus) -> Bool {
+        return speech == .authorized && (mic == .authorized || mic == .notDetermined)
+    }
+    /// #5481: the whole decision on coming back from Settings, PURE so the selftest pins the event and its
+    /// id (the page matches it to the Settings visit by that id, never to the listening session's). With
+    /// speech now on but the mic still refused (both were off; speech is asked first), it names the next pane, so the
+    /// pill does not keep opening the Speech pane.
+    /// `pane` is the pane this visit opened. "Speech on, mic refused" means move on only after a SPEECH visit;
+    /// after a MIC visit it is the state before the switch is flipped, so nothing has changed yet. A restricted mic is
+    /// said as that (the Privacy pane cannot undo it), so the page swaps the pill for the sentence.
+    static func allowedEvent(awaiting: Bool, pane: String, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> [String: String]? {
+        guard awaiting else { return nil }
+        if readyToStart(speech: speech, mic: mic) { return ["kind": "allowed", "id": settingsId] }
+        if speech == .restricted { return ["kind": "refused", "reason": "speech-restricted", "id": settingsId] }
+        if speech == .authorized && mic == .restricted { return ["kind": "refused", "reason": "mic-restricted", "id": settingsId] }
+        if speech == .authorized && mic == .denied && pane == "speech" { return ["kind": "settings-next", "pane": "mic", "id": settingsId] }
+        return nil
+    }
+    /// how long a Settings visit may still start the mic by itself. Not "the first return": the app also
+    /// comes back for a Dock click or a password sheet before the switch is flipped. Not forever: a return hours later,
+    /// the permission turned on some other way, must not start the mic without a press.
+    static let settingsVisitSeconds: TimeInterval = 600
+    /// what one return to the app does with an open visit: the event to send, and whether the visit stays open
+    /// (only while nothing has changed and it is not too old). PURE, selftested.
+    static func visitOnReturn(ageSeconds: TimeInterval, pane: String, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> (event: [String: String]?, keepOpen: Bool) {
+        guard ageSeconds >= 0, ageSeconds <= settingsVisitSeconds else { return (nil, false) }
+        if let event = allowedEvent(awaiting: true, pane: pane, speech: speech, mic: mic, settingsId: settingsId) { return (event, false) }
+        return (nil, true)
+    }
+    /// The cancels that mean the page itself is gone (reloaded or crashed), not merely out of sight. PURE, selftested.
+    static func pageGone(_ why: String) -> Bool { why == "page process ended" || why == "new page loaded" }
+    /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else), and only a
+    /// pane that answers it: after a speech denial either pane (the mic comes next), after a mic denial the mic's. PURE.
+    static func settingsAccepted(lastRefusal: String, pane: String) -> Bool {
+        (lastRefusal == "speech-denied" && (pane == "speech" || pane == "mic")) || (lastRefusal == "mic-denied" && pane == "mic")
+    }
+    /// The page may name a pane, never a URL; it also may not open Settings over and over (more than once a second; a
+    /// clock moved backwards counts as a second gone by, which only ever allows one more open). PURE, selftested.
+    static func settingsOpenAllowed(sinceLast: TimeInterval?) -> Bool { sinceLast.map { $0 < 0 || $0 >= 1 } ?? true }
+    private func recheckAfterSettings() {
+        guard awaitingAllow, let at = settingsAt else { return }
+        let outcome = Self.visitOnReturn(ageSeconds: Date().timeIntervalSince(at), pane: settingsPane, speech: SFSpeechRecognizer.authorizationStatus(),
+                                         mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId)
+        awaitingAllow = outcome.keepOpen
+        // Says on the first real use whether the switch was seen without a relaunch (unmeasured until then).
+        logLine("voice: back from Settings (" + settingsPane + ", \(Int(Date().timeIntervalSince(at))) s): speech " + Self.statusName(SFSpeechRecognizer.authorizationStatus())
+                + ", microphone " + Self.statusName(AVCaptureDevice.authorizationStatus(for: .audio)) + " -> " + (outcome.event?["kind"] ?? (outcome.keepOpen ? "still open" : "closed")))
+        if let event = outcome.event { emit(event) }
+    }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, let owner else { return }
@@ -1457,9 +1571,29 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         switch op {
         case "start":
             pageId = (body["id"] as? String) ?? ""
+            awaitingAllow = false   // a fresh start retires any Settings visit
+            lastRefusal = ""
             start()
         case "stop": stop()
         case "cancel": cancel()
+        case "settings":
+            // #5481: open the exact pane for a denied permission (only the two named panes, never a URL from the page).
+            guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane),
+                  Self.settingsAccepted(lastRefusal: lastRefusal, pane: pane) else { return }
+            // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
+            // holds; only re-opening the pane is limited to once a second (a press inside that second still refreshes the
+            // visit and its 10 minutes, and opens nothing).
+            let visit = String(((body["id"] as? String) ?? "").prefix(64))
+            guard !visit.isEmpty else { return }   // an "allowed" with no id could never be matched by the page
+            settingsId = visit
+            settingsAt = Date()
+            settingsPane = pane   // the pane the page last asked for, which is what it believes this visit is about
+            awaitingAllow = true
+            guard Self.settingsOpenAllowed(sinceLast: settingsOpenedAt.map { Date().timeIntervalSince($0) }) else {
+                logLine("voice: Settings press within a second of the last, not opened again (" + pane + ")"); return
+            }
+            settingsOpenedAt = Date()
+            NSWorkspace.shared.open(url)
         default: return
         }
     }
@@ -1494,9 +1628,15 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             && (info["NSSpeechRecognitionUsageDescription"] as? String)?.isEmpty == false
     }
 
-    private func emit(_ event: [String: Any]) {
+    /// The id an event carries: its own when it names one (a Settings visit's), else the listening session's, read at
+    /// emit time. PURE, selftested.
+    static func stampId(_ event: [String: Any], pageId: String) -> [String: Any] {
         var event = event
-        event["id"] = pageId   // read NOW: a cancel's "stopped" carries the id of the session it ended
+        if event["id"] == nil { event["id"] = pageId }
+        return event
+    }
+    private func emit(_ event: [String: Any]) {
+        let event = Self.stampId(event, pageId: pageId)   // read NOW: a cancel's "stopped" carries the id of the session it ended
         guard let web = webView,
               let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -1505,8 +1645,12 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
     private func refuse(_ reason: String) {
         pending = false
+        lastRefusal = reason
         logLine("voice: not listening (" + reason + ")")
-        emit(["kind": "error", "reason": reason])
+        // #5481: `canOpenSettings` says this app can open the System Settings pane, so the page may offer its pill. A page newer
+        // than a still-running older app (an update replaces the binary, the running process keeps the old code) sees
+        // no `canOpenSettings` and keeps the sentence with the directions instead of a button that does nothing.
+        emit(["kind": "error", "reason": reason, "canOpenSettings": true])   // a capability, on every refusal; the page decides which reasons get the pill
         emit(["kind": "stopped"])
     }
 
@@ -1516,14 +1660,24 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         let mine = session
         pending = true
         guard Self.usageStringsPresent(Bundle.main.infoDictionary) else { refuse("not-set-up"); return }
+        // #5481: the raw answers and how long they took go to the log, so the next refusal says whether a
+        // prompt was ever shown (an answer in a few milliseconds is macOS refusing without asking).
+        let speechBefore = SFSpeechRecognizer.authorizationStatus()
+        let asked = Date()
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
+                logLine("voice: speech permission " + Self.statusName(speechBefore) + " -> " + Self.statusName(status) + " in \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
                 guard mine == self.session else { return }
-                guard status == .authorized else { self.refuse(status == .notDetermined ? "speech-unanswered" : "speech-denied"); return }
+                guard status == .authorized else { self.refuse(Self.speechRefusal(status)); return }
+                let micBefore = AVCaptureDevice.authorizationStatus(for: .audio)
+                let micAsked = Date()
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
                     DispatchQueue.main.async {
+                        let micAfter = AVCaptureDevice.authorizationStatus(for: .audio)
+                        logLine("voice: microphone permission " + Self.statusName(micBefore) + " -> " + Self.statusName(micAfter) + " in \(Int(Date().timeIntervalSince(micAsked) * 1000)) ms")
                         guard mine == self.session else { return }
-                        guard granted else { self.refuse("mic-denied"); return }
+                        // A grant that lands between the answer and the re-read is a grant: never offer a pane already on.
+                        guard granted || micAfter == .authorized else { self.refuse(Self.micRefusal(micAfter)); return }
                         self.begin(mine)
                     }
                 }
@@ -1533,6 +1687,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
     private func begin(_ mine: Int) {
         pending = false
+        lastRefusal = ""   // both allowed now: no denial left for a Settings press to answer
         let preferred = Locale.preferredLanguages + [Locale.current.identifier]
         guard let id = Self.pickLocale(preferred: preferred, onDevice: { SFSpeechRecognizer(locale: Locale(identifier: $0))?.supportsOnDeviceRecognition == true }),
               let recognizer = SFSpeechRecognizer(locale: Locale(identifier: id)), recognizer.isAvailable else {
@@ -1594,6 +1749,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// mode only hides it, so the page gets no pagehide), minimised, or (review 3) the page's process died or a new
     /// page loaded, which would draw the mic as off while it listened. No-op when not listening.
     func hostCancel(_ why: String) {
+        // A new page or a crashed one has seen no refusal: its Settings visit and the denial it answers go with it. A
+        // hidden or minimised window keeps both: its page keeps its pill, and the visit may still come back.
+        if Self.pageGone(why) { awaitingAllow = false; lastRefusal = "" }
         guard pending || engine != nil || request != nil || task != nil else { return }
         logLine("voice: cancelled, " + why)
         cancel()
@@ -6445,7 +6603,39 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(!VoiceBridge.usageStringsPresent(["NSSpeechRecognitionUsageDescription": "y"]), "a missing mic string refuses")
     row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "", "NSSpeechRecognitionUsageDescription": "y"]), "an empty string is missing")
     row(!VoiceBridge.usageStringsPresent(nil), "no Info.plist at all (an unbundled binary) refuses")
-    let expected = 16   // #5311: + Dictation off, + its control
+    // #5481: the Settings button opens exactly the two privacy panes, and nothing else the page could name.
+    row(VoiceBridge.settingsURL(pane: "speech")?.absoluteString == "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition", "#5481: speech opens the Speech Recognition pane")
+    row(VoiceBridge.settingsURL(pane: "mic")?.absoluteString == "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone", "#5481: mic opens the Microphone pane")
+    row(VoiceBridge.settingsURL(pane: "https://example.com") == nil && VoiceBridge.settingsURL(pane: "") == nil, "#5481: anything else opens nothing")
+    row(VoiceBridge.readyToStart(speech: .authorized, mic: .authorized), "#5481: both allowed starts again")
+    row(VoiceBridge.readyToStart(speech: .authorized, mic: .notDetermined), "#5481: speech allowed and the mic never asked starts again (its prompt comes next)")
+    row(!VoiceBridge.readyToStart(speech: .authorized, mic: .denied) && !VoiceBridge.readyToStart(speech: .denied, mic: .authorized) && !VoiceBridge.readyToStart(speech: .notDetermined, mic: .authorized) && !VoiceBridge.readyToStart(speech: .authorized, mic: .restricted), "#5481: either still off does not")
+    row(VoiceBridge.speechRefusal(.restricted) == "speech-restricted" && VoiceBridge.micRefusal(.restricted) == "mic-restricted", "#5481: restricted is said as restricted")
+    row(VoiceBridge.speechRefusal(.denied) == "speech-denied" && VoiceBridge.micRefusal(.denied) == "mic-denied", "#5481 CONTROL: denied stays denied")
+    row(VoiceBridge.speechRefusal(.notDetermined) == "speech-unanswered", "#5481: no answer stays unanswered")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .notDetermined, settingsId: "set7") == ["kind": "allowed", "id": "set7"], "#5481: coming back ready says allowed with the Settings visit's own id")
+    row(VoiceBridge.allowedEvent(awaiting: false, pane: "speech", speech: .authorized, mic: .authorized, settingsId: "set7") == nil, "#5481: no Settings visit, no allowed")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .denied, mic: .authorized, settingsId: "set7") == nil, "#5481 CONTROL: still off says nothing")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .denied, settingsId: "set7") == ["kind": "settings-next", "pane": "mic", "id": "set7"], "#5481: speech now on, the mic still refused: the next pane is the Microphone one")
+    let still = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "speech", speech: .denied, mic: .notDetermined, settingsId: "set7")
+    row(still.event == nil && still.keepOpen, "#5481: back before the switch is flipped (a Dock click) keeps the visit open")
+    let ready = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "speech", speech: .authorized, mic: .notDetermined, settingsId: "set7")
+    row(ready.event == ["kind": "allowed", "id": "set7"] && !ready.keepOpen, "#5481: back ready says allowed and closes the visit")
+    let late = VoiceBridge.visitOnReturn(ageSeconds: VoiceBridge.settingsVisitSeconds + 1, pane: "mic", speech: .authorized, mic: .authorized, settingsId: "set7")
+    row(late.event == nil && !late.keepOpen, "#5481: a return after the visit's time starts nothing, even with both allowed")
+    row(!VoiceBridge.settingsOpenAllowed(sinceLast: 0.2) && VoiceBridge.settingsOpenAllowed(sinceLast: 1.5) && VoiceBridge.settingsOpenAllowed(sinceLast: nil) && VoiceBridge.settingsOpenAllowed(sinceLast: -5), "#5481: Settings opens at most once a second (a clock moved back allows one more)")
+    let micStill = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "mic", speech: .authorized, mic: .denied, settingsId: "set7")
+    row(micStill.event == nil && micStill.keepOpen, "#5481: back from the Microphone pane before the switch is flipped keeps the visit open")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .restricted, settingsId: "set7") == ["kind": "refused", "reason": "mic-restricted", "id": "set7"], "#5481: a restricted mic is said as that, not left on a pill")
+    row(VoiceBridge.stampId(["kind": "allowed", "id": "set7"], pageId: "s3")["id"] as? String == "set7", "#5481: a Settings visit's event keeps its own id")
+    row(VoiceBridge.stampId(["kind": "stopped"], pageId: "s3")["id"] as? String == "s3", "#5481 CONTROL: any other event carries the listening session's id")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481: speech restricted is said as that, not left on a pill")
+    row(VoiceBridge.settingsAccepted(lastRefusal: "speech-denied", pane: "speech") && VoiceBridge.settingsAccepted(lastRefusal: "speech-denied", pane: "mic") && VoiceBridge.settingsAccepted(lastRefusal: "mic-denied", pane: "mic"), "#5481: Settings opens the pane that answers the denial")
+    row(!VoiceBridge.settingsAccepted(lastRefusal: "", pane: "mic") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic", pane: "mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted", pane: "mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-denied", pane: "speech"), "#5481 CONTROL: and after nothing else, nor a pane that does not answer it")
+    row(VoiceBridge.pageGone("page process ended") && VoiceBridge.pageGone("new page loaded"), "#5481: a reloaded or crashed page drops its Settings visit")
+    row(!VoiceBridge.pageGone("window hidden") && !VoiceBridge.pageGone("window minimised"), "#5481 CONTROL: a hidden or minimised window keeps it (its page keeps the pill)")
+    row(VoiceBridge.micRefusal(.notDetermined) == "mic-unanswered", "#5481: a mic refused with no prompt is not offered the Microphone pane")
+    let expected = 43   // #5311: + Dictation off, + its control; #5481: + 27
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")
