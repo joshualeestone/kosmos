@@ -68,6 +68,9 @@ The lane run of this branch is compared, file by file, with the lane run of B's 
 - create.switchedOffSentence words the offline row's switched-off cause (tested per platform); a masked unit is read
   from the disk, so it is said even when systemctl could not be asked. agyrefresh's board-start hook refresh now sees
   running Linux agents (runningJobs was always empty there); it only rewrites hooks for agents it finds running.
+- The Linux switched-off and masked sentences name systemctl commands. Decided against the board's no-terminal-words
+  rule for this one case: a Linux user unit has no settings screen to point at (the Mac sentence names System
+  Settings), and a sentence that says "switch it back on there" with nowhere to go is the worse failure.
 - An unreadable linger record keeps the default self-starts sentence: unknown is not evidence for the weaker claim.
 - The board's offline row on Linux: switched off says systemd (not System Settings), a masked agent says masked with
   the unmask command, and the self-starts clause uses selfStartsSentence. lingerFileOn reads only a proven absence as
