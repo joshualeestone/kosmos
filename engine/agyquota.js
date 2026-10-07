@@ -302,7 +302,7 @@ function sweepOnce(o) {
     /* #5382: the parts owed a line (o.movedAway(session) -> owedFor items), marked told (o.movedTold) once the line may
        have reached the pane. A lookup that throws names nothing, and the failover sweep tells it later. */
     let gone = [];
-    if (typeof o.movedAway === 'function') { try { gone = o.movedAway(d.session) || []; } catch { gone = []; } }
+    if (typeof o.movedAway === 'function') { try { gone = o.movedAway(d.session, o.roster) || []; } catch { gone = []; } }
     try { const r = o.deliver(d.session, nudgeText(gone), o.roster); state = r && r.state; }
     catch (err) { state = 'threw: ' + String((err && err.message) || err); }
     const D = o.DELIVERY || {};

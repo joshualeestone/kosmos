@@ -50,10 +50,16 @@ function anyOwed(records) {
 }
 
 /* The parts `session` is owed a line about (owes), open or finished, each as { projectId, n, partId, who, done, phrase }:
-   "task N in "P" (now B's)" for one still open, "(finished by B)" for one that is done. */
-function owedFor(session, records) {
+   "task N in "P" (now B's)" for one still open, "(finished by B)" for one that is done. B is named as the board shows
+   it (its card's `name` from `roster`), not by its session key (post-merge review 3); the key only when no card has it. */
+function owedFor(session, records, roster) {
   const out = [];
   if (typeof session !== 'string' || !session) return out;
+  const cards = Array.isArray(roster) ? roster : [];
+  const nameOf = (who) => {
+    const card = cards.find((c) => c && c.sessionName === who);
+    return String((card && typeof card.name === 'string' && card.name.trim()) || who).replace(/[\r\n"]/g, ' ');
+  };
   for (const p of Array.isArray(records) ? records : []) {
     for (const t of Array.isArray(p && p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
@@ -63,7 +69,7 @@ function owedFor(session, records) {
         const done = Boolean(x.closedAt || prog.closed);
         const where = String(p.name || p.id).replace(/[\r\n"]/g, ' ');
         // Review 12: "finished by B" only when the PART was finished; a task closed as a whole may not have been B's doing.
-        const state = x.closedAt ? 'finished by ' + x.who : prog.closed ? 'closed' : 'now ' + x.who + '\'s';
+        const state = x.closedAt ? 'finished by ' + nameOf(x.who) : prog.closed ? 'closed' : 'now ' + nameOf(x.who) + '\'s';
         out.push({ projectId: p.id, n: t.number, partId: x.id, who: x.who, done, phrase: 'task ' + t.number + ' in "' + where + '" (' + state + ')' });
       }
     }
@@ -123,7 +129,7 @@ function sweepOnce(o) {
       let skip = false;
       if (typeof o.skip === 'function') { try { skip = o.skip(card) === true; } catch { skip = true; } }
       if (skip) continue;
-      const items = owedFor(card.sessionName, o.records);
+      const items = owedFor(card.sessionName, o.records, roster);
       if (!items.length) continue;
       let v = null;
       try { v = o.deliver(card.sessionName, lineFor(items), roster); } catch { v = null; }

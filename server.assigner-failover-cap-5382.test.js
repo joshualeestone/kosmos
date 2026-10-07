@@ -127,3 +127,14 @@ test('#5382: a task marked built while an unreached failover was in flight stays
     assert.equal(q.CAP_STARTS.has('fcr7'), false);
   } finally { chat.deliver = real; s.board.restore(); }
 });
+
+test('#5382: a give whose write throws frees the cap slot it took (post-merge review 3; the same on main)', () => {
+  const s = setup('fch8', 'fcr8');
+  const real = tasks.assignPart;
+  try {
+    const roster = [{ sessionName: 'fch8', name: 'fch8', runner: 'claude', state: 'rate_limited' }, agy('fcr8', 'idle')];
+    tasks.assignPart = (pid, n, part, who, made) => { if (who === 'fcr8' && made && made.failover === true) throw new Error('disk'); return real(pid, n, part, who, made); };
+    assert.throws(() => givePart(s.pid, s.n, 1, 'fcr8', { assigner: true, roster, from: 'fch8' }), /disk/);
+    assert.equal(q.CAP_STARTS.has('fcr8'), false, 'the slot is still held after the write threw');
+  } finally { tasks.assignPart = real; s.board.restore(); }
+});

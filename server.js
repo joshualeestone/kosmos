@@ -491,7 +491,9 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
   const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
     : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
-  const out = tasks.assignPart(projectId, n, partId, who, made);
+  let out;
+  try { out = tasks.assignPart(projectId, n, partId, who, made); }
+  catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
   if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
   if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
@@ -503,7 +505,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     /* #5382: a failover move says where the part came from, so the new agent looks before starting over (review 6). */
     // Review 15: the source by the name the person sees, not its session key.
     const fromCard = failoverFrom && Array.isArray(r) ? r.find((c) => c && c.sessionName === failoverFrom) : null;
-    const fromName = (fromCard && fromCard.name) || failoverFrom;   // a card's `name` is the one the page shows
+    const fromName = String((fromCard && fromCard.name) || failoverFrom).replace(/[\r\n"]/g, ' ');   // the name the page shows, one line
     const note = failoverFrom ? 'It was moved to you from ' + fromName + ', which hit its provider\'s usage limit and may'
       + ' already have started it: read the task\'s room and ' + fromName + '\'s work on it before you begin.' : '';
     try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note); }
@@ -20651,7 +20653,7 @@ function start(port = PORT) {
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         // #5382 (review 8): the parts the failover gave away that this agent was not yet told about, marked once told.
-        movedAway: (session) => require('./engine/failovertell').owedFor(session, projects.readAll()),
+        movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
         movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),

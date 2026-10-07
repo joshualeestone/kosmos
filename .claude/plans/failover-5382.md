@@ -176,3 +176,12 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   assignPart (refuses that move on a built task, so the take-back falls through to nobody, which keeps the mark);
   pinned, mutation red. Left as decided: heardBy throwing after the failover write leaves the part on the receiver,
   as an ordinary give does (the catch is defensive; heardBy turns failures into verdicts today).
+- Post-merge review 3: (1) the told line and the Gemini carry-on line named the agent now holding the part by its
+  session key; owedFor now takes the roster and names it as the board shows it (key only with no card; quotes and line
+  breaks scrubbed); both callers pass their roster. (2) review 15's fromName fix was unguarded (the fleet fixture's name
+  equals its key): the test now gives the source card a different name and asserts the key never appears. (3) the cap
+  slot leaked when the give's own write threw (also on main): released in a catch. Each pinned, each mutation red.
+  Left as decided: the take-back to nobody leaves the source in owedTell, so it is told later only if the part is given
+  to somebody (a built task is already done); a non-boolean `failover` beside a valid `on` is ignored, as the route
+  ignores any unknown field; a restored limit start can make a new limit ripe at once after a restart (bounded by the
+  dated-reset requirement).

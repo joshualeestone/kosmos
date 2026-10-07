@@ -106,11 +106,14 @@ function capturing(fn) {
 test('a failover move tells the receiver where the part came from; an ordinary give does not', () => {
   const s = setup('fohold5', 'forecv5');
   try {
-    const f = capturing(() => givePart(s.pid, s.n, 1, 'forecv5', { assigner: true, roster: s.board.agents, from: 'fohold5' }));
+    // Post-merge review 3: the card's name differs from its session key, so the line can only pass by naming the card.
+    const named = s.board.agents.map((c) => (c.sessionName === 'fohold5' ? { ...c, name: 'Holder Five' } : c));
+    const f = capturing(() => givePart(s.pid, s.n, 1, 'forecv5', { assigner: true, roster: named, from: 'fohold5' }));
     assert.equal(f.out.ok, true, 'fixture: the move was refused: ' + f.out.because);
     assert.equal(f.lines.length, 1, 'fixture: the receiver was not paged exactly once');
     assert.equal(f.lines[0].who, 'forecv5');
-    assert.ok(f.lines[0].line.includes('It was moved to you from fohold5'), f.lines[0].line);
+    assert.ok(f.lines[0].line.includes('It was moved to you from Holder Five'), f.lines[0].line);
+    assert.equal(f.lines[0].line.includes('fohold5'), false, 'the line names the session key: ' + f.lines[0].line);
     // Control: an ordinary Assigner give (no `from`) of a free part on another task of the same project.
     const t2 = tasks.create(s.pid, { sentence: 'write the changelog', made: { via: 'screen' } });
     const n2 = t2.task ? t2.task.number : t2.number;
@@ -143,6 +146,6 @@ test('review 8: readRunner is failoverRunnerOf (null when nothing recorded); the
   assert.match(after, /isIdle: \(c\) => c\.state === 'idle'/, 'the sweep no longer types only into idle cards');
   assert.match(after, /if \(!owed\) FAILOVER_TELL_SEEN\.clear\(\);/, 'the idle memory outlives a quiet spell');
   assert.match(after, /markTold: tasks\.markMoveTold/);
-  assert.match(SRC, /movedAway: \(session\) => require\('\.\/engine\/failovertell'\)\.owedFor\(session, projects\.readAll\(\)\)/);
+  assert.match(SRC, /movedAway: \(session, roster\) => require\('\.\/engine\/failovertell'\)\.owedFor\(session, projects\.readAll\(\), roster\)/);
   assert.match(SRC, /movedTold: \(session, items\) => require\('\.\/engine\/failovertell'\)\.markAll\(session, items, tasks\.markMoveTold\)/);
 });

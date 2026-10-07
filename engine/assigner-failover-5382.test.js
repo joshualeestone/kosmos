@@ -521,6 +521,16 @@ test('review 8: the defensive arms, on hand-built input: a held verdict never co
 const rec9 = (over = {}, part = {}) => [{ id: 'p1', name: 'P', agents: ['ann', 'bob'], ...over,
   tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'bob', owedTell: ['ann'], ...part }] }] }];
 
+test('post-merge review 3: owedFor names the agent holding it as the board shows it, not by its session key', () => {
+  const roster = [{ sessionName: 'bob', name: 'Bob Display' }];
+  assert.match(ft.owedFor('ann', rec9(), roster)[0].phrase, /\(now Bob Display's\)$/);
+  assert.match(ft.owedFor('ann', rec9({}, { closedAt: '2026-10-06T00:00:00.000Z' }), roster)[0].phrase, /\(finished by Bob Display\)$/);
+  // Control: with no card for it, the session key is all there is.
+  assert.match(ft.owedFor('ann', rec9())[0].phrase, /\(now bob's\)$/);
+  // A name with a quote or a line break stays on one line inside the quoted phrase.
+  assert.match(ft.owedFor('ann', rec9(), [{ sessionName: 'bob', name: 'Bo"b\nX' }])[0].phrase, /\(now Bo b X's\)$/);
+});
+
 test('review 9: owedFor says "given to another agent" only when somebody holds it, in a live project the agent is still on and not switched off in', () => {
   assert.equal(ft.owedFor('ann', rec9()).length, 1, 'control: owed');
   assert.deepEqual(ft.owedFor('ann', rec9({}, { who: null })), [], 'told a part nobody holds was given to another agent');
