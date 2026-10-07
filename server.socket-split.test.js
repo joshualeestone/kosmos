@@ -106,7 +106,7 @@ function boardWithUnseenAgent(launchctlListStdout) {
 /* #5432: on a Linux host an agent's job is a systemd user unit, so the launchd fixture below finds no agent there.
    Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
 const LINUX_LAUNCHD = process.platform === 'linux'
-  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'it fakes the running job through a launchd plist and launchctl list; a Linux board finds agents from systemd units: linux-parity-5445.test.js (runningJobs reads the active units). The pill itself is drawn the same on every platform and stays covered on macOS and Windows' }
+  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'the test finds its agent from a macOS plist (and answers launchctl). What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it.' }
   : {};
 
 test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', LINUX_LAUNCHD, () => {

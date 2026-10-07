@@ -98,7 +98,7 @@ function boardWithStoppedAgent({ job, named = true }) {
 /* #5432: on a Linux host an agent's job is a systemd user unit, so the launchd fixture below finds no agent there.
    Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
 const LINUX_LAUNCHD = process.platform === 'linux'
-  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'its agent is found from a launchd plist; a Linux board finds agents from systemd units: linux-parity-5445.test.js (the self-starts sentence on Linux, linger on and off). The sentence is built the same on every platform and stays covered on macOS and Windows' }
+  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'the test finds its agent from a macOS plist (and answers launchctl). What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it.' }
   : {};
 
 test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', LINUX_LAUNCHD, () => {
