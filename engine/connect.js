@@ -204,7 +204,9 @@ function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
   /* #5419: the sign-in driver asks on every tick (700 ms), so the real pick (default env and runnable check) is held
      for 30 s, keyed on the launcher's value, rather than walking PATH every tick. */
   const real = env === process.env && !runnable;
-  if (real && linuxTmuxMemo && linuxTmuxMemo.key === (env.AGENT_WORKFORCE_TMUX_BIN || '') && Date.now() - linuxTmuxMemo.at < 30000) return linuxTmuxMemo.val;
+  // A held pick is re-checked on every hit (one stat), so a tmux removed within the 30 s is not handed back.
+  if (real && linuxTmuxMemo && linuxTmuxMemo.key === (env.AGENT_WORKFORCE_TMUX_BIN || '') && Date.now() - linuxTmuxMemo.at < 30000
+    && require('./runners').isRunnable(linuxTmuxMemo.val)) return linuxTmuxMemo.val;
   const val = require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
   // A found tmux only: the bare fallback is not held, so a tmux installed after a refusal is found on the next try.
   if (real && val !== 'tmux') linuxTmuxMemo = { key: env.AGENT_WORKFORCE_TMUX_BIN || '', val, at: Date.now() };
@@ -1103,7 +1105,7 @@ function detectMusl({ platform, report, exists }) {
   const muslLoader = () => ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
   if (r && r.header && r.header.glibcVersionRuntime) return false;
   // no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
-  // can omit the field); without either, glibc, the common case. Review 4: a wrong guess is NOT caught by the checksum,
+  // can omit the field); without either, glibc, the common case. A wrong guess is NOT caught by the checksum,
   // which proves the file is intact, not that it fits this machine: it surfaces as a failed `claude install`. Only the
   // x86_64 and aarch64 loaders are looked for because those are the only two arches Anthropic builds for Linux.
   return muslLoader();
@@ -3635,7 +3637,7 @@ function resetForTests() {
 module.exports = {
   setMuslDetectForTests,
   detectMusl,   // #5419: pure, so each branch is tested
-  readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, setTmuxCheckForTests,   // #5419 reviews 2, 5, 6: tested directly
+  readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, setTmuxCheckForTests,   // #5419: tested directly
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,

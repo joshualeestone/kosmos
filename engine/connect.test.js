@@ -3103,3 +3103,23 @@ driverTest('#5419: with no Claude and no tmux on Linux, the headline is the tmux
   assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/, 'the cause is not in the headline: ' + connect.state().because);
   assert.equal(requests, 0, 'the download service was asked before the tmux check');
 });
+
+test('#5419: a held tmux pick that has since gone away is not handed back', () => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const origPick = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let present = true;
+  create.linuxTmuxBin = () => (present ? '/opt/held/tmux' : null);
+  runners.isRunnable = (f) => (f === '/opt/held/tmux' ? present : origRunnable(f));
+  try {
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-d';
+    assert.equal(connect.tmuxBinPath('linux'), '/opt/held/tmux', 'CONTROL: found and held');
+    present = false;   // tmux removed within 30 s
+    assert.equal(connect.tmuxBinPath('linux'), 'tmux', 'a tmux that is gone was handed back from the cache');
+  } finally {
+    create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});
