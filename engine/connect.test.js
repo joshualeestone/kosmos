@@ -3027,10 +3027,14 @@ test('#5419: download refuses a Linux host with no tmux before any request is ma
 
 test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new launcher value is asked again', () => {
   const create = require('./create');
+  const runners = require('./runners');
   const orig = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
   const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
   let asked = 0;
   create.linuxTmuxBin = () => { asked += 1; return '/usr/bin/tmux'; };
+  // a held pick is re-checked on every hit, so the stubbed path must read as runnable on this machine too
+  runners.isRunnable = (f) => (f === '/usr/bin/tmux' ? true : origRunnable(f));
   try {
     process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-a';   // not runnable, so the picker is asked
     connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux');
@@ -3040,6 +3044,7 @@ test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new l
     assert.equal(asked, 2, 'a changed launcher value reused the old answer');
   } finally {
     create.linuxTmuxBin = orig;
+    runners.isRunnable = origRunnable;
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
 });
