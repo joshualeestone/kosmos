@@ -36,6 +36,7 @@ const os = require('node:os');
 const path = require('node:path');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
+const securewrite = require('./securewrite');
 
 const STATE = subscription.STATE;
 const PROVIDER = 'google';
@@ -257,9 +258,10 @@ function storeKey(dir, key) {
   fs.mkdirSync(d, { recursive: true });
   const file = keyFile(d);
   const tmp = file + '.tmp';
+  // A stale <keyfile>.tmp from an older version's crash can hold a raw key; writeSecret uses its own temp.
   try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-  fs.writeFileSync(tmp, String(key || '').trim(), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  // #5434: through the shared writer, so the key is flushed to disk before the rename makes it the file.
+  securewrite.writeSecret(file, String(key || '').trim(), 0o600);
   try { fs.chmodSync(file, 0o600); } catch { /* best effort */ }
 }
 
