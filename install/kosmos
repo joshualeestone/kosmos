@@ -2607,6 +2607,38 @@ cmd_connections() {
     });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
 }
 
+# ---- kosmos accounts      (#5359)
+# Which providers' accounts this board has, and whether each is signed in, from GET /api/accounts (most accounts
+# checked live, some from Kosmos's own record), so an agent no longer hand-rolls that authenticated read. The route
+# checks most accounts when asked, so it is for a moment that needs the answer, never a loop. Board token, as
+# connections.
+cmd_accounts() {
+  if ! healthy; then
+    say_not_up "it cannot say which accounts are set up"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0 code
+  body=$(kosmos_curl "$_bt" "" -sS -m 60 -w $'\n%{http_code}' "$URL/api/accounts" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then say_unreached "read which accounts are set up" "$rc"; exit 1; fi
+  code="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  # The words live once, in engine/accountline.js, which the Windows CLI's verbAccounts calls too (#5359).
+  local prc=0
+  printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" KOSMOS_ACCT_INDENT="${KOSMOS_SAY_INDENT:-  }" "$_node" -e '
+    let answer; try { ({ answer } = require(process.argv[1])); } catch { process.exit(4); }   // a partial install: no stack trace, no path
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j = null; try { j = JSON.parse(s); } catch { j = null; }
+      const r = answer(Number(process.env.KOSMOS_HTTP_CODE), j);
+      if (r.fail) { console.log((process.env.KOSMOS_ACCT_INDENT || "") + r.fail); process.exit(3); }   // the indent say() would use
+      for (const l of r.lines) console.log(l);
+    });' "$(kosmos_engine_module accountline).js" || prc=$?
+  if [ "$prc" -eq 3 ]; then exit 1; fi
+  if [ "$prc" -eq 4 ]; then say "Kosmos could not find its own reader for the board's accounts; this install looks incomplete."; exit 1; fi
+  if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
+}
+
 # ---- kosmos connect <service>  (#4451), the token on STDIN
 # Connect a service THROUGH ITS KOSMOS DOOR, so its row in Settings > Connections shows it. The
 # token is read from stdin, never an argument (an argument is visible to every process on the
@@ -3837,9 +3869,10 @@ kosmos_command_list() {
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
+  printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (agents, msg, post, reply, inbox, react, report, room,\n'
-  printf '  feedback, community, task, project, agent and connect show their usage).\n'
+  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, inbox, react, report,\n'
+  printf '  room, feedback, community, task, project, agent and connect show their usage).\n'
 }
 
 # kosmos#1674: -h / --help must never SEND.
@@ -3884,6 +3917,10 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    accounts)
+      # #5359: not with the read-only group below. Run bare it checks every account live, which --help must not do.
+      printf 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)\n'
+      exit 0 ;;
     agents)
       # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
       printf 'Usage: kosmos agents   (list the agent sessions running on this computer, as Kosmos'"'"'s own tmux sees them)\n'
@@ -4903,6 +4940,7 @@ case "${1:-}" in
   whoami)  shift; cmd_whoami "$@" ;;
   inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
+  accounts) cmd_accounts ;;
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;

@@ -147,6 +147,7 @@ const USAGE = {
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
 
@@ -1622,6 +1623,21 @@ async function verbConnections(ctx) {
   return 0;
 }
 
+/* #5359, as install/kosmos cmd_accounts: which providers' accounts this board has and whether each is signed in, from
+   GET /api/accounts (most accounts checked live, so a moment that needs it, never a loop). Board token, as connections. */
+const ACCOUNTS_TIMEOUT_MS = 60000;
+/* The words live once, in engine/accountline.js, which install/kosmos cmd_accounts calls too (#5359). */
+async function verbAccounts(ctx) {
+  const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
+  if (!r.reached) return ctx.unreachable('read which accounts are set up');
+  // No token hint (#5333) here: this verb sends the board token only, never an agent's, so it cannot be about one.
+  let got;
+  try { got = ctx.engine('accountline').answer(r.status, r.json); } catch { got = { fail: 'Kosmos gave an answer we could not read about its accounts.' }; }
+  if (got.fail) { ctx.err(got.fail); return 1; }
+  for (const l of got.lines) ctx.out(l);
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -1694,6 +1710,7 @@ const VERB_HANDLERS = {
   feedback: subcommandRequired('feedback'),
   community: async (ctx) => { ctx.err(USAGE.community); return 2; },
   connections: verbConnections,
+  accounts: verbAccounts,
   connect: verbConnect,
 };
 const SUBCOMMAND_HANDLERS = {
@@ -1735,6 +1752,7 @@ const DESCRIBE = {
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
+  accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
 };
 const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');
