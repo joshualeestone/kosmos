@@ -95,6 +95,19 @@ const SIZES = {
 };
 /* --remote's address (kosmos#5510): .test is reserved and never resolves, so a slip can only fail, never reach a real host. */
 const REMOTE_BASE = 'http://kosmos-shots.kosmosplus.test';
+/* Set once the board is up. Every stub below fetches through fetchBoard and passes requests on with fallback(), never
+   route.fetch() or continue() bare: under --remote those would go to the made-up host, which does not exist (a page's
+   own routes run before the context's proxy). fallback() hands the request to the proxy; without --remote it is the
+   same as continue(). The Origin is the board's own, since the board refuses a write from any other site. */
+const REMOTE = { on: false, board: '' };
+const boardUrl = (u) => (REMOTE.on && u.startsWith(REMOTE_BASE) ? REMOTE.board + u.slice(REMOTE_BASE.length) : u);
+function fetchBoard(route) {
+  if (!REMOTE.on) return route.fetch();
+  const headers = { ...route.request().headers() };
+  if (headers.origin) headers.origin = REMOTE.board;
+  if (headers.referer) headers.referer = boardUrl(headers.referer);
+  return route.fetch({ url: boardUrl(route.request().url()), headers });
+}
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
@@ -149,9 +162,9 @@ const newLook = async (page) => {
    with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
 async function openConsAgents(page) {
   await page.route('**/api/style', async (r) => {
-    if (r.request().method() !== 'GET') return r.continue();
+    if (r.request().method() !== 'GET') return r.fallback();
     let resp;
-    try { resp = await r.fetch(); } catch { return r.continue(); }   // never leave the request hanging
+    try { resp = await fetchBoard(r); } catch { return r.fallback(); }   // never leave the request hanging
     const j = await resp.json().catch(() => null);
     if (!j) return r.fulfill({ response: resp });
     return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
@@ -224,7 +237,7 @@ const SCREENS = [
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
     await page.route('**/api/status', async (route) => {
       let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = adv;
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
     });
@@ -243,7 +256,7 @@ const SCREENS = [
     await stubRebootNote(page);
     await page.route('**/api/status', async (route) => {
       let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = [{ agents: ['roo-lane'], names: ['Roo'], provider: 'Claude', service: 'Claude Code-credentials',
         email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
@@ -513,7 +526,7 @@ const SCREENS = [
      sweep would act on the seeded agents while it is on: `after` turns it off once the shot is
      taken, before any other screen. */
   { name: 'settings-recommender', owner: 'Mona Lisa', go: async (page) => {
-    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/recommender-setting',   // page.request is not routed: boardUrl for --remote (#5510)
       { data: { on: true }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
     await at(page, '?tab=settings&sec=automation');
@@ -522,7 +535,7 @@ const SCREENS = [
     await page.mouse.move(1, 1);
     await page.waitForTimeout(300);
   }, after: async (page) => {
-    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/recommender-setting',   // page.request is not routed: boardUrl for --remote (#5510)
       { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
@@ -888,9 +901,9 @@ const SCREENS = [
     ] };
     await page.route('**/api/project/*/task/*/receipt', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(receipt) }));
     await page.route('**/api/projects', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
+      if (route.request().method() !== 'GET') return route.fallback();
       let res, body;
-      try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      try { res = await fetchBoard(route); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       for (const proj of body.projects || []) {
         if (proj.id !== data.projectId) continue;
         for (const t of proj.tasks || []) {
@@ -941,7 +954,7 @@ const SCREENS = [
   /* #5153 slice 4: the undo switch in Settings > Advanced, shown on (only this page's read of the setting is faked). */
   { name: 'settings-undo', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/undo-setting', (r) => (r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: true, ok: true }) }) : r.continue()));
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: true, ok: true }) }) : r.fallback()));
     await at(page, '?tab=settings&sec=advanced');
     await page.waitForSelector('#undo-toggle:not([hidden])', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('undo-row').scrollIntoView({ block: 'start' }));
@@ -1573,6 +1586,7 @@ async function run() {
   const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
   try {
+    Object.assign(REMOTE, { on: args.remote, board: board.base });   // --remote: where fetchBoard sends the stubs (#5510)
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
     for (const en of args.engines) {
@@ -1602,17 +1616,13 @@ async function run() {
               /* --remote (kosmos#5510): every request to the made-up Kosmos+ host is answered by the throwaway board
                  itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
-                 (Playwright tries the newest route first); their r.fetch() is pointed back at the board. */
-              const toBoard = (u) => (args.remote ? u.replace(REMOTE_BASE, board.base) : u);
+                 (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
               if (args.remote) {
-                await ctx.route(REMOTE_BASE + '/**', async (r) => {
-                  const res = await r.fetch({ url: toBoard(r.request().url()) });
-                  return r.fulfill({ response: res });
-                });
+                await ctx.route(REMOTE_BASE + '/**', async (r) => r.fulfill({ response: await fetchBoard(r) }));
               }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {
-                  const res = await r.fetch({ url: toBoard(r.request().url()) });
+                  const res = await fetchBoard(r);
                   const body = await res.json().catch(() => null);
                   if (!body || typeof body !== 'object') return r.fulfill({ response: res });
                   body.connection = { ...(body.connection || {}), state: 'connected' };

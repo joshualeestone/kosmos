@@ -19734,18 +19734,22 @@ function pnavThemeRove() {
   const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
-/* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
 /* #5510: on a phone the room composer's hint, "Write something or @name to message someone...", is cut after "Write
-   something c". There it reads as the agent chat's does; wider screens keep the @name tip. */
+   something c". There it reads as the agent chat's does; wider screens keep the @name tip. The query is the portrait
+   phone width only, the same as the CSS that hides the room's emoji button on a phone; not PNAV_PHONE_MQ, which also
+   takes a phone turned sideways, where the row has room for the long hint. */
+const ROOM_HINT_MQ = '(max-width: 40rem)';
 (function roomHintFits() {
   const box = document.getElementById('pj-post');
   if (!box || !window.matchMedia) return;
   const long = box.placeholder;
-  const mq = window.matchMedia('(max-width: 40rem)');
+  const mq = window.matchMedia(ROOM_HINT_MQ);
   const fit = () => { box.placeholder = mq.matches ? 'Write something\u2026' : long; };
   fit();
   if (mq.addEventListener) mq.addEventListener('change', fit);
+  else if (mq.addListener) mq.addListener(fit);   // Safari before 14
 })();
+/* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];
