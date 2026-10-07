@@ -20,6 +20,14 @@
       "icon": "tasks",
       "title": "Scheduled tasks no longer read as unassigned",
       "line": "A repeating task with nobody on it now shows under On a schedule in Tasks, not Unassigned. If an agent should run it, give it to one."
+    },
+    {
+      "icon": "chat",
+      "title": "The mic button opens the setting it needs",
+      "line": "If the microphone or speech recognition is off for Kosmos, the mic button becomes Turn on in Settings and opens the right page.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
