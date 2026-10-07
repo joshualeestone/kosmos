@@ -339,6 +339,17 @@ MARK="$THROTTLE_DIR/$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '
 # needs the verdict.
 report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null & ) 2>/dev/null || true; }
 
+# #5495: true when this agent runs with Kosmos's PermissionRequest allow hook (Kosmos's settings file sets these two
+# names, engine/agentpermission.js; Claude Code hands a settings file's env to its hooks) AND that hook allows this
+# request: the same decide(), asked by running the hook itself on the same input. Anything missing or failing is false,
+# so the report says needs-you as before #5495: briefly wrong at worst, never hiding a real prompt.
+kosmos_allows() {
+  [ -n "${KOSMOS_PERMISSION_ALLOW_NODE:-}" ] && [ -n "${KOSMOS_PERMISSION_ALLOW_SCRIPT:-}" ] || return 1
+  [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
+  printf '%s' "$INPUT" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" 2>/dev/null \
+    | grep -q '"behavior":"allow"'
+}
+
 heartbeat_due() {
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 0
   if [ -f "$MARK" ]; then
@@ -436,7 +447,9 @@ case "$EVENT" in
     TOOL=$(json_field '.tool_name' 'tool_name'); TOOL="${TOOL:-a tool}"
     CMD=$(json_field '.tool_input.command' 'command' | head -c 200)
     rm -f "$MARK" 2>/dev/null || true
-    report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}" ;;
+    # #5495: Kosmos's own allow hook answered this request (no prompt shows), so the agent is working, not waiting.
+    if kosmos_allows; then report working --auto "running ${TOOL}"
+    else report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}"; fi ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
     # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or
