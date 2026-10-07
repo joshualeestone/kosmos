@@ -1597,6 +1597,7 @@ fi
 site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was deployed"; exit 1; }
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
+case "$_vdep_rc" in 130|137|143) echo "vercel deploy was killed (exit $_vdep_rc); not waiting to see whether it landed"; exit "$_vdep_rc" ;; esac
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only this cut's upload can serve it: an

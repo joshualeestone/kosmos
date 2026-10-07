@@ -111,6 +111,9 @@ case "$out" in *"may still land"*"THIS cut's build is sha256 aaa111"*"https://st
 out="$(run_step8 7 none)"; rc=$?
 [ "$rc" = 7 ] && ok "the CLI's own exit code is kept (7), not flattened to 1" || bad "exit code: rc=$rc"
 
+out="$(run_step8 143 aaa111)"; rc=$?
+[ "$rc" = 143 ] && [ "$(fetches)" = 0 ] && ok "a deploy killed by a signal (143) fails at once, without polling" || bad "signal: rc=$rc fetches=$(fetches)"
+
 out="$(run_step8 1 aaa111 0 x3)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$T/vercel.called" ] && ok "a mistyped KOSMOS_DEPLOY_LANDED_TRIES is refused BEFORE vercel deploy runs" || bad "bad override: rc=$rc vercel called=$([ -f "$T/vercel.called" ] && echo yes || echo no)"
 

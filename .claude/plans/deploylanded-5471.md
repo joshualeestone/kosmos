@@ -35,13 +35,19 @@ did not run, and the operator had to verify by hand while resisting a revert or 
 - Parsing the error text: the CLI's wording is not a contract.
 - Retrying `vercel deploy`: a second production deploy of the same export, racing the first.
 
-## Weakest premise
-That a build which lands after the last check (beyond about 6 min) is rare. It is not handled automatically:
-the cut fails as before, and its message tells the operator to measure before acting. Raising the
-defaults trades a slower failure report on a real failure.
+## Weakest premises
+1. That a build which lands after the last check (beyond about 6 min) is rare. It is not handled
+   automatically: the cut fails as before, after printing this cut's sha and the URL to compare it with.
+2. That no two builds share bytes (tools/build-kosmos-bundle.sh: codesign and tar/gzip timestamps). A cut
+   that reused a previously built tarball without rebuilding would make an earlier attempt's served .sha256
+   equal this cut's, and a failed deploy would read as landed. Step 9 then verifies the same served state,
+   so the harm is bounded, but the "landed" line would be wrong.
+- A deploy killed by a signal (130, 137, 143) is an interruption, not the CLI's hiccup, and fails at once.
+- docs/staging-channel.md's manual promote recipe has its own `vercel deploy` under `set -e`; it is a
+  different path (an operator watching it), left as is.
 
 ## Tests
-`tools/test-deploy-landed-5471.sh`, in test:shell, 30 checks (counted from its output):
+`tools/test-deploy-landed-5471.sh`, in test:shell:
 - the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty, x3 or 12345 refused, and a wait of x, empty or 12345
 - the own-build check: same sha, an earlier attempt's sha, nothing served, no local file; the URL it fetches
 - release.sh's real step-8 block (override check to DEPLOYED=1), cut out of the file and run with `vercel`
