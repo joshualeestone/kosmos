@@ -1415,7 +1415,7 @@ uninstall() {
       _lb_rc=0
       _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>/dev/null
 let r;
-try { r = require(process.argv[2]).removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
+try { r = require(process.argv[2]).removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: String((e && e.message) || e).split('\n')[0] }; }
 if (!r || !r.ok) { process.stdout.write((r && r.because) || 'no reason given'); process.exit(3); }
 BOARDEOF
 )" || _lb_rc=$?
@@ -4057,9 +4057,14 @@ if [ "$(uname -s)" = "Linux" ]; then
     _lb_rc=0
     _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>/dev/null
 let r;
-try { r = require(process.argv[2]).installBoard(process.argv[3], Number(process.argv[4])); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
+let had = false;
+try {
+  const lb = require(process.argv[2]);
+  had = require('fs').existsSync(lb.boardUnitPath(process.argv[3]));   // the unit path by the linuxboard rule: was this an update
+  r = lb.installBoard(process.argv[3], Number(process.argv[4]));
+} catch (e) { r = { ok: false, because: String((e && e.message) || e).split('\n')[0] }; }
 if (!r || !r.ok) { process.stdout.write('refused: ' + ((r && r.because) || 'no reason given')); process.exit(3); }
-process.stdout.write(r.lingering ? 'lingering' : 'not lingering');
+process.stdout.write((had ? 'had ' : 'new ') + (r.lingering ? 'lingering' : 'not lingering'));
 BOARDEOF
 )" || _lb_rc=$?
     if [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
@@ -4067,11 +4072,16 @@ BOARDEOF
     elif [ "$_lb_rc" -ne 0 ]; then
       info "Kosmos could not set itself to start with systemd: ${_lb_out#refused: }"
     else
-      # As on the Mac: the board running now was started before the unit existed, so hand it to systemd (kosmos
-      # restart retires it and starts the unit's), unless this computer is set not to run a board (a restart would
-      # clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
+      # As on the Mac, ONLY for a unit this run created: the board running now was started before the unit existed,
+      # so hand it to systemd (kosmos restart retires it and starts the unit's). On an update the unit was already
+      # there, the start step above already restarted the board through systemd, and a second bounce would only risk
+      # a healthy board. Not on a computer set not to run a board (a restart would clear board.stopped).
+      # Best-effort: the unit is enabled either way and starts at the next login or boot.
       _kosmos_board_decide
-      [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true
+      case "$_lb_out" in
+        new\ *) [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true ;;
+      esac
+      _lb_out="${_lb_out#* }"
     fi
     if [ "$_lb_rc" -ne 0 ]; then
       :
