@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 872fac19a8922f7779dbe7ba8fcf3179dedc5eb2aace281aa979eff26724205a
+diff_hash: e741c36235cd03c00ba8b847252586bd517ca1b708732cdc52cb7bf80072e88e
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -119,3 +119,4 @@ setup-assistant tests pass. A further blind review of the fix runs before merge.
 Second post-rebase review (sonnet): 4 WARNINGs in the undo fix, all fixed (one-open keep, case and identity, undo stores write-denied, restore refuses protected paths); 301 + 43 + 16 tests pass. A further blind review runs before merge.
 Third post-rebase review (opus): 5 WARNINGs (protected set derived from the guard, real-folder check, repo .claude not refused, identity at restore, write-deny asserted), all fixed; 302 + 44 + 16 tests pass.
 Fourth post-rebase review (sonnet): 4 WARNINGs (scope too broad, misreported fail-closed, per-file cost, future temp/home names), all fixed; 303 + 45 + 16 tests pass.
+Fifth post-rebase review (opus): 4 WARNINGs (restore-rename folder race narrowed and named, cannot-check logged, two tests made real), all addressed; 304 + 46 + 16 tests pass.
