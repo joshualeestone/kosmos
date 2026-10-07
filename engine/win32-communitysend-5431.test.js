@@ -2,8 +2,9 @@
 /**
  * kosmos#5431 on a real disk, selected for the Windows run by its name (tools/windows-tests.js runs every test file
  * with "win32" in it). The card's tear was on NTFS, and engine/communitysend.test.js only simulates the error codes:
- * this file runs the real save (the fsync, the unchanged-bytes skip and its mode check) and the torn-record repair
- * against whatever disk the run is on, so the Windows job measures them on NTFS and the Mac suite on APFS.
+ * this file runs the real save (the fsync and the unchanged-bytes skip) and the torn-record reset with no agent key,
+ * on whatever disk the run is on, so the Windows job measures them on NTFS. The other arms (a key exists, a retired
+ * account, a torn keys.json, the lengths that are not reset) are engine/communitysend.test.js's, run on the Mac.
  *
  *   node --test engine/win32-communitysend-5431.test.js
  */
@@ -18,6 +19,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5431-disk-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const cs = require('./communitysend');
+// os.tmpdir() reads TEMP on Windows, which tmpscope does not move, so this sandbox is removed here, with retries for a
+// handle Windows releases late (as engine/win32apply.test.js does).
+test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 test('#5431 on this disk: a save writes the record, and the same bytes again write nothing', () => {
   const file = cs._paths.sentFile();

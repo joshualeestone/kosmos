@@ -137,10 +137,11 @@ function saveJson(file, data) {
 
 /* #5431: a record zero-filled at exactly the length of an empty record ({}\n) is a write torn by a crash, not a
    record someone damaged. sent.json and comments-sent.json in that state are reset to {} when this service's
-   keys.json holds no agent at all: with no key on disk, resetting is no worse than an intact empty record (a crash that
-   lost keys.json's own rename too is a gap that existed before #5431). Any other torn file (keys.json above all: resetting it would give every agent a
-   second public name) stays unreadable, and sending stays paused until a person repairs it. Called at the start of
-   each exclusive section; it is synchronous, so nothing else in this process runs between its check and its write. */
+   keys.json holds no agent at all: with no key on disk, resetting is no worse than an intact empty record (a crash
+   that lost keys.json's own rename too is a gap that existed before #5431). Any other torn file (keys.json above all:
+   resetting it would give every agent a second public name) stays unreadable, and sending stays paused until a
+   person repairs it. Called at the start of each exclusive section; it is synchronous, so nothing else in this
+   process runs between its check and its write. */
 const EMPTY_RECORD_BYTES = Buffer.byteLength('{}\n');   // what saveJson writes for an empty record
 function torn(file) {
   let fd;
