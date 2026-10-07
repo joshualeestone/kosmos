@@ -82,3 +82,7 @@ key that had sent.
   keys.json advice; the sent.json advice removed; the fsync removed; an unsupported-flush code removed; the
   identical-save skip removed; the mode ignored by that skip; the temp-file cleanup removed.
 - Every community test file: the count and result are in the proof.
+- Two repo guards the community files do not include, found by the first full validation (Mortals, at 15167672d):
+  engine.reachable.test.js (the `_saveJsonForTest` seam is excused by name with its reason, as `_paths` is) and
+  engine/windows-tests-1777.test.js (communitysend.test.js now branches on a win32 host to skip its POSIX mode arm,
+  so it is listed in tools/windows-tests.js HOST_BRANCH_EXCLUDED with that reason, as geminisettings.test.js is).

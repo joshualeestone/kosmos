@@ -54,6 +54,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
+  'engine/communitysend.test.js': 'its win32 branch (#5431) only skips a POSIX file-mode arm',
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'engine/sendertoken.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
