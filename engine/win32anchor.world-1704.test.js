@@ -52,7 +52,8 @@ test('#1704 a world applied OVER a sandbox anchors in the sandbox, not the world
   assert.equal(anchor.anchorDir('win32', 'C:\\Users\\jo', env), 'C:\\sand\\' + store.APP + '\\runtime');
 });
 
-/* The seed modules plus everything they require at load time (a column-0 `require('./x')`), followed through. Derived
+/* The seed modules plus everything they require at load time, followed through: a require('./x') (either quote) on a
+   line that starts at column 0 (const/let/var, a bare call, or the closing line of a multi-line destructure). Derived
    rather than listed, so a new top-level require in worlds.js (#5386 added ./win32env) cannot leave the stand-in short
    of a module and fail this file for a reason that has nothing to do with #1704. A require inside a function is lazy
    and only runs on a path this file never takes, so it is not followed. */
@@ -63,7 +64,8 @@ function withTopLevelDeps(seeds) {
     if (out.includes(f)) continue;
     out.push(f);
     const src = fs.readFileSync(nodePath.join(__dirname, f), 'utf8');
-    for (const m of src.matchAll(/^const [^\n]*?require\('\.\/([\w.-]+)'\)/gm)) todo.push(m[1].endsWith('.js') ? m[1] : m[1] + '.js');
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of code.matchAll(/^(?:[^\s/][^\n]*?)?require\(['"]\.\/([\w.-]+)['"]\)/gm)) todo.push(/\.(js|json)$/.test(m[1]) ? m[1] : m[1] + '.js');
   }
   return out;
 }
@@ -162,4 +164,10 @@ test('#5386: the stand-in engine carries every module worlds.js loads at load ti
   const files = withTopLevelDeps(['worlds.js']);
   for (const f of ['store.js', 'launchidentity.js', 'win32env.js']) assert.ok(files.includes(f), f + ' missing from ' + files.join(','));
   assert.ok(!files.includes('worldbootguard.js'), 'a require inside a function was followed');
+});
+
+test('#5386: the load-time require reader follows every top-level form and skips indented ones (control)', () => {
+  const re = /^(?:[^\s/][^\n]*?)?require\(['"]\.\/([\w.-]+)['"]\)/gm;
+  const src = "const a = require('./a');\nlet b = require(\"./b\");\nconst {\n  c1,\n} = require('./c');\nrequire('./d');\nconst e = require('./e.json');\nfunction f() {\n  return require('./lazy');\n}\n// require('./commented')\n";
+  assert.deepEqual([...src.matchAll(re)].map((m) => m[1]), ['a', 'b', 'c', 'd', 'e.json']);
 });

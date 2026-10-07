@@ -295,7 +295,7 @@ function kosmosRestart(cli) {
   for (const k of worlds.WORLD_ROOT_ENV_VARS) envDelete(env, k);
   /* #1704: and the world itself. A fresh board that inherited KOSMOS_WORLD or the
      pre-world marker would hand the OLD world to every agent it launches, the same
-     bleed the three deletes above prevent for the data roots. */
+     bleed the three root envDeletes above prevent for the data roots. */
   envDelete(env, worlds.PRE_WORLD_ROOTS_ENV_VAR);
   envDelete(env, launchidentity.WORLD_ENV_VAR);
   /* #4466: this restart is the board's own (a person pressed Restart, or a Kosmos switch), never an

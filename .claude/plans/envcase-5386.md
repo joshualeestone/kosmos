@@ -89,3 +89,9 @@ How often a real Windows environment carries a non-canonical spelling of these n
 - applyActiveWorldEnv given a copy: a test with a real temp world (red without canonWorldNames in applyWorldEnv).
 - Header: quoted keys and keys after a nested {...} in a spread are unseen. Nits: setVar beside delVar; win32codex's
   require comment.
+
+## Review 6 (sonnet), 2026-10-07
+- The stand-in's load-time require reader now follows any require('./x') in either quote on a line starting at column
+  0 (const/let/var, a bare call, a multi-line destructure's closing line), keeps .json names, and skips indented
+  (lazy) and commented ones; a control pins each form. Packaging confirmed: the bundle copies every non-test engine/*.js.
+- boardrestart's "three deletes above" comment updated to the envDeletes.
