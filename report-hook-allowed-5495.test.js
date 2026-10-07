@@ -23,7 +23,8 @@ const nodeHook = require('./engine/kosmos-report-hook');
 
 const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5495-'));
-test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
+const { removeTree } = require('./test-support/remove-tree');
+test.after(() => removeTree(SANDBOX));
 
 const KOSMOS_ENV = { [ap.ENV_NODE]: process.execPath, [ap.ENV_SCRIPT]: ap.HOOK_SCRIPT };
 const req = (tool, toolInput) => JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: tool, tool_input: toolInput, session_id: 's' });
@@ -109,7 +110,7 @@ test('#5495 shell: an allow hook that hangs is stopped by the clock bound and re
 });
 
 test('#5495 the shell cases above really ran', { skip: process.platform === 'win32' }, () => {
-  assert.equal(n, 17, 'shell runs (update this when a shell case is added or removed)');
+  assert.equal(n, 17, 'shell runs on a full-file run (update this when a shell case is added or removed)');
 });
 
 test('#5495 node hook: an allowed request starts a heartbeat window, so the next tool call sends no second working line', async () => {
