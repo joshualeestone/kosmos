@@ -16,6 +16,7 @@
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -164,7 +165,7 @@ test('#1372 route FAIL-CLOSED: an unreadable launch file REFUSES instead of proc
     fs.writeFileSync(ctx.panesFile, fleet.line({ session: 'ghost' }) + '\n');
     fs.mkdirSync(nodePath.join(ctx.workers, 'ghost'), { recursive: true });
     // a DIRECTORY where the launch file belongs: readFileSync throws on it
-    fs.mkdirSync(nodePath.join(ctx.launch, 'com.kosmos.agent.ghost.plist'), { recursive: true });
+    fs.mkdirSync(jobfix.jobPathIn(ctx.launch, 'ghost'), { recursive: true });
     return dir;
   });
 
@@ -193,7 +194,7 @@ test('#1372 route FAIL-CLOSED: a MALFORMED plist also refuses, not just an unrea
     fs.writeFileSync(ctx.panesFile, fleet.line({ session: 'ghost' }) + '\n');
     fs.mkdirSync(nodePath.join(ctx.workers, 'ghost'), { recursive: true });
     // A REAL, READABLE file that is not a plist Kosmos can parse.
-    fs.writeFileSync(nodePath.join(ctx.launch, 'com.kosmos.agent.ghost.plist'),
+    fs.writeFileSync(jobfix.jobPathIn(ctx.launch, 'ghost'),
       '<?xml version="1.0"?>\n<plist><dict></dict></plist>\n');
     return dir;
   });
