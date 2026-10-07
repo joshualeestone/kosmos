@@ -147,9 +147,12 @@ function listUnits() {
   return out;
 }
 
-/* #5445: a unit the person masked (systemctl --user mask) is a link to /dev/null in the unit folder. fs.existsSync
-   follows the link and finds /dev/null, so it read as present; reading it gave an empty file, which read as a broken
-   unit. Masked is the person's choice: the name stays held, and the sentence says how to undo it. */
+/* #5445: a unit file that is a link to /dev/null is masked. fs.existsSync follows the link and finds /dev/null, so it
+   read as present; reading it gave an empty file, which read as a broken unit. NOT measured on a real systemd: a mask
+   made while Kosmos's own file sits at this path is expected to be refused there, or to land under /run as a runtime
+   mask, which this does not see (the file stays ordinary; create.disabledJobsResult reads it as masked-runtime, off).
+   So this catches the link left by a hand-made mask or a mask made after the file was deleted. Masked is the person's
+   choice: the name stays held and the agent stays listed, and the sentence says how to undo it. */
 function masked(name, worldId) {
   let st;
   try { st = fs.lstatSync(unitPath(name, worldId)); } catch { return false; }
