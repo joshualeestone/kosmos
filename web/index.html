@@ -7744,7 +7744,7 @@ html.has-voice .micbtn.has-pill { display: none; }
 .micwrap.line > .voice-pill { top: 50%; right: 8px; transform: translateY(-50%); }
 /* in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
    makes room for it (the box's own mic padding rules are more specific, hence !important while the pill shows). */
-.micwrap > .voice-pill .vp-pre { display: none; }
+.micwrap > .voice-pill .vp-pre, .asp-in .voice-pill .vp-pre { display: none; }   /* a field, and the Guide's narrow panel */
 .micwrap > :disabled ~ .voice-pill { display: none; }   /* like its mic: no pill over a box that takes no words */
 /* 124px = the short pill's width plus its 8px offset and a margin; render-voice-4409.js V6e measures that the text ends
    before the pill begins, so a font change that outgrows it reds there. */
@@ -65676,7 +65676,7 @@ function voiceOnEvent(ev) {
     const b = voiceBridge();
     const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
     const said = (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer;
-    if (b && !b.phone && ev.canOpenSettings === true && Object.hasOwn(VOICE_SETTINGS_PANE, ev.reason)) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
+    if (b && !b.phone && ev.canOpenSettings === true && Object.prototype.hasOwnProperty.call(VOICE_SETTINGS_PANE, ev.reason)) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
     else voiceSay(btn, said);
     return;
   }

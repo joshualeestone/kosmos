@@ -26,7 +26,7 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
   and calls voiceToggle on the same mic, but only if the box is where it was when Settings was PRESSED (voiceWhere(box, true),
   steady: same agent or room, the box laid out, open, without the page-hidden part), and only once the page is
   visible (a start while it reads hidden would be cancelled by the watcher's first look); that wait lasts a minute at most and
-  is dropped by a new start; X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
+  is dropped by a new start; X clears it (focus goes to the mic only after a keyboard press; a mouse click leaves the caret in the box). The refusal is said by the pill's own hidden role=alert span, never the shared message line.
   The pill belongs to the place it was offered: a view change (another agent or room, the box closing) clears it
   and puts the plain mic back (a 500 ms watch while it shows).
   `settings-next` repoints the same pill to the Microphone pane and says so again (a fresh alert); `refused` swaps it for the restricted sentence. Other refusals keep their sentence.
@@ -43,7 +43,9 @@ the identity existing grants are keyed on.
 The round trip on a real Mac (press the pill, flip the switch in System Settings, come back, the mic starts) needs a
 person to click the switch, which a headless run cannot. Unmeasured: that authorizationStatus changes inside the
 running process without a relaunch, and the order of didBecomeActive against the page becoming visible (the page
-waits for visibilitychange either way). Words shipped and mechanism built; the behaviour is to be seen on first use.
+waits for visibilitychange either way). Also unmeasured: that the two x-apple.systempreferences anchors open the exact Privacy pane on the shipped macOS
+(not Settings' top level); the selftest checks the strings only. Both are for the first-use check.
+Words shipped and mechanism built; the behaviour is to be seen on first use.
 If Josh's no-prompt refusal turns out to be the never-asked case (speech-unanswered or mic-unanswered), he gets a
 plain sentence and no pill: no Privacy pane lists an app that never asked. The permission log lines will say which.
 X does not tell the app: its visit stays open up to 10 minutes and any later answer carries the old visit id, which

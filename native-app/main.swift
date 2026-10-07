@@ -1544,8 +1544,11 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     }
     /// The cancels that mean the page itself is gone (reloaded or crashed), not merely out of sight. PURE, selftested.
     static func pageGone(_ why: String) -> Bool { why == "page process ended" || why == "new page loaded" }
-    /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else). PURE.
-    static func settingsAccepted(lastRefusal: String) -> Bool { lastRefusal == "speech-denied" || lastRefusal == "mic-denied" }
+    /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else), and only a
+    /// pane that answers it: after a speech denial either pane (the mic comes next), after a mic denial the mic's. PURE.
+    static func settingsAccepted(lastRefusal: String, pane: String) -> Bool {
+        (lastRefusal == "speech-denied" && (pane == "speech" || pane == "mic")) || (lastRefusal == "mic-denied" && pane == "mic")
+    }
     /// The page may name a pane, never a URL; it also may not open Settings over and over (more than once a second; a
     /// clock moved backwards counts as a second gone by, which only ever allows one more open). PURE, selftested.
     static func settingsOpenAllowed(sinceLast: TimeInterval?) -> Bool { sinceLast.map { $0 < 0 || $0 >= 1 } ?? true }
@@ -1576,7 +1579,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         case "settings":
             // #5481: open the exact pane for a denied permission (only the two named panes, never a URL from the page).
             guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane),
-                  Self.settingsAccepted(lastRefusal: lastRefusal) else { return }
+                  Self.settingsAccepted(lastRefusal: lastRefusal, pane: pane) else { return }
             // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
             // holds; only re-opening the pane is limited to once a second (a press inside that second still refreshes the
             // visit and its 10 minutes, and opens nothing).
@@ -1584,12 +1587,12 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             guard !visit.isEmpty else { return }   // an "allowed" with no id could never be matched by the page
             settingsId = visit
             settingsAt = Date()
-            settingsPane = pane
             awaitingAllow = true
             guard Self.settingsOpenAllowed(sinceLast: settingsOpenedAt.map { Date().timeIntervalSince($0) }) else {
                 logLine("voice: Settings press within a second of the last, not opened again (" + pane + ")"); return
             }
             settingsOpenedAt = Date()
+            settingsPane = pane   // the pane actually opened (a press within the second opens none)
             NSWorkspace.shared.open(url)
         default: return
         }
@@ -6627,8 +6630,8 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.stampId(["kind": "allowed", "id": "set7"], pageId: "s3")["id"] as? String == "set7", "#5481: a Settings visit's event keeps its own id")
     row(VoiceBridge.stampId(["kind": "stopped"], pageId: "s3")["id"] as? String == "s3", "#5481 CONTROL: any other event carries the listening session's id")
     row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481: speech restricted is said as that, not left on a pill")
-    row(VoiceBridge.settingsAccepted(lastRefusal: "speech-denied") && VoiceBridge.settingsAccepted(lastRefusal: "mic-denied"), "#5481: Settings opens after a denial")
-    row(!VoiceBridge.settingsAccepted(lastRefusal: "") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted"), "#5481 CONTROL: and after nothing else")
+    row(VoiceBridge.settingsAccepted(lastRefusal: "speech-denied", pane: "speech") && VoiceBridge.settingsAccepted(lastRefusal: "speech-denied", pane: "mic") && VoiceBridge.settingsAccepted(lastRefusal: "mic-denied", pane: "mic"), "#5481: Settings opens the pane that answers the denial")
+    row(!VoiceBridge.settingsAccepted(lastRefusal: "", pane: "mic") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic", pane: "mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted", pane: "mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-denied", pane: "speech"), "#5481 CONTROL: and after nothing else, nor a pane that does not answer it")
     row(VoiceBridge.pageGone("page process ended") && VoiceBridge.pageGone("new page loaded"), "#5481: a reloaded or crashed page drops its Settings visit")
     row(!VoiceBridge.pageGone("window hidden") && !VoiceBridge.pageGone("window minimised"), "#5481 CONTROL: a hidden or minimised window keeps it (its page keeps the pill)")
     row(VoiceBridge.micRefusal(.notDetermined) == "mic-unanswered", "#5481: a mic refused with no prompt is not offered the Microphone pane")

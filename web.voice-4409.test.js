@@ -362,7 +362,7 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   }
   assert.ok(bridge.includes('"canOpenSettings": true') && PAGE.includes('ev.canOpenSettings === true'), 'the app and the page no longer agree on canOpenSettings');
   // The app's guards are pure and selftested; these pin that they are wired in where they act.
-  assert.match(bridge, /case "settings":[\s\S]{0,400}Self\.settingsAccepted\(lastRefusal: lastRefusal\) else \{ return \}/, 'Settings opens without a denial to answer');
+  assert.match(bridge, /case "settings":[\s\S]{0,400}Self\.settingsAccepted\(lastRefusal: lastRefusal, pane: pane\) else \{ return \}/, 'Settings opens without a denial to answer');
   assert.match(bridge, /private func refuse\(_ reason: String\) \{\n        pending = false\n        lastRefusal = reason/, 'refuse no longer records the denial Settings answers');
   assert.match(bridge, /if Self\.pageGone\(why\) \{ awaitingAllow = false; lastRefusal = "" \}/, 'a gone page no longer drops its Settings visit');
   assert.match(bridge, /self\.refuse\(Self\.micRefusal\(micAfter\)\)/, 'a refused mic is no longer told apart (restricted, never asked)');
