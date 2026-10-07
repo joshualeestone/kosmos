@@ -78,8 +78,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # #5488: a pull_request push that changed ONLY .claude/plans/ since this PR's last green run (a
-  # proof or plan commit) reuses that run's verdict instead of taking three macOS runners. The
+  # #5488: a pull_request push that changed ONLY plain plan files under .claude/plans/ since the newest
+  # green run on this head BRANCH whose suite actually ran (a proof or plan commit) reuses that run's verdict instead of taking three macOS runners. The
   # decision and its reasons are in tools/ci-plans-only-reuse.sh; it prints nothing on any doubt, and
   # nothing means the suite runs. Never on push: main always runs (#4021). Measured on #5488: about 4%
   # of runs, at a time the macOS queue was 19 deep.

@@ -63,6 +63,9 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
   If it recurs it is safe: an older source means an older sha, a wider diff, and the suite runs.
 - No check is required on main (no branch protection, no rulesets, measured). If `test` is ever made required, a
   skipped `suite` is still fine: `test` itself reports success with the reused run named.
+- The listing does not filter by base branch: a stacked PR's green run against branch A can be reused after the PR
+  is retargeted to main. Same class as "main has moved"; the six-hour cap bounds it, and the main push run after
+  merging tests the merged tree.
 - `gh run list --branch` matches the head branch NAME; a fork PR with the same branch name as another PR could match
   its green run. The diff check still requires that run's sha to be in this clone and the diff to be plans-only.
 
