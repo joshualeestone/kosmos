@@ -1421,7 +1421,8 @@ html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overf
 /* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
-   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter). The bar's fills
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 pads it
+   by the width where none is reserved). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
 .kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
@@ -3352,15 +3353,25 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      scrollbars. It is dropped here, and the header padding below keeps the header from moving when an
      agent opens or closes, which is the shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
-     nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
-     cannot be measured the gutter stays (A1q). */
+     nothing to drop here (#5379 pads its header below). Both rules wait for data-scrollbar-measured,
+     so if the width cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
-  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
+  /* #5379: the tab view reserves the scrollbar gutter and consolidated does not, so where scrollbars take width the
+     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule), and
+     the Kosmos+ bar, by the same width less what the page gives up. */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
+    padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
+  /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. kplusBarFit
+     tests the same state in script (consolidated chosen, body not .consolidated, wide); the 2624 bar arm pins both. */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
+  html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
     position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }
@@ -19373,6 +19384,15 @@ function kplusBarFit() {
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
+  /* #5379: with consolidated chosen, a whole-page tab (body not .consolidated) reserves no gutter, so the header's right
+     padding there also holds the scrollbar width, and the bar ends Log out on the same x by padding as much. Wide only:
+     the phone bar keeps its own padding. Elsewhere the stylesheet's padding stands (consolidated pads by CSS). */
+  const doc = document.documentElement;
+  const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
+    && window.matchMedia('(min-width: 56.01rem)').matches;
+  /* At least the bar's own side padding (its left one), so a header padded by less never pulls Log out to the edge. */
+  const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
+  if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
