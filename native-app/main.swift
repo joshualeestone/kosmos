@@ -5649,8 +5649,12 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 "A POLICY REFUSAL IS LOGGED, NEVER AN ALERT (not a board, a computer not allowed, WebKit stopping it, a foreign file): a page repeating one cannot pile alerts up")
             row(told.allSatisfy { $0.hasPrefix("Kosmos could not save that file: ") }, "and each alert carries the failure title (a 204 says nothing)")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
-            // plain link, and a computer that runs agents loads every link in the window (#5169).
-            row(leftBoard.contains("foreign"), "CONTROL: localhost answers here (a plain foreign link loads), so the other-origin rows are not vacuous")
+            // plain link that loads in the window here. This download selftest's board runs in computerMode
+            // .unset (never set on `d`), where the nav-policy guard falls through to .allow -- a path #5169
+            // leaves unchanged (it gates connect/run/both). So a foreign link still loads, which is what keeps
+            // the other-origin rows below non-vacuous; the #5169 nav policy itself is pinned by the
+            // connectLinkDecision / isKosmosPlusSiteURL rows in the mode-check, not here.
+            row(leftBoard.contains("foreign"), "CONTROL: localhost answers here (a plain foreign link loads in .unset mode), so the other-origin rows are not vacuous")
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
