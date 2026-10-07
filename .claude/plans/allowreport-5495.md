@@ -59,3 +59,10 @@ An allowed request also starts a heartbeat window, so the next PreToolUse does n
   until the next heartbeat. Safe direction (it never hides a prompt); same shape as the weakest premise.
 - Deferred: the shell hook starts node once more per PermissionRequest (about 50 to 100 ms). It runs beside the real
   allow hook, so it adds no wait for the person; PermissionRequest fires only when an ask rule matches.
+
+## Review 7 (final, after the full suite and a rebase)
+The full suite found one red in this change: the shell hook tested the node path with a bare [ -x ], which a folder
+passes (installer runnable-guard). Now [ -f ] && [ -x ], with a test that a folder named as node reads not allowed.
+Not measured, said plainly: on Windows, whether Claude Code hands a settings file's env to hooks. If it does not, the
+Windows report hook simply keeps saying needs-you (the old behaviour). The Windows CI entry proves only the in-process
+half.
