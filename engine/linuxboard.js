@@ -109,6 +109,8 @@ KillMode=process
 # board every 5 seconds. A crash or a kill is a failure and is restarted; a clean exit (stopped, or deferring to a
 # board already on the port) is not.
 Restart=on-failure
+# review 28: a SIGTERM exit (kosmos stop) is clean even if node ever reports it as 143, as the agent unit's is.
+SuccessExitStatus=143
 RestartSec=5
 
 [Install]

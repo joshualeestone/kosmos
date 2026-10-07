@@ -359,3 +359,14 @@ test('#4918 review 22: a sandboxed board never runs systemctl against the real b
     linuxboard.setRunnerForTests(null);
   }
 });
+
+test('#4918 review 28: removing an already-gone unit is ok when disable fails with localized text (exit 1, not 5)', () => {
+  fs.rmSync(linuxjob.unitPath('kenshi', 'w1'), { force: true });
+  answer = (cmd, args) => (args[1] === 'stop' ? { ok: false, code: 5, stderr: 'Einheit nicht geladen.' }
+    : args[1] === 'disable' ? { ok: false, code: 1, stderr: 'Einheitendatei existiert nicht.' } : { ok: true, stdout: '' });
+  try { assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }); } finally { answer = () => ({ ok: true, stdout: '' }); }
+  // CONTROL: with the file present, a refused disable still says so.
+  fs.writeFileSync(linuxjob.unitPath('kenshi', 'w1'), '[Service]\n');
+  answer = (cmd, args) => (args[1] === 'disable' ? { ok: false, code: 1, stderr: 'Zugriff verweigert' } : { ok: true, stdout: '' });
+  try { assert.equal(linuxjob.remove('kenshi', 'w1').ok, false); } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(linuxjob.unitPath('kenshi', 'w1'), { force: true }); }
+});

@@ -319,7 +319,7 @@ else
 fi
 
 # Start board service
-systemctl --user start "$BOARD_UNIT"
+if ! systemctl --user start "$BOARD_UNIT"; then bad "the board unit would not start ($BOARD_UNIT)"; fi   # review 28: not bare under set -e
 sleep 3
 
 if systemctl --user is-active "$BOARD_UNIT" >/dev/null 2>&1; then
