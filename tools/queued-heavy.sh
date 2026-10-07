@@ -46,14 +46,15 @@ fi
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # #5446: that default folder exists on one Mac only, so elsewhere the documented route died here (exit 3) before joining
 # the queue. With QUEUED_HEAVY_LIB unset and the default missing, use the MAIN checkout of the repo this script is in:
-# every agent on this Mac resolves the same folder, so the queue still has one lib generation. A QUEUED_HEAVY_LIB
+# every worktree of one clone resolves that same folder. A second clone, or a run with QUEUED_HEAVY_LIB set, can still
+# bring another lib generation; the line below names the folder and its commit so that is visible. A QUEUED_HEAVY_LIB
 # that is set and wrong still exits 3 below.
 if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ]; then
-  _qh_common="$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
+  _qh_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
   case "$_qh_common" in
     */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
-              echo "QUEUED-HEAVY: $LIB_CHECKOUT is missing; using this repo's main checkout ${_qh_common%/.git} for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
-              LIB_CHECKOUT="${_qh_common%/.git}"
+              echo "QUEUED-HEAVY: $LIB_CHECKOUT has no tools/lib/cut-guard.sh; using this repo's main checkout ${_qh_common%/.git} at $(env -u GIT_DIR -u GIT_WORK_TREE git -C "${_qh_common%/.git}" rev-parse --short HEAD 2>/dev/null || echo '?') for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
+              LIB_CHECKOUT="${_qh_common%/.git}"; QH_LIB_FALLBACK=1
             fi ;;
   esac
   unset _qh_common
@@ -63,7 +64,11 @@ fi
 _qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
 for _qh_fn in $_qh_need; do
-  declare -F "$_qh_fn" >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
+  declare -F "$_qh_fn" >/dev/null || {
+    echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
+    # #5446: the main checkout nothing updates; say the one command that brings it current.
+    [ -n "${QH_LIB_FALLBACK:-}" ] && echo "QUEUED-HEAVY: that is this repo's main checkout, behind origin/main; bring it up to date with: git -C '$LIB_CHECKOUT' pull --ff-only" >&2
+    exit 3; }
 done
 # Review 12: started inside an ordinary turn that already holds the box (it inherited that turn's claim cookie). It
 # used to take its "turn" at once (the claim read as its own) and then RELEASE the parent's claim at its end, so the

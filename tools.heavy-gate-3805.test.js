@@ -589,10 +589,10 @@ test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR an
   const busy = run([realRun()]);
   assert.equal(busy.code, 1, busy.out);
   assert.match(busy.stderr, /holds no place in line/);
-  assert.match(busy.stderr, /\/tools\/queued-heavy\.sh "<what>" <command>/);
+  assert.match(busy.stderr, /\/tools\/queued-heavy\.sh' "<what>" <command>/);
   assert.match(busy.stderr, /--light/);
   assert.equal(busy.stdout.trim().split('\n').filter((l) => /^heavy-gate: (BUSY|CLEAR)/.test(l)).length, 1, 'the stdout verdict is still one line');
-  const named = (busy.stderr.match(/bash (\S+queued-heavy\.sh)/) || [])[1];
+  const named = (busy.stderr.match(/bash '([^']+queued-heavy\.sh)'/) || [])[1];
   assert.ok(named && fs.existsSync(named), 'the named queue script does not exist: ' + named);
   const clear = run([]);
   assert.equal(clear.code, 0, clear.out);
