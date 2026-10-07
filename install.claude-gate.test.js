@@ -26,6 +26,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+/* #4920 (Splinter 18:53): setup.sh's own option line (setup.sh:102-103), not `set -euo pipefail`: these scripts run
+   under sh, which is dash on Linux, and dash refuses `set -o pipefail`; so the functions run here as they really
+   run there (pipefail only under bash). */
+const SETUP_SH_OPTIONS = 'set -eu\n[ -n "${BASH_VERSION:-}" ] && set -o pipefail || true\n';
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -88,7 +92,7 @@ process.on('exit', () => {
 });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(1));
 
-const HARNESS = 'set -euo pipefail\ndie() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
+const HARNESS = SETUP_SH_OPTIONS + 'die() { printf "%s\\n" "$*" >&2; exit 1; }\ninfo() { printf "%s\\n" "$*"; }\n';
 
 function run({ homeHasClaude, pathClaude, installer }) {
   const sb = sandbox();

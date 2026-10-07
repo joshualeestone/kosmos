@@ -17,6 +17,10 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+/* #4920 (Splinter 18:53): setup.sh's own option line (setup.sh:102-103), not `set -euo pipefail`: these scripts run
+   under sh, which is dash on Linux, and dash refuses `set -o pipefail`; so the functions run here as they really
+   run there (pipefail only under bash). */
+const SETUP_SH_OPTIONS = 'set -eu\n[ -n "${BASH_VERSION:-}" ] && set -o pipefail || true\n';
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -229,7 +233,7 @@ async function reachable(url) {
      aborts the shell under -e before the range-GET fallback runs, and a
      no-options harness reports a cheerful YES. That is exactly how a real
      latent break reached iteration 3 of this branch's review. */
-  const script = `set -euo pipefail\n${FN[0]}\nif reachable "$1"; then echo YES; else echo NO; fi\n`;
+  const script = `${SETUP_SH_OPTIONS}${FN[0]}\nif reachable "$1"; then echo YES; else echo NO; fi\n`;
   /* `sh`, not `bash`: install/setup.sh ships #!/bin/sh and the repo's own
      test:shell checks it with `sh -n`. Pinning the text under the wrong
      interpreter would pass on a bashism the shipped installer cannot run.
@@ -248,7 +252,7 @@ async function reachable(url) {
    every arm in this file green while making the new sentence unreachable. That
    is exactly the dead-code defect this card exists to remove, one layer up. */
 async function reachableStatus(url) {
-  const script = `set -euo pipefail\n${FN[0]}\nrc=0; reachable "$1" || rc=$?; echo "$rc"\n`;
+  const script = `${SETUP_SH_OPTIONS}${FN[0]}\nrc=0; reachable "$1" || rc=$?; echo "$rc"\n`;
   const { stdout } = await run('sh', ['-c', script, 'sh', url], { encoding: 'utf8' });
   return stdout.trim();
 }
@@ -506,7 +510,7 @@ test('#1662: reachable() does not abort the shell under set -euo pipefail when H
      calls reachable() inside an `if` can never surface it.
      This calls it OUTSIDE a condition, against the host the fallback exists
      for, and requires the shell to still be alive afterwards. */
-  const script = `set -euo pipefail\n${FN[0]}\nreachable "$1"\necho "SURVIVED rc=$?"\n`;
+  const script = `${SETUP_SH_OPTIONS}${FN[0]}\nreachable "$1"\necho "SURVIVED rc=$?"\n`;
   const { stdout } = await run('sh', ['-c', script, 'sh', `${base}/head405.tar.gz`], { encoding: 'utf8' });
   assert.match(stdout, /SURVIVED rc=0/,
     'the shell died inside reachable() before the range-GET fallback could run: the HEAD probe '
@@ -641,7 +645,7 @@ const GUARDS = SRC.match(GUARD_RE) || [];
 async function runGuard(reachableVerdict, which) {
   /* The shipped guard block, with reachable() STUBBED to the verdict under
      test. Runs under the file's own shell options. */
-  const script = `set -euo pipefail
+  const script = `${SETUP_SH_OPTIONS}
 info(){ printf '%s\\n' "$*"; }
 reachable(){ return ${reachableVerdict}; }
 ${REFUSE[0]}
@@ -916,7 +920,7 @@ async function runProbe(reachableVerdict, opts = {}) {
   /* Same options as the shipped file and as the other harnesses here. It had
      `set -eu`, which is harmless (no pipelines) but undercuts the fidelity
      argument the other extractors make. */
-  const script = `set -euo pipefail
+  const script = `${SETUP_SH_OPTIONS}
 reachable(){ return ${reachableVerdict}; }
 KOSMOS_RELEASE_BASE='https://example.invalid/dist'
 ARCH=arm64

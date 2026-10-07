@@ -1408,22 +1408,22 @@ uninstall() {
   # is gone and a fresh call would quietly return the literal instead.
   _support="$(_kosmos_data_root)"
   if [ "$(uname -s)" = "Linux" ]; then
-    _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-    _unit_name="kosmos-board.service"
-    if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-      _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
-    fi
-    _unit_file="$_unit_dir/$_unit_name"
-    if [ -f "$_unit_file" ]; then
+    # #4920: piece B's removeBoard (stop, disable, delete, reload), the same derivation of the unit's name and path as
+    # installBoard. Run before the app folder is deleted, since it is the app's own code.
+    if [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl >/dev/null 2>&1; then
       info "removing the systemd service for the board"
-      if command -v systemctl >/dev/null 2>&1; then
-        systemctl --user stop "$_unit_name" 2>/dev/null || true
-        systemctl --user disable "$_unit_name" 2>/dev/null || true
-      fi
-      rm -f "$_unit_file"
-      if command -v systemctl >/dev/null 2>&1; then
-        systemctl --user daemon-reload 2>/dev/null || true
-      fi
+      _lb_rc=0
+      _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>&1
+const lb = require(process.argv[2]);
+let r;
+try { r = lb.removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
+if (!r || !r.ok) { process.stdout.write((r && r.because) || 'no reason given'); process.exit(3); }
+BOARDEOF
+)" || _lb_rc=$?
+      [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: $_lb_out"
+    elif command -v systemctl >/dev/null 2>&1 && ls "${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"/kosmos-board*.service >/dev/null 2>&1; then
+      # Without the app's own code there is no second copy of the name rule here; say where the unit is instead.
+      info "a Kosmos board service is still in ${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}; this install's app folder is gone, so remove it with systemctl --user disable --now and delete the file"
     fi
   fi
   _board_label=com.kosmos.board
@@ -4034,50 +4034,33 @@ if [ "$(uname -s)" = "Linux" ]; then
   else
     step "Keeping Kosmos running with systemd."
   fi
-  _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-  _unit_name="kosmos-board.service"
-  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-    _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
-  fi
-  _unit_file="$_unit_dir/$_unit_name"
-  mkdir -p "$_unit_dir" 2>/dev/null || true
-  cat > "$_unit_file" <<UNIT
-[Unit]
-Description=Kosmos Board
-After=network.target
-ConditionPathExists=!$KOSMOS_HOME/board.stopped
-
-[Service]
-Type=simple
-ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run
-WorkingDirectory=$KOSMOS_HOME
-Restart=always
-RestartSec=5
-Environment=HOME=$HOME
-Environment=KOSMOS_HOME=$KOSMOS_HOME
-Environment=PATH=$KOSMOS_HOME/tmux/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=LANG=C.UTF-8
-Environment=PORT=$PORT
-Environment=KOSMOS_PORT=$PORT
-StandardOutput=append:$KOSMOS_HOME/logs/board.log
-StandardError=append:$KOSMOS_HOME/logs/board.log
-
-[Install]
-WantedBy=default.target
-UNIT
   [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
-  loginctl enable-linger "$(id -un 2>/dev/null || echo "$USER")" 2>/dev/null || true
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user daemon-reload 2>/dev/null || true
-    if [ "$_kosmos_board_off" = yes ]; then
-      systemctl --user enable "$_unit_name" 2>/dev/null || true
-      info "Kosmos will not start itself at login $(_kosmos_off_why)"
-    else
-      systemctl --user enable "$_unit_name" 2>/dev/null || true
-      info "Kosmos will start itself when you log in"
-    fi
+  # 🔑 #4920: ONE BOARD UNIT, piece B's (engine/linuxboard.js installBoard), never a second copy written here. The
+  # shell copy this replaced had drifted: Restart=always restarted a stopped board every 5 seconds (measured by #4918),
+  # and it lacked KillMode=process (a stop must not kill the shared tmux server). installBoard writes and enables the
+  # unit and turns on linger, reading it back. The board-off case needs nothing extra: the unit's
+  # ConditionPathExists=!board.stopped keeps it from starting.
+  if ! command -v systemctl >/dev/null 2>&1; then
+    info "note: systemctl not available; Kosmos was started in background and will not start itself after a restart"
   else
-    info "note: systemctl not available; Kosmos was started in background"
+    _lb_rc=0
+    _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>&1
+const lb = require(process.argv[2]);
+let r;
+try { r = lb.installBoard(process.argv[3], Number(process.argv[4])); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
+if (!r || !r.ok) { process.stdout.write('refused: ' + ((r && r.because) || 'no reason given')); process.exit(3); }
+process.stdout.write(r.lingering ? 'lingering' : 'not lingering');
+BOARDEOF
+)" || _lb_rc=$?
+    if [ "$_lb_rc" -ne 0 ]; then
+      info "Kosmos could not set itself to start with systemd: ${_lb_out#refused: }"
+    elif [ "$_kosmos_board_off" = yes ]; then
+      info "Kosmos will not start itself at login $(_kosmos_off_why)"
+    elif [ "$_lb_out" = lingering ]; then
+      info "Kosmos will start itself when this computer starts"
+    else
+      info "Kosmos will start itself when you log in, but stops when you log out: linger is off for $(id -un 2>/dev/null || echo "this user"). To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
+    fi
   fi
   ok
 else
