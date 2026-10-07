@@ -190,6 +190,12 @@ async function joinWaiting(page) {
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
 }
+/* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
+async function stubRebootNote(page) {
+  const now = Date.now();
+  const note = { lastAliveAt: new Date(now - 9 * 60000).toISOString(), bootAt: new Date(now - 7 * 60000).toISOString(), upAt: new Date(now - 60000).toISOString() };
+  await page.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -206,6 +212,33 @@ const SCREENS = [
     });
     await at(page, '');
     await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+  } },
+  /* #5359: the note that this computer restarted under a running Kosmos, floating in #topnotes. Its route is stubbed
+     on this screen's own page (gone with it). Mona Lisa asked for it alone, under the login notice, and over the
+     Settings tabs on a phone (#5301). */
+  { name: 'reboot-notice', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await stubRebootNote(page);
+    await at(page, '');
+    await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
+  } },
+  { name: 'reboot-with-login', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await stubRebootNote(page);
+    await page.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = [{ agents: ['roo-lane'], names: ['Roo'], provider: 'Claude', service: 'Claude Code-credentials',
+        email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+    await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
+  } },
+  { name: 'reboot-over-settings', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await stubRebootNote(page);
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
   } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
