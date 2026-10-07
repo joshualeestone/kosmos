@@ -20,7 +20,7 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/deploy-landed-5471.XXXXXX")"; trap 'rm -rf "$T"'
 cat > "$T/verify" <<'EOS'
 #!/bin/bash
 n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT"
-echo "${KOSMOS_VERIFY_POINTER:-} ${KOSMOS_VERIFY_SETUP:-}" > "$COUNT.env"
+echo "${KOSMOS_VERIFY_POINTER:-} ${KOSMOS_VERIFY_SETUP:-} ${HOST:-}" > "$COUNT.env"
 [ "$PASS_ON" != 0 ] && [ "$n" -ge "$PASS_ON" ]
 EOS
 chmod +x "$T/verify"
@@ -44,7 +44,9 @@ done
 
 # ---- site_deploy_serves_this_build ----------------------------------------------------
 printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/mine.sha256"
-curl() { [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
+# The stub records the URL it was asked for (its last argument), so a wrong host, a lost /dist/ or a wrong
+# name fails here instead of passing against a stub that ignores its arguments.
+curl() { local a; for a in "$@"; do :; done; printf '%s\n' "$a" >> "$T/curl.urls"; [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
 printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/served.sha256"
 site_deploy_serves_this_build https://h "$T/mine.sha256" kosmos-9.9.9-arm64.tar.gz && ok "the served .sha256 equals this cut's: this build" || bad "same sha not recognised"
 printf 'bbb222  kosmos-9.9.9-arm64.tar.gz\n' > "$T/served.sha256"
@@ -52,6 +54,7 @@ site_deploy_serves_this_build https://h "$T/mine.sha256" kosmos-9.9.9-arm64.tar.
 rm -f "$T/served.sha256"
 site_deploy_serves_this_build https://h "$T/mine.sha256" kosmos-9.9.9-arm64.tar.gz && bad "an unreadable served .sha256 passed" || ok "nothing served: not this build"
 site_deploy_serves_this_build https://h "$T/missing.sha256" kosmos-9.9.9-arm64.tar.gz && bad "a missing local .sha256 passed" || ok "no local .sha256: not this build (never a blank-equals-blank pass)"
+[ "$(sort -u "$T/curl.urls")" = "https://h/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "it fetches <host>/dist/<name>.sha256 and nothing else" || bad "fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ')"
 
 # ---- release.sh's real step-8 block ---------------------------------------------------
 BLOCK="$(awk '/^_vdep_rc=0$/ { f=1 } f { print } f && /^DEPLOYED=1/ { exit }' tools/release.sh)"
@@ -73,7 +76,9 @@ run_step8() { # vercel_rc pass_on [served sha] -> prints the block's output, the
     REPO="$FR"; SITE="$T/site"; V=9.9.9; POINTER_FILE=latest-staging.json; SETUP_FILE=setup-staging
     _site_export="$T/export"; DEPLOYED=0
     export KOSMOS_DEPLOY_LANDED_TRIES=3 KOSMOS_DEPLOY_LANDED_WAIT_S=0
+    HOST=https://stub.example; rm -f "$T/curl.urls"
     eval "$BLOCK"
+    [ ! -f "$T/curl.urls" ] || sort -u "$T/curl.urls" > "$T/step8.urls"
     echo "DEPLOYED=$DEPLOYED"
   )
 }
@@ -81,7 +86,8 @@ run_step8() { # vercel_rc pass_on [served sha] -> prints the block's output, the
 out="$(run_step8 1 2)"; rc=$?
 case "$out" in *"THE DEPLOY LANDED"*"DEPLOYED=1") ok "CLI failed, deploy landed on the 2nd check: continues to DEPLOYED=1 (rc=$rc)" ;; *) bad "landed: rc=$rc out=$out" ;; esac
 [ "$rc" = 0 ] || bad "landed: the block should finish 0, got $rc"
-[ "$(cat "$T/step8count.env")" = "latest-staging.json setup-staging" ] && ok "the verifier is asked about this cut's channel (latest-staging.json, setup-staging)" || bad "verifier env: $(cat "$T/step8count.env")"
+[ "$(cat "$T/step8.urls")" = "https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "release.sh asks the own-build check on HOST for this cut's tarball .sha256" || bad "step 8 fetched: $(cat "$T/step8.urls" 2>/dev/null)"
+[ "$(cat "$T/step8count.env")" = "latest-staging.json setup-staging https://stub.example" ] && ok "the verifier is asked about this cut's channel (latest-staging.json, setup-staging) on the SAME host as the own-build check" || bad "verifier env: $(cat "$T/step8count.env")"
 
 out="$(run_step8 1 1 bbb222)"; rc=$?
 [ "$rc" = 1 ] && ok "an EARLIER attempt's 9.9.9 build is served and passes the verifier: NOT this deploy, so it fails as before" || bad "earlier attempt: rc=$rc"

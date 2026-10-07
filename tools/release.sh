@@ -1604,14 +1604,15 @@ if [ "$_vdep_rc" != 0 ]; then
   # 6 min, plus each check's own fetches). DEPLOYED stays unset until it passes, so a deploy that is
   # not seen landing still gets the trap's restore and tarball cleanup, exactly as before.
   echo "   vercel deploy exited $_vdep_rc; checking whether the deploy landed anyway before calling it a failure (#5471)"
+  _landed_host="${HOST:-https://installkosmos.com}"   # one host for both checks, passed explicitly
   _deploy_landed_check() {
-    site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz" \
-      && env KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"
+    site_deploy_serves_this_build "$_landed_host" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz" \
+      && env HOST="$_landed_host" KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"
   }
   if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" _deploy_landed_check; then
     echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served host carries this cut's $V build. Continuing as a successful deploy (#5471)."
   else
-    echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after ${KOSMOS_DEPLOY_LANDED_TRIES:-24} checks. It may still land: before any revert or re-cut, read the served dist/$POINTER_FILE and re-hash dist/kosmos-$V-arm64.tar.gz against it."
+    echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after ${KOSMOS_DEPLOY_LANDED_TRIES:-24} checks. It may still land: before any revert or re-cut, read the served dist/$POINTER_FILE and re-hash dist/kosmos-$V-arm64.tar.gz against it. (This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; a late landing serves the uploaded copy.)"
     exit "$_vdep_rc"
   fi
 fi

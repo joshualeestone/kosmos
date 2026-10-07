@@ -239,7 +239,7 @@ site_deploy_landed() {   # <tries> <wait_s> <verify command...>
   case "$wait_s" in ''|*[!0-9]*) echo "   site_deploy_landed: wait_s must be a whole number of seconds, got '$wait_s'" >&2; return 1 ;; esac
   for i in $(seq 1 "$tries"); do
     if "$@"; then return 0; fi
-    [ "$i" -lt "$tries" ] && { echo "   (#5471: not served yet, check $i of $tries; waiting ${wait_s}s)"; sleep "$wait_s"; }
+    if [ "$i" -lt "$tries" ]; then echo "   (#5471: not served yet, check $i of $tries; waiting ${wait_s}s)"; sleep "$wait_s"; fi
   done
   return 1
 }
