@@ -123,3 +123,22 @@ test('#5435 review 3: read, vote and follow say a switch file cannot be read, no
     assert.match((await read.read({})).because, /switched off on this board/, 'CONTROL: a switch turned off says so');
   } finally { cs.setSwitch(null); }
 });
+
+test('#5435 review 6: willSend and a release end the period the moment the switch is unreadable, not at the next sweep', () => {
+  fresh();
+  const since = '2026-01-01T00:00:00.000Z';
+  const put = () => { fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true }); fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n'); };
+  const kept = () => JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since;
+  try {
+    put();
+    cs.setSwitch(() => ({ on: true, ok: true }));
+    cs.willSend('ava', Date.now(), 'post');
+    assert.equal(kept(), since, 'CONTROL: on, willSend keeps the period');
+    cs.setSwitch(() => ({ on: false, ok: false }));
+    assert.equal(cs.willSend('ava', Date.now(), 'post').why, 'records');
+    assert.equal(kept(), undefined, 'willSend left the period open, so a repair before the sweep could send what was made now');
+    put();
+    assert.equal(cs.recordPeriodStart(), false);
+    assert.equal(kept(), undefined, 'a release while the switch is unreadable left the period open');
+  } finally { cs.setSwitch(null); }
+});

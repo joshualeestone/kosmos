@@ -228,8 +228,9 @@ let switchRead = null;          // tests inject
 function switchOn() {
   return switchState() === 'on';
 }
-/* #5435 review 1: 'on', 'off', or 'unreadable' (the person's switch file cannot be read: not the person switching it off,
-   so willSend does not say so). Every reader other than willSend keeps treating 'unreadable' as off. */
+/* #5435: 'on', 'off', or 'unreadable' (the person's switch file cannot be read: not the person switching it off). Sending
+   treats 'unreadable' as off everywhere (switchOn; the sweep and willSend end the period for it); only the WORDS differ
+   (willSend's reason, notOnWords, communitystatus). */
 function switchState() {
   let state;
   try {
@@ -2099,7 +2100,12 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
   const no = (why) => ({ sends: false, later: false, why });
   const sw = switchState();
-  if (sw === 'unreadable') return no('records');   // review 1: a torn switch file is a record, not the person's choice
+  if (sw === 'unreadable') {   // review 1: a torn switch file is a record, not the person's choice
+    // Review 6: and the period ends NOW, before the item is stored, as the next sweep would end it: a repair before that
+    // sweep must not send what was made while the pages showed OFF.
+    try { endOnPeriodNow(); } catch { /* the sweep ends it */ }
+    return no('records');
+  }
   if (sw !== 'on') return no('off');
   if (!endpointAllowed()) return no('address');
   const st = loadJson(stateFile());
@@ -2161,6 +2167,9 @@ function notSendingWords(kind, why) {
  * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
  */
 function recordPeriodStart() {
+  // #5435 review 6: a release while the switch cannot be read (the pages show OFF) ends the period NOW, as the next
+  // sweep would, so a repair before that sweep cannot send what was released meanwhile.
+  if (switchState() === 'unreadable') { try { endOnPeriodNow(); } catch { /* the sweep ends it */ } return false; }
   if (!switchOn() || !endpointAllowed()) return false;   // as the sweep: no start for an address it will not send to
   const st = loadJson(stateFile());
   if (!st) return false;

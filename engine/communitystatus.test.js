@@ -136,14 +136,27 @@ test('#5435 review 2: a switch file that cannot be read is not "switched off": s
     assert.equal(stateOfTitle('ava', 'Torn switch'), 'unreadable');
     // Review 5: once the sweep has ended the period (it does for an unreadable switch), it will not go, in neutral words.
     writeJson(cs._paths.stateFile(), {});
-    assert.equal(stateOfTitle('ava', 'Torn switch'), 'not_sent');
-    assert.doesNotMatch(status.statusText('ava').text, /switched off/);
+    assert.equal(stateOfTitle('ava', 'Torn switch'), 'switch_unreadable');
+    assert.doesNotMatch(status.statusText('ava').text, /switched off|was not sending to the community when it was made/);
+    assert.match(status.statusText('ava').text, /could not read this board's community switch/);
     writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
     assert.doesNotMatch(status.statusText('ava').text, /not sending to the community right now|switched off/);
   } finally { cs.setSwitch(() => ({ ok: true, on: switchOn })); }
   switchOn = false;
   try { assert.equal(stateOfTitle('ava', 'Torn switch'), 'paused', 'CONTROL: a switch the person turned off still says so'); }
   finally { switchOn = true; }
+});
+
+test('#5435 review 6: with an address Kosmos does not send to and no start, a post says it was not sent, never "switched off"', () => {
+  post('ava', 'Bad address');
+  writeJson(cs._paths.stateFile(), {});
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://example.com';
+    assert.equal(stateOfTitle('ava', 'Bad address'), 'not_sent');
+    assert.doesNotMatch(status.statusText('ava').text, /switched off/);
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
+  assert.equal(stateOfTitle('ava', 'Bad address'), 'before_on', 'CONTROL: a good address with no start is before the period');
 });
 
 test('review 2: switched off with the ON period still recorded (ending it is best effort), an unsent post waits; it is never "post it again"', () => {

@@ -56,6 +56,9 @@ const POST_WORDS = Object.freeze({
   agent_refused: 'not sent: the community has refused this agent, so nothing it writes is sent',
   deleted: 'removed from the community by your person',
   not_sent: 'not sent: Kosmos was not sending to the community when it was made, and it will not go',
+  // #5435 review 6: the period ended because the switch file could not be read (the pages showed OFF), not because the
+  // person turned it off; it may have been made while Kosmos was sending.
+  switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can post it again',
   held: 'held for your person to look at; it goes out only if they release it',
   // Review 5: this row stays listed for good, so the words cannot simply say "post it again": a later look, after a
   // repost already went, would invite a second copy.
@@ -114,11 +117,15 @@ function stateOf(kind, rec, item, ctx) {
   // Review 2: unless the period's start is still recorded (ending it is best effort): then it goes if sending resumes
   // first, so it is waiting, never "post it again". (#5435: the sweep ends it for an unreadable switch too.)
   // #5435: a switch file that cannot be read is not the person turning Community off, so its words are not the switch's.
-  // Inside the period (the sweep has not yet ended it) it cannot say; otherwise it will not go (`not_sent`, neutral).
-  if (ctx.switchUnreadable) return ctx.since && madeAt(item) >= ctx.since ? 'unreadable' : 'not_sent';
+  // Inside the period (nothing has ended it yet) it cannot say; once ended, it will not go (review 6: words of its own,
+  // since it may have been made while Kosmos WAS sending).
+  if (ctx.switchUnreadable) return ctx.since && madeAt(item) >= ctx.since ? 'unreadable' : 'switch_unreadable';
   if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : 'before_on';
   // The sweep sends only items made at or after the ON period's recorded start (`since`). The post and comment routes
   // record it before they store, so an item with no start before it was made before the person turned it on.
+  // #5435 review 6: an address Kosmos does not send to records no start at all, so the item was not made "before the
+  // person turned it on": say it was not sending, as the post command did, never "switched off".
+  if (!ctx.since && !ctx.addressOk) return 'not_sent';
   if (!ctx.since || madeAt(item) < ctx.since) return 'before_on';
   if (!ctx.addressOk) return 'address_refused';   // the sweep sends nothing to an address that is not https (or local)
   // Review 2: from the key itself, so a post the sweep has not met yet, and every comment, read it too (#4800).

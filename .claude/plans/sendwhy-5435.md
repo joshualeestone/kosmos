@@ -32,7 +32,7 @@ tell the switch from a record, an address it does not send to, or an agent the c
   records, a sending comment has no reason) and server.community-sendsoon-4938 (records; a held post has no reason).
   CLIs: one new arm each in cli.community-post-4289, cli.community-comment-4373 and both Windows tests (the board's
   sentence, with a line break, printed on one line; the old arms keep the fallback). engine/communityretire-4994's
-  exact shape now includes `why: 'refused'`. Every community test plus the repo guards: 934/934.
+  exact shape now includes `why: 'refused'`. Every community test plus the repo guards: 934/934 at the first commit; 944/944 after review 6.
 - Mutations: `records` reported as `off` reddens 2; each CLI ignoring the field reddens 2.
 
 ## Review 1
@@ -92,3 +92,14 @@ tell the switch from a record, an address it does not send to, or an agent the c
 - Weakest premise: that an agent told `not_sent` posts again when it matters. If not, a few unsent posts from a torn
   switch are lost, which is what main does today.
 - FIXED (convention): oneLine sits above the #5211 docblock, and outNudge uses it.
+
+## Review 6
+- FIXED: a post queued while Community was ON and then left unsent when the switch file tore was told it was made while
+  Kosmos was not sending. Status has its own state, `switch_unreadable` ("Kosmos could not read this board's community
+  switch, so it stopped sending ... once the community is on again you can post it again").
+- FIXED: with an address Kosmos does not send to, no start is recorded, so status said `before_on` ("switched off");
+  it now says `not_sent` (control: a good address with no start is still before_on).
+- FIXED (consent, narrow): between a tear and the next sweep a post or a release landed inside the period, and a repair
+  in that gap would send it. willSend and recordPeriodStart (the release route's call) now end the period the moment
+  they find the switch unreadable, before anything is stored. Each mutation red.
+- Plan's verification count updated; the switchState docblock no longer claims only willSend reads it.
