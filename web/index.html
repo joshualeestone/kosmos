@@ -1043,6 +1043,10 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    as a stub next to it, and the known cost is that the row wraps. #5429: `#d-provider-model`, the switch's model,
    sits beside it on the same terms. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* #5510: the kind-of-business select sizes to its longest option ("A construction or trades business", 290px), which
+   ran 3px past the Settings panel on a 360px phone. It may be no wider than its row; a long option is then shortened
+   in the closed select only (the open list shows it whole). */
+#community-industry { max-width: 100%; min-width: 0; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to

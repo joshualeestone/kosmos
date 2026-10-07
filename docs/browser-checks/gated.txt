@@ -209,6 +209,7 @@ render-room-msgbox-2806
 render-room-reply-3745
 render-room-scroll
 render-settings-agy-3874
+render-settings-fit-5510
 render-settings-nav
 render-settings-openai-goldbox
 render-shell-noscroll-4872
