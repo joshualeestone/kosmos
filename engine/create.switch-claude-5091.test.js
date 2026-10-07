@@ -62,7 +62,7 @@ const store = require('./store');
 const accounts = require('./accounts');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it reads CLAUDE_CONFIG_DIR from the plist; on Linux it is the unit's Environment= line: linuxjob.test.js (readUnitJob, rewriteAgentJob on Linux)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
 
 const plistText = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
 const configDirOf = (name) => { const m = plistText(name).match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/); return m ? m[1] : null; };

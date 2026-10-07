@@ -21,7 +21,7 @@
 const test = require('node:test');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it fakes launchd's list and print-disabled; Linux reads systemctl list-units and list-unit-files: engine/linux-parity-5445.test.js (#5445, PR #5469)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
