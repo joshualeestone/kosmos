@@ -7738,7 +7738,7 @@ html.has-voice .micbtn.has-pill { display: none; }
 .voice-pill > .vp-x { padding: 0 6px 0 12px; border-radius: 999px 0 0 999px; font-size: 1rem; opacity: .75; }
 .voice-pill > .vp-go { padding: 0 14px 0 8px; border-radius: 0 999px 999px 0; }
 .voice-pill > button:hover { opacity: 1; text-decoration: underline; }
-.voice-pill > button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.voice-pill > button:focus-visible { outline: 2px solid var(--k-bg); outline-offset: -4px; }   /* inside the pill, in the page colour: an ink ring would vanish against it */
 .asp-in .voice-pill, .micwrap > .voice-pill { height: 28px; }
 .micwrap > .voice-pill { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; z-index: 1; }   /* where the field's mic sat */
 .micwrap.line > .voice-pill { top: 50%; right: 8px; transform: translateY(-50%); }
@@ -65518,10 +65518,11 @@ const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
 const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '', alert: null, keys: [], watch: 0 };
 /* A restart waiting for the page to show (see voiceOnEvent's "allowed"): bounded, because the app's own visit is, and
    dropped by a new start (the pill, and its X, are already gone by then). */
-const VOICE_SETTINGS_WAIT = { once: null };
+const VOICE_SETTINGS_WAIT = { once: null, timer: 0 };
 const VOICE_SETTINGS_WAIT_MS = 60000;
 function voiceSettingsClear() {
   if (VOICE_SETTINGS_WAIT.once) { document.removeEventListener('visibilitychange', VOICE_SETTINGS_WAIT.once); VOICE_SETTINGS_WAIT.once = null; }
+  if (VOICE_SETTINGS_WAIT.timer) { clearTimeout(VOICE_SETTINGS_WAIT.timer); VOICE_SETTINGS_WAIT.timer = 0; }
   document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
   document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
   if (VOICE_SETTINGS.watch) clearInterval(VOICE_SETTINGS.watch);
@@ -65609,6 +65610,10 @@ function voiceOnEvent(ev) {
     };
     VOICE_SETTINGS_WAIT.once = once;
     document.addEventListener('visibilitychange', once);
+    VOICE_SETTINGS_WAIT.timer = setTimeout(() => {   // a page that never shows again does not keep the wait
+      if (VOICE_SETTINGS_WAIT.once === once) { document.removeEventListener('visibilitychange', once); VOICE_SETTINGS_WAIT.once = null; }
+      VOICE_SETTINGS_WAIT.timer = 0;
+    }, VOICE_SETTINGS_WAIT_MS);
     return;
   }
   // back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
