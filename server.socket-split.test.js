@@ -173,7 +173,7 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
   }
 });
 
-test('#668 control: the same agent with a parked job keeps the plain not-running verdict', () => {
+test('#668 control: the same agent with a parked job keeps the plain not-running verdict', LINUX_LAUNCHD, () => {   // #5432: a control for the tests skipped above; alone on Linux it proves nothing
   const status = boardWithUnseenAgent('PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n');
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row, 'the agent fell out of the roster entirely');
