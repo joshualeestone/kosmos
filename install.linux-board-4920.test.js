@@ -305,7 +305,7 @@ test('#4920 uninstall: an install from a release before linuxboard.js has its sh
   fs.symlinkSync(path.join(w.unitDir, name), path.join(w.unitDir, 'default.target.wants', name));
   const r = runBlock(UNINSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /removing the systemd service an earlier Kosmos made/);
+  assert.match(r.stdout, /removing the systemd service for the board/);
   assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'the legacy unit was left behind');
   let gone = false; try { fs.lstatSync(path.join(w.unitDir, 'default.target.wants', name)); } catch { gone = true; }
   assert.ok(gone, 'the legacy enable link was left behind');
@@ -372,4 +372,26 @@ test('#4920 uninstall: an older install on a box without systemctl says systemct
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /systemctl is not available/);
   assert.doesNotMatch(r.stdout, /app code or runtime is missing/);
+});
+
+test('#4920 uninstall: linuxboard present but its node gone (system node uninstalled) still removes the unit', () => {
+  const w = world({ app: false, legacy: true });
+  fs.mkdirSync(path.join(w.home, 'app', 'engine'), { recursive: true });
+  fs.writeFileSync(path.join(w.home, 'app', 'engine', 'linuxboard.js'), '');   // present; runtime/bin/node is not
+  const name = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  fs.writeFileSync(path.join(w.unitDir, name), '[Service]\n');
+  const r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /systemctl is not available/, 'said systemctl is missing while it is there');
+  assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'the unit was left behind');
+  assert.match(w.systemctlLog(), new RegExp('--user stop ' + name.replace(/\./g, '\\.')));
+});
+
+test('#4920 install: linger off says a board systemd runs stops at logout; one setup.sh started, only after a restart', () => {
+  let w = world({ nodeOut: 'held not lingering' });
+  let r = runBlock(INSTALL_BLOCK, w);
+  assert.match(r.stdout, /linger is off for [^,]+, so it stops when you log out\./, 'held: ' + r.stdout);
+  w = world({ nodeOut: 'loose not lingering' });
+  r = runBlock(INSTALL_BLOCK, w);
+  assert.match(r.stdout, /so after a restart it stops when you log out\./, 'loose: ' + r.stdout);
 });

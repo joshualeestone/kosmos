@@ -202,6 +202,7 @@ _kosmos_linux_unit_killmode() {
   [ "$(uname -s)" = "Linux" ] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
   if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then return 0; fi
+  [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"   # su or cron
   _lk_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
   _lk_file="$_lk_dir/$(_kosmos_linux_unit_name)"
   [ -f "$_lk_file" ] || return 0
@@ -1473,15 +1474,16 @@ if (!r || !r.ok) {
 BOARDEOF
 )" || _lb_rc=$?
       [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: ${_lb_out:-its removal step did not run ($KOSMOS_HOME/runtime/bin/node)}"
-    elif [ -f "$KOSMOS_HOME/app/server.js" ] && [ ! -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && command -v systemctl >/dev/null 2>&1; then
-      # An install from a release before linuxboard.js (#4918) has the shell-written unit that release made, named by
-      # its own rule: the default home gives kosmos-board.service, any other the sha256 of KOSMOS_HOME as typed, first
-      # 8 hex. That rule is what wrote those files, so it is the one that removes them; without this, the app folder is
-      # deleted below and that unit (Restart=always) retries a missing folder every 5 seconds, at every boot.
+    elif [ -f "$KOSMOS_HOME/app/server.js" ] && command -v systemctl >/dev/null 2>&1; then
+      # The app is here but its linuxboard cannot run: an install from a release before linuxboard.js (#4918), whose
+      # shell-written unit carries the old name rule, or one whose runtime/bin/node is gone (on Linux it links the system
+      # node, which can be uninstalled). The shell rule gives the same name as linuxboard for every home setup.sh
+      # accepts (_kosmos_linux_unit_name), so remove the unit by it; otherwise the app folder is deleted below and the
+      # unit retries a missing folder every 5 seconds, at every boot.
       _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
       _lb_name="$(_kosmos_linux_unit_name)"
       if [ -f "$_lb_dir/$_lb_name" ]; then
-        info "removing the systemd service an earlier Kosmos made for the board"
+        info "removing the systemd service for the board"
         systemctl --user stop "$_lb_name" 2>/dev/null || true
         systemctl --user disable "$_lb_name" 2>/dev/null || true
         rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
@@ -4178,6 +4180,7 @@ BOARDEOF
             _lb_handoff=failed
           fi ;;
       esac
+      _lb_state="${_lb_out%% *}"
       _lb_out="${_lb_out#* }"
     fi
     if [ "$_lb_rc" -ne 0 ]; then
@@ -4189,7 +4192,9 @@ BOARDEOF
       [ "$_lb_handoff" = failed ] || info "Kosmos will start itself when this computer starts"
     else
       if [ "$_lb_handoff" = failed ]; then _lb_now="Kosmos"; else _lb_now="Kosmos is running now and"; fi
-      info "$_lb_now will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so after a restart it stops when you log out. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
+      # A board systemd runs (held) stops at the next logout; one setup.sh started (loose) survives it until a restart.
+      case "${_lb_state:-}" in held*) _lb_when="it stops when you log out" ;; *) _lb_when="after a restart it stops when you log out" ;; esac
+      info "$_lb_now will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so $_lb_when. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
     fi
   fi
   ok
