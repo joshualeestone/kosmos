@@ -252,7 +252,9 @@ function plan(name, opts) {
      nothing to move and `path` stays null -- `del` below removes it through
      `win32job` instead. `label` is what a person would recognise in Task
      Scheduler, the same role the launchd label plays. */
-  const jobPath = platform === 'win32' ? null : create.plistPath(clean);
+  const jobPath = platform === 'win32'
+    ? null
+    : (platform === 'linux' ? require('./linuxjob').unitPath(clean) : create.plistPath(clean));
   let folder = null;
   let lst = null;
   try { lst = fs.lstatSync(folderPath); } catch { lst = null; }
@@ -282,7 +284,15 @@ function plan(name, opts) {
     }
     if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
   } else if (fs.existsSync(jobPath)) {
-    job = { path: jobPath, label: create.serviceLabel(clean), trash: trashCanTake(jobPath) };
+    const isLinux = platform === 'linux';
+    job = {
+      path: jobPath,
+      label: isLinux ? require('./linuxjob').unitName(clean) : create.serviceLabel(clean),
+      /* #4918 review 1: a systemd unit is deleted by linuxjob.remove, never moved to the Trash, so the Trash promise
+         is never made for it. */
+      trash: isLinux ? false : trashCanTake(jobPath),
+      ...(isLinux ? { unit: true } : {}),
+    };
   }
   if (!folder && !job) {
     return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
@@ -350,7 +360,7 @@ function plan(name, opts) {
     folder: folder && { path: folder.path, files: folder.files, bytes: folder.bytes, newest: folder.newest, capped: folder.capped, git: folder.git },
     /* `task` travels so `del` knows whether to move a file or unregister a job;
        `path` is null on win32 and every reader of it must check. */
-    job: job && { path: job.path, label: job.label, ...(jobIsTask ? { task: true } : {}) },
+    job: job && { path: job.path, label: job.label, ...(jobIsTask ? { task: true } : {}), ...(job.unit ? { unit: true } : {}) },
     question,
     reassurance,
     loses,
@@ -425,6 +435,19 @@ function del(name, opts) {
     let out;
     try { out = require('./win32job').remove(p.name); }
     catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }
+    if (out && out.ok) { gone.push(what); steps.push({ step: what, ok: true }); }
+    else { stuck.push(what); steps.push({ step: what, ok: false, because: (out && out.because) || 'no reason given' }); }
+  } else if (p.job && p.job.unit) {
+    const what = 'its startup job';
+    let out;
+    try {
+      // { ok } only when the unit file is gone (#4918 review 1); through this module's run() seam (review 7).
+      const lj = require('./linuxjob');
+      lj.ensureRuntimeDir();
+      out = lj.runWith((file, args) => run(file, args), () => lj.remove(p.name));
+    } catch (err) {
+      out = { ok: false, because: String((err && err.message) || err) };
+    }
     if (out && out.ok) { gone.push(what); steps.push({ step: what, ok: true }); }
     else { stuck.push(what); steps.push({ step: what, ok: false, because: (out && out.because) || 'no reason given' }); }
   } else if (p.job) {

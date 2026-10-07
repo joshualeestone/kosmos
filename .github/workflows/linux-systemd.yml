@@ -1,0 +1,89 @@
+name: linux-systemd
+
+# #4918: the live systemd keep-alive check on ubuntu-latest. Runs on main and on PRs that touch what it tests.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "engine/linux*.js"
+      - "engine/boardrestart.js"
+      - "engine/create.js"
+      - "engine/remove.js"
+      - "engine/delete-leftover.js"
+      - "engine/launchidentity.js"
+      - "engine/accountenv.js"
+      - "engine/live-execution.js"
+      - "engine/worldstarts.js"
+      - "engine/register.js"
+      - "engine/status.js"
+      - "engine/*linux*.test.js"
+      - "tools/test-board-*.sh"
+      - "install/kosmos"
+      - "bin/agent-supervisor.sh"
+      - "tools/test-linux-systemd-live-4918.sh"
+      - "tools/test-board-supervised-linux-4918.sh"
+      - ".github/workflows/linux-systemd.yml"
+  pull_request:
+    paths:
+      - "engine/linux*.js"
+      - "engine/boardrestart.js"
+      - "engine/create.js"
+      - "engine/remove.js"
+      - "engine/delete-leftover.js"
+      - "engine/launchidentity.js"
+      - "engine/accountenv.js"
+      - "engine/live-execution.js"
+      - "engine/worldstarts.js"
+      - "engine/register.js"
+      - "engine/status.js"
+      - "engine/*linux*.test.js"
+      - "tools/test-board-*.sh"
+      - "install/kosmos"
+      - "bin/agent-supervisor.sh"
+      - "tools/test-linux-systemd-live-4918.sh"
+      - "tools/test-board-supervised-linux-4918.sh"
+      - ".github/workflows/linux-systemd.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-systemd-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  systemd-keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: install tmux and systemd tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tmux systemd libpam-systemd >/dev/null
+          tmux -V
+      - name: enable linger and setup user session
+        run: |
+          sudo loginctl enable-linger "$USER"
+          U="$(id -u)"
+          export XDG_RUNTIME_DIR="/run/user/$U"
+          echo "XDG_RUNTIME_DIR=/run/user/$U" >> "$GITHUB_ENV"
+          sudo mkdir -p "$XDG_RUNTIME_DIR"
+          sudo chown "$U:$U" "$XDG_RUNTIME_DIR"
+          sudo chmod 700 "$XDG_RUNTIME_DIR"
+          for i in $(seq 1 15); do
+            if systemctl --user is-system-running >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          echo "systemctl --user status: $(systemctl --user is-system-running 2>&1 || true)"
+      - name: run unit test suite
+        run: |
+          node --test engine/linuxjob.test.js engine/linuxboard.test.js engine/boardrestart.linux-4918.test.js engine/create.tmux-linux-4917.test.js engine/linuxwiring-4918.test.js engine/create.linux-4918.test.js
+          bash tools/test-board-supervised-detect-2956.sh
+          bash tools/test-board-supervised-linux-4918.sh
+          bash tools/test-board-foreground-2956.sh
+      - name: run live systemd user unit integration tests
+        run: |
+          bash tools/test-linux-systemd-live-4918.sh

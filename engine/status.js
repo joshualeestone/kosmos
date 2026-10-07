@@ -5841,7 +5841,9 @@ function readCodexSession(agentName) {
 function withoutModelFromBeforeJob(sess, agentName) {
   if (!sess || !sess.found || !sess.model || !sess.file || process.platform === 'win32') return sess;
   try {
-    const jobAt = fs.statSync(require('./create').plistPath(agentName)).mtimeMs;
+    // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
+    const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName) : require('./create').plistPath(agentName);
+    const jobAt = fs.statSync(jobFile).mtimeMs;
     const rolloutAt = fs.statSync(sess.file).mtimeMs;
     if (jobAt > rolloutAt) return { ...sess, model: null };
   } catch { /* a stat that fails changes nothing */ }
