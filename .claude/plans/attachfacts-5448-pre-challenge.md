@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: attachfacts-5448
-diff_hash: 3ffc2919ad4c881b283f637ce7596018b94f6a94d26ca13684dadbb7c6c1fa6d
-validation: passed (Mortals full suite at 8a71853b4, 2026-10-07 02:01 CDT: node 16093 tests, 15861 pass, 0 fail, 0 cancelled, every shell script green; the 17 #5448 tests ran; run_or_skip then skipped on that clean entry for this hash)
+diff_hash: 6fab0fcb954c0357cd087558e33610bec69a22c430064dbb65b462036704b896
+validation: passed (Mortals full suite at 8a71853b4 before the rebase, 2026-10-07 02:01 CDT: node 16093 tests, 0 fail, 0 cancelled, every shell script green, the 17 #5448 tests ran. Rebased onto main f443ad947 at 03:05 CDT; one conflict, tools/windows-tests.js HOST_BRANCH_EXCLUDED, resolved as a union with main's communitysend entry. On the rebased tree: attachments + attachments.facts-5448 + windows-tests-1777 47/47, server.test.js attachments 3/3; no test main added since the base reads the trailer. The PR's CI tests the merged tree before merge)
 subdir_audit: passed
-timestamp: 2026-10-07T07:01:43Z
+timestamp: 2026-10-07T08:06:00Z
 iterations: 7
 converged: true
 ---
