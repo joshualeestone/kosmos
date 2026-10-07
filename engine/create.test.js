@@ -264,8 +264,6 @@ const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl pri
   + 'such sweep (it refuses an already-loaded or orphan unit instead), so there is no Linux equivalent to test';
 const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job (plist, launchctl, the launchd runner seam); Linux runs a systemd user unit: '
   + 'create.linux-4918.test.js (create, already-loaded, orphan unit), linuxjob.test.js (unit text, lifecycle) and linuxwiring-4918.test.js. Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
-const LINUX_LAUNCHD_FAIL_WHY = 'it simulates a failed start or write through launchctl answers; Linux failed starts and roll backs: '
-  + 'create.linux-4918.test.js (a refused start, bus unreachable, a value a unit cannot hold) and linuxjob.test.js (failed reload or enable). Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
 const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; Linux rewrites the unit: linuxjob.test.js '
   + '(rewriteAgentJob on Linux). That tests the Linux rewrite in general, NOT this test one for one (no Linux test calls the '
   + 'switch itself); Linux ports are tracked on #5500';
