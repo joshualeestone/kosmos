@@ -64,6 +64,10 @@ function boardWithStrays() {
   // The stray job: our label namespace, and NO profile.
   fs.writeFileSync(nodePath.join(launch, 'com.kosmos.agent.strayjob.plist'),
     create.plistFor('strayjob', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
+  // #5445: and its Linux form, a systemd user unit where a sandboxed board keeps them (AGENT_WORKFORCE_LAUNCH/systemd/
+  // user), so the Linux sweep, which reads units and not plists, finds the same stray. Each platform reads only its own.
+  fs.mkdirSync(nodePath.join(launch, 'systemd', 'user'), { recursive: true });
+  fs.writeFileSync(nodePath.join(launch, 'systemd', 'user', 'kosmos-agent-strayjob.service'), '[Unit]\nDescription=Kosmos agent strayjob\n');
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
