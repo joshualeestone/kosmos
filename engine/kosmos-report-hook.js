@@ -117,6 +117,8 @@ function reportFor(evt, ctx) {
     }
     case 'PermissionRequest': {
       const tool = field(evt, 'tool_name') || 'a tool';
+      // #5495: Kosmos's own allow hook answered this request, so no prompt shows and the agent goes on: say so.
+      if (c.kosmosAllows) return { ...base, state: 'working', text: 'running ' + tool };
       const cmd = field(evt, 'tool_input.command').slice(0, 200);
       return { ...base, state: 'needs_you', text: 'asking permission to use ' + tool + (cmd ? ': ' + cmd : '') };
     }
@@ -131,6 +133,20 @@ function reportFor(evt, ctx) {
     default:
       return null;
   }
+}
+
+/**
+ * #5495: true when this agent runs with Kosmos's own PermissionRequest allow hook (its settings file sets the env name,
+ * engine/agentpermission.js) AND that hook's decide() allows this request, so no prompt will show. Asks this install's
+ * own copy of decide(), never a path from the environment. Any failure reads as false: the report says needs-you, as
+ * before #5495, which can be briefly wrong but never hides a real prompt.
+ */
+function kosmosAllows(input, env) {
+  try {
+    const ap = require('./agentpermission');
+    if (!env || !env[ap.ENV_SCRIPT]) return false;
+    return Boolean(require('./kosmos-permission-allow').decide(input));
+  } catch { return false; }
 }
 
 /** The /api/report body, matching the CLI's POST exactly. */
@@ -322,7 +338,7 @@ async function main(io) {
     resetMark(ctx);
   }
 
-  const report = reportFor(evt, { heartbeatDue: due });
+  const report = reportFor(evt, { heartbeatDue: due, kosmosAllows: event === 'PermissionRequest' && kosmosAllows(o.input, env) });
   if (!report) return 0;
 
   const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
@@ -399,7 +415,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main,
+  attachStdin, main, kosmosAllows,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 

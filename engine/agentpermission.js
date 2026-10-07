@@ -42,11 +42,21 @@ function hookEntry(opts) {
   return { matcher: '', hooks: [{ type: 'command', command: '"' + node + '" "' + script + '"', timeout: 15 }] };
 }
 
-/** The file's text: one PermissionRequest hook, nothing else (no permission rules, no other settings). */
+/* #5495: the report hook (install/kosmos-report-hook.sh, engine/kosmos-report-hook.js) also fires on every
+   PermissionRequest and would show the agent as "needs you" for a request this hook has just allowed. Claude Code hands
+   a settings file's `env` to its hook processes (measured, 2.1.293), so these two names tell the report hook that THIS
+   agent runs with Kosmos's allow hook and where it is; the report hook then asks the same decide() and, for a request it
+   allows, reports working instead. Set only through this file, so an agent launched without it reports as before. */
+const ENV_NODE = 'KOSMOS_PERMISSION_ALLOW_NODE';
+const ENV_SCRIPT = 'KOSMOS_PERMISSION_ALLOW_SCRIPT';
+
+/** The file's text: one PermissionRequest hook and the two env names above (no permission rules, no other settings). */
 function settingsText(opts) {
   const entry = hookEntry(opts);
   if (!entry) return null;
-  return JSON.stringify({ hooks: { PermissionRequest: [entry] } }, null, 2) + '\n';
+  const o = opts || {};
+  const env = { [ENV_NODE]: o.node || process.execPath, [ENV_SCRIPT]: o.script || HOOK_SCRIPT };
+  return JSON.stringify({ env, hooks: { PermissionRequest: [entry] } }, null, 2) + '\n';
 }
 
 /**
@@ -70,4 +80,4 @@ function ensureSettings(opts) {
   } catch { return null; }
 }
 
-module.exports = { MARKER, HOOK_SCRIPT, settingsPath, hookEntry, settingsText, ensureSettings };
+module.exports = { MARKER, HOOK_SCRIPT, ENV_NODE, ENV_SCRIPT, settingsPath, hookEntry, settingsText, ensureSettings };
