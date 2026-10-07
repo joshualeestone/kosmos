@@ -57,6 +57,7 @@ function boardWithStoppedAgent({ job, named = true }) {
     const create = require(${JSON.stringify(nodePath.join(REPO, 'engine', 'create.js'))});
     // launchd faked at the run() seam: the job is parked (no pid), and no
     // probe touches the launchd of the machine running this suite.
+    create.setProbePlatformForTests('darwin');   // #5445: launchd's arm on any runner (a Linux one asks systemctl)
     create.setRunner((file, args) => {
       if (/launchctl$/.test(String(file)) && args && args[0] === 'list') {
         return { ok: true, stdout: 'PID\\tStatus\\tLabel\\n-\\t0\\tcom.kosmos.agent.quiet\\n' };

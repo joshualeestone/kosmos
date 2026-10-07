@@ -51,8 +51,13 @@ reached through the platform and runner seams), and the Linux lane (linux.yml) s
 
 ## Linux lane
 The disabled/running probes now pick their platform; tests written for launchd that pass none would take the systemd
-arm on the Linux runner. The ones found (create.test.js, world-guard-lift-1704, machine.agentAutostartCheck) now pass
-'darwin'; the lane run of this branch is compared, file by file, with the lane run of B's head (6a819cbde).
+arm on the Linux runner. Direct callers in tests (create.test.js, world-guard-lift-1704) pass 'darwin';
+machine.agentAutostartCheck passes the platform it was asked about; board tests on a launchctl fake
+(server.world-offline-rows-1704, server.world-switch-agents-1704, server.offline-nextmove, server.socket-split) pin
+'darwin' with create.setProbePlatformForTests (found by a sweep for every test faking launchctl list/print-disabled).
+The lane run of this branch is compared, file by file, with the lane run of B's head (6a819cbde).
+- The masked sentence quotes the unit name (a named Kosmos's \x2b escape survives a paste) and says the agent is set up
+  again after unmasking (unmasking removes the link and leaves no unit).
 
 ## Weakest premise
 That the escaped unit name round-trips for every launch key Kosmos makes (named worlds carry "+", written as \x2b).
