@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: failover-5382
-diff_hash: e1f89523ea2aef0f07e6d55dc57233cd11700dcc2971e3b45437a519cb6d7cb3
-validation: pending (the first full run at 246842fff failed only fixture-discipline on one hand-built roster in this branch's own test; fixed; full suite and FULL browser checks requeued)
+diff_hash: 61c1c10570a5d48c6458cf9c978683d9f9ad7cdf6ce9c8c53b8627d1f52d0bec
+validation: passed (Mortals full suite at b56915c63, hash 61c1c10570a5, EXIT=0 06:45; FULL browser checks all page checks passed 05:04, run started after HEAD was b56915c63)
 subdir_audit: passed
-timestamp: 2026-10-06T14:45:15Z
-iterations: 16
+timestamp: 2026-10-07T04:06:54Z
+iterations: 20
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 16 (1 to 5 a non-blind self-review by a forked copy of the author, disclosed; 6 to 16 blind, opus, fresh agents)
-**Converged:** Yes, at iteration 16 (no BLOCKER or WARNING)
+**Iterations:** 20 (1 to 5 a non-blind self-review by a forked copy of the author, disclosed; 6 to 16 blind, opus, fresh agents; 17 to 20 blind after merging main, Opus and Sonnet alternating)
+**Converged:** Yes, at iteration 16 (no BLOCKER or WARNING), and again at iteration 20 after merging main (NITs only)
 **Total findings:** 3 BLOCKERs, 22 WARNINGs, 30+ NITs
 **Fixed:** every BLOCKER and WARNING | **Deferred:** NITs below, each recorded | **Asked (awaiting user):** 0
 
@@ -86,3 +86,17 @@ Every guard added in iterations 6 to 15 was mutation-checked: removing it reds i
 - [NIT] switching the Assigner off resets the limit clocks --> ACCEPTED (a person's own action; recorded)
 - [NIT] the tell names the new holder by session key --> ACCEPTED (the agent resolves it; recorded)
 - [NIT] a receiver's provider may itself be about to limit --> ACCEPTED (needs two limits at once; recorded)
+
+### After merging main (#4588 ask 3, the Gemini subscription cap)
+
+- Main moved 175 commits and conflicted in engine/agyquota.js and server.js. Merged at d3ac60480 as unions.
+- [WARNING] Merge review (iteration 17): a take-back that threw kept a Gemini cap slot; no test covered the cap on the
+  failover path. FIXED (release first, both take-backs guarded; server.assigner-failover-cap-5382.test.js).
+- [WARNING] Iteration 18: the slot freed on a refused failover was untested; the take-back to the source dropped a
+  built mark set in flight. FIXED (test added; `keepBuilt` on assignPart).
+- [WARNING] Iteration 19: the told and carry-on lines named the holder by session key; review 15's fromName fix was
+  unguarded; the slot leaked when the give's own write threw (also on main). FIXED, each pinned and mutation red.
+- [NIT] Iteration 20 (Sonnet): NITs only (resumePending ignores the quota-hold brake, with no effect beyond one tick of
+  ordering; the carry-on wording; the tell wiring pinned by source only, as the plan states). CONVERGED.
+- After the full validation at 699301322 failed on fixture-discipline (hand-built roster rows in the post-merge tests),
+  the tests took real fleet cards (b56915c63); the full suite and FULL browser checks then passed.
