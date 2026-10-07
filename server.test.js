@@ -3104,7 +3104,7 @@ test('the create route answers a real creation with the record the screen is bui
     // And the files are really there, in the sandbox this file sets up.
     assert.ok(fs.existsSync(create.instructionFile('route-made')), 'no instruction file was written');
     assert.ok(fs.existsSync(create.supervisorPath()), 'the shared supervisor was not installed');
-    assert.ok(fs.existsSync(jobfix.jobPath('route-made')), 'no launchd job was written');
+    assert.ok(fs.existsSync(jobfix.jobPath('route-made')), 'no startup job was written');
   } finally {
     create.setRunner(null);
     status.setPaneSource(null);
@@ -4901,7 +4901,7 @@ test('a half-finished removal answers 200, because it is a state and not an erro
   fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
-  // bootout refuses: disabled but not stopped, which is a partial.
+  // the stop refuses (bootout on macOS; on Linux the stub's systemctl answer): disabled but not stopped, a partial.
   removal.setRunner((file, args) => (args && args[0] === 'bootout'
     ? { ok: false, code: 2 }
     : { ok: true, stdout: '' }));
