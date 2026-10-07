@@ -339,7 +339,7 @@ const CASES = [
     chk(lined(now), '5443: on desktop the two cards share both edges (one column)', JSON.stringify(now));
     // The login card is the narrower one, so it is the one stretched: its close X keeps its own 8px padding from the
     // right edge, and Refresh login sits just before the X, not where the words end.
-    chk(!!now && now.xGap <= 12 && now.goToX !== null && now.goToX >= 0 && now.goToX <= 12,
+    chk(!!now && now.xGap <= 12 && now.goToX !== null && now.goToX >= 0 && now.goToX <= 16,
       '5443: the stretched login card keeps Refresh login and its close X at its right edge', JSON.stringify(now));
     const box = await pg.$('#topnotes');
     if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-two-notices-5443.png') });
@@ -349,10 +349,11 @@ const CASES = [
     chk(!!centred && Math.abs((centred.abort[1] - centred.abort[0]) - (centred.login[1] - centred.login[0])) >= 8,
       '5443: CONTROL: centred instead, the same two cards are different widths (so the line-up above is the rule, not the text)', JSON.stringify(centred));
     await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = ''; });
-    // CONTROL for the right edge: stretched, but the words not taking the spare width, the X sits mid-card.
+    // CONTROL for the right edge: stretched, but the words not taking the spare width, the X moves in by the card's
+    // spare width (since #5407 the login card carries Refresh login, so it is only about 20px narrower than the column).
     await pg.addStyleTag({ content: '#login-adv-slot .utoast .utxt { flex: 0 1 auto !important; }' });
     const packed = await edges();
-    chk(!!packed && packed.xGap > 40, '5443: CONTROL: stretched with the words not growing, the X is far from the right edge', JSON.stringify(packed));
+    chk(!!packed && !!now && packed.xGap >= now.xGap + 15, '5443: CONTROL: stretched with the words not growing, the X moves in from the right edge', JSON.stringify(packed));
     await pg.evaluate(() => { const st = [...document.querySelectorAll('style')].pop(); if (st && /flex: 0 1 auto !important/.test(st.textContent)) st.remove(); });
 
     // On a phone the stack is capped at the header's width; the same two cards still share both edges.
