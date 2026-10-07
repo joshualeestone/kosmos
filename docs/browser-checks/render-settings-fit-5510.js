@@ -65,7 +65,8 @@ const measure = (pg) => pg.evaluate(() => {
   const panel = s.closest('.panel');
   const r = s.getBoundingClientRect(), pr = panel.getBoundingClientRect(), pcs = getComputedStyle(panel);
   const row = s.parentElement.getBoundingClientRect();
-  const intrinsic = (() => { const c = s.cloneNode(true); c.style.cssText = 'position:absolute;visibility:hidden;max-width:none;min-width:0;width:auto'; document.body.appendChild(c); const w = c.getBoundingClientRect().width; c.remove(); return w; })();
+  // Its own width, measured on a clone beside it (so the rules scoped to where it sits apply), with no cap.
+  const intrinsic = (() => { const c = s.cloneNode(true); c.removeAttribute('id'); c.style.cssText = 'position:absolute;visibility:hidden;max-width:none;min-width:0;width:auto'; s.after(c); const w = c.getBoundingClientRect().width; c.remove(); return w; })();
   return { shown: s.getClientRects().length > 0, right: Math.round(r.right), inner: Math.round(pr.right - parseFloat(pcs.paddingRight)),
     width: Math.round(r.width), row: Math.round(row.width), intrinsic: Math.round(intrinsic), sideways: panel.scrollWidth > panel.clientWidth };
 });
