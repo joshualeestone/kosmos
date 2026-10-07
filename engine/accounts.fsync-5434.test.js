@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const claude = require('./claudeaccounts');
 const grok = require('./grokaccounts');
 const gemini = require('./geminiaccounts');
@@ -67,7 +68,9 @@ for (const [name, mod] of [['claude', claude], ['grok', grok], ['gemini', gemini
     mod.storeKey(dir, 'sk-kept');
     const base = mod.keyFile(dir) + '.kosmos-';
     const dead = base + DEAD_PID + '-t0-1-1.tmp';      // a writer that died between create and rename
-    const live = base + process.ppid + '-t0-1-1.tmp';  // a live foreign writer (our parent): never taken
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    t.after(() => child.kill());
+    const live = base + child.pid + '-t0-1-1.tmp';     // a live foreign writer (a child we hold open): never taken
     fs.writeFileSync(dead, 'raw-key', { mode: 0o600 });
     fs.writeFileSync(live, 'raw-key', { mode: 0o600 });
     assert.equal(mod.forgetKey(dir), true);

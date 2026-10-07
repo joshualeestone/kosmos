@@ -106,7 +106,12 @@ const { threadId: THREAD } = require('node:worker_threads');
    in-flight temp - the race the glob would have created.
 
    📌 The unique name makes a leftover inert meanwhile: nothing ever asks for that
-   name again, so it is a disclosure question and never a correctness one. */
+   name again, so it is a disclosure question and never a correctness one.
+
+   #5434 slice 2: `reapDeadTempsOf(file)` applies the same predicate to ONE file's temps on
+   every call, for a caller deleting that file (the provider account stores' forgetKey), so
+   there a dead writer's temp no longer outlives the forget. The "NO CODE PATH" above is
+   history for those callers; a temp whose dead writer's pid is now reused is still left. */
 
 /* 🔑 pid ALONE IS NOT ENOUGH AND THIS REPO HAS PAID FOR LEARNING IT TWICE.
    `trust.js` documents it at its own `tempPath`: a process that dies between
@@ -140,6 +145,7 @@ const reapedDirs = new Set();
  * A process that dies between `openSync(tmp,'wx')` and `renameSync(tmp,file)` leaves
  * a `<file>.kosmos-<pid>-<started>-<seq>.tmp` holding the secret, which `forget()`
  * never removes - so a stale token outlives its own revoke, re-connect and uninstall.
+ * (The account stores' forgetKey now reaps them too, via reapDeadTempsOf, #5434.)
  *
  * ✅ SAFE BECAUSE IT DELETES ONLY A TEMP IT CAN PROVE IS DEAD, never one that might
  * still be renamed into place. A temp is reaped iff:
