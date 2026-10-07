@@ -25,6 +25,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -41,6 +42,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
@@ -83,15 +87,15 @@ openaiAccounts.writeName(CODEX_NAMED_DIR, 'Design Team');
 function bornClaude(name, configDir) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, configDir, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, configDir, 'claude'), 'utf8');
   return name;
 }
 function bornCodex(name, configDir) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, configDir, 'codex'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, configDir, 'codex'), 'utf8');
   return name;
 }
 bornClaude('leadagent', LEAD_DIR);

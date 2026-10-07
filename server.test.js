@@ -67,6 +67,7 @@
 //      asymmetry is worth knowing before adding a test that writes.
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');
 const { mkTemp } = require('./test-support/tmpdir.js');
@@ -126,6 +127,9 @@ function seedTranscript(name, model) {
 // LaunchAgents`, and it would then start an agent on their next login. The
 // sandbox has to be in place before the hazard arrives, not after.
 process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-srv-launch-');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 // ⚠️ AND THE PROJECTS ROOT (round 37), for the same reason as LAUNCH above:
 // this server now requires `engine/projects`, whose root defaults to
 // `~/Kosmos/Projects` and whose create path calls `makeFolder` -- a real
@@ -1775,11 +1779,11 @@ test('#4446: the instructions read carries personal: null, then { tool } once a 
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'The agent\'s own instructions.');
   // A Claude launch job for the default account, so the route has a runner and a home to check.
-  fs.writeFileSync(create.plistPath(plain), create.plistFor(plain, '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(plain), jobfix.jobFor(plain, '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
   const personal = nodePath.join(require('./engine/accounts').homeDir(), '.claude', 'CLAUDE.md');
   assert.ok(!fs.existsSync(personal), 'the sandbox home must start without a personal file: ' + personal);
   t.after(() => {
-    fs.rmSync(create.plistPath(plain), { force: true });
+    fs.rmSync(jobfix.jobPath(plain), { force: true });
     fs.rmSync(personal, { force: true });
   });
 
@@ -1933,8 +1937,8 @@ test('an untied card carries no commitments and no boot-file hash of the name it
   // machine — an unset AGENT_WORKFORCE_LAUNCH would have turned the cleanup
   // below into removing its real job. The gate under test does not care what
   // the name is, only that a pane borrowed it.
-  fs.writeFileSync(create.plistPath('fixtureborrowed'),
-    create.plistFor('fixtureborrowed', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath('fixtureborrowed'),
+    jobfix.jobFor('fixtureborrowed', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
   assert.equal(create.plannedModelArg('fixtureborrowed'), 'claude-opus-5',
     'the fixture job does not carry a model, so the gate assertion below would '
     + 'pass whether or not the gate exists');
@@ -1985,7 +1989,7 @@ test('an untied card carries no commitments and no boot-file hash of the name it
     status.setPaneCapture(null);
     // The sandbox is shared across this file, so the fixture job must not
     // outlive the test that needed it.
-    fs.rmSync(create.plistPath('fixtureborrowed'), { force: true });
+    fs.rmSync(jobfix.jobPath('fixtureborrowed'), { force: true });
   }
 });
 
@@ -2031,8 +2035,8 @@ test('a tied card reports the model its job will start it on, and only when no l
   const create = require('./engine/create');
   // ⚠️ A fixture name no real agent has — see the note in the gate test above.
   // This one writes and deletes a launchd job.
-  fs.writeFileSync(create.plistPath('fixturetied'),
-    create.plistFor('fixturetied', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath('fixturetied'),
+    jobfix.jobFor('fixturetied', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
   // `-discord` is what ties a pane to the name: the same suffix `isNamedOurs`
   // requires before this server will read anything filed under it.
   status.setPaneSource(() => fleet.line({ session: 'fixturetied-discord', title: 'fixturetied' }));
@@ -2056,7 +2060,7 @@ test('a tied card reports the model its job will start it on, and only when no l
   } finally {
     status.setPaneSource(null);
     status.setPaneCapture(null);
-    fs.rmSync(create.plistPath('fixturetied'), { force: true });
+    fs.rmSync(jobfix.jobPath('fixturetied'), { force: true });
   }
 });
 
@@ -3097,7 +3101,7 @@ test('the create route answers a real creation with the record the screen is bui
     // And the files are really there, in the sandbox this file sets up.
     assert.ok(fs.existsSync(create.instructionFile('route-made')), 'no instruction file was written');
     assert.ok(fs.existsSync(create.supervisorPath()), 'the shared supervisor was not installed');
-    assert.ok(fs.existsSync(create.plistPath('route-made')), 'no launchd job was written');
+    assert.ok(fs.existsSync(jobfix.jobPath('route-made')), 'no launchd job was written');
   } finally {
     create.setRunner(null);
     status.setPaneSource(null);
@@ -4425,7 +4429,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
   const foreignName = 'route-foreign';
   fs.mkdirSync(create.workerDir(foreignName), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(foreignName), 'CLAUDE.md'), 'You are **Foreign**.\n', 'utf8');
-  const foreignPlist = nodePath.join(nodePath.dirname(create.plistPath(foreignName)), `com.${foreignName}.discord.plist`);
+  const foreignPlist = nodePath.join(nodePath.dirname(jobfix.jobPath(foreignName)), `com.${foreignName}.discord.plist`);
   fs.writeFileSync(foreignPlist, '<plist/>', 'utf8');
 
   const foreign = await req(`/api/agent/${foreignName}/removal`);
@@ -4505,7 +4509,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
     // ⚠️ REMOVE IS NOT DELETE, asserted at the route rather than only in the
     // engine: this is the layer the browser reaches, and a route that passed a
     // wipe flag through would satisfy every engine test.
-    assert.ok(fs.existsSync(create.plistPath('route-removable')), 'the route deleted the startup job');
+    assert.ok(fs.existsSync(jobfix.jobPath('route-removable')), 'the route deleted the startup job');
     assert.ok(fs.existsSync(create.instructionFile('route-removable')),
       "the route deleted the agent's instructions");
 
@@ -4684,10 +4688,10 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Gone**.\n', 'utf8');
   const acctDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-acct-2615-'));
-  const plistDir = nodePath.dirname(create.plistPath(name));
+  const plistDir = nodePath.dirname(jobfix.jobPath(name));
   fs.mkdirSync(plistDir, { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, '/bin/echo', '/bin/echo', null, acctDir, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, '/bin/echo', '/bin/echo', null, acctDir, 'claude'), 'utf8');
   // CONTROL: the fixture must actually name the account dir, or this arm tests
   // a plist the predicate cannot read and passes for the wrong reason.
   assert.equal(create.readJob(name).configDir, acctDir,
@@ -4717,7 +4721,7 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
     removal.setRunner(null);
     status.setPaneSource(null);
     status.setPaneCapture(null);
-    try { fs.rmSync(create.plistPath(name), { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(jobfix.jobPath(name), { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(acctDir, { recursive: true, force: true }); } catch { /* best effort */ }
     try { fs.rmSync(removal.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
   }
@@ -4741,9 +4745,9 @@ test('the removed list gives the browser only what it draws', async () => {
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Payload**.\n', 'utf8');
   // A startup job on disk, or there is no label and no plist to withhold and
   // the control below would be true of nothing.
-  const plistDir = nodePath.dirname(create.plistPath(name));
+  const plistDir = nodePath.dirname(jobfix.jobPath(name));
   fs.mkdirSync(plistDir, { recursive: true });
-  fs.writeFileSync(create.plistPath(name), '<plist/>', 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
   // ⚠️ `has-session` must answer "gone" (exit 1) or the look-again after the
@@ -4890,8 +4894,8 @@ test('a half-finished removal answers 200, because it is a state and not an erro
   const name = 'partial-status';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Partial**.\n', 'utf8');
-  fs.mkdirSync(nodePath.dirname(create.plistPath(name)), { recursive: true });
-  fs.writeFileSync(create.plistPath(name), '<plist/>', 'utf8');
+  fs.mkdirSync(nodePath.dirname(jobfix.jobPath(name)), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
   // bootout refuses: disabled but not stopped, which is a partial.
@@ -5232,7 +5236,7 @@ test('an agent whose card shows a different name than its session still leaves t
   fs.mkdirSync(create.workerDir(session), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(session), 'CLAUDE.md'),
     'You are **Bartholomew**.\n', 'utf8');
-  fs.writeFileSync(nodePath.join(nodePath.dirname(create.plistPath(session)), `com.${session}.discord.plist`), '<plist/>', 'utf8');
+  fs.writeFileSync(nodePath.join(nodePath.dirname(jobfix.jobPath(session)), `com.${session}.discord.plist`), '<plist/>', 'utf8');
   // The `-discord` session is how a real legacy agent appears: the board files
   // it under the bare name and reads its display name from its instructions.
   /**
@@ -5314,8 +5318,8 @@ test('a half-removed agent is on the removed list AND still on the board', async
   const name = 'half-visible';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Half**.\n', 'utf8');
-  fs.mkdirSync(nodePath.dirname(create.plistPath(name)), { recursive: true });
-  fs.writeFileSync(create.plistPath(name), '<plist/>', 'utf8');
+  fs.mkdirSync(nodePath.dirname(jobfix.jobPath(name)), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
   // `bootout` refuses: disabled, but not stopped. The half-removal.
@@ -9476,8 +9480,8 @@ test('a stopped agent with a readable model still gets the model its job will st
   const create = require('./engine/create');
   // The JOB says Opus; the TRANSCRIPT says Haiku. Two readings that disagree,
   // which is the only shape that can tell the two branches apart.
-  fs.writeFileSync(create.plistPath('fixturestopped'),
-    create.plistFor('fixturestopped', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath('fixturestopped'),
+    jobfix.jobFor('fixturestopped', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
   seedTranscript('fixturestopped', 'claude-haiku-4-5');
   // A pane whose Claude process is gone: `classify` returns STOPPED, and the
   // transcript (if any) is what it RAN as.
@@ -9506,7 +9510,7 @@ test('a stopped agent with a readable model still gets the model its job will st
   } finally {
     status.setPaneSource(null);
     status.setPaneCapture(null);
-    fs.rmSync(create.plistPath('fixturestopped'), { force: true });
+    fs.rmSync(jobfix.jobPath('fixturestopped'), { force: true });
   }
 });
 
@@ -12745,11 +12749,11 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        where the guard fires, the delete would still have run against the
        operator's real ~/Library/LaunchAgents. Latent rather than live (no
        collision exists), but the guard has to cover both or it covers neither. */
-    fixtureJob = create.plistPath('acctworker');
+    fixtureJob = jobfix.jobPath('acctworker');
     assert.ok(fixtureJob.startsWith(process.env.AGENT_WORKFORCE_LAUNCH || '\u0000'),
       'the launchd sandbox is unset, so writing this fixture job would touch the real fleet');
     fs.writeFileSync(fixtureJob,
-      create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
+      jobfix.jobFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
         '/Users/agent1/.claude-account-x'), 'utf8');
     const recorded = [{ dir: '/Users/agent1/.claude-account-x', email: 'recorded@example.com', label: 'X', isDefault: false }];
     const noLive = whoamiFor(card, recorded, { ok: false, because: 'no pane on this computer' });
@@ -12774,7 +12778,7 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     const accForDefault = require('./engine/accounts');
     const defDir = require('node:path').join(accForDefault.HOME_FOR_TEST, '.claude');
     fs.writeFileSync(fixtureJob,
-      create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, defDir), 'utf8');
+      jobfix.jobFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, defDir), 'utf8');
     const viaRecord = whoamiFor(card, [], { ok: false, because: 'no pane' });
     const viaLive = whoamiFor(card, [], { ok: true, account: null, model: null, configDir: defDir });
     assert.equal(viaRecord.account.isDefault, true,
@@ -12907,7 +12911,7 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        so the old assertion was structurally incapable of detecting the thing its
        own message named. */
     fs.writeFileSync(fixtureJob,
-      create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
+      jobfix.jobFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
         '/Users/agent1/.claude-account-x'), 'utf8');
     const knownAcct = whoamiFor(card, recorded, { ok: false, because: 'no pane' });
     assert.match(sentenceForWhoami(knownAcct.account, knownAcct.model), /^This agent runs on recorded@example\.com/,
@@ -13209,8 +13213,8 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
 
     /* Now give it a REAL codex launch job, written by the product. */
     fs.writeFileSync(
-      create.plistPath('jobcodex'),
-      create.plistFor('jobcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
+      jobfix.jobPath('jobcodex'),
+      jobfix.jobFor('jobcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
       'utf8',
     );
     assert.equal(create.readJob('jobcodex').runner, 'codex',
@@ -13224,14 +13228,14 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
        With the plist deleted, a plain job read knows nothing and the stale model
        returns; the canonical reader still answers from the profile's provider,
        which is exactly why it is the right reader and not merely the tidier one. */
-    fs.unlinkSync(create.plistPath('jobcodex'));
+    fs.unlinkSync(jobfix.jobPath('jobcodex'));
     assert.equal(create.readJob('jobcodex'), null, 'the plist survived the unlink, so the arm is not about the profile');
     require('./engine/store').writeProfile('jobcodex', { provider: 'openai' });
     const viaProfile = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
     assert.equal(viaProfile.model, null,
       'with no launch job, the profile provider was ignored and the stale Claude model came back');
   } finally {
-    try { fs.unlinkSync(create.plistPath('jobcodex')); } catch { /* the test may have failed before writing it */ }
+    try { fs.unlinkSync(jobfix.jobPath('jobcodex')); } catch { /* the test may have failed before writing it */ }
     /* The profile record too. `store.PROFILES` is a GETTER that answers the
        CURRENT environment (#1443), and this file sets `AGENT_WORKFORCE_DATA`
        before requiring store, so it resolves inside the sandbox. */
@@ -13275,14 +13279,14 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
     subscription.checkLive = async () => ({ state: subscription.STATE.NONE, plan: null });
 
     /* NAMED codex account: a real row, so the no-account return never catches it. */
-    fs.writeFileSync(create.plistPath('namedcodex'),
-      create.plistFor('namedcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('namedcodex'),
+      jobfix.jobFor('namedcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'), 'utf8');
     assert.equal(create.readJob('namedcodex').configDir, '/Users/x/.codex-work2',
       'the named fixture lost its account dir, so it is not the shape this arm is about');
 
     /* DEFAULT codex account: NO CODEX_HOME, so accountForAgent returns null. */
-    fs.writeFileSync(create.plistPath('defcodex2'),
-      create.plistFor('defcodex2', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('defcodex2'),
+      jobfix.jobFor('defcodex2', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
     assert.equal(create.readJob('defcodex2').configDir, null,
       'the default fixture carries a dir, so it is not the default-row shape');
 
@@ -13321,8 +13325,8 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
 
     /* CONTROL: a CLAUDE agent still gets the real probe, so the guard is scoped
        and has not simply disabled this route. The stub makes it answer NONE. */
-    fs.writeFileSync(create.plistPath('plainclaude'),
-      create.plistFor('plainclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('plainclaude'),
+      jobfix.jobFor('plainclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''), 'utf8');
     const c = await req('/api/agent/plainclaude/account-status');
     const cout = JSON.parse(c.body);
     assert.equal(cout.state, subscription.STATE.NONE,
@@ -13331,7 +13335,7 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
   } finally {
     subscription.checkLive = realCheckLive;
     for (const n of ['namedcodex', 'defcodex2', 'plainclaude']) {
-      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+      try { fs.unlinkSync(jobfix.jobPath(n)); } catch { /* may not have been written */ }
     }
     fleet.restore();
   }
@@ -13365,19 +13369,19 @@ test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s accoun
     ];
     // A real Claude default row beside the keyed defaults: the dir-less Claude agent must take THIS one.
     accounts.list = () => [{ dir: '/Users/x/.claude', label: null, isDefault: true, email: 'c@example.com' }];
-    fs.writeFileSync(create.plistPath('gemnamed'),
-      create.plistFor('gemnamed', '/opt/homebrew/bin/gemini', '/opt/homebrew/bin/tmux', null, '/Users/x/.gemini-b', 'gemini'), 'utf8');
-    fs.writeFileSync(create.plistPath('grokdef'),
-      create.plistFor('grokdef', '/opt/homebrew/bin/grok', '/opt/homebrew/bin/tmux', null, null, 'grok'), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('gemnamed'),
+      jobfix.jobFor('gemnamed', '/opt/homebrew/bin/gemini', '/opt/homebrew/bin/tmux', null, '/Users/x/.gemini-b', 'gemini'), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('grokdef'),
+      jobfix.jobFor('grokdef', '/opt/homebrew/bin/grok', '/opt/homebrew/bin/tmux', null, null, 'grok'), 'utf8');
     assert.equal(create.readJob('gemnamed').runner, 'gemini', 'the gemini fixture lost its runner');
     assert.equal(create.readJob('grokdef').configDir, null, 'the grok fixture carries a dir, so it is not the default shape');
-    fs.writeFileSync(create.plistPath('plainclaude3'),
-      create.plistFor('plainclaude3', '/opt/homebrew/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'claude'), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('plainclaude3'),
+      jobfix.jobFor('plainclaude3', '/opt/homebrew/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'claude'), 'utf8');
     assert.equal(create.readJob('plainclaude3').configDir, null, 'the claude fixture carries a dir, so it is not the dir-less default shape');
     // A dir-less CODEX agent: OpenAI's list is not in /api/status, so with Claude, Gemini and Grok defaults all in
     // the list it must get NONE of them. This one exercises accountForAgent's provider gate directly.
-    fs.writeFileSync(create.plistPath('defcodex5'),
-      create.plistFor('defcodex5', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    fs.writeFileSync(jobfix.jobPath('defcodex5'),
+      jobfix.jobFor('defcodex5', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
     const board = await req('/api/status');
     if (!board.type.includes('application/json')) { t.skip('the status engine did not return a board on this machine'); return; }
     const agents = JSON.parse(board.body).agents || [];
@@ -13405,7 +13409,7 @@ test('#5150: /api/status gives a Gemini or Grok agent its own provider\'s accoun
     grokAccounts.list = realGrok;
     accounts.list = realClaude;
     for (const n of ['gemnamed', 'grokdef', 'plainclaude3', 'defcodex5']) {
-      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+      try { fs.unlinkSync(jobfix.jobPath(n)); } catch { /* may not have been written */ }
     }
     fleet.restore();
   }
@@ -13433,8 +13437,8 @@ test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude acc
     /* A real DEFAULT-row codex job: runner codex, and NO account dir, which is
        exactly what create.js writes for the default OpenAI row. */
     fs.writeFileSync(
-      create.plistPath('defcodex'),
-      create.plistFor('defcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'),
+      jobfix.jobPath('defcodex'),
+      jobfix.jobFor('defcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'),
       'utf8',
     );
     const job = create.readJob('defcodex');
@@ -13456,8 +13460,8 @@ test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude acc
     /* CONTROL 2: a CLAUDE agent on the default row still gets the Claude account,
        which is the behaviour every existing caller depends on. */
     fs.writeFileSync(
-      create.plistPath('defclaude'),
-      create.plistFor('defclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, ''),
+      jobfix.jobPath('defclaude'),
+      jobfix.jobFor('defclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, ''),
       'utf8',
     );
     const cacct = accountForAgent('defclaude', claudeRows);
@@ -13488,7 +13492,7 @@ test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude acc
       'CONTROL: the email pattern cannot fire at all, so the doesNotMatch above is vacuous');
   } finally {
     for (const n of ['defcodex', 'defclaude']) {
-      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+      try { fs.unlinkSync(jobfix.jobPath(n)); } catch { /* may not have been written */ }
     }
     fleet.restore();
   }
@@ -13514,8 +13518,8 @@ test('#2811: the RECORD account path does not score a codex dir as a non-default
 
     /* A REAL codex launch job, written by the product's own writer. */
     fs.writeFileSync(
-      create.plistPath('acctcodex'),
-      create.plistFor('acctcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'),
+      jobfix.jobPath('acctcodex'),
+      jobfix.jobFor('acctcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'),
       'utf8',
     );
     const job = create.readJob('acctcodex');
@@ -13530,8 +13534,8 @@ test('#2811: the RECORD account path does not score a codex dir as a non-default
     /* CONTROL: a CLAUDE record still gets a real boolean, so the guard is not a
        blanket null that would silently remove the answer for every agent. */
     fs.writeFileSync(
-      create.plistPath('acctclaude'),
-      create.plistFor('acctclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''),
+      jobfix.jobPath('acctclaude'),
+      jobfix.jobFor('acctclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''),
       'utf8',
     );
     const claudeAcct = accountForAgent('acctclaude', []);
@@ -13539,7 +13543,7 @@ test('#2811: the RECORD account path does not score a codex dir as a non-default
       'the claude record path lost its real isDefault answer');
   } finally {
     for (const n of ['acctcodex', 'acctclaude']) {
-      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+      try { fs.unlinkSync(jobfix.jobPath(n)); } catch { /* may not have been written */ }
     }
     fleet.restore();
   }
@@ -13672,8 +13676,8 @@ test('#2811: an UNRECORDED runner marker does not read as claude when the job sa
 
     /* Now a REAL codex launch job. The plist is definitive; the marker is not. */
     fs.writeFileSync(
-      create.plistPath('lostmarker'),
-      create.plistFor('lostmarker', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
+      jobfix.jobPath('lostmarker'),
+      jobfix.jobFor('lostmarker', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
       'utf8',
     );
     const after = whoamiFor(card, [], { ok: false, because: 'no pane' });
@@ -13682,7 +13686,7 @@ test('#2811: an UNRECORDED runner marker does not read as claude when the job sa
     assert.equal(after.model, null,
       'the Codex agent was handed its old Claude transcript model');
   } finally {
-    try { fs.unlinkSync(create.plistPath('lostmarker')); } catch { /* may not have been written */ }
+    try { fs.unlinkSync(jobfix.jobPath('lostmarker')); } catch { /* may not have been written */ }
     fleet.restore();
   }
 });
@@ -13953,12 +13957,12 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
        `sentinel@example.com` can come back is if the list the route fetched was
        actually HANDED to `accountForAgent`. A call that fetches and discards
        satisfies the call-count assertion above and cannot produce this. */
-    const jobPath = create.plistPath('acctworker');
+    const jobPath = jobfix.jobPath('acctworker');
     assert.ok(jobPath.startsWith(process.env.AGENT_WORKFORCE_LAUNCH || '\u0000'),
       'the launchd sandbox is unset, so this fixture would touch the real fleet');
     try {
       fs.writeFileSync(jobPath,
-        create.plistFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, '/sentinel-dir'), 'utf8');
+        jobfix.jobFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, '/sentinel-dir'), 'utf8');
       const r2 = await req('/api/whoami', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -15178,8 +15182,8 @@ test('#2811: a PANELESS codex agent carries runner "codex" on the board, so the 
   const made = [];
   const seed = (name, runner) => {
     fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
-    fsX.writeFileSync(create.plistPath(name),
-      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
+    fsX.writeFileSync(jobfix.jobPath(name),
+      jobfix.jobFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
     store.writeProfile(name, { provider: runner === 'codex' ? 'openai' : 'anthropic' });
     made.push(name);
     return name;
@@ -15207,7 +15211,7 @@ test('#2811: a PANELESS codex agent carries runner "codex" on the board, so the 
       'the runner fallback answered codex for a CLAUDE agent, so it is not reading the record');
   } finally {
     status.setCreatedSource(null);
-    for (const n of made) { try { fsX.unlinkSync(create.plistPath(n)); } catch { /* may not exist */ } }
+    for (const n of made) { try { fsX.unlinkSync(jobfix.jobPath(n)); } catch { /* may not exist */ } }
   }
 });
 
@@ -15235,8 +15239,8 @@ test('#2811: the OFFLINE row and the PANELESS row answer the runner the SAME way
   try {
     fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
     // The DISAGREEING state, written with the product's own writer: plist codex...
-    fsX.writeFileSync(create.plistPath(name),
-      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    fsX.writeFileSync(jobfix.jobPath(name),
+      jobfix.jobFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
     // ...profile still anthropic, which is what a best-effort profile write leaves.
     store.writeProfile(name, { provider: 'anthropic' });
 
@@ -15256,7 +15260,7 @@ test('#2811: the OFFLINE row and the PANELESS row answer the runner the SAME way
     assert.equal(row.runner, 'codex',
       'the OFFLINE row read the profile instead of the record, so it disagrees with the paneless row about the same agent');
   } finally {
-    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+    try { fsX.unlinkSync(jobfix.jobPath(name)); } catch { /* may not exist */ }
   }
 });
 
@@ -15287,7 +15291,7 @@ test('#2811: a paneless row for an agent this Mac has NO record of keeps runner 
     /* THE FIXTURE'S OWN CONTROL: the arm is only meaningful if this Mac really
        holds nothing under that name. Assert the absence rather than assume it. */
     assert.equal(create.readJob(unknown), null, 'this Mac holds a launch job for the "unknown" name, so the arm measures nothing');
-    assert.equal(fsX.existsSync(create.plistPath(unknown)), false, 'a plist exists for the "unknown" name, so the arm measures nothing');
+    assert.equal(fsX.existsSync(jobfix.jobPath(unknown)), false, 'a plist exists for the "unknown" name, so the arm measures nothing');
 
     status.setCreatedSource(() => [unknown]);
     const body = JSON.parse((await req('/api/status')).body);
@@ -15432,8 +15436,8 @@ test('#2811: the account NAME survives the route, not just the sentence function
       'the fixture sidecar is not readable by readName, so this arm measures nothing');
 
     fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
-    fsX.writeFileSync(create.plistPath(name),
-      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, dir, 'codex'), 'utf8');
+    fsX.writeFileSync(jobfix.jobPath(name),
+      jobfix.jobFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, dir, 'codex'), 'utf8');
     store.writeProfile(name, { provider: 'openai' });
 
     board = fleet.install([fleet.agent(name, { state: 'unknown', runner: 'codex' })]);
@@ -15448,7 +15452,7 @@ test('#2811: the account NAME survives the route, not just the sentence function
       'the route dropped the account name between accountForAgent and its answer, so the sentence can never say it');
   } finally {
     if (board) board.restore();
-    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+    try { fsX.unlinkSync(jobfix.jobPath(name)); } catch { /* may not exist */ }
     try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
@@ -15650,8 +15654,8 @@ test('#2811: a LIVE pane marker beats the record on the board row, so a mid-swit
   try {
     /* The RECORD says codex... */
     fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
-    fsX.writeFileSync(create.plistPath(name),
-      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    fsX.writeFileSync(jobfix.jobPath(name),
+      jobfix.jobFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
     store.writeProfile(name, { provider: 'openai' });
 
     /* ...while the LIVE pane marker still says claude, which is the state a
@@ -15673,7 +15677,7 @@ test('#2811: a LIVE pane marker beats the record on the board row, so a mid-swit
       'the board took the RECORD over the live pane marker, so an agent mid-switch is renamed before it restarts');
   } finally {
     if (board) board.restore();
-    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+    try { fsX.unlinkSync(jobfix.jobPath(name)); } catch { /* may not exist */ }
   }
 });
 
