@@ -2936,7 +2936,8 @@ test('#5419 review 1: musl detection, every branch (report with glibc, report wi
   const none = () => false;
   assert.equal(connect.detectMusl({ platform: 'darwin', report: { header: {} }, exists: () => true }), false, 'off Linux, never musl');
   assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.35' } }, exists: () => true }), false, 'glibc named: glibc');
-  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: none }), true, 'a readable report with no glibc: musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: (f) => f === '/lib/ld-musl-aarch64.so.1' }), true, 'no glibc in the report and musl\'s loader: musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: none }), false, 'review 3: no glibc field but no musl loader either: glibc, not a guess at musl');
   assert.equal(connect.detectMusl({ platform: 'linux', report: () => { throw new Error('no report'); }, exists: (f) => f === '/lib/ld-musl-x86_64.so.1' }), true, 'no report: musl\'s loader decides');
   assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: none }), false, 'no report, no musl loader: glibc');
 });
@@ -2959,7 +2960,8 @@ test('#5419 review 2: the tmux default is the Mac\'s Homebrew path only on a Mac
   const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
   delete process.env.AGENT_WORKFORCE_TMUX_BIN;
   try {
-    assert.equal(connect.tmuxBinPath('linux'), 'tmux');
+    // review 3: create's Linux picker, one derivation (PATH plus the usual folders), then the bare name.
+    assert.equal(connect.tmuxBinPath('linux'), require('./create').linuxTmuxBin('linux') || 'tmux');
     assert.equal(connect.tmuxBinPath('darwin'), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
     process.env.AGENT_WORKFORCE_TMUX_BIN = '/x/tmux';
     assert.equal(connect.tmuxBinPath('linux'), '/x/tmux', 'the launcher\'s pick wins');

@@ -172,7 +172,12 @@ function claudeBinPath() {
 function tmuxBinPath(platform = process.platform) {
   /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick, so this default is for a board started some
      other way. Homebrew's path is the Mac's; elsewhere the tmux on PATH (run() resolves a bare name). */
-  return process.env.AGENT_WORKFORCE_TMUX_BIN || (platform === 'darwin' ? '/opt/homebrew/bin/tmux' : 'tmux');
+  if (process.env.AGENT_WORKFORCE_TMUX_BIN) return process.env.AGENT_WORKFORCE_TMUX_BIN;
+  if (platform === 'darwin') return '/opt/homebrew/bin/tmux';
+  // review 3: create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
+  // minimal PATH still finds /usr/bin/tmux. Required at call time: create requires this module.
+  if (platform === 'linux') return require('./create').linuxTmuxBin('linux') || 'tmux';
+  return 'tmux';
 }
 
 const STATE_FILE = () => path.join(store.ROOT, 'connect.json');
@@ -1069,8 +1074,11 @@ function detectMusl({ platform, report, exists }) {
   if (platform !== 'linux') return false;
   let r = null;
   try { r = typeof report === 'function' ? report() : report; } catch { r = null; }
-  if (r && r.header) return !r.header.glibcVersionRuntime;
-  return ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
+  const muslLoader = () => ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
+  if (r && r.header && r.header.glibcVersionRuntime) return false;
+  // review 3: no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
+  // can omit the field); without either, glibc, the common case, and the manifest checksum still guards the build.
+  return muslLoader();
 }
 /* review 2: without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
    the board mid-download. The C library is all this reads. */
