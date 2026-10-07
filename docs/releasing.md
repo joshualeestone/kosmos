@@ -181,7 +181,7 @@ has exited non-zero ("Error: fetch failed") after uploading everything while Ver
 and went live a minute later (0.7.26, 0.7.27). Step 8 now checks for that itself. On a non-zero exit it
 compares the served `dist/kosmos-<V>-arm64.tar.gz.sha256` with the one the cut wrote, up to
 `KOSMOS_DEPLOY_LANDED_TRIES` times (default 24, a whole number from 1 to 9999), `KOSMOS_DEPLOY_LANDED_WAIT_S`
-apart (default 15 s, 0 to 9999; a bad value stops the cut before anything is deployed). It prints this
+apart (default 15 s, 0 to 9999; step 1 refuses a bad value before anything is built or pushed). It prints this
 cut's sha before it starts waiting:
 - **It matched:** the log says `THE DEPLOY LANDED although vercel deploy exited N` and the cut carries on
   as a success.
@@ -197,14 +197,15 @@ cut's sha before it starts waiting:
   not run: 9 (what users receive), 9b (the served bundle is the frozen tree), 9c (the served `.pkg`), 9d
   (the manifest), 9e (the outside audit) and the steps after them. Step 9's checks can be run by hand
   (`KOSMOS_VERIFY_POINTER=latest-staging.json KOSMOS_VERIFY_SETUP=setup-staging SITE=<site> REPO=<repo> bash tools/verify-served.sh`
-  on a staging cut); the others stay unverified unless you repeat them, so say so where you record the
-  release. Confirm prod's `latest.json` and `/setup` did not move, and refresh the local site checkout
+  on a staging cut, `latest.json` and `setup` on a `KOSMOS_CUT_CHANNEL=prod` cut); the others stay
+  unverified unless you repeat them, so say so where you record the release. On a staging cut, confirm
+  prod's `latest.json` and `/setup` did not move. Refresh the local site checkout
   from origin before the next cut (the trap restored it to the pre-cut state). The cut's own record still
   shows it failing, with the CLI's exit code.
 
 The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once
 the cut ends, the trap deletes the local `.sha256`, and that log line is then the only record of it. A deploy stopped by
-a signal (exit 130, 137 or 143), or a cut whose own `.sha256` cannot be read (it printed
+an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own `.sha256` cannot be read (it printed
 `<unreadable>`), fails at once without waiting.
 
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
