@@ -99,3 +99,14 @@ test('#1531: the comment’s count matches what the rm line actually deletes', (
     `the uninstall deletes ${n} remembered-answer files but the comment above it does not `
     + `say "${words[n]} tiny files". Change the word when you add one.`);
 });
+
+/* #5359: engine/restartnote.js keeps two more remembered files at store.ROOT (when the board was last alive, and the
+   restart note with its dismissed flag). Derived from the module, as above, so a third one there is covered too. */
+test('#5359: uninstall removes the restart note\'s files, read from engine/restartnote.js', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'restartnote.js'), 'utf8');
+  const names = [...src.matchAll(/path\.join\(store\.ROOT,\s*'([^']+)'\)/g)].map((m) => m[1]);
+  // Control: the derivation finds both, so the loop below cannot pass over an empty list.
+  assert.deepEqual(names.slice().sort(), ['board-alive.json', 'board-restart-note.json']);
+  const rm = rmLine();
+  for (const n of names) assert.ok(rm.includes(n), n + ' is written by engine/restartnote.js and NOT removed by the uninstall rm line');
+});

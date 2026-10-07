@@ -2015,8 +2015,8 @@ KOSMOS_SWEEP_LIST
     rm -rf "$_support/bin"
   fi
   # 🔑 THE APP'S OWN REMEMBERED ANSWERS ARE PLUMBING TOO, THE SAME ARGUMENT AS
-  # THE SUPERVISOR ABOVE (#891). FOUR tiny files live at the data folder's
-  # root, each holding one "have we asked this yet" fact the app checked once
+  # THE SUPERVISOR ABOVE (#891). Six tiny files live at the data folder's
+  # root. Four each hold one "have we asked this yet" fact the app checked once
   # so it would not ask again: whether first run has been seen
   # (first-run.json), the last app version the person was shown a what's-new
   # for (seen-version.json), whether the "we found your existing agents"
@@ -2025,6 +2025,12 @@ KOSMOS_SWEEP_LIST
   # answered "this isn't an agent" about (found-agents-declined.json,
   # discover.js's DECLINED_FILE, #1531).
   #
+  # The last two are #5359's: when the board was
+  # last alive (board-alive.json) and the "this computer restarted" note with
+  # whether it was dismissed (board-restart-note.json), both from
+  # engine/restartnote.js. Left behind, a reinstall within a day could show the
+  # old note again.
+  #
   # ⚠️ THE FOURTH ONE WAS ADDED WITHOUT BEING ADDED HERE, WHICH IS THE WHOLE
   # POINT OF WRITING THE COUNT INTO THIS COMMENT. `found-agents-declined.json`
   # shipped hours before this line did, so an uninstall did NOT reset declines:
@@ -2032,7 +2038,7 @@ KOSMOS_SWEEP_LIST
   # reinstalled got a screen that still hid that folder and no way to know why.
   # That is the exact case an uninstall exists to prevent.
   #
-  # 📌 SO IF YOU ADD A FIFTH, CHANGE THE WORD "FOUR". The number is here to make
+  # 📌 SO IF YOU ADD A SEVENTH, CHANGE THE WORD "SIX". The number is here to make
   # a missing member visible to a reader who is not looking for one, and the
   # family this belongs to is enumerated in engine/discover.js too. None of them
   # is the
@@ -2043,7 +2049,8 @@ KOSMOS_SWEEP_LIST
   # (not `-rf`: these are files, and `-f` is silent when one was never
   # written, e.g. a person who never opened the what's-new page).
   rm -f "$_support/first-run.json" "$_support/seen-version.json" \
-    "$_support/found-agents-dismissed.json" "$_support/found-agents-declined.json"
+    "$_support/found-agents-dismissed.json" "$_support/found-agents-declined.json" \
+    "$_support/board-alive.json" "$_support/board-restart-note.json"
   # ⚠️ Deliberately NOT removed: the user's agents' folders, their instruction
   # files, and anything under ~/work. Uninstalling the app must never delete
   # somebody's work, and an installer that cleans up too enthusiastically is
@@ -2120,8 +2127,9 @@ KOSMOS_SWEEP_LIST
   #                             DELIBERATELY NOT SWEPT. See the note below.
   #
   # 🛑 ALREADY REMOVED ABOVE, SO DO NOT ADD THEM HERE: `first-run.json`,
-  # `seen-version.json`, `found-agents-dismissed.json` and `found-agents-declined.json`
-  # go at the `rm -f` of the four remembered-answer files ("the app's own remembered answers").
+  # `seen-version.json`, `found-agents-dismissed.json`, `found-agents-declined.json`,
+  # `board-alive.json` and `board-restart-note.json` go at the `rm -f` of the six
+  # remembered-answer files ("the app's own remembered answers").
   # 🛑 `remote/` IS DIFFERENT AND THIS ROW USED TO CALL IT SIMPLY HANDLED. It is
   # removed at `rm -rf "$_remote_state"`, but only inside FOUR nested conditions: KOSMOS_HOME exists, the
   # ownership gate passes, `remote/mac_key` exists, AND the tunnel binary is executable.

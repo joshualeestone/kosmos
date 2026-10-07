@@ -1245,6 +1245,10 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    not an alarm; warn (<3d) is amber; urgent (<1d or expired) earns the red. */
 .utoast.login-adv.notice { --utone: var(--label-2); }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
+/* #5359: the computer restarted under a running Kosmos and it came back by itself. A fact, not a warning: the
+   neutral tone of .login-adv.notice, restated in each theme block below as that one is (Mona Lisa). */
+.utoast.reboot { --utone: var(--label-2); }
+.utoast.reboot .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
@@ -1403,6 +1407,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast .utxt small { display: none; }
   /* #5018: the login notice's line is who and which account, the point of it; it floats, so it costs no header room. */
   .utoast.login-adv .utxt small { display: block; }
+  /* #5359: the restart note's line is that Kosmos came back by itself, the point of it; kept the same way. */
+  .utoast.reboot .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -2065,7 +2071,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -8926,6 +8932,7 @@ svg { display: block; }
      escalation in dark. notice stays neutral, warn uses the theme-aware --warn-ink, urgent
      keeps the dark danger salmon. */
   :root:not([data-theme="light"]) .utoast.login-adv.notice { --utone: var(--label-2); }
+  :root:not([data-theme="light"]) .utoast.reboot { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
@@ -11000,6 +11007,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      escalation in dark. notice stays neutral, warn uses the theme-aware --warn-ink, urgent
      keeps the dark danger salmon. */
 :root[data-theme="dark"] .utoast.login-adv.notice { --utone: var(--label-2); }
+:root[data-theme="dark"] .utoast.reboot { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
@@ -11156,7 +11164,7 @@ body.plus-active {
    ⚠️ In dark mode the dark :root .utoast rules (0,3,0 and up) outrank these, and paint the same values: keep the
    two sets equal, or dark + Plus drifts from light + Plus with nothing to catch it. */
 body.plus-active .utoast { --utone: #ff8c82; }
-body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
+body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.plus-active .utoast.reboot { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
@@ -11909,6 +11917,9 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
+    <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
+         below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
+    <div id="reboot-slot"></div>
     <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
          updates and then loses the server. Both are true at once (Mona Lisa, #269);
          since #3955 the post-update message is the "Kosmos has been updated" window,
@@ -21997,6 +22008,77 @@ function paintLoginAdvisories(advs) {
     if (next) next.focus();
   }));
 }
+/* #5359: "This computer restarted at 7:15 PM", read once when the page opens (engine/restartnote.js decides when there
+   is one; the board keeps it a day or until dismissed). The same .utoast as the login notice, its words role=status. */
+function rebootWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'at ' + time;
+  if (d.toDateString() === yesterday.toDateString()) return 'yesterday at ' + time;
+  return 'on ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + time;
+}
+/* Where focus goes when the note leaves under it: the K mark, as after the login notice. */
+function rebootFocusAway() {
+  const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+  if (next) next.focus();
+}
+function paintRebootNote(note) {
+  const slot = document.getElementById('reboot-slot');
+  if (!slot) return;
+  const down = note && rebootWhen(note.bootAt);
+  const up = note && rebootWhen(note.upAt);
+  const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page
+  if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; if (held) rebootFocusAway(); return; }
+  const head = 'This computer restarted ' + down;
+  const line = 'Kosmos was running and started again by itself ' + up + '.';
+  /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
+     11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
+  const key = head + '|' + line;
+  if (slot.dataset.shown === key && slot.firstElementChild) {
+    /* The board answered this re-check, so a "could not record that just now" from an earlier dismiss is stale. */
+    const stale = slot.querySelector('.rerr');
+    if (stale) stale.remove();
+    return;
+  }
+  slot.dataset.shown = key;
+  slot.innerHTML = '<div class="utoast reboot">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc(line) + '</small></div>'
+    + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
+    + '</div>';
+  const btn = slot.querySelector('.ux');
+  if (held) btn.focus();
+  btn.addEventListener('click', async () => {
+    /* Emptied only once the board has recorded it, as the login notice repaints: an X that did not stick shows the
+       note still there, never a dead button. */
+    let ok = false;
+    try { const r = await fetch('/api/board/restart-note/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
+    if (!ok) {
+      /* Said in the status words, so a refused or failed dismiss is never a button that silently does nothing. */
+      const words = slot.querySelector('.utxt');
+      if (words) {
+        const old = words.querySelector('.rerr');
+        if (old) old.remove();   // removed and added again, so a second failure is announced too
+        words.insertAdjacentHTML('beforeend', '<small class="rerr">Kosmos could not record that just now. Try again in a moment.</small>');
+      }
+      return;
+    }
+    slot.innerHTML = '';
+    delete slot.dataset.shown;
+    rebootFocusAway();
+  });
+}
+let REBOOT_SEEN_START = null;
+async function rebootNoteCheck() {
+  try {
+    const res = await fetch('/api/board/restart-note', { cache: 'no-store' });
+    const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
+    if (res.ok && got) paintRebootNote(got.note);   // a refused or failed re-check leaves a showing note alone
+  } catch { /* the note is a courtesy */ }
+}
 /* #5407 (Josh): the notice's Refresh login opens Settings > AI Models at that account's row, highlighted, with its
    Sign in again focused. The account list paints after a live read, so the row is found when it paints (acctLand,
    called from paintAccounts) as well as at once when it is already there. The highlight stays a short while across
@@ -24069,6 +24151,12 @@ async function tick() {
     try { paintRestartScreen(false); } catch { /* the board answered; its own paint must go on */ }
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
+    /* #5359: a board that started again under an open page may have a restart note: ask again when its start time
+       moves (a page that watched the outage is the one most likely to want the note). */
+    if (data.engine && data.engine.startedAt) {
+      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) rebootNoteCheck();
+      REBOOT_SEEN_START = data.engine.startedAt;
+    }
     paintBuildLine(data.version);
     // #3330: stamp the update channel on <html> (kept for other callers/back-compat).
     // Prod-by-default (anything but 'staging'), matching the server's default.
@@ -40476,6 +40564,10 @@ async function whatsNewCheck() {
   }
 }
 whatsNewCheck();
+rebootNoteCheck();   // #5359
+/* Asked again every ten minutes, so its time words stay true across midnight ("at 11:30 PM" becomes "yesterday at"),
+   and a note gone stale or dismissed elsewhere goes. */
+setInterval(rebootNoteCheck, 10 * 60 * 1000);
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');

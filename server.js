@@ -15968,6 +15968,21 @@ const server = http.createServer(async (req, res) => {
     } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
     return;
   }
+  /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
+     (engine/restartnote.js says when one is made). Read once by the page; dismissed by the person. */
+  if (pathname === '/api/board/restart-note' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let note = null;
+    try { note = require('./engine/restartnote').current(); } catch { note = null; }
+    sendJson(res, 200, { note });
+    return;
+  }
+  if (pathname === '/api/board/restart-note/dismiss' && req.method === 'POST') {
+    let ok = false;
+    try { ok = require('./engine/restartnote').dismiss(); } catch { ok = false; }
+    if (!ok) { sendJson(res, 500, { error: 'we could not record that the note was dismissed' }); return; }
+    sendJson(res, 200, { dismissed: true });
+    return;
+  }
   /* --- engineering mode (whether the raw session is shown) ---------------- */
   /* The automatic-updates switch. Same shape as /api/engmode deliberately:
      one preference, GET to learn it, PUT to set it, and the READ is echoed
@@ -20448,6 +20463,9 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
+     running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
+  try { const rn = require('./engine/restartnote'); rn.atStart(); rn.startBeating(); } catch { /* best effort */ }
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
