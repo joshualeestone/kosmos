@@ -2,6 +2,11 @@
   "version": "0.7.27",
   "highlights": [
     {
+      "icon": "shield",
+      "title": "Refresh a login before it runs out",
+      "line": "The notice that a login is about to expire now has a Refresh login button, and AI Models marks each login that needs it."
+    },
+    {
       "icon": "tasks",
       "title": "Pause a project in one click",
       "line": "A Pause button now sits beside the name on each project's page. A paused project says so there and on its card."
@@ -12,14 +17,9 @@
       "line": "Switching an agent to Claude or OpenAI now lets you pick its model in the same step, with one restart."
     },
     {
-      "icon": "list",
-      "title": "Move a project's folder",
-      "line": "If you moved a project's folder, its settings now ask where it is, and Kosmos uses it from there."
-    },
-    {
-      "icon": "spark",
-      "title": "A steadier top bar",
-      "line": "On a computer that always shows scrollbars, the top bar no longer jumps when you switch between Separate tabs and One screen."
+      "icon": "chat",
+      "title": "See messages waiting for a busy agent",
+      "line": "When a Gemini agent on a Google subscription is mid-task, its card now says how many messages are waiting for it."
     },
     {
       "icon": "shield",
