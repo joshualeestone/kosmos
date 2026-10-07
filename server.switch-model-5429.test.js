@@ -25,10 +25,6 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -103,7 +99,9 @@ function born(name, model) {
   return name;
 }
 
-const fakeRun = (_file, args) => (Array.isArray(args) && args[0] === 'has-session'
+// #5500: and systemctl, as systemd answers it, for the Linux job (on a Mac it answers nothing and falls through).
+const systemd = jobfix.systemdStub();
+const fakeRun = (file, args) => systemd(file, args) || (Array.isArray(args) && args[0] === 'has-session'
   ? { ok: false, code: 1 }
   : { ok: true, stdout: '' });
 create.setRunner(fakeRun);
@@ -140,7 +138,7 @@ removal.restart = (...a) => { restarts += 1; return realRestart(...a); };
 test.after(() => { removal.restart = realRestart; });
 const plist = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
 
-test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that model, and says so', LINUX_PLIST_5432, async () => {
+test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that model, and says so', async () => {
   const name = born('srv-sm-g2c');
   let r = await switchTo(name, { provider: 'google' });
   assert.equal(r.status, 200, 'setup: on Gemini first ' + JSON.stringify(r.body));
@@ -155,7 +153,7 @@ test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that m
   assert.doesNotMatch(r.body.because, /default model/, 'a picked model is never called the default');
 });
 
-test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as before', LINUX_PLIST_5432, async () => {
+test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as before', async () => {
   const name = born('srv-sm-g2c-none');
   await switchTo(name, { provider: 'google' });
   const r = await switchTo(name, { provider: 'anthropic' });

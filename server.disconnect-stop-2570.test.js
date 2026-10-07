@@ -32,10 +32,6 @@
  */
 
 const os = require('node:os');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test checks the account-disconnect route's stop through launchctl answers. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');
@@ -201,7 +197,7 @@ test('#2570 CONTROL: with no stopAgents the route still REFUSES and names the ag
 
 /* ── the feature ─────────────────────────────────────────────────────────── */
 
-test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', LINUX_PLIST_5432, async () => {
+test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', async () => {
   installRunner();
   const dir = claudeAccount('busy2');
   agentOn('spade', dir, 'claude');
@@ -210,14 +206,18 @@ test('#2570: with stopAgents the agent is really stopped and the account IS disc
   assert.equal(r.json.forgotten, true);
   assert.deepEqual(r.json.stopped, ['spade'], 'the answer must name who was stopped');
   assert.ok(!fs.existsSync(dir), 'the account directory did not move, so the stop bought nothing');
-  /* THE STOP IS REAL, not a reported one. Both halves of the primitive ran. */
-  assert.ok(calls.some((c) => /launchctl disable .*spade/.test(c)), 'the launchd job was never disabled');
-  assert.ok(calls.some((c) => /launchctl bootout .*spade/.test(c)), 'the launchd job was never booted out');
+  /* THE STOP IS REAL, not a reported one. Both halves of the primitive ran. #5500: on Linux the job is a systemd
+     unit, disabled and then stopped (remove.js's Linux ops), in the same order. */
+  const linux = process.platform === 'linux';
+  const DISABLE = linux ? /systemctl --user disable kosmos-agent-spade\.service/ : /launchctl disable .*spade/;
+  const UNLOAD = linux ? /systemctl --user stop kosmos-agent-spade\.service/ : /launchctl bootout .*spade/;
+  assert.ok(calls.some((c) => DISABLE.test(c)), 'the launchd job was never disabled');
+  assert.ok(calls.some((c) => UNLOAD.test(c)), 'the launchd job was never booted out');
   assert.ok(calls.some((c) => /kill-session -t =spade/.test(c)), 'the session was never killed');
   assert.ok(calls.some((c) => /has-session -t =spade/.test(c)),
     'nothing looked again after the kill, so a reported stop was never verified');
-  const disableAt = calls.findIndex((c) => /launchctl disable/.test(c));
-  const bootoutAt = calls.findIndex((c) => /launchctl bootout/.test(c));
+  const disableAt = calls.findIndex((c) => (linux ? /systemctl --user disable/ : /launchctl disable/).test(c));
+  const bootoutAt = calls.findIndex((c) => (linux ? /systemctl --user stop/ : /launchctl bootout/).test(c));
   assert.ok(disableAt >= 0 && disableAt < bootoutAt,
     'bootout ran before disable, so KeepAlive can revive the job it just stopped');
 });
