@@ -253,7 +253,7 @@ const notARead = ([, a]) => a && a[0] !== 'print' && !a.includes('is-active');
 /* #5432: a test whose FIXTURE is the launchd job (it seeds or reads a plist, or its runner answers launchctl only) but
    whose assertion is platform-neutral. Skipped on Linux until #5500 ports it; the reason says it is not tested there. */
 const LINUX_UNPORTED_WHY = 'launchd is only this test\'s fixture (a plist, launchctl answers); what it asserts is platform-neutral and is '
-  + 'tested on macOS and Windows, but NOT yet on Linux: #5500 ports it';
+  + 'tested on macOS, but NOT yet on Linux: #5500 ports it';
 /* #5432 review 3: these assert the launchd job itself, and the Linux unit's equivalent is NOT tested yet (no Linux
    test checks it); #5500 lists them beside the fixture-only ones. */
 const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd unit\'s equivalent (the same value carried, or '
@@ -267,9 +267,8 @@ const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job (plist, launchctl,
 const LINUX_LAUNCHD_FAIL_WHY = 'it simulates a failed start or write through launchctl answers; Linux failed starts and roll backs: '
   + 'create.linux-4918.test.js (a refused start, bus unreachable, a value a unit cannot hold) and linuxjob.test.js (failed reload or enable). Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
 const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; Linux rewrites the unit: linuxjob.test.js '
-  + '(rewriteAgentJob on Linux) and linux-parity-5445.test.js (a masked unit refuses the switch in a sentence). Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
-const LINUX_BASH_SUPERVISOR_WHY = 'it reads the bash supervisor from the plist\'s ProgramArguments; on Linux the same supervisor is the unit\'s '
-  + 'ExecStart: linuxjob.test.js (unitFor, readUnitJob round trip)';
+  + '(rewriteAgentJob on Linux). That tests the Linux rewrite in general, NOT this test one for one (no Linux test calls the '
+  + 'switch itself); Linux ports are tracked on #5500';
 
 const roles = require('./roles');
 const status = require('./status');
