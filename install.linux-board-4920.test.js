@@ -110,17 +110,19 @@ function cut(start, end) {
   assert.ok(j > i, 'block end not found');
   return SETUP.slice(i, j + end.length);
 }
-const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
-const UNINSTALL_BLOCK = cut('    if [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl', '\n      done\n    fi\n');
+const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    if [ "$_kosmos_board_off" = yes ]; then\n      info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
+const UNINSTALL_BLOCK = cut('    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then', '\n      done\n    fi\n');
 
-function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units = [], restartRc = 0 } = {}) {
+function world({ systemctl = true, app = true, legacy = false, nodeOut = '', nodeRc = 0, units = [], restartRc = 0 } = {}) {
   const root = fs.mkdtempSync(path.join(WORK, 'w-'));
   const home = path.join(root, 'kosmos');
   const bin = path.join(root, 'stubs');
   fs.mkdirSync(bin, { recursive: true });
   fs.symlinkSync('/usr/bin/id', path.join(bin, 'id'));
   fs.symlinkSync('/bin/cat', path.join(bin, 'cat'));   // the fake node reads its heredoc
-  if (systemctl) { fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\nexit 0\n'); fs.chmodSync(path.join(bin, 'systemctl'), 0o755); }
+  if (systemctl) { fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'systemctl.log') + '"\nexit 0\n'); fs.chmodSync(path.join(bin, 'systemctl'), 0o755); }
+  for (const tool of ['rm', 'cut', 'sha256sum', 'shasum']) { const src = ['/bin/' + tool, '/usr/bin/' + tool].find((f) => fs.existsSync(f)); if (src) fs.symlinkSync(src, path.join(bin, tool)); }
+  if (legacy) { fs.mkdirSync(path.join(home, 'app'), { recursive: true }); fs.writeFileSync(path.join(home, 'app', 'server.js'), ''); }
   fs.mkdirSync(path.join(home, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(home, 'bin', 'kosmos'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'kosmos.log') + '"\nexit ' + restartRc + '\n');
   fs.chmodSync(path.join(home, 'bin', 'kosmos'), 0o755);
@@ -134,12 +136,12 @@ function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units =
   const unitDir = path.join(root, 'units');
   fs.mkdirSync(unitDir, { recursive: true });
   for (const u of units) fs.writeFileSync(path.join(unitDir, u), '');
-  return { root, home, bin, unitDir, restarts: () => { try { return fs.readFileSync(path.join(root, 'kosmos.log'), 'utf8'); } catch { return ''; } } };
+  return { root, home, bin, unitDir, systemctlLog: () => { try { return fs.readFileSync(path.join(root, 'systemctl.log'), 'utf8'); } catch { return ''; } }, restarts: () => { try { return fs.readFileSync(path.join(root, 'kosmos.log'), 'utf8'); } catch { return ''; } } };
 }
-function runBlock(block, w, { off = 'no', shell = '/bin/sh' } = {}) {
+function runBlock(block, w, { off = 'no', shell = '/bin/sh', env = {} } = {}) {
   const script = OPTS + 'info() { printf "INFO %s\\n" "$*"; }\n_kosmos_off_why() { printf "(set off)"; }\n'
-    + '_kosmos_board_decide() { :; }\n_kosmos_board_off=' + off + '\nPORT=16180\n' + block;
-  return spawnSync(shell, ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir } });
+    + '_kosmos_board_decide() { :; }\n_kosmos_board_off=' + off + '\nPORT=16180\n_kosmos_home_default=/nowhere/default\n' + block;
+  return spawnSync(shell, ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir, ...env } });
 }
 
 test('#4920 install: linger on hands the board to systemd and says it starts with the computer', () => {
@@ -278,6 +280,7 @@ test('#4920 the install and uninstall blocks behave the same under dash (Ubuntu 
   r = runBlock(INSTALL_BLOCK, w, { shell: dash });
   assert.match(r.stdout, /did not confirm it is running/);
   assert.match(r.stdout, /linger is off/);
+  assert.doesNotMatch(r.stdout, /running now/, 'after a failed hand-off the board is not claimed to be running');
   w = world({ app: false, units: ['kosmos-board.service'] });
   r = runBlock(UNINSTALL_BLOCK, w, { shell: dash });
   assert.equal(r.status, 0, r.stderr);
@@ -290,4 +293,28 @@ test('#4920 install: a sandboxed run says the systemd step was skipped on purpos
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /sandboxed run: the systemd step was skipped on purpose/);
   assert.doesNotMatch(r.stdout, /could not set itself/);
+});
+
+test('#4920 uninstall: an install from a release before linuxboard.js has its shell-written unit removed by that rule', () => {
+  const w = world({ app: false, legacy: true });
+  const name = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  fs.mkdirSync(path.join(w.unitDir, 'default.target.wants'), { recursive: true });
+  fs.writeFileSync(path.join(w.unitDir, name), '[Service]\nRestart=always\n');
+  fs.symlinkSync(path.join(w.unitDir, name), path.join(w.unitDir, 'default.target.wants', name));
+  const r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /removing the systemd service an earlier Kosmos made/);
+  assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'the legacy unit was left behind');
+  let gone = false; try { fs.lstatSync(path.join(w.unitDir, 'default.target.wants', name)); } catch { gone = true; }
+  assert.ok(gone, 'the legacy enable link was left behind');
+  assert.match(w.systemctlLog(), new RegExp('--user stop ' + name.replace(/\./g, '\\.')), 'the running legacy unit was not stopped');
+  assert.doesNotMatch(r.stdout, /app code or runtime is missing/, 'blamed a missing app that is there, only older');
+});
+
+test('#4920 uninstall: a sandboxed run says the systemd step was skipped on purpose', () => {
+  const w = world({ nodeOut: '' });
+  const r = runBlock(UNINSTALL_BLOCK, w, { env: { AGENT_WORKFORCE_LAUNCH: '/tmp/sandbox-4920', AGENT_WORKFORCE_SYSTEMD_DIR: '' } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /sandboxed run: the systemd step was skipped on purpose/);
+  assert.doesNotMatch(r.stdout, /not fully removed/);
 });
