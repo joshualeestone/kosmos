@@ -263,5 +263,9 @@ if [ "$QUIET" != 1 ]; then
   # Name a path only if it is there; otherwise say where the script lives, rather than a command that cannot run.
   [ -f "$_hg_qh" ] && _hg_cmd="bash '$_hg_qh'" || _hg_cmd="bash <a Kosmos checkout>/tools/queued-heavy.sh"
   printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: $_hg_cmd \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
+  # A QUEUED_HEAVY_LIB that is set and has no lib makes every copy exit 3 (only an unset one falls back): say so.
+  if [ -n "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$QUEUED_HEAVY_LIB/tools/lib/cut-guard.sh" ]; then
+    printf '%s\n' "heavy-gate: but QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB has no tools/lib/cut-guard.sh, so the queue will refuse to start: fix it or unset it" >&2
+  fi
 fi
 exit 1

@@ -15,8 +15,8 @@
 # Prints QUEUED-HEAVY lines for the start, the turn, and the end with the command's rc.
 # #4977: this file in the repo (tools/queued-heavy.sh) is the reviewed source; tools/test-queued-heavy-4977.sh pins it
 # in CI. The copy agents run, ~/.cache/claude-handoffs/queued-heavy.sh, is installed separately, and nothing checks
-# that the two match. heavy-gate.sh's BUSY hint names that installed copy when it exists, and a repo copy only where it
-# does not (#5446).
+# that the two match. heavy-gate.sh's BUSY hint names that installed copy when it AND its lib exist, and a repo copy
+# otherwise (#5446). It does not check that lib is new enough, and the installed copy is not reviewed here.
 # TO CHANGE THE INSTALLED COPY: write the new version beside it and mv it over. Never edit it in place: waiters are
 # running it, and bash reads a script by byte offset, so an in-place edit kills them.
 set -u
@@ -52,7 +52,8 @@ LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # and its commit so that is visible. A copy outside any repo (the installed one under ~/.cache), a bare-repo worktree
 # or a submodule has no such checkout and still exits 3 as before, as does a QUEUED_HEAVY_LIB that is set and wrong.
 # The main checkout is not guaranteed to be on main, so the line names its branch too. --path-format needs git 2.31 or
-# newer; an older git skips the fallback and keeps the old exit 3 (every fleet Mac runs a newer one).
+# newer; an older git does not reach a working fallback and still exits 3, with a garbled path in its message (every
+# fleet Mac runs a newer git).
 # heavy-gate.sh's BUSY hint looks for this marker before it names a main checkout's copy: #5446-lib-fallback
 QH_LIB_FALLBACK=""
 QH_MAIN_TRIED=""
