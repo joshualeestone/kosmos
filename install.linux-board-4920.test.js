@@ -84,7 +84,7 @@ test('#4920 the remove snippet passes KOSMOS_HOME and exits non-zero with the re
   fs.symlinkSync(path.join(left, 'kosmos-board.service'), path.join(left, 'default.target.wants', 'kosmos-board.service'));
   r = run(removeSnippet, [standIn(`exports.boardUnitPath = () => ${JSON.stringify(path.join(left, 'kosmos-board.service'))}; exports.removeBoard = () => ({ ok: false, because: 'systemd could not stop the board: Failed to connect to bus\\nmore' });`), '/h']);
   assert.equal(r.status, 3);
-  assert.equal(r.stdout, 'systemd could not stop the board: Failed to connect to bus; its unit file was deleted, so it will not start again');
+  assert.equal(r.stdout, 'systemd could not stop the board: Failed to connect to bus; its unit file was deleted, so it will not start again, though it may keep running until you log out or restart');
   assert.ok(!fs.existsSync(path.join(left, 'kosmos-board.service')), 'a unit left enabled would retry a deleted folder at every login');
   assert.ok(!fs.existsSync(path.join(left, 'default.target.wants', 'kosmos-board.service')) && !fs.lstatSync(path.join(left, 'default.target.wants')).isFile(), 'the enable link is gone too');
   let gone = false; try { fs.lstatSync(path.join(left, 'default.target.wants', 'kosmos-board.service')); } catch { gone = true; }
@@ -101,7 +101,8 @@ test('#4920 CONTROL: the real linuxboard exports what the snippets call', () => 
    blocks are cut from setup.sh and run under its own option line with stand-ins: a fake node that answers as told,
    a fake kosmos that records a restart, and a PATH holding only what the test puts there (so a Linux runner's real
    systemctl is never found). */
-const OPTS = SETUP.match(/^set -eu\n\[ -n "\$\{BASH_VERSION:-\}" \] && set -o pipefail \|\| true\n/m)[0];
+const OPTS = (SETUP.match(/^set -eu\n\[ -n "\$\{BASH_VERSION:-\}" \] && set -o pipefail \|\| true\n/m) || [null])[0];
+assert.ok(OPTS, 'setup.sh option line not found: update this test with it');
 function cut(start, end) {
   const i = SETUP.indexOf(start);
   assert.ok(i >= 0, 'block start not found: ' + start.slice(0, 60));
@@ -244,6 +245,7 @@ test('#4920 install: a hand-off that does not bring the board back is said, with
   let r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, 'a failed hand-off must not stop the install: ' + r.stderr);
   assert.match(r.stdout, /did not confirm it is running\. Check with: kosmos status, and if it is not running: kosmos start/);
+  assert.doesNotMatch(r.stdout, /will start itself when this computer starts/, 'a success-shaped line followed a failed hand-off');
   w = world({ nodeOut: 'loose lingering' });
   r = runBlock(INSTALL_BLOCK, w);
   assert.doesNotMatch(r.stdout, /did not confirm/, 'CONTROL: a hand-off that worked says nothing extra');
@@ -280,4 +282,12 @@ test('#4920 the install and uninstall blocks behave the same under dash (Ubuntu 
   r = runBlock(UNINSTALL_BLOCK, w, { shell: dash });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /app code or runtime is missing/);
+});
+
+test('#4920 install: a sandboxed run says the systemd step was skipped on purpose, not that it failed', () => {
+  const w = world({ nodeOut: 'refused: systemd did not reload its user units: a sandboxed board does not manage real systemd units', nodeRc: 3 });
+  const r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /sandboxed run: the systemd step was skipped on purpose/);
+  assert.doesNotMatch(r.stdout, /could not set itself/);
 });
