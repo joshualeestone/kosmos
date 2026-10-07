@@ -65606,7 +65606,7 @@ function voiceOnEvent(ev) {
   // back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
   if (ev && ev.kind === 'refused') {
     const btn = VOICE_SETTINGS.btn;
-    if (!btn || ev.id !== VOICE_SETTINGS.id || !Object.hasOwn(VOICE_SAYS, ev.reason)) return;
+    if (!btn || ev.id !== VOICE_SETTINGS.id || !['speech-restricted', 'mic-restricted'].includes(ev.reason)) return;
     const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
     voiceSettingsClear();
     voiceSay(btn, VOICE_SAYS[ev.reason]);

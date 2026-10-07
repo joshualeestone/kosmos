@@ -365,10 +365,11 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       const ta = document.getElementById('pj-add-desc'), pill = document.querySelector('.micwrap > .voice-pill');
       if (!pill) return { pill: false };
       const r = ta.getBoundingClientRect(), pr = pill.getBoundingClientRect();
-      return { pill: true, seen: pill.querySelector('.vp-go').innerText.trim(), textEnds: Math.round(r.right - parseFloat(getComputedStyle(ta).paddingRight)), pillStarts: Math.round(pr.left) };
+      const mic = document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]');
+      return { pill: true, micHidden: !!mic && getComputedStyle(mic).display === 'none', seen: pill.querySelector('.vp-go').innerText.trim(), textEnds: Math.round(r.right - parseFloat(getComputedStyle(ta).paddingRight)), pillStarts: Math.round(pr.left) };
     });
     await page.evaluate(() => { const x = document.querySelector('.voice-pill .vp-x'); if (x) x.click(); });
-    chk(v6e.pill && v6e.seen === 'Settings' && v6e.textEnds <= v6e.pillStarts, 'V6e a field\'s pill is the short [X  Settings] and its text box ends before the pill begins', JSON.stringify(v6e));
+    chk(v6e.pill && v6e.micHidden && v6e.seen === 'Settings' && v6e.textEnds <= v6e.pillStarts, 'V6e a field\'s pill is the short [X  Settings] and its text box ends before the pill begins', JSON.stringify(v6e));
     // V15: a dialog button while listening stops it.
     const n6 = await page.evaluate(() => window.__voice.length);
     await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-done"]').click(); window.kosmosVoiceEvent({ kind: 'listening' }); });

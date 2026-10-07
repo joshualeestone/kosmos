@@ -541,6 +541,8 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   go().handlers.click();
+  h.voiceOnEvent({ kind: 'refused', reason: 'mic-denied', id: posted.at(-1).id });
+  assert.equal(pills.length, 1, 'a refused that is not a restriction replaced the pill');
   h.voiceOnEvent({ kind: 'refused', reason: 'mic-restricted', id: posted.at(-1).id });
   assert.equal(pills.length, 0, 'a restricted mic left the Settings pill up');
   assert.equal(msg.textContent, '(mic restricted)', 'a restricted mic was not said');

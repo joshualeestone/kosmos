@@ -1569,7 +1569,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
             // holds; only re-opening the pane is limited to once a second (a press inside that second still refreshes the
             // visit and its 10 minutes, and opens nothing).
-            settingsId = String(((body["id"] as? String) ?? "").prefix(64))
+            let visit = String(((body["id"] as? String) ?? "").prefix(64))
+            guard !visit.isEmpty else { return }   // an "allowed" with no id could never be matched by the page
+            settingsId = visit
             settingsAt = Date()
             settingsPane = pane
             awaitingAllow = true
@@ -1668,6 +1670,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
     private func begin(_ mine: Int) {
         pending = false
+        lastRefusal = ""   // both allowed now: no denial left for a Settings press to answer
         let preferred = Locale.preferredLanguages + [Locale.current.identifier]
         guard let id = Self.pickLocale(preferred: preferred, onDevice: { SFSpeechRecognizer(locale: Locale(identifier: $0))?.supportsOnDeviceRecognition == true }),
               let recognizer = SFSpeechRecognizer(locale: Locale(identifier: id)), recognizer.isAvailable else {
