@@ -6042,6 +6042,8 @@ function nameHeld(name, platform) {
 }
 
 module.exports = {
+  boardPort,            // #4918 review 29: linuxjob's unit reads the port from here (one derivation, as plistFor does)
+  DEFAULT_BOARD_PORT,
   linuxRun,   // #4918 review 10: worldstarts' Linux arm runs through create's seam too
   nameHeld,
   MODELS,

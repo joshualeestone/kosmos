@@ -63,6 +63,11 @@ cleanup() {
   systemctl --user disable kosmos-agent-livecreate4918.service >/dev/null 2>&1 || true
   rm -f "$HOME/.config/systemd/user/kosmos-agent-livecreate4918.service" || true
   tmux kill-session -t livecreate4918 >/dev/null 2>&1 || true
+  if [ -n "${WORLD_UNIT:-}" ]; then   # review 29: the named-world step's unit, if its remove failed
+    systemctl --user stop "$WORLD_UNIT" >/dev/null 2>&1 || true
+    systemctl --user disable "$WORLD_UNIT" >/dev/null 2>&1 || true
+    rm -f "$HOME/.config/systemd/user/$WORLD_UNIT" || true
+  fi
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   tmux kill-session -t testagent4918 >/dev/null 2>&1 || true
 

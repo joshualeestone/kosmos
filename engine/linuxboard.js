@@ -5,10 +5,9 @@
  * Keeps the board running after machine restart / crash, mirroring macOS
  * com.kosmos.board.plist and Windows Scheduled Tasks.
  *
- * Production caller: piece D's installer (#4920) calls installBoard; install/kosmos names the unit itself
- * (_kosmos_board_systemd_unit) and never loads this file.
- *   - install/kosmos: cmd_board_run, cmd_start, cmd_stop
- *   - engine/boardrestart.js: self-restart on world switch / user restart
+ * Callers: engine/boardrestart.js (self-restart on a world switch or a user restart). installBoard and removeBoard
+ * have no production caller until piece D's installer (#4920). install/kosmos never loads this file: it names the
+ * same unit itself (_kosmos_board_systemd_unit, kept equal by tools/test-board-supervised-linux-4918.sh).
  */
 
 const crypto = require('node:crypto');
@@ -16,7 +15,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const DEFAULT_BOARD_PORT = 16180;
 
 /* The unit folder and the real runner are linuxjob.js's own (one definition each; #4918 review 11). This module keeps
    its own test seams, so a board test can point them elsewhere without touching the agent ones. */
@@ -69,7 +67,7 @@ function boardUnitPath(kosmosHome) {
 function boardUnitFor(kosmosHome, port) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
-  const p = Number(port) || Number(process.env.PORT) || DEFAULT_BOARD_PORT;
+  const p = Number(port) || require('./create').boardPort();   // review 29: create's one derivation of the port
   // An integer only: a string with a newline would add a directive to the unit (review 19).
   if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('the board port is not a port number');
   const userHome = os.homedir();
@@ -149,6 +147,7 @@ function removeBoard(kosmosHome) {
   const unit = boardUnitName(kosmosHome);
   // The one "not loaded" rule, linuxjob's (review 16: it was written twice).
   const failed = (r) => Boolean(r) && !require('./linuxjob').stoppedOrNotLoaded(r);
+  const hadFile = fs.existsSync(boardUnitPath(kosmosHome));   // review 29: as linuxjob.remove (review 28)
   const st = runner('systemctl', ['--user', 'stop', unit]);
   if (failed(st)) return { ok: false, because: 'systemd could not stop the board: ' + String(st.stderr || st.because || '').trim() };
   const dis = runner('systemctl', ['--user', 'disable', unit]);
@@ -159,7 +158,8 @@ function removeBoard(kosmosHome) {
     return { ok: false, because: 'the board unit could not be deleted: ' + ((err && err.message) || String(err)) };
   }
   runner('systemctl', ['--user', 'daemon-reload']);
-  if (failed(dis)) return { ok: false, because: 'the board unit is gone, but systemd could not disable it: ' + String(dis.stderr || dis.because || '').trim() };
+  // A refused disable of a unit that had no file is not read from systemd's (localized) wording: nothing to disable.
+  if (hadFile && failed(dis)) return { ok: false, because: 'the board unit is gone, but systemd could not disable it: ' + String(dis.stderr || dis.because || '').trim() };
   return { ok: true };
 }
 

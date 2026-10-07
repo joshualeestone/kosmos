@@ -20,7 +20,6 @@ const path = require('node:path');
 const launchidentity = require('./launchidentity');
 const accountenv = require('./accountenv');
 
-const DEFAULT_BOARD_PORT = 16180;
 
 /* The real unit folder, ONE definition (#4918 review 11: it was pasted four times across two files). linuxboard.js
    uses it too. A sandboxed board (AGENT_WORKFORCE_LAUNCH, as create.agentsDir honours on the Mac) keeps its units in
@@ -170,7 +169,7 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
   const supervisor = create.supervisorPath();
   const workdir = create.workerDir(name);
   const log = path.join(workdir, 'start.log');
-  const port = Number(process.env.PORT) || DEFAULT_BOARD_PORT;
+  const port = create.boardPort();   // review 29: one derivation of the port, the one plistFor uses
   const nonClaude = create.isNonClaudeRunner(runnerName);
 
   if (modelArg && !MODEL_ID.test(String(modelArg))) throw new Error('the model name is not one Kosmos can write into a systemd unit');
@@ -211,7 +210,7 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
     envLines.push(`Environment="${key}=${escapeUnitValue(configDir)}"`);
   }
 
-  if (port !== DEFAULT_BOARD_PORT) {
+  if (port !== create.DEFAULT_BOARD_PORT) {
     envLines.push(`Environment="KOSMOS_PORT=${port}"`);
   }
 

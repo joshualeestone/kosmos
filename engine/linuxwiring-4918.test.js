@@ -370,3 +370,14 @@ test('#4918 review 28: removing an already-gone unit is ok when disable fails wi
   answer = (cmd, args) => (args[1] === 'disable' ? { ok: false, code: 1, stderr: 'Zugriff verweigert' } : { ok: true, stdout: '' });
   try { assert.equal(linuxjob.remove('kenshi', 'w1').ok, false); } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(linuxjob.unitPath('kenshi', 'w1'), { force: true }); }
 });
+
+test('#4918 review 29: removeBoard of an already-gone unit is ok when disable fails with localized text', () => {
+  const linuxboard = require('./linuxboard');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-board-'));
+  linuxboard.setSystemdDirForTests(() => dir);
+  linuxboard.setRunnerForTests((cmd, args) => (args[1] === 'stop' ? { ok: false, code: 5, stderr: 'Einheit nicht geladen.' }
+    : args[1] === 'disable' ? { ok: false, code: 1, stderr: 'Einheitendatei existiert nicht.' } : { ok: true, stdout: '' }));
+  try { assert.deepEqual(linuxboard.removeBoard(), { ok: true }); } finally {
+    linuxboard.setSystemdDirForTests(null); linuxboard.setRunnerForTests(null); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
