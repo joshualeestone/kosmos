@@ -6608,6 +6608,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    descenders (the "g" in "Sourcing"). Same fix as #3415 on the agent name: a
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+/* #5510: on a phone the name gets two lines before it is cut: one line held 14 characters at 360px ("Launch the
+   spring c..."), so most real project names never showed whole. Three-plus lines still end in an ellipsis. */
+@media (max-width: 40rem) {
+  .pjtitle #pj-one-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; }
+}
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 /* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
    the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
@@ -7422,6 +7428,9 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
 .att.haspic[data-att] { cursor: zoom-in; }
+/* #5510: a phone's own keyboard has emoji, so on a phone touchscreen the room's emoji button gives its 34px back to
+   the text box, where the hint was being cut after "Write something c". The picker stays on every other screen. */
+@media (max-width: 40rem) and (hover: none) { #pj-emoji-btn { display: none; } }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -11745,6 +11754,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   html.kremote #boardbar.boardbar > .viewctl { flex-wrap: nowrap; gap: 12px; }
   /* Two ids: the new look's toolbar rules carry one id and up to six classes, and two ids beat any of them. */
   html.kremote #boardbar#boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
+  /* #5510: the sort menu fills the row between + and the view buttons. At its own width it sat 3px from the + on a
+     360px phone and 55px from it on a 412px one; filling, the gaps are the row's own 12px at every width. */
+  html.kremote #boardbar#boardbar .sortctl { flex: 1 1 auto; min-width: 0; }
+  html.kremote #boardbar#boardbar .sortctl select { width: 100%; }
   html.kremote #boardbar#boardbar .viewtoggle { border-radius: 10px; }
   html.kremote #boardbar#boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
   /* With the grid button gone the list button is the first one shown, so it loses the separator it drew from it. */
@@ -19839,6 +19852,17 @@ function pnavThemeRove() {
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
 /* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
+/* #5510: on a phone the room composer's hint, "Write something or @name to message someone...", is cut after "Write
+   something c". There it reads as the agent chat's does; wider screens keep the @name tip. */
+(function roomHintFits() {
+  const box = document.getElementById('pj-post');
+  if (!box || !window.matchMedia) return;
+  const long = box.placeholder;
+  const mq = window.matchMedia('(max-width: 40rem)');
+  const fit = () => { box.placeholder = mq.matches ? 'Write something\u2026' : long; };
+  fit();
+  if (mq.addEventListener) mq.addEventListener('change', fit);
+})();
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];

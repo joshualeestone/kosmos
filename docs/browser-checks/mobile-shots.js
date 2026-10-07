@@ -12,10 +12,16 @@
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
  *       [--sizes se,iphone15,promax,android,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
- *       [--data sample|store] [--scale css|device]
+ *       [--data sample|store] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
+ * --remote opens the board as the phone apps do, over Kosmos+ (kosmos#5510): at an address that is not this
+ * computer's, so the board takes its remote phone layout (html.kremote: the Kosmos+ bar and its menu, agents
+ * as a list of cards). The Android app ALWAYS shows that layout (it opens <computer>.kosmosplus.com), so
+ * shots of the Android app need --remote; without it you get the board as it looks at the computer itself.
+ * The address is a made-up host served from the throwaway board through the browser's own router, so nothing
+ * leaves this computer.
  * the end. --strict exits 1 when anything overflows. --list prints the screens.
  * --keep leaves the throwaway board running afterwards (address printed) so you
  * can explore it by hand; Ctrl-C stops it and deletes its data.
@@ -78,6 +84,8 @@ const SIZES = {
   iphone15: { width: 393, height: 852, dpr: 3, label: 'iPhone 15' },
   promax: { width: 430, height: 932, dpr: 3, label: 'iPhone Pro Max' },
   android: { width: 412, height: 915, dpr: 2.625, label: 'mid Android' },
+  // A narrow Android phone (360 CSS px wide, the common small-Android width): the tightest width the Android app is opened at.
+  android360: { width: 360, height: 800, dpr: 3, label: 'narrow Android' },
   // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
   appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
   // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
@@ -85,6 +93,8 @@ const SIZES = {
   // rules) are skipped for it. Not in the default sweep.
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
 };
+/* --remote's address (kosmos#5510): .test is reserved and never resolves, so a slip can only fail, never reach a real host. */
+const REMOTE_BASE = 'http://kosmos-shots.kosmosplus.test';
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
@@ -98,6 +108,14 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
 /* On a phone the areas sit behind the ☰ (#burger, controls #tabs): open it
    first when it is showing, then choose the area. */
 async function openTab(page, tab) {
+  // Over Kosmos+ (--remote) a phone has the Kosmos+ bar's own menu (#pnav) instead of the burger (kosmos#5510).
+  if (await page.isVisible('#kplus-menu')) {
+    await page.click('#kplus-menu');
+    await page.waitForSelector(`#pnav [data-pnav-tab="${tab}"]`, { state: 'visible', timeout: 5000 });
+    await page.click(`#pnav [data-pnav-tab="${tab}"]`);
+    await page.waitForSelector(`#panel-${tab}`, { state: 'visible', timeout: 5000 });
+    return;
+  }
   if (await page.isVisible('#burger')) {
     await page.click('#burger');
     await page.waitForSelector(`[data-tab="${tab}"]`, { state: 'visible', timeout: 5000 });
@@ -259,6 +277,13 @@ const SCREENS = [
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
   { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
+    if (await page.isVisible('#kplus-menu')) {   // --remote: the Kosmos+ bar's menu (kosmos#5510)
+      await page.click('#kplus-menu');
+      await page.waitForSelector('#pnav:not([hidden])', { timeout: 5000 });
+      // Its items fade in (pnav-drop); a shot taken mid-fade shows grey words that are not on any phone.
+      await page.waitForFunction(() => document.getElementById('pnav').getAnimations({ subtree: true }).every((a) => a.playState !== 'running'), null, { timeout: 5000 });
+      return;
+    }
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
   } },
@@ -340,8 +365,10 @@ const SCREENS = [
   } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.
-    await page.waitForSelector(`.acard[data-agent="${data.askAgent}"]`, { timeout: 5000 });
-    await page.evaluate((a) => document.querySelector(`.acard[data-agent="${a}"]`).scrollIntoView({ block: 'start' }), data.askAgent);
+    // A card in the grid, or a row in the list (--remote shows agents as a list only, kosmos#5510).
+    const card = `.acard[data-agent="${data.askAgent}"], .lrow[data-agent="${data.askAgent}"]`;
+    await page.waitForSelector(card + ' >> visible=true', { timeout: 5000 });
+    await page.evaluate((c) => [...document.querySelectorAll(c)].find((e) => e.getClientRects().length).scrollIntoView({ block: 'start' }), card);
   } },
   /* Where a push tap lands: the needs-you agent's page, shot once it has
      settled (the conversation scrolls to the top after load). */
@@ -957,7 +984,7 @@ const SCREENS = [
 
 /* ------------------------------------------------------------------ args */
 function parseArgs(argv) {
-  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css' };
+  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css', remote: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -971,6 +998,7 @@ function parseArgs(argv) {
     else if (k === '--keep') a.keep = true;
     else if (k === '--data') a.data = v();
     else if (k === '--scale') a.scale = v();
+    else if (k === '--remote') a.remote = true;
     else throw new Error('unknown argument ' + k);
   }
   for (const s of a.sizes) if (!SIZES[s]) throw new Error('unknown size ' + s + ' (have ' + Object.keys(SIZES).join(', ') + ')');
@@ -1599,9 +1627,20 @@ async function run() {
                 // A page.route stub needs the service worker off in WebKit (see allow-card).
                 ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
               });
+              /* --remote (kosmos#5510): every request to the made-up Kosmos+ host is answered by the throwaway board
+                 itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
+                 byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
+                 (Playwright tries the newest route first); their r.fetch() is pointed back at the board. */
+              const toBoard = (u) => (args.remote ? u.replace(REMOTE_BASE, board.base) : u);
+              if (args.remote) {
+                await ctx.route(REMOTE_BASE + '/**', async (r) => {
+                  const res = await r.fetch({ url: toBoard(r.request().url()) });
+                  return r.fulfill({ response: res });
+                });
+              }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {
-                  const res = await r.fetch();
+                  const res = await r.fetch({ url: toBoard(r.request().url()) });
                   const body = await res.json().catch(() => null);
                   if (!body || typeof body !== 'object') return r.fulfill({ response: res });
                   body.connection = { ...(body.connection || {}), state: 'connected' };
@@ -1617,7 +1656,7 @@ async function run() {
               let fit = { taps: [], fields: [], covers: [] };
               let audited = false;   // true only once the phone audits have actually run on this screen
               try {
-                await page.goto(board.base + '/', { waitUntil: 'load' });
+                await page.goto((args.remote ? REMOTE_BASE : board.base) + '/', { waitUntil: 'load' });
                 await page.waitForTimeout(900);
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
