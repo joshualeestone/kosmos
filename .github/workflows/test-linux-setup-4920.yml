@@ -4,7 +4,8 @@
 # - Detects Linux and machine architecture
 # - Discovers or installs tmux without interactive prompts
 # - Symlinks system node into the runtime directory
-# - Installs systemd user unit for board keep-alive and enables lingering
+# - Installs the board's systemd user unit through piece B's engine/linuxboard.js (one unit, not a shell copy)
+#   and enables lingering
 # - Starts the board and verifies HTTP 200 response on the board port
 # - Successfully stops, restarts, and uninstalls cleanly
 
@@ -62,14 +63,21 @@ jobs:
           test -f "$KOSMOS_HOME/runtime/bin/node" && test -x "$KOSMOS_HOME/runtime/bin/node"
           "$KOSMOS_HOME/runtime/bin/node" --version
 
-          # Check systemd user unit exists and has expected directives
+          # #4920: the unit is piece B's (engine/linuxboard.js boardUnitFor), written by installBoard. grep -F: the
+          # values are literal text, and the unit quotes them.
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test -f "$UNIT_FILE"
-          grep -q "Description=Kosmos Board" "$UNIT_FILE"
-          grep -q "ConditionPathExists=!$KOSMOS_HOME/board.stopped" "$UNIT_FILE"
-          grep -q "ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run" "$UNIT_FILE"
-          grep -q "Environment=KOSMOS_HOME=$KOSMOS_HOME" "$UNIT_FILE"
-          grep -q "WorkingDirectory=$KOSMOS_HOME" "$UNIT_FILE"
+          cat "$UNIT_FILE"
+          grep -qF "Description=Kosmos Board" "$UNIT_FILE"
+          grep -qF "ConditionPathExists=!$KOSMOS_HOME/board.stopped" "$UNIT_FILE"
+          grep -qF "ExecStart=/bin/bash \"$KOSMOS_HOME/bin/kosmos\" board-run" "$UNIT_FILE"
+          grep -qF "Environment=\"KOSMOS_HOME=$KOSMOS_HOME\"" "$UNIT_FILE"
+          grep -qF "WorkingDirectory=$KOSMOS_HOME" "$UNIT_FILE"
+          # What B's unit has and the old shell copy did not:
+          grep -qxF "Restart=on-failure" "$UNIT_FILE"
+          grep -qxF "KillMode=process" "$UNIT_FILE"
+          if grep -qxF "Restart=always" "$UNIT_FILE"; then echo "FAIL: Restart=always restarts a stopped board" >&2; exit 1; fi
+          systemctl --user is-enabled kosmos-board.service
 
       - name: Verify board responsiveness
         run: |
@@ -81,9 +89,10 @@ jobs:
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           "$KOSMOS_HOME/bin/kosmos" stop
-          # Board should be stopped
+          # Board should be stopped, and STAY stopped past RestartSec=5 (#4918: Restart=always brought it back).
+          sleep 12
           if curl -fsS -m 2 http://127.0.0.1:16180/ >/dev/null 2>&1; then
-            echo "FAIL: board still responding after stop" >&2
+            echo "FAIL: board responding 12 s after stop" >&2
             exit 1
           fi
           "$KOSMOS_HOME/bin/kosmos" start
@@ -94,14 +103,16 @@ jobs:
           bash install/setup.sh --uninstall
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test ! -f "$UNIT_FILE"
+          if systemctl --user is-enabled kosmos-board.service 2>/dev/null; then echo "FAIL: unit still enabled after uninstall" >&2; exit 1; fi
 
       - name: Test custom KOSMOS_HOME unit derivation
         run: |
           CUSTOM_HOME="$HOME/custom-kosmos"
           AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh
+          # B's name rule: sha256 of the resolved path, first 8 hex (CUSTOM_HOME is already absolute and clean).
           HASH=$(printf '%s' "$CUSTOM_HOME" | sha256sum | cut -c1-8)
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.${HASH}.service"
           test -f "$UNIT_FILE"
-          grep -q "Environment=KOSMOS_HOME=$CUSTOM_HOME" "$UNIT_FILE"
+          grep -qF "Environment=\"KOSMOS_HOME=$CUSTOM_HOME\"" "$UNIT_FILE"
           AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh --uninstall
           test ! -f "$UNIT_FILE"
