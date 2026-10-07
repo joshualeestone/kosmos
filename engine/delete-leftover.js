@@ -15,7 +15,8 @@
  * A folder that goes to the Mac's Trash answers yes to both, so that is what
  * this does whenever it can: the folder and the job file are MOVED into
  * `~/.Trash` under a dated name, where Finder shows them and the person can
- * drag them back. Only when the Trash cannot take them (a different volume,
+ * drag them back (on Linux the desktop Trash, `~/.local/share/Trash`, with the
+ * record a file manager needs to put them back; #5445). Only when the Trash cannot take them (a different volume,
  * or no Trash directory) are they deleted for good, and the plan says which
  * BEFORE the click, so the confirmation is never lighter than the act.
  *

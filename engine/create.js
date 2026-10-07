@@ -1374,7 +1374,7 @@ function trustAgentFolder(name, opts) {
   if (!job) {
     // #5445: a masked Linux unit is still the agent's job; it is masked, not missing (review 6).
     // The reason first: the masked sentence goes on to say how to undo it, which is not why the trust was skipped (review 7).
-    if (verdict.masked) return { wrote: false, because: `we did not write the folder trust because ${require('./linuxjob').maskedFact()}. ${require('./linuxjob').maskedRemedy(clean)}` };
+    if (verdict.masked) return { wrote: false, because: `we did not write the folder trust because ${require('./linuxjob').maskedFact('this agent\'s startup unit')}. ${require('./linuxjob').maskedRemedy(clean)}` };
     if (!verdict.win32) return { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
     return {
       wrote: false,
