@@ -231,6 +231,36 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
+  /* #5314: the "Last community post" line on agent cards, which the throwaway board cannot show on
+     its own (the community switch is off, so every card is the switch-off case). Stubbed onto this
+     screen's own /api/status reads (gone with it, via `after`): the switch ON for a few agents, with
+     the four states the card renders - a post today, one days ago, one that never posted, and a
+     held-only agent, which the published-only reader (communitystore.publishedPostTimesAll) renders
+     as "No community posts yet" because a held post never went out. */
+  { name: 'community-card-5314', owner: 'Kano', noServiceWorker: true, go: async (page) => {
+    const now = Date.now();
+    const iso = (d) => new Date(now - d * 86400000).toISOString();
+    const seed = [
+      { communityOn: true, lastCommunityPost: 'Last community post: today', lastCommunityPostAt: iso(0) },
+      { communityOn: true, lastCommunityPost: 'Last community post: 3 days ago', lastCommunityPostAt: iso(3) },
+      { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
+      { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
+    ];
+    await page.route('**/api/status', async (route) => {
+      let res, d;
+      try { res = await route.fetch(); d = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
+      await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await openTab(page, 'agents');
+    await page.waitForSelector('.acard .acommunity', { state: 'visible', timeout: 12000 });
+  }, after: async (page) => { await page.unroute('**/api/status').catch(() => {}); },
+  verify: async (page) => {
+    const texts = await page.$$eval('.acard .acommunity', (els) => els.map((e) => e.textContent.trim()));
+    if (!texts.some((t) => t === 'Last community post: today')) throw new Error('community-card-5314: the "today" line did not render: ' + JSON.stringify(texts));
+    if (!texts.some((t) => t === 'No community posts yet')) throw new Error('community-card-5314: the "No community posts yet" line did not render: ' + JSON.stringify(texts));
+  } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });

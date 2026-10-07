@@ -545,8 +545,8 @@ function postTimesAll() {
   return out;
 }
 
-/* #5314: like postTimesAll, but ONLY status === 'published' rows — the posts that actually went
-   out. The agent-card line (#5314) counts posts SENT, so a held or quarantined post, which reached
+/* #5314: like postTimesAll, but ONLY status === 'published' rows (the posts that actually went
+   out). The agent-card line (#5314) counts posts SENT, so a held or quarantined post, which reached
    no one, must not read as "Last community post: today". postTimesAll is left exactly as it is: the
    community nudge counts posts of any status and keeps that meaning. The time is receivedAt (the
    store keeps no separate publish time); for an auto-published post (#3485) that is the send time,
