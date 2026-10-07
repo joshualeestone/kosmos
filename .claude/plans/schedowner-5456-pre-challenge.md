@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: schedowner-5456
-diff_hash: 46e9755f74bd7c1e8eea4dfbb7149fed2afa2475900ba8e0bad010335f961291
-validation: with tools/run-tests.sh's env: every web.* test + assigner/tasks/taskrepeat tests + file-scanning guards 2669/0 (before round 2/3 fixes), and the three changed test files 63/0 after them; both browser-check gates rc 0; render-onhold-4771 78/0 and render-tasks-view-3559 296/0 locally; full suite on CI
+diff_hash: d6b994b87b4a7ec41f0d884bb68314f9fd987b75af4f4732bb3c6281ec86ec3b
+validation: rebased 2026-10-07 06:1x CDT onto main (render-onhold-4771 header conflict, resolved as the union); after it: unit tests 92/92, render-onhold-4771 + render-tasks-view-3559 382 PASS 0 FAIL (10:24); before: with tools/run-tests.sh's env: every web.* test + assigner/tasks/taskrepeat tests + file-scanning guards 2669/0 (before round 2/3 fixes), and the three changed test files 63/0 after them; both browser-check gates rc 0; render-onhold-4771 78/0 and render-tasks-view-3559 296/0 locally; full suite on CI
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-07T05:34:54Z
+timestamp: 2026-10-07T15:24:29Z
 iterations: 4
 converged: true
 ---
