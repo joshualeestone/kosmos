@@ -136,14 +136,14 @@ function reportFor(evt, ctx) {
 }
 
 /**
- * #5495: true when this agent runs with Kosmos's own PermissionRequest allow hook (its settings file sets the env name,
+ * #5495: true when this agent runs with Kosmos's own PermissionRequest allow hook (its settings file sets the env names,
  * engine/agentpermission.js) AND this install's decide(), called in-process, allows this request. Any failure reads
  * as false: the report says needs-you, as before #5495.
  */
 function kosmosAllows(input, env) {
   try {
     const ap = require('./agentpermission');
-    if (!env || !env[ap.ENV_SCRIPT]) return false;
+    if (!env || !env[ap.ENV_NODE] || !env[ap.ENV_SCRIPT]) return false;   // both names, as the shell hook requires
     return Boolean(require('./kosmos-permission-allow').decide(input));
   } catch { return false; }
 }

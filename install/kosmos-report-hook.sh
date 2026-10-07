@@ -341,15 +341,18 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 
 # #5495: true when this agent runs with Kosmos's PermissionRequest allow hook (Kosmos's settings file sets these two
 # names, engine/agentpermission.js; Claude Code hands a settings file's env to its hooks) AND that hook allows this
-# request: the same decide(), asked by running the hook itself on the same input. The two paths are the node and script
-# that same settings file has Claude run as the allow hook, so running them here trusts nothing new; a path relative to
-# this hook would not do, because copies of this hook are deployed elsewhere (#1467). Anything missing or failing is
-# false, so the report says needs-you as before #5495. The grep matches decide()'s compact JSON.stringify output.
+# request: the same decide(), asked by running the hook itself on the same input, with the node and script the
+# environment names (Kosmos's settings file sets them to what it runs as the allow hook). A path relative to this hook
+# would not do, because copies of this hook are deployed elsewhere (#1467). The script must be the allow hook by name.
+# Anything missing or failing is false, so the report says needs-you as before #5495; with no CLI to report through
+# there is nothing to decide. The grep matches decide()'s compact JSON.stringify output.
 # Bounded by the clock (macOS has no `timeout`): this hook's own entry is capped at 15 s, and a run that stalls past
-# it would send no report at all. A run still going after 5 whole seconds of $SECONDS is stopped by the pid this
+# it would send no report at all. A run still going at 6 ticks of $SECONDS (5 to 6 s real) is stopped by the pid this
 # function started, and reads false.
 kosmos_allows() {
+  [ -n "$KOSMOS" ] || return 1
   [ -n "${KOSMOS_PERMISSION_ALLOW_NODE:-}" ] && [ -n "${KOSMOS_PERMISSION_ALLOW_SCRIPT:-}" ] || return 1
+  case "$KOSMOS_PERMISSION_ALLOW_SCRIPT" in */kosmos-permission-allow.js) ;; *) return 1 ;; esac
   [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
   local out p r start=$SECONDS
   out=$(mktemp "${TMPDIR:-/tmp}/kosmos-allow.XXXXXX" 2>/dev/null) || return 1
