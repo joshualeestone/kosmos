@@ -202,28 +202,35 @@ cut's sha before it starts waiting:
   others stay unverified unless you repeat them, so say so where you record the release. On a staging
   cut, confirm prod's `latest.json` and `/setup` did not move.
 
-  **Put back the tarball pair before any promote.** The failed cut's trap deleted the untracked
-  `dist/kosmos-<V>-arm64.tar.gz` and `.sha256` from the site checkout, and a refresh from origin cannot
-  bring back gitignored files, so `tools/promote-channel.sh` would refuse on a missing artifact. Fetch
-  the served pair into the site's `dist/` and check it:
+  **Before any promote, put the site checkout back to what is served, in this order.**
+  1. **The tracked files, from origin.** Step 7b and the trap leave the checkout behind origin's main:
+     its local `dist/latest-staging.json` (or `latest.json`) still names the PREVIOUS version, and
+     `tools/promote-channel.sh` reads that local pointer. Fast-forward to origin's main (on 0.7.27 the
+     only local change was `versions.html`, identical to origin's, so it was discarded first). That also
+     brings back the tracked manifest and installer files.
+  2. **The tarball pair, from the served host.** The trap deleted the untracked
+     `dist/kosmos-<V>-arm64.tar.gz` and `.sha256` if this cut created them, and a refresh cannot bring back
+     gitignored files, so promote-channel.sh would refuse on a missing artifact:
 
-  ```
-  cd <site>/dist
-  curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz"
-  curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256"
-  shasum -a 256 -c "kosmos-<V>-arm64.tar.gz.sha256"
-  ```
-  The sha must also equal the one the cut printed. The unversioned pair (`kosmos-arm64.tar.gz` and
-  `.sha256`, also gitignored) needs nothing on a staging cut: it is prod's build, and a staging cut serves
-  it unchanged (measured on 0.7.27: served and local both 0.7.25's). On a `KOSMOS_CUT_CHANNEL=prod` cut the
-  trap put back the PREVIOUS release's pair, so fetch the served one the same way, or the next deploy from
-  this checkout serves the old pair again. Then refresh the tracked files of the site checkout
-  from origin before the next cut (7b and the trap leave them behind origin's main). The cut's own record
-  still shows it failing, with the CLI's exit code.
+     ```
+     cd <site>/dist
+     curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz"
+     curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256"
+     shasum -a 256 -c "kosmos-<V>-arm64.tar.gz.sha256"
+     ```
+     The sha must also equal the one the cut printed.
+  3. **The unversioned pair** (`kosmos-arm64.tar.gz` and `.sha256`, also gitignored) needs nothing on a
+     staging cut: it is prod's build, and a staging cut serves it unchanged (measured on 0.7.27: served
+     and local both 0.7.25's). On a `KOSMOS_CUT_CHANNEL=prod` cut the trap put back the PREVIOUS release's
+     pair, so fetch the served one the same way, or the next deploy from this checkout serves the old
+     pair again.
+
+  The cut's own record still shows it failing, with the CLI's exit code.
 
 The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once a
-failed cut ends, its trap deletes the local `.sha256`, and that log line is then the only record of it. A
-deploy stopped by an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own
+failed cut ends, its trap deletes the local `.sha256` (if this cut created it), and that log line is then
+the only record of it. A terminal Ctrl-C usually ends the whole cut through its own trap. A deploy stopped
+by an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own
 `.sha256` cannot be read (it printed `<unreadable>`), fails at once without waiting. Any other failure,
 including one before anything was uploaded (not authorized, no project link), waits the full time first;
 Ctrl-C ends that wait safely.
