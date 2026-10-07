@@ -140,3 +140,13 @@ Third post-rebase review (opus), all fixed:
 - The guard test now asserts the undo stores are write-denied in both layers.
 Residual: a hard link made between apply's last check and its copy would put the token's bytes into undo-saved,
 which the agent cannot read or write.
+Fourth post-rebase review (sonnet), all fixed:
+- Too broad: every agent's .claude was refused, so ordinary agents silently lost undo copies of their skills, plans
+  and hooks. Now only TOKEN-ONLY agents' .claude folders (the only ones the guard write-denies), read from the
+  token-only list itself (a missing list means none; an unreadable or garbled one cannot be checked).
+- A failure to work out the set read as "protected" for every file: it is now 'cannot-check' ("Kosmos could not check
+  whether it may change this file") in keep, plan and apply.
+- The set was rebuilt per file in plan and apply: now once per call.
+- A registry temp or lock name, or an account home's settings file, made after the list was built is caught by name
+  and place. The comment no longer claims the two sets are equal: undo also refuses the sender tokens (never undo
+  material), which the guard does not read-deny.

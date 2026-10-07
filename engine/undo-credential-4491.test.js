@@ -64,12 +64,17 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
   assert.equal(undo.keep(stLink, { cwd: me }).because, 'credential', 'a hard link to a sender token was copied');
   const upper = path.join(path.dirname(sendertoken.DIR), path.basename(sendertoken.DIR).toUpperCase(), 'someone');
   assert.equal(undo.keep(upper, { cwd: me }).because, 'credential', 'the sender tokens folder spelled in another case was not refused');
-  fs.writeFileSync(sendertoken.tokenOnlyFile(), '[]');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['ud-me'] }));
   assert.equal(undo.keep(sendertoken.tokenOnlyFile(), { cwd: me }).because, 'credential', 'the token-only list was copied');
   const own = path.join(me, '.claude');
   fs.mkdirSync(own, { recursive: true });
   fs.writeFileSync(path.join(own, 'settings.json'), '{}');
-  assert.equal(undo.keep(path.join(own, 'settings.json'), { cwd: me }).because, 'credential', 'an agent settings file is kept (and could be restored over its guard)');
+  assert.equal(undo.keep(path.join(own, 'settings.json'), { cwd: me }).because, 'credential', 'a token-only agent settings file is kept (and could be restored over its guard)');
+  // An account home made later (not yet in the list): its settings file is refused by name and place.
+  const later = path.join(SB, '.claude-later');
+  fs.mkdirSync(later, { recursive: true });
+  fs.writeFileSync(path.join(later, 'settings.json'), '{}');
+  assert.equal(undo.keep(path.join(later, 'settings.json'), { cwd: me }).because, 'credential', 'an account home settings file was kept');
   assert.equal(undo.keep(path.join(store.ROOT, 'board.token.gone'), { cwd: me }).because, 'credential', 'a not-yet-existing token name was recorded');
   assert.equal(storeHolds(SECRET), false, 'the undo store holds the token bytes');
   assert.equal(storeHolds(secretHash), false, 'the undo store names the token blob');
@@ -119,6 +124,13 @@ test('#4491: a forged undo record naming board.token is never restored, moved or
 test('#4491 review 3: a guarded folder reached by a link of another name is refused; a repo .claude, a FIFO and a linked parent behave as before', (t) => {
   undo.setOn(true);
   const me = worker('ud-paths');
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['ud-paths'] }));   // a token-only agent
+  // Review 4: an ORDINARY agent's .claude (skills, plans, hooks) is its own work and keeps its undo copy.
+  const plainAgent = worker('ud-plain');
+  fs.mkdirSync(path.join(plainAgent, '.claude', 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(plainAgent, '.claude', 'skills', 'x.md'), 'a skill');
+  assert.deepEqual(undo.keep(path.join(plainAgent, '.claude', 'skills', 'x.md'), { cwd: plainAgent }), { kept: true }, 'an ordinary agent lost the undo copy of its own .claude file');
   const own = path.join(me, '.claude');
   fs.mkdirSync(own, { recursive: true });
   fs.writeFileSync(path.join(own, 'settings.json'), '{}');
@@ -147,4 +159,17 @@ test('#4491 review 3: a guarded folder reached by a link of another name is refu
   const mk = require('node:child_process').spawnSync('mkfifo', [fifo]);
   assert.equal(mk.status, 0, 'mkfifo failed, so the FIFO arm would prove nothing');
   assert.equal(undo.keep(fifo, { cwd: me }).because, 'not-a-file');
+});
+
+test('#4491 review 4: when the protected set cannot be worked out, keep and plan say they could not check (never "protected")', () => {
+  undo.setOn(true);
+  const me = worker('ud-garble');
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), '{not json');
+  const f = path.join(me, 'any.txt');
+  fs.writeFileSync(f, 'x');
+  assert.equal(undo.keep(f, { cwd: me }).because, 'cannot-check', 'an unreadable token-only list read as something else');
+  assert.equal(undo.credentialVerdict(f, null), 'unknown');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+  assert.deepEqual(undo.keep(f, { cwd: me }), { kept: true }, 'CONTROL: with a readable list the same file is kept');
 });
