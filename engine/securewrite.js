@@ -270,6 +270,15 @@ function secureDir(dir, mode) {
  * in place where it can, because the alternative is destroying what it failed to
  * replace.
  */
+/* #5434: flush a directory so a rename into it survives a crash. Not on Windows, where a
+   directory cannot be opened for this and NTFS journals the rename. Best effort everywhere. */
+function syncDir(dir) {
+  if (process.platform === 'win32') return;
+  let fd = null;
+  try { fd = fs.openSync(dir, 'r'); fs.fsyncSync(fd); } catch { /* best effort */ }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } } }
+}
+
 function writeSecret(file, data, mode) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
      once per directory per process, before we add our own. Best-effort: it never
@@ -318,12 +327,18 @@ function writeSecret(file, data, mode) {
           if (!(n > 0)) throw Object.assign(new Error('short write on the temp'), { code: 'EIO' });
           off += n;
         }
+        /* #5434: the bytes reach the disk BEFORE the rename makes them the file. Without this a
+           crash can leave the renamed file at full length with zeroed contents (found on a
+           Windows box after repeated crashes, #5431). Best effort: a file system that refuses
+           fsync must not push the write onto the in-place fallback below. */
+        try { fs.fsyncSync(tfd); } catch { /* best effort, see above */ }
       } finally {
         fs.closeSync(tfd);
       }
       /* rename is atomic, and it REPLACES a symlink at the target rather than
          following it. */
       fs.renameSync(tmp, file);
+      syncDir(path.dirname(file));   // #5434: the rename itself, made durable where the platform allows
       return;
     } catch (err) {
       /* Keep WHY the atomic path was abandoned, so it is not lost behind the
