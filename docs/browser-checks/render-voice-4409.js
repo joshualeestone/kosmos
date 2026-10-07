@@ -195,11 +195,33 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     chk(cancelAsk.op === 'cancel' && v5.sent === 'ship it' && v5.box === '' && v5.pressed === 'false',
       'V5 Send while listening sends what the box shows, cancels, and a late word does not refill the box', JSON.stringify({ cancelAsk, ...v5 }));
 
-    // V6: a refusal is said in words.
+    // V6 (#5481, Josh): a refused microphone turns the mic into a pill IN ITS PLACE, [X   Turn on in Settings], with no
+    // sentence below the input. The label asks the app for the Microphone pane; X puts the plain mic back.
+    const micAt = await page.locator('#d-mic').boundingBox();
     await page.click('#d-mic');
     await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-denied' }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
-    const said = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
-    chk(/not allowed to use the microphone/.test(said) && /System Settings, Privacy & Security, Microphone/.test(said), 'V6 a refused microphone is said under the box, with where to turn it on', said);
+    const pill = await page.evaluate(() => {
+      const p = document.querySelector('.voice-pill');
+      const r = p && p.getBoundingClientRect();
+      return { n: document.querySelectorAll('.voice-pill').length, words: p ? p.textContent : '', micShown: getComputedStyle(document.getElementById('d-mic')).display !== 'none',
+        said: document.getElementById('d-say-msg').textContent, right: r ? r.right : 0, top: r ? r.top : 0, bottom: r ? r.bottom : 0, w: r ? r.width : 0 };
+    });
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'voice-dm-settings-pill.png') });
+    const pillRowOk = micAt && pill.top <= micAt.y + micAt.height && pill.bottom >= micAt.y && Math.abs(pill.right - (micAt.x + micAt.width)) <= 2;
+    const nAsk = await page.evaluate(() => window.__voice.length);
+    await page.click('.voice-pill .vp-go');
+    const askSet = await page.evaluate((n) => window.__voice.slice(n), nAsk);
+    chk(pill.n === 1 && !pill.micShown && /^\u00d7\s*Turn on in Settings$/.test(pill.words) && pill.said === '' && pillRowOk
+        && askSet.length === 1 && askSet[0].op === 'settings' && askSet[0].pane === 'mic',
+      'V6 a refused microphone becomes one [X   Turn on in Settings] pill where the mic was, no sentence, and the label asks for the Microphone pane', JSON.stringify({ pill, micAt, askSet }));
+    await page.click('.voice-pill .vp-x');
+    const back = await page.evaluate(() => ({ n: document.querySelectorAll('.voice-pill').length, micShown: getComputedStyle(document.getElementById('d-mic')).display !== 'none', focus: document.activeElement && document.activeElement.id }));
+    chk(back.n === 0 && back.micShown && back.focus === 'd-mic', 'V6b X dismisses the pill and the plain mic is back, focused', JSON.stringify(back));
+    // V6c CONTROL: restricted (Screen Time or a profile) is not a switch in the Privacy pane, so it is said, with no pill.
+    await page.click('#d-mic');
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-restricted' }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    const restricted = await page.evaluate(() => ({ n: document.querySelectorAll('.voice-pill').length, said: document.getElementById('d-say-msg').textContent }));
+    chk(restricted.n === 0 && /Screen Time/.test(restricted.said), 'V6c a restricted microphone is said in words and offers no Settings pill', JSON.stringify(restricted));
 
     // V10: hold to talk. A real pointer press, the words while held, and the release.
     await page.evaluate(() => { const b = document.getElementById('d-say'); b.value = ''; b.focus(); });
