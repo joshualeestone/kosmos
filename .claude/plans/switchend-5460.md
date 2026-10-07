@@ -15,7 +15,7 @@ rebased onto main when #5499 merges.
 ## Approach (decided)
 - communitysend endOnPeriod(st, why): when the sweep ends the period for an unreadable switch, append
   { since, at } to state.json `endedUnreadable` (newest 20 kept). The first sweep that reads the switch again (on or
-  off) sets the newest window's `until`. endOnPeriodNow (the person's OFF) records nothing.
+  off) closes every open window (`until`). endOnPeriodNow (the person's OFF) records nothing.
 - communitystatus stateOf: an unsent item whose made time is inside a window reads switch_unreadable where it read
   before_on. Only the before_on branches change.
 - communityswitch read(): readOnce() plus up to RETRIES (3) more reads RETRY_MS (50 ms) apart for the transient
@@ -54,3 +54,9 @@ in the minute before that sweep can read switch_unreadable rather than before_on
 - The person's OFF (endOnPeriodNow) also closes any open window, since the switch was just read.
 - Accepted: lastFailed is one module-wide key, so a second separate scanner lock on an UNCHANGED file, with no good
   read between, is not retried. That is the price of not stalling every reader on a lasting failure.
+
+## Review 3
+- A period's start closes any open window at that start (sinceForOnPeriod), and a sweep or the person's OFF closes
+  one at the later period's start when there is one, so a window never reaches into the next period.
+- Only a retry round that ended in failure starts the 2 s gap, so a brief failure soon after one that recovered is
+  still retried.

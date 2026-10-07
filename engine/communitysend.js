@@ -263,7 +263,12 @@ function sinceForOnPeriod(st) {
   const fresh = loadJson(stateFile());
   if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; loggedOnce.delete('start'); return fresh.since; }
   const now = new Date().toISOString();
-  try { saveJson(stateFile(), { ...(fresh || st), since: now }); }
+  // #5460 review 3: a period starts only on a read that found the switch ON, so an unreadable window still open ends here.
+  const next = { ...(fresh || st), since: now };
+  if (Array.isArray(next.endedUnreadable)) {
+    next.endedUnreadable = next.endedUnreadable.map((w) => (w && typeof w.until !== 'string' ? { ...w, until: now } : w));
+  }
+  try { saveJson(stateFile(), next); }
   catch (err) {
     // #5435 review 2: named in the log, as the words the agent gets promise ("the board's log says which record").
     logOnce('start', 'communitysend: cannot write ' + stateFile() + ' (' + ((err && err.code) || 'write failed') + '), so this ON period has no start and nothing is sent until it can be written');
@@ -271,6 +276,7 @@ function sinceForOnPeriod(st) {
   }
   loggedOnce.delete('start');
   st.since = now;
+  if (next.endedUnreadable) st.endedUnreadable = next.endedUnreadable;
   return now;
 }
 
@@ -298,7 +304,8 @@ function closeUnreadableWindow(st) {
   const open = (Array.isArray(st.endedUnreadable) ? st.endedUnreadable : []).filter((w) => w && typeof w.until !== 'string');
   if (!open.length) return;
   const now = new Date().toISOString();
-  for (const w of open) w.until = now;
+  // Review 3: a period that started after the window (a route's ON read) ended it then, not at this later sweep.
+  for (const w of open) w.until = typeof st.since === 'string' && st.since > w.since && st.since < now ? st.since : now;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
 }
 /* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between
@@ -308,8 +315,10 @@ function closeUnreadableWindow(st) {
 function endOnPeriodNow() {
   const st = loadJson(stateFile());
   if (!st) return;
+  // #5460 review 2: the switch was just read (to turn it OFF), so an open window ends here; review 3: before endOnPeriod
+  // drops `since`, so a window a later period started ends at that start.
+  closeUnreadableWindow(st);
   endOnPeriod(st);
-  closeUnreadableWindow(st);   // #5460 review 2: the switch was just read (to turn it OFF), so an open window ends here
 }
 
 /** 🛑 A TEST RUN MUST NEVER PHONE HOME: node's test runner sets this, and nothing else does. */
