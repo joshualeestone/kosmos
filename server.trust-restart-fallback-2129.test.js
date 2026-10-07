@@ -26,6 +26,9 @@
  */
 
 const test = require('node:test');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): its runner answers launchctl only, so on Linux the restart after the switch cannot confirm a running unit and the answer is partial; Linux switch and restart: linuxjob.test.js (rewriteAgentJob on Linux) and linuxwiring-4918.test.js (review 8, a Linux restart)" } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -142,7 +145,7 @@ async function trustAndRestart(name) {
   return { status: res.status, body: await res.json() };
 }
 
-test('a Claude default-account agent: the trust key is the NATIVE realpath, and it restarts', async () => {
+test('a Claude default-account agent: the trust key is the NATIVE realpath, and it restarts', LINUX_PLIST_5432, async () => {
   const name = 'tr-claude-default';
   const folder = born(name);
   const r = await trustAndRestart(name);
@@ -169,7 +172,7 @@ test('a Claude default-account agent: the trust key is the NATIVE realpath, and 
     'the folder was not marked trusted under the native key: ' + JSON.stringify(cfg.projects[nativeKey]));
 });
 
-test('a codex agent: a trusted [projects."…"] block is written, and it restarts', async () => {
+test('a codex agent: a trusted [projects."…"] block is written, and it restarts', LINUX_PLIST_5432, async () => {
   const name = 'tr-codex-default';
   const folder = born(name, { runner: 'codex' });
   const r = await trustAndRestart(name);
@@ -194,7 +197,7 @@ test('a codex agent: a trusted [projects."…"] block is written, and it restart
   assert.match(toml, /trust_level = "trusted"/, 'the block does not mark the folder trusted: ' + toml);
 });
 
-test('BEST-EFFORT / NON-GATING: a failed trust write still restarts the agent', async () => {
+test('BEST-EFFORT / NON-GATING: a failed trust write still restarts the agent', LINUX_PLIST_5432, async () => {
   /* Force a soft trust-write REFUSAL without touching any real file: a
      non-default claude account whose .claude.json is a SYMLINK. trustFolder
      refuses a symlinked config (it will not replace somebody's arrangement) and
