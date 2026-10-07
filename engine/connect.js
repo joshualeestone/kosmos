@@ -3675,6 +3675,7 @@ function resetForTests() {
 
 module.exports = {
   setMuslDetectForTests,
+  isMusl: () => isMuslFn(),   // #5419 slice 2: runners asks before a Grok download on Linux
   detectMusl,   // #5419: pure, so each branch is tested
   readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, tmuxMissingForSignin, setTmuxCheckForTests,   // #5419: tested directly
   muslLibsPresent, muslLibsMissing, setMuslLibsCheckForTests,   // #5419 review 24

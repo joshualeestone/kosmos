@@ -153,15 +153,15 @@ function canDownloadRunner(platform = process.platform) {
 }
 
 /** True only where OpenAI publishes a Codex build Kosmos pins and can fetch
- *  (darwin, and win32 since the pinned win32-x64/win32-arm64 builds landed). Same
+ *  (darwin; win32 since the win32-x64/arm64 builds landed; linux since #5419 slice 2). Same
  *  fail-closed shape as its siblings. runners.install reads this for the openai
  *  runner only; every other runner arm keeps canDownloadRunner. */
 function canDownloadCodex(platform = process.platform) {
   return CODEX_DOWNLOADS.includes(platform);
 }
 
-/** True only where Kosmos pins a Gemini CLI and a Grok CLI build it can fetch (darwin and
- *  win32). Same fail-closed shape as its siblings. runners.install reads this for the gemini
+/** True only where Kosmos pins a Gemini CLI and a Grok CLI build it can fetch (darwin, win32
+ *  and, since #5419 slice 2, linux). Same fail-closed shape as its siblings. runners.install reads this for the gemini
  *  and grok runners only. */
 function canDownloadKeyedRunner(platform = process.platform) {
   return KEYED_RUNNER_DOWNLOADS.includes(platform);
@@ -186,8 +186,8 @@ function canSelfInstall(platform = process.platform) {
 
 /** Machine facts for the API / a future gate screen. No user-facing copy.
  *  Each capability is reported SEPARATELY because they diverge: a platform can run
- *  agents (`supported`) while being unable to fetch the codex runner
- *  (`runnerDownloads`, darwin-only), yet still able to fetch Claude Code
+ *  agents (`supported`) while `runnerDownloads` (canDownloadRunner: only the claude arm of runners.install,
+ *  darwin-only) is false, yet still able to fetch Claude Code
  *  (`claudeDownloads`, darwin+win32+linux). A screen that read only one of these could not
  *  express win32, where claudeDownloads is true but runnerDownloads is false -- and a
  *  consumer that reused runnerDownloads to decide "can Kosmos install Claude here"

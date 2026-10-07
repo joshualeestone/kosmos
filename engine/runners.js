@@ -283,7 +283,7 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
  * as the Mac and Windows entries: each is the npm registry's own tarball with its own registry sha512. MEASURED
  * 2026-10-06 (each tarball streamed, its sha512 matched the registry, the byte count is the real size, the paths
  * read from the tarball's listing). Codex's Linux builds are static musl, so one build per CPU serves glibc and
- * Alpine alike. Grok's layout is the Mac one: ONE compressed `bin/grok.br`, expanded to `bin/grok`.
+ * Alpine alike. Grok's layout is the Mac one: ONE compressed `bin/grok.br`, expanded to `bin/grok-native`.
  */
 const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
   x64: Object.freeze({
@@ -1130,7 +1130,10 @@ function download(url, file, job, redirectsLeft, getter) {
  * full path rather than found on PATH (where a stray GNU tar could shadow it and
  * misread `C:\` as a remote host).
  */
-function tarBin(platform = process.platform, env = process.env) {
+function tarBin(platform = process.platform, env = process.env, exists = fs.existsSync) {
+  /* #5419 slice 2: Linux keeps tar at /usr/bin/tar only where /usr was merged; Debian 10, Ubuntu 18.04, an unmerged
+     upgrade and stock Alpine (busybox) have it at /bin/tar. The Mac's path is unchanged. */
+  if (platform === 'linux') return ['/usr/bin/tar', '/bin/tar'].find((p) => { try { return exists(p); } catch { return false; } }) || '/usr/bin/tar';
   if (platform !== 'win32') return '/usr/bin/tar';
   return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'tar.exe');
 }
@@ -1428,6 +1431,12 @@ function install(provider, opts) {
   // its own per-platform artifact, so the guard naturally passes.)
   if (m.arch && arch !== m.arch) {
     return refuse(`the pinned ${m.name} build is ${m.arch} and this computer is ${arch}; no download was attempted`);
+  }
+  /* #5419 slice 2: xAI's Linux Grok build is not known to run on musl (Alpine and the like), so a musl host is told
+     before ~45-49 MB moves rather than after, by the same detector Claude's Linux download uses. Codex's Linux builds
+     are static musl and need no check. */
+  if (provider === 'grok' && plat === 'linux' && require('./connect').isMusl()) {
+    return refuse(`there is no ${m.name} build for this kind of Linux (it uses musl, as Alpine does); no download was attempted`);
   }
 
   if (m.kind === 'vendor-external') return installVendor(provider, m, o, existing);
