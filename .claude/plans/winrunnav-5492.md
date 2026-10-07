@@ -29,3 +29,11 @@ So refusing unclicked foreign navigations on run/both breaks no flow the board h
 - NOT checked here: the whole launcher compile and the WebView2 wiring; Windows CI's `windows` job runs the real probe.
 
 Weakest premise: the board's script-navigation audit is of today's code; a future board flow that sends the window to another site by script (say, a provider sign-in by redirect) would silently do nothing on run/both. That holds on the Mac already since #5169.
+
+## Review 1 (opus): no BLOCKER, no WARNING; converged
+Confirmed: connect unchanged; Starting page, first load and the ?boot= 302 stay in the window; no state leak across SwitchToConnect / RunAgentsHere / OnProcessFailed; Unset and Unreadable keep the older rule; board links to Kosmos Plus are target=_blank (OnNewWindowRequested, unchanged, as on the Mac); the new assertions fail for the right reasons; sibling launcher tests pass (37 pass, 21 Windows-only skips).
+NITs, decided:
+- [NIT] run/both lets any about:/data: through, not only the Starting page: unchanged from before this card, and Chromium blocks renderer-started top-level data: anyway. Narrowing it to the window's own NavigateToString is a follow-up, not parity.
+- [NIT] IsBoardAddress accepts localhost/[::1] (stated as a WINDOWS row) and ignores a user part: still this computer's loopback board.
+- [NIT] two comments in tools.win-launcher-native.test.js:545 and tools.win-open-board-2007.test.js:61 describe the older rule without saying it now covers only Unset/Unreadable: fix at rebase, when the stack lands.
+- [NIT] no probe row for a CLICKED board link: add `Board(".../", true, 27500, InApp, ...)` at rebase.
