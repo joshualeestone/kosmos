@@ -248,6 +248,29 @@ function notOnWords() {
     ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on; tell your person, who turns it on again in Settings'
     : 'the Kosmos+ community is switched off on this board';
 }
+/* #5435 review 4: a DARK window is a stretch in which the switch could not be read. Board pages paint that as OFF, so a
+   post made or released inside it must never go, even if the period's start survives (only the person turning it OFF
+   ends the period, review 3, so posts made BEFORE the tear still go as the agent was told). Kept in state.json beside
+   `since`, newest last, the last one open until the switch reads again. Bounded. */
+const DARK_MAX = 20;
+function openDark(st, now) {
+  if (!st || typeof st.since !== 'string') return false;   // no period: nothing could go anyway
+  const w = Array.isArray(st.dark) ? st.dark : [];
+  if (w.length && !w[w.length - 1].to) return false;       // already open
+  st.dark = [...w, { from: new Date(now).toISOString() }].slice(-DARK_MAX);
+  return true;
+}
+function closeDark(st, now) {
+  const w = st && Array.isArray(st.dark) ? st.dark : [];
+  if (!w.length || w[w.length - 1].to) return false;
+  w[w.length - 1] = { ...w[w.length - 1], to: new Date(now).toISOString() };
+  return true;
+}
+/** Was something made at ISO time `at` inside a dark window of this state? */
+function inDark(st, at) {
+  const w = st && Array.isArray(st.dark) ? st.dark : [];
+  return typeof at === 'string' && w.some((d) => d && typeof d.from === 'string' && at >= d.from && (typeof d.to !== 'string' || at < d.to));
+}
 const loggedOnce = new Set();
 function logOnce(key, line) { if (!loggedOnce.has(key)) { loggedOnce.add(key); console.error(line); } }
 function switchFileName() { try { return require('./communityswitch').FILE; } catch { return 'community.json'; } }
@@ -1436,6 +1459,11 @@ async function sweepOnce(now) {
   // #5435 review 3: only the person turning it OFF ends the period. A switch file that cannot be read sends nothing,
   // but ending the period then lost every post made meanwhile for good (a later start is after them), while the agent
   // was told to wait; kept, they go once the file is repaired, as communitystatus already said they would.
+  // Review 4: a dark window opens while the switch cannot be read and closes when it reads again; posts made inside it
+  // never go (the due filter below), and status says so.
+  if (st && (sw === 'unreadable' ? openDark(st, now || Date.now()) : closeDark(st, now || Date.now()))) {
+    try { saveJson(stateFile(), st); } catch (e) { log(`state: ${e && e.code ? e.code : 'save failed'}; the dark window is kept in memory for this sweep only`); }
+  }
   if (sw === 'off' && st) endOnPeriod(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
@@ -1460,6 +1488,7 @@ async function sweepOnce(now) {
     const due = communitystore.publishedPosts()
       .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
       .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
+      .filter((p) => !inDark(st, String(p.releasedAt || p.receivedAt)))   // #5435 review 4: made while the page showed OFF
       .filter((p) => p.notSent !== true)               // #4994: its agent was deleted
       .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
     for (const post of due) {
@@ -2098,7 +2127,11 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
   const no = (why) => ({ sends: false, later: false, why });
   const sw = switchState();
-  if (sw === 'unreadable') return no('records');   // review 1: a torn switch file is a record, not the person's choice
+  if (sw === 'unreadable') {   // review 1: a torn switch file is a record, not the person's choice
+    // Review 4: and what is made now must never go (the page shows OFF): open the dark window BEFORE it is stored.
+    try { const st0 = loadJson(stateFile()); if (st0 && openDark(st0, now)) saveJson(stateFile(), st0); } catch { /* the sweep opens it too */ }
+    return no('records');
+  }
   if (sw !== 'on') return no('off');
   if (!endpointAllowed()) return no('address');
   const st = loadJson(stateFile());
@@ -2324,7 +2357,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, switchState, notOnWords, inDark, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,

@@ -123,3 +123,22 @@ test('#5435 review 3: read, vote and follow say a switch file cannot be read, no
     assert.match((await read.read({})).because, /switched off on this board/, 'CONTROL: a switch turned off says so');
   } finally { cs.setSwitch(null); }
 });
+
+test('#5435 review 4: willSend opens the dark window the moment it finds the switch unreadable, before the post is stored', () => {
+  fresh();
+  const since = '2026-01-01T00:00:00.000Z';
+  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
+  cs.setSwitch(() => ({ on: false, ok: false }));
+  try {
+    const now = Date.parse('2026-02-01T00:00:00.000Z');
+    assert.equal(cs.willSend('ava', now, 'post').why, 'records');
+    const st = JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8'));
+    assert.deepEqual(st.dark, [{ from: '2026-02-01T00:00:00.000Z' }]);
+    assert.equal(st.since, since, 'the period was ended');
+    assert.equal(cs.inDark(st, '2026-02-01T00:00:00.000Z'), true);
+    assert.equal(cs.inDark(st, '2026-01-31T23:59:59.999Z'), false, 'CONTROL: made before the tear');
+    cs.willSend('ava', now + 60000, 'post');
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).dark.length, 1, 'a second window opened while one was open');
+  } finally { cs.setSwitch(null); }
+});

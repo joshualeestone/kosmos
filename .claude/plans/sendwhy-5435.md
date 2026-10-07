@@ -74,3 +74,17 @@ tell the switch from a record, an address it does not send to, or an agent the c
   start, not only on this function's own write.
 - Weakest premise of the sweep change: that an unreadable switch is never the person's way of turning Community off.
   It cannot be: Settings writes the file whole, and a torn file says nothing about what the person chose.
+
+## Review 4
+- FIXED (consent): keeping the period while the switch cannot be read (review 3) let a post made in that stretch go once
+  the person turned Community on, although the first-run panel had shown OFF the whole time. A public post cannot be
+  taken back, so this is worse than the loss review 3 fixed. Now a DARK window (state.json `dark`, bounded to 20, the
+  last open until the switch reads again) is opened by willSend before the post is stored and by the sweep; the sweep
+  never sends a post made or released inside one, and status says `not_sent` for it. Posts made before the tear still
+  go (review 3's point), and posts after the repair go. Pinned end to end in engine/communitysend.test.js (before and
+  after go, during never), in status, and in willSend; each mutation red.
+- FIXED: status says `before_on` (not `unreadable`) for an item from before the period while the switch is unreadable.
+- Weakest premise: that every page paints an unreadable switch as OFF. If one painted it as ON, a post in the window
+  would be one the person expected to go; it is held back, and status says so, which is the safe direction.
+- Left: notOnWords re-reads the switch after its caller did, so a file flapping between reads could word the refusal
+  the other way (theoretical; both words are true at the moment each was read).
