@@ -3109,6 +3109,31 @@ driverTest('#5419: with no Claude and no tmux on Linux, the headline is the tmux
   assert.equal(requests, 0, 'the download service was asked before the tmux check');
 });
 
+test('#5419: a found tmux pick is held: a second ask within the window does not search again', () => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const origPick = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let searches = 0;
+  create.linuxTmuxBin = () => { searches += 1; return '/opt/held2/tmux'; };
+  runners.isRunnable = (f) => (f === '/opt/held2/tmux' ? true : origRunnable(f));
+  try {
+    connect.resetForTests();
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-e';
+    assert.equal(connect.tmuxBinPath('linux'), '/opt/held2/tmux');
+    assert.equal(connect.tmuxBinPath('linux'), '/opt/held2/tmux');
+    assert.equal(searches, 1, 'the found pick was not held: create.linuxTmuxBin ran ' + searches + ' times');
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-f';   // a different launcher value is a different key
+    connect.tmuxBinPath('linux');
+    assert.equal(searches, 2, 'CONTROL: a new launcher value searches again');
+  } finally {
+    create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
+    connect.resetForTests();
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});
+
 test('#5419: a held tmux pick that has since gone away is not handed back', () => {
   const create = require('./create');
   const runners = require('./runners');

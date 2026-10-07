@@ -1141,6 +1141,8 @@ function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : 
    manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
    that fails with "exec format error" (#5419). */
 function platformKey(platform = process.platform, rawArch = os.arch()) {
+  /* ⚠️ Known gap (#5419 review 21): Anthropic documents its musl build as also needing libgcc, libstdc++ and ripgrep on
+     Alpine, which nothing here installs or checks; piece D's installer is where that gets said (not reachable before). */
   if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
   const arch = rawArch === 'arm64' ? 'arm64' : 'x64';
   return `${platform === 'win32' ? 'win32' : 'darwin'}-${arch}`;
