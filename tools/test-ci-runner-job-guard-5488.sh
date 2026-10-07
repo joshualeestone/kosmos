@@ -38,26 +38,40 @@ put "{$REPOJ,\"pull_request\":{\"head\":{\"repo\":null}}}"
 deny "a pull_request whose head repo is gone (deleted fork)" pull_request
 put "{$REPOJ}"
 deny "a pull_request with no head in its payload" pull_request
-allow "a push whose payload names this repo" push
+deny "a push payload without ref and pusher" push
+deny "a workflow_dispatch payload without its workflow" workflow_dispatch
+deny "a schedule payload without its schedule" schedule
+put "{$REPOJ,\"ref\":\"refs/heads/main\",\"pusher\":{\"name\":\"x\"}}"
+allow "a push whose payload names this repo and has ref and pusher" push
+put "{$REPOJ,\"workflow\":\".github/workflows/test.yml\",\"ref\":\"refs/heads/main\"}"
 allow "a manual run whose payload names this repo" workflow_dispatch
+put "{$REPOJ,\"schedule\":\"0 3 * * *\"}"
 allow "a scheduled run whose payload names this repo" schedule
-put '{"repository":{"full_name":"someone/kosmos"}}'
+# A FORK pull request's payload names this repo (its base), so the event variable must not make it a push.
+put "{$REPOJ,\"ref\":\"refs/heads/main\",\"pusher\":{\"name\":\"x\"},\"pull_request\":{\"head\":{\"repo\":{\"full_name\":\"someone/kosmos\"}}}}"
+deny "a fork pull request's payload with the event variable saying push" push
+deny "a fork pull request's payload with the event variable saying workflow_dispatch" workflow_dispatch
+put '{"repository":{"full_name":"someone/kosmos"},"ref":"refs/heads/main","pusher":{"name":"x"}}'
 deny "a push whose payload names ANOTHER repo (a variable alone cannot claim it)" push
 put '{}'
 deny "a push whose payload names no repo" push
 put 'not json'
 deny "a payload that is not JSON" push
 # The payload must be the runner's own file: a variable pointing elsewhere is refused even if that file is honest.
-printf '%s' "{$REPOJ}" > "$T/elsewhere/event.json"
-put "{$REPOJ}"
+printf '%s' "{$REPOJ,\"ref\":\"r\",\"pusher\":{}}" > "$T/elsewhere/event.json"
+put "{$REPOJ,\"ref\":\"r\",\"pusher\":{}}"
 deny "GITHUB_EVENT_PATH pointing at another (even honest) file" push owner/kosmos "$T/elsewhere/event.json"
 deny "a missing payload file" push owner/kosmos "$T/home/actions-runner/_work/_temp/_github_workflow/nope.json"
 ln -s "$T/elsewhere/event.json" "$T/home/actions-runner/_work/_temp/_github_workflow/link.json"
 deny "a symlink in the runner's folder pointing at another file" push owner/kosmos "$T/home/actions-runner/_work/_temp/_github_workflow/link.json"
 deny "no payload path" push owner/kosmos ""
+# A symlink AT the runner's own file name: only the link check refuses it (the path itself matches).
+mv "$EV" "$T/elsewhere/real.json"; ln -s "$T/elsewhere/real.json" "$EV"
+deny "a symlink at the runner's own event.json" push
+rm -f "$EV"; mv "$T/elsewhere/real.json" "$EV"
 # The guard finds the runner's file from where it is RUN FROM: a copy elsewhere, or a symlink to it from elsewhere
 # (it resolves the folder, not the link), finds no runner and refuses. Fail-closed; the hooks call it by its real path.
-put "{$REPOJ}"
+put "{$REPOJ,\"ref\":\"r\",\"pusher\":{}}"
 mkdir -p "$T/stray"; cp "$GUARD" "$T/stray/job-guard.sh"
 if GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=owner/kosmos GITHUB_EVENT_PATH="$EV" "$T/stray/job-guard.sh" >/dev/null 2>&1; then
   fail "must REFUSE: a copy of the guard installed outside the runner's home"
