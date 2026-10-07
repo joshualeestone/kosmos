@@ -2797,6 +2797,7 @@ _kosmos_mode_keeps_board_off() {
 # BEGIN #4818 put-back
 _kosmos_was_running=no
 _kosmos_paused_board=no
+_kosmos_putback_unsure=no   # #4651: set at the port-check stops, where this run cannot tell whether its stop stopped anything
 _kosmos_put_board_back() {
   [ "$_kosmos_paused_board" = yes ] || return 0
   _kosmos_paused_board=no
@@ -2814,7 +2815,13 @@ _kosmos_put_board_back() {
     # The version on disk, which after a failure past the file swap may not be the one from before the update.
     printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
   else
-    printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
+    if [ "$_kosmos_putback_unsure" = yes ]; then
+      # #4651: after a failed port check this run cannot tell whether its stop stopped anything (a sandboxed shell's
+      # stop may change nothing), so it does not say the board was paused.
+      printf '  If Kosmos is not running, open the Kosmos app, or run: kosmos start (from a normal Terminal).\n\n' >&2
+    else
+      printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
+    fi
   fi
 }
 # #5033: the three refusals at the pause (our board would not pause, another Kosmos or another app on the port) die
@@ -2824,8 +2831,7 @@ _kosmos_put_board_back() {
 # when the board was meant to run and had no marker before the run, the marker is taken away (one written by a person
 # in the seconds between our stop and the exit goes with it). This script starts nothing; what supervises the board is
 # no longer held off by the marker, as before the run (board-run exits quietly while a stranger holds the port, so
-# launchd's retries until the port is free are silent). Disarmed where the put-back is armed; #4651's two port-check stops
-# hand the put-back's state back to it (_kosmos_blocked_shell_handback).
+# launchd's retries until the port is free are silent). Disarmed where the put-back is armed.
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0
@@ -2950,7 +2956,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # used to leave the board off with board.stopped written. Not armed on the three dies above: our board still running,
   # another install's board, or another app on the port (starting ours there would collide).
   _kosmos_paused_board="$_kosmos_was_running"
-  _kosmos_marker_ours=no   # #5033: the take-back covers the refusals above (and #4651's port-check stops below re-arm it)
+  _kosmos_marker_ours=no   # #5033: the take-back covers only the refusals above
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
   # answering the probe (mid-shutdown, wedged, or simply not speaking
   # HTTP) still holds the port, and the final start would then find a
@@ -2982,19 +2988,13 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     done
     # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
     # reopen it", which is not the remedy for the stops below (#4675).
-    # #4651 x #4818/#5033: the put-back is armed before the two stops below, which come after a port check that
-    # failed (a sandboxed shell, or a holder this shell's curl cannot reach). From here the run cannot tell whether
-    # its stop stopped anything, so the put-back stands down and the marker this run wrote is taken back (#5033).
-    # Only when this run meant the board to be running does the stop add what to do if it is not.
-    _kosmos_handback_note=""
-    _kosmos_blocked_shell_handback() {
-      [ "$_kosmos_paused_board" = yes ] && _kosmos_handback_note=" If you leave the update here and Kosmos itself is not running, open the Kosmos app."
-      _kosmos_marker_ours="$_kosmos_paused_board"; _kosmos_paused_board=no
-    }
+    # #4651 x #4818: the two stops below follow a port check that failed (a sandboxed shell, or a holder this shell's
+    # curl cannot reach). The put-back still runs on exit, since an automatic update runs this script where it CAN start
+    # the board and nobody reads these words; only its words change if the start fails (_kosmos_putback_unsure).
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
-      _kosmos_blocked_shell_handback
+      _kosmos_putback_unsure=yes
       _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
-      die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message.${_kosmos_handback_note}"
+      die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
     fi
     if [ -n "$_pids" ]; then
       _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
@@ -3004,8 +3004,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       # curl exits 0, 1, 22, 28, 52 and 56 keep the pid advice below; any other curl exit gets both remedies.
       case "$_pauserc" in
         0|1|22|28|52|56) ;;
-        *) _kosmos_blocked_shell_handback
-           die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again.${_kosmos_handback_note}" ;;
+        *) _kosmos_putback_unsure=yes
+           die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
       esac
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi

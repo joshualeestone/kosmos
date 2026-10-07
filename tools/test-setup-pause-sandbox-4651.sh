@@ -46,17 +46,27 @@ LISTENER=""
 cleanup() { if [ -n "$LISTENER" ]; then kill "$LISTENER" 2>/dev/null; fi; rm -rf "$T"; }
 trap cleanup EXIT
 mkdir -p "$T/home/bin" "$T/logs"
-printf '#!/bin/sh\nexit 0\n' > "$T/home/bin/kosmos"; chmod +x "$T/home/bin/kosmos"
+printf '#!/bin/sh\nif [ "$1" = start ] && [ "${STUBSTART:-ok}" = fail ]; then exit 1; fi\nexit 0\n' > "$T/home/bin/kosmos"; chmod +x "$T/home/bin/kosmos"
+PUTBACK="$(awk '/^_kosmos_put_board_back\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
+case "$PUTBACK" in *'could not be started again'*) ;; *) echo "FAIL: could not extract _kosmos_put_board_back (anchor drift?)" >&2; exit 1 ;; esac
+printf '%s\n' "$PUTBACK" > "$T/putback.sh"
 printf '%s\n' "$BLOCK" > "$T/pause.sh"
 cat > "$T/run.sh" <<'EOF'
 set -e
 T="$1"; PORT="$2"
 KOSMOS_HOME="$T/home"; LOG_DIR="$T/logs"; FRESH_INSTALL=no
 info() { echo "INFO: $*"; }
-die() { echo "DIE: $*"; echo "STATE put-back=${_kosmos_paused_board:-unset} take-back=${_kosmos_marker_ours:-unset}"; exit 1; }
+die() {
+  echo "DIE: $*"
+  echo "STATE put-back=${_kosmos_paused_board:-unset} unsure=${_kosmos_putback_unsure:-unset}"
+  _kosmos_put_board_back 2>&1   # as setup.sh's EXIT trap does on a failed exit
+  exit 1
+}
+_kosmos_board_decide() { _kosmos_board_off=no; }
+. "$T/putback.sh"
 _kosmos_mode_keeps_board_off() { return 1; }
 # As setup.sh sets them above the block (the block reads them).
-_kosmos_was_running=no; _kosmos_paused_board=no; _kosmos_marker_ours=no
+_kosmos_was_running=no; _kosmos_paused_board=no; _kosmos_marker_ours=no; _kosmos_putback_unsure=no
 if [ -n "${PRESTOPPED:-}" ]; then : > "$KOSMOS_HOME/board.stopped"; fi
 . "$T/pause.sh"
 echo "PASSED THE PAUSE"
@@ -97,7 +107,7 @@ chk "control: outside a sandbox, a free port passes the pause" '[[ "$OUT" == *"P
 # CONTROL: outside a sandbox, a listener that accepts but never answers keeps the existing kill advice.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
 chk "control: outside a sandbox, a silent listener still gets the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
-chk "control: the third stop (a process that answers, still holding the port) keeps the put-back armed, with no app advice" '[[ "$OUT" == *"STATE put-back=yes take-back=no"* && "$OUT" != *"open the Kosmos app"* ]]'
+chk "control: the third stop (a process that answers) is not marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=no"* ]]'
 
 # Outside a sandbox, a listener that speaks first and not HTTP keeps the existing pid advice too.
 P="$(free_port)"; start_listener "$P" banner; OUT="$(run_pause "" "$P")"; stop_listener
@@ -107,7 +117,7 @@ chk "control: outside a sandbox, a non-HTTP banner listener keeps the existing p
 # ordinary Terminal, so the words must still name the pid and say what to quit, not only "use a normal Terminal".
 P="$(free_port)"; start_listener "$P" v6; OUT="$(run_pause "" "$P")"; V6PID="$LISTENER"; stop_listener
 chk "outside a sandbox, a ::1-only listener stops the update and names its pid to quit" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"quit the app with pid $V6PID"* ]]'
-chk "outside a sandbox, a ::1-only listener (the check failed): no put-back; its own marker is taken back, and says to open the app if it is not running" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* && "$OUT" == *"open the Kosmos app"* ]]'
+chk "outside a sandbox, a ::1-only listener: the put-back still runs (it can start the board here), marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* && "$OUT" == *"Kosmos is running again"* ]]'
 
 # A with nothing listening: lsof works and finds nothing, so the board really stopped. Must PASS: failing closed
 # on an unreadable port must not turn into refusing every update from a sandboxed shell.
@@ -118,29 +128,33 @@ chk "sandbox A, free port: passes the pause (the board really stopped)" '[[ "$OU
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_A" "$P")"; stop_listener
 chk "sandbox A, live board: the update stops before changing anything" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox A, live board: says to use a normal Terminal, never to kill the pid" '[[ "$OUT" == *"normal Terminal"* && "$OUT" != *"kill "* ]]'
-chk "sandbox A, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos itself is not running, open the Kosmos app."* ]]'
-chk "sandbox A, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
+chk "sandbox A, live board: the put-back still runs, marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* ]]'
 
 # B: lsof is denied too. Before #4651 this PASSED the pause under a live board.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"; stop_listener
 chk "sandbox B, live board: the update stops before changing anything (it passed before #4651)" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox B, live board: says to use a normal Terminal, and shows what the port check said" '[[ "$OUT" == *"normal Terminal"* && "$OUT" == *"Operation not permitted"* ]]'
-chk "sandbox B, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
-chk "sandbox B, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos itself is not running, open the Kosmos app."* ]]'
-# B, but the person had stopped the board before the run (board.stopped already there): nothing was this run's to
-# hand back, so no take-back, and no advice to start it.
+chk "sandbox B, live board: the put-back still runs, marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* ]]'
+# B, but the person had stopped the board before the run (board.stopped already there): nothing is put back.
 P="$(free_port)"; start_listener "$P" http; OUT="$(PRESTOPPED=1 run_pause "$PROFILE_B" "$P")"; stop_listener
-chk "sandbox B, a board the person stopped: no put-back, no take-back, no advice to open the app" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"STATE put-back=no take-back=no"* && "$OUT" != *"open the Kosmos app"* ]]'
+chk "sandbox B, a board the person stopped: nothing is put back" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"STATE put-back=no"* && "$OUT" != *"Kosmos is running again"* && "$OUT" != *"open the Kosmos app"* ]]'
 
 # C: no file can be written, and lsof is denied. Must still stop.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
 chk "sandbox C (no temp writes either), live board: the update stops, and says to use a normal Terminal" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
-chk "sandbox C, live board: no put-back from a blocked shell; its own marker is taken back, and says to open the app if it is not running" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* && "$OUT" == *"open the Kosmos app"* ]]'
+chk "sandbox C, live board: the put-back still runs, marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* ]]'
 
 # B with nothing listening: the shell still cannot tell, so it stops too (fail closed, by decision).
 P="$(free_port)"; OUT="$(run_pause "$PROFILE_B" "$P")"
 chk "sandbox B, free port: still stops, because this shell cannot tell (fail closed)" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* ]]'
-chk "sandbox B, free port: no put-back from a blocked shell; its own marker is taken back, and says to open the app if it is not running" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* && "$OUT" == *"open the Kosmos app"* ]]'
+chk "sandbox B, free port: the put-back still runs, marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* ]]'
+
+# A, and the put-back's start fails (it cannot start a board from this shell): the words must not claim a pause.
+P="$(free_port)"; start_listener "$P" http; OUT="$(STUBSTART=fail run_pause "$PROFILE_A" "$P")"; stop_listener
+chk "sandbox A, the start fails: says to open the app or run kosmos start, never that Kosmos was paused" '[[ "$OUT" == *"If Kosmos is not running, open the Kosmos app, or run: kosmos start (from a normal Terminal)."* && "$OUT" != *"was paused"* ]]'
+# CONTROL: the third stop with a failing start keeps main's own words.
+P="$(free_port)"; start_listener "$P" silent; OUT="$(STUBSTART=fail run_pause "" "$P")"; stop_listener
+chk "control: the third stop with a failing start keeps main's words (#4818)" '[[ "$OUT" == *"Kosmos was paused for this update and could not be started again"* ]]'
 
 echo "test-setup-pause-sandbox-4651: $FAILS failures"
 [ "$FAILS" -eq 0 ]
