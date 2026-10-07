@@ -270,7 +270,8 @@ const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; 
 const jobfixture = require('../test-support/jobfixture');
 const linuxHost = () => process.platform === 'linux';
 const jobText = (name) => fs.readFileSync(jobfixture.jobPath(name), 'utf8');
-/* Every value the job carries: each <string> of the plist; each ExecStart argument and directive value of the unit. */
+/* Every value the job carries, compared whole: each <string> of the plist; on Linux each ExecStart argument, each
+   Environment value, and every other directive's whole value (Description, WorkingDirectory and the rest). */
 function jobStrings(name) {
   const text = jobText(name);
   if (!linuxHost()) return [...text.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
