@@ -218,8 +218,9 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
   // Scoped to the first load's own navigation (one id across its redirects), never another nav's refusal.
   assert.match(nav, /if \(decided == KosmosLauncher\.ConnectLink\.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId\) connectLoadRefused = true;/);
   assert.match(method('void LoadConnect()'), /connectLoadPending = true;\s*connectLoadRefused = false;\s*connectLoadNavKnown = false;\s*committedPage = null;\s*connectInWindow\.Clear\(\);/);
-  // The committed page is the last in-window navigation that COMPLETED successfully (the Mac's committedPageURL),
-  // and only the first load's own completion settles it.
+  // NavigationCompleted only drops the navigation's in-window entry; only the first load's OWN completion settles
+  // the first load. (The committed page moves at ContentLoading, pinned just below, NOT here: a completion lags
+  // the page's own load-time scripts.)
   inOrder(done, ['args.get_NavigationId(out navId);', 'connectInWindow.Remove(navId);',
     'if (!connectLoadPending || !connectLoadNavKnown || navId != connectLoadNavId) return;', 'connectLoadPending = false;'], 'the first load, by its own id');
   // The committed page moves when a document COMMITS (ContentLoading, before its scripts), as the Mac's didCommit.
@@ -227,7 +228,7 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
     /committedPage = isErrorPage == 0 && connectInWindow\.TryGetValue\(navId, out inWindow\) \? inWindow : null;/);
   assert.match(SOURCE, /webView\.add_ContentLoading\(new ContentLoading\(this\), out token\);/);
   // The first load is captured by its own address, not as whichever navigation starts first.
-  assert.match(nav, /if \(connectLoadPending && !connectLoadNavKnown && redirected == 0 && string\.Equals\(uri, KosmosLauncher\.KosmosPlusSignIn, StringComparison\.OrdinalIgnoreCase\)\)/);
+  assert.match(nav, /if \(connectLoadPending && !connectLoadNavKnown && redirected == 0 && string\.Equals\(uri\.TrimEnd\('\/'\), KosmosLauncher\.KosmosPlusSignIn\.TrimEnd\('\/'\), StringComparison\.OrdinalIgnoreCase\)\)/);
   // Cleared where the Mac clears committedPageURL: a switch either way, a crashed page, a fresh first load.
   assert.match(method('void SwitchToConnect()'), /mode = KosmosLauncher\.ComputerMode\.Connect;[\s\S]*?committedPage = null;\s*connectInWindow\.Clear\(\);/);
   assert.match(method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)'), /committedPage = null;/);
