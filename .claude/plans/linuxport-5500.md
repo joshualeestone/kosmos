@@ -56,3 +56,5 @@ never reaches a real Linux runner's systemd. (The removed-list control was NOT g
 Review 5 (accepted gap, same stub): list-unit-files reports only the units the stub started or enabled, while real
 systemd lists every unit file in the folder; no current test relies on an untouched unit being listed. The
 write-fails control on Linux now also checks that its one remaining call is the start.
+Review 6 (same accepted gap): the stub also answers linger on (Linger=yes) always, so no stub-driven test reaches the
+linger-off sentences; those are tested in create.linux-4918, linuxjob, linuxwiring-4918 and linux-parity-5445.
