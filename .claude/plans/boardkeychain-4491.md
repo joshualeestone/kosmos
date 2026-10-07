@@ -151,11 +151,14 @@ Fourth post-rebase review (sonnet), all fixed:
   and place. The comment no longer claims the two sets are equal: undo also refuses the sender tokens (never undo
   material), which the guard does not read-deny.
 Fifth post-rebase review (opus), fixed:
-- apply re-checks the target's real folder (still the recorded one, and not protected) right before the rename; a
-  mismatch leaves the file alone as 'moved'. Residual, named: the window between that check and the rename syscall
-  itself (a folder swapped for a link into a token-only agent's .claude in that instant). Narrow; the next board
-  start's guard refresh rewrites the settings.
-- A garbled token-only list stops every undo copy (keep cannot check): the board log now says so, once per start.
+- apply checks the target's real folder (still the recorded one, and not protected) BEFORE anything is written or
+  saved aside, and again right before the rename (review 6 moved the first check ahead of the temp write, so no
+  restored bytes are written into a guarded folder). The reason reaches the person as 'protected', 'cannot-check' or
+  'moved'. A test swaps the folder for a link into a token-only agent's .claude at exactly that point (a tests-only
+  hook) and goes red with both checks removed. Residual, named: the window between the last check and the rename
+  syscall itself. Narrow; the next board start's guard refresh rewrites the settings.
+- A garbled token-only list (or any failure to work out the set) stops every undo copy: the board log says so when it
+  starts and again when it ends (review 6), without claiming a cause it cannot know.
 - Tests: an account home and a registry temp name made AFTER the set was built are caught by name and place (the set
   built first, so an exact path cannot pass them); plan flags cannot-check and apply leaves the file alone.
 - The person's word for 'protected' is now "a protected settings or key file". Every agent (not only token-only ones)
