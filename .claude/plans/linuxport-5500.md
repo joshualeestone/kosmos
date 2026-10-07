@@ -45,3 +45,8 @@ sentence would follow the host machine. Removed assertions 11, added 11, one for
 Residual: systemdStub reports a failure by returning { ok:false }, as these files' fakes do; create's real runner
 throws instead. Both reach the same result inside create's systemd wrapper.
 Not this slice: create.test.js's LINUX_UNIT_UNTESTED_WHY and LINUX_TASK_STUB_WHY skips (the card's comments).
+Review 2 (accepted gap): systemdStub answers start/stop/enable/disable ok for a unit with no file (real systemctl
+exits 5) and says "disabled" for an unknown unit (real systemd: empty, enabledState known:false), so tests using it
+never reach linuxjob's not-loaded or unknown-enabled paths. Those are tested in engine/linuxjob.test.js.
+Review 2: the will-not-unload test on Linux also asserts the unit was disabled (linuxjob.remove stops, disables, then
+reports the failed stop), so its Linux arm is the same disabled-but-still-running state as on macOS.

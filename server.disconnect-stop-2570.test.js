@@ -211,8 +211,8 @@ test('#2570: with stopAgents the agent is really stopped and the account IS disc
   const linux = process.platform === 'linux';
   const DISABLE = linux ? /systemctl --user disable kosmos-agent-spade\.service/ : /launchctl disable .*spade/;
   const UNLOAD = linux ? /systemctl --user stop kosmos-agent-spade\.service/ : /launchctl bootout .*spade/;
-  assert.ok(calls.some((c) => DISABLE.test(c)), 'the launchd job was never disabled');
-  assert.ok(calls.some((c) => UNLOAD.test(c)), 'the launchd job was never booted out');
+  assert.ok(calls.some((c) => DISABLE.test(c)), 'the job was never disabled');
+  assert.ok(calls.some((c) => UNLOAD.test(c)), linux ? 'the unit was never stopped' : 'the launchd job was never booted out');
   assert.ok(calls.some((c) => /kill-session -t =spade/.test(c)), 'the session was never killed');
   assert.ok(calls.some((c) => /has-session -t =spade/.test(c)),
     'nothing looked again after the kill, so a reported stop was never verified');
