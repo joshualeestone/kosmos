@@ -41,7 +41,9 @@ unanchored `pgrep -f` stays exposed.
 That every real run starts its command line with the interpreter. A run started as `./tools/browser-checks.sh`
 (exec by shebang) shows `/bin/bash ./tools/browser-checks.sh`, which matches, as do shell options before the
 script, including +x, a bare --, the value-taking -o/-O NAME and --rcfile/--init-file FILE. Not seen:
-a `zsh tools/...` run (nothing starts one), and a run whose script PATH contains a space, which pgrep
+a `zsh tools/...` run (nothing starts one), a run started from inside tools/ (`bash ./release.sh`;
+heavy-gate.sh counts it by its cwd; the cut and page layer are always started as tools/...), and a run
+whose script PATH contains a space, which pgrep
 prints split (the replaced guards had the same gap; heavy-gate.sh counts it; every checkout this fleet
 cuts or tests from is space-free). _kosmos_drop_test_fixtures still reads a fixture's script without the
 options group, so an optioned fixture can only be dropped by ancestry or cwd: more refusals, never fewer. macOS only: Linux's `pgrep -fl` prints process names.
