@@ -3129,7 +3129,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    Agent names keep the ellipsis and carry a title. */
 .usage-agents .tv-mrow.muted .tv-mnl { color: var(--k-ink-2); font-weight: 500; white-space: normal; overflow: visible; text-overflow: clip; }
 #usage-history { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 12px; max-height: 520px; overflow-y: auto; }
-/* #5444 (Mona Lisa): empty (a first read still loading, or a failed one), the bordered box draws as two stacked hairlines. */
+/* #5444 (Mona Lisa): empty (a first read still loading, a failed read, or no usage yet), the bordered box drew as two
+   stacked hairlines; the heading and its hint stay. */
 #usage-history:empty { display: none; }
 .uhrow { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--k-rule); font-size: .84rem; }
 .uhrow:first-child { border-top: none; }
