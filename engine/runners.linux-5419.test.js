@@ -77,19 +77,14 @@ test('#5419: tar on Linux is /usr/bin/tar where /usr is merged and /bin/tar wher
   assert.equal(runners.tarBin('darwin', {}, () => false), '/usr/bin/tar', 'CONTROL: the Mac path is the same as before');
 });
 
-test('#5419: on a musl Linux host Grok is refused before a byte moves; Codex (static musl) is not', async (t) => {
+test('#5419: Grok\'s Linux builds are static, so a musl host is not refused: the download is asked for', async (t) => {
+  // Measured 2026-10-06: the x64 binary is static-pie and the arm64 one static (neither names a program loader).
   const connect = require('./connect');
   connect.setMuslDetectForTests(() => true);
   t.after(() => connect.setMuslDetectForTests(null));
-  let fetched = false;
-  const grok = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => { fetched = true; return Promise.reject(new Error('stop')); } });
-  assert.equal(grok.phase, 'failed', 'Grok was not refused on musl');
-  assert.match(grok.because, /xAI does not publish a Grok CLI build for this kind of Linux \(it uses musl, as Alpine does\); no download was attempted/);
-  assert.equal(fetched, false, 'Grok was downloaded on a musl host');
-  connect.setMuslDetectForTests(() => false);
   let asked = false;
-  const glibc = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => { asked = true; return Promise.reject(new Error('stop: a test download')); } });
-  await glibc.settled;   // nothing left running after the test
-  assert.equal(asked, true, 'CONTROL: on a glibc host the download is asked for');
-  assert.doesNotMatch(String(glibc.because || ''), /uses musl/, 'CONTROL: a glibc host is not refused for musl');
+  const job = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => { asked = true; return Promise.reject(new Error('stop: a test download')); } });
+  await job.settled;
+  assert.equal(asked, true, 'a musl host was refused a build that is statically linked');
+  assert.doesNotMatch(String(job.because || ''), /musl/);
 });

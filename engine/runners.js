@@ -283,7 +283,9 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
  * as the Mac and Windows entries: each is the npm registry's own tarball with its own registry sha512. MEASURED
  * 2026-10-06 (each tarball streamed, its sha512 matched the registry, the byte count is the real size, the paths
  * read from the tarball's listing). Codex's Linux builds are static musl, so one build per CPU serves glibc and
- * Alpine alike. Grok's layout is the Mac one: ONE compressed `bin/grok.br`, expanded to `bin/grok-native`.
+ * Alpine alike. Grok's Linux builds are statically linked too (measured: the x64 binary is static-pie, the arm64 one
+ * static, neither names a program loader), so they need no libc check either. Grok's layout is the Mac one: ONE
+ * compressed `bin/grok.br`, expanded to `bin/grok-native`.
  */
 const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
   x64: Object.freeze({
@@ -1432,12 +1434,6 @@ function install(provider, opts) {
   // its own per-platform artifact, so the guard naturally passes.)
   if (m.arch && arch !== m.arch) {
     return refuse(`the pinned ${m.name} build is ${m.arch} and this computer is ${arch}; no download was attempted`);
-  }
-  /* #5419 slice 2: xAI's Linux Grok build is not known to run on musl (Alpine and the like), so a musl host is told
-     before ~45-49 MB moves rather than after, by the same detector Claude's Linux download uses. Codex's Linux builds
-     are static musl and need no check. */
-  if (provider === 'grok' && plat === 'linux' && require('./connect').isMusl()) {
-    return refuse(`xAI does not publish a Grok CLI build for this kind of Linux (it uses musl, as Alpine does); no download was attempted`);
   }
 
   if (m.kind === 'vendor-external') return installVendor(provider, m, o, existing);
