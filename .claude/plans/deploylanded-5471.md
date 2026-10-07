@@ -22,8 +22,9 @@ did not run, and the operator had to verify by hand while resisting a revert or 
   called "not served", and the trap would then restore the site and delete the local tarball while the
   host serves this cut's build. After a CLI success the same state reaches step 9's honest message instead.
 - **Not seen landing:** exit with the CLI's own code; DEPLOYED stays unset, so the trap restores as before.
-  The message says it may still land, how to measure before any revert or re-cut, that the checkout was
-  restored, and that the trap's "never served" line means "not seen served".
+  The message says it may still land, prints THIS cut's sha (the trap is about to delete the local copy),
+  names the served .sha256 URL to compare it with, says the checkout was restored, and that the trap's
+  "never served" line means "not seen served".
 - **Overrides are checked before deploying** (`site_deploy_landed_args_ok`, numerically, so "00" is refused),
   so a typo stops the cut while nothing has been deployed.
 - **CLI success:** unchanged; step 9 verifies as it always did.
@@ -40,8 +41,8 @@ the cut fails as before, and its message tells the operator to measure before ac
 defaults trades a slower failure report on a real failure.
 
 ## Tests
-`tools/test-deploy-landed-5471.sh`, in test:shell, 27 checks (counted from its output):
-- the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty, x3 or 12345 refused
+`tools/test-deploy-landed-5471.sh`, in test:shell, 30 checks (counted from its output):
+- the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty, x3 or 12345 refused, and a wait of x, empty or 12345
 - the own-build check: same sha, an earlier attempt's sha, nothing served, no local file; the URL it fetches
 - release.sh's real step-8 block (override check to DEPLOYED=1), cut out of the file and run with `vercel`
   and `curl` stubbed: served from the 2nd check continues to DEPLOYED=1 after exactly 2 fetches of HOST's
