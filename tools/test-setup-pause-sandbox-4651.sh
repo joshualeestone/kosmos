@@ -118,7 +118,7 @@ chk "sandbox A, free port: passes the pause (the board really stopped)" '[[ "$OU
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_A" "$P")"; stop_listener
 chk "sandbox A, live board: the update stops before changing anything" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox A, live board: says to use a normal Terminal, never to kill the pid" '[[ "$OUT" == *"normal Terminal"* && "$OUT" != *"kill "* ]]'
-chk "sandbox A, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos is not running, open the Kosmos app."* ]]'
+chk "sandbox A, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos itself is not running, open the Kosmos app."* ]]'
 chk "sandbox A, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
 
 # B: lsof is denied too. Before #4651 this PASSED the pause under a live board.
@@ -126,7 +126,7 @@ P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"
 chk "sandbox B, live board: the update stops before changing anything (it passed before #4651)" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox B, live board: says to use a normal Terminal, and shows what the port check said" '[[ "$OUT" == *"normal Terminal"* && "$OUT" == *"Operation not permitted"* ]]'
 chk "sandbox B, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
-chk "sandbox B, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos is not running, open the Kosmos app."* ]]'
+chk "sandbox B, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos itself is not running, open the Kosmos app."* ]]'
 # B, but the person had stopped the board before the run (board.stopped already there): nothing was this run's to
 # hand back, so no take-back, and no advice to start it.
 P="$(free_port)"; start_listener "$P" http; OUT="$(PRESTOPPED=1 run_pause "$PROFILE_B" "$P")"; stop_listener

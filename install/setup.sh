@@ -2824,7 +2824,8 @@ _kosmos_put_board_back() {
 # when the board was meant to run and had no marker before the run, the marker is taken away (one written by a person
 # in the seconds between our stop and the exit goes with it). This script starts nothing; what supervises the board is
 # no longer held off by the marker, as before the run (board-run exits quietly while a stranger holds the port, so
-# launchd's retries until the port is free are silent). Disarmed where the put-back is armed.
+# launchd's retries until the port is free are silent). Disarmed where the put-back is armed; #4651's two port-check stops
+# hand the put-back's state back to it (_kosmos_blocked_shell_handback).
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0
@@ -2949,7 +2950,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # used to leave the board off with board.stopped written. Not armed on the three dies above: our board still running,
   # another install's board, or another app on the port (starting ours there would collide).
   _kosmos_paused_board="$_kosmos_was_running"
-  _kosmos_marker_ours=no   # #5033: the take-back covers only the refusals above
+  _kosmos_marker_ours=no   # #5033: the take-back covers the refusals above (and #4651's port-check stops below re-arm it)
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
   # answering the probe (mid-shutdown, wedged, or simply not speaking
   # HTTP) still holds the port, and the final start would then find a
@@ -2987,7 +2988,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # Only when this run meant the board to be running does the stop add what to do if it is not.
     _kosmos_handback_note=""
     _kosmos_blocked_shell_handback() {
-      [ "$_kosmos_paused_board" = yes ] && _kosmos_handback_note=" If you leave the update here and Kosmos is not running, open the Kosmos app."
+      [ "$_kosmos_paused_board" = yes ] && _kosmos_handback_note=" If you leave the update here and Kosmos itself is not running, open the Kosmos app."
       _kosmos_marker_ours="$_kosmos_paused_board"; _kosmos_paused_board=no
     }
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
