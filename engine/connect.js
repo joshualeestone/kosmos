@@ -1102,23 +1102,25 @@ function cleanupSegments(part) {
 
 /* #5419: on Linux the build also depends on the C library: Anthropic publishes linux-<arch> (glibc) and
    linux-<arch>-musl (Alpine and the like). Pure, so every branch is testable. The rule: a report naming glibc is
-   glibc; otherwise (no glibc in the report, or no readable report at all) musl only when musl's own loader file is
-   present, and glibc when it is not. */
+   glibc; a readable report naming no glibc (the running Node is a musl build) is musl when musl's own loader file is
+   present; with no readable report at all, musl only when musl's loader is present and no glibc loader is. */
 function detectMusl({ platform, report, exists }) {
   if (platform !== 'linux') return false;
   let r = null;
   try { r = typeof report === 'function' ? report() : report; } catch { r = null; }
   const any = (files) => files.some((f) => { try { return exists(f); } catch { return false; } });
   const muslLoader = () => any(['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1']);
-  // Review 28: Debian's musl package puts musl's loader on a glibc system, so with no report to read, glibc's own
-  // loader present means glibc, whatever else is installed beside it.
+  // Review 28: Debian's musl package puts musl's loader on a glibc system, so with NO report to read, glibc's own
+  // loader present means glibc. Review 29: only then. A readable report without glibc is the running Node saying it is
+  // musl, and Alpine with gcompat has a glibc-named loader too; vetoing there picked the glibc build on Alpine.
   const glibcLoader = () => any(['/lib64/ld-linux-x86-64.so.2', '/lib/ld-linux-aarch64.so.1', '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2', '/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1']);
   if (r && r.header && r.header.glibcVersionRuntime) return false;
   // no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
   // can omit the field); without either, glibc, the common case. A wrong guess is NOT caught by the checksum,
   // which proves the file is intact, not that it fits this machine: it surfaces as a failed `claude install`. Only the
   // x86_64 and aarch64 loaders are looked for because those are the only two arches Anthropic builds for Linux.
-  return muslLoader() && !glibcLoader();
+  const readable = Boolean(r && r.header);
+  return readable ? muslLoader() : (muslLoader() && !glibcLoader());
 }
 /* without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
    the board mid-download. The C library is all this reads. */

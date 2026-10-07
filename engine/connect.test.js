@@ -2988,6 +2988,14 @@ test('#5419: with no report, a glibc box that also has musl installed (Debian mu
   assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1') }), true, 'CONTROL: musl loader alone (Alpine) is musl');
 });
 
+test('#5419: a readable report naming no glibc is musl even beside a glibc-named loader (Alpine with gcompat)', () => {
+  const at = (...files) => (f) => files.includes(f);
+  const muslNode = { header: {} };   // Alpine's nodejs: a report with no glibcVersionRuntime
+  assert.equal(connect.detectMusl({ platform: 'linux', report: muslNode, exists: at('/lib/ld-musl-aarch64.so.1', '/lib/ld-linux-aarch64.so.1') }), true, 'gcompat vetoed a musl Node');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: muslNode, exists: at('/lib/ld-musl-x86_64.so.1', '/lib64/ld-linux-x86-64.so.2') }), true);
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.39' } }, exists: at('/lib/ld-musl-x86_64.so.1') }), false, 'CONTROL: a report naming glibc is glibc');
+});
+
 test('#5419: the C-library report is read with network handles excluded, and the setting is put back', () => {
   if (!process.report) return;   // a Node built without report support has nothing to read
   const prevGet = process.report.getReport;
