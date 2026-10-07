@@ -5562,7 +5562,13 @@ const server = http.createServer(async (req, res) => {
                      has no reason to have heard "tmux"). */
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
                   : (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                    ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                    ? (process.platform === 'linux'
+                      /* #5445: Linux had no switched-off set before (launchctl failed there), so this Mac sentence never
+                         reached it; System Settings is not where a systemd unit is switched off. */
+                      ? (require('./engine/linuxjob').masked(k.name)
+                        ? 'this agent is not running because ' + require('./engine/linuxjob').maskedSentence(k.name)
+                        : 'this agent is not running because its background job was switched off in systemd, this computer\'s service manager. Switch it back on there and it can start again')
+                      : 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again')
                     : !create.jobMissing(k.name)
                     /* #671: the one offline cause whose sentence ended at the
                        diagnosis. The agent has a job, is not removed (filtered
@@ -5582,7 +5588,7 @@ const server = http.createServer(async (req, res) => {
                        agent that genuinely has no session. Sentence shared with
                        remove.js's restart refusal via create.SELF_STARTS. */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
-                      + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
+                      + create.selfStartsSentence().slice(0, -1)   // #5445: true on Linux with linger off too
                       // #5127: there is no Terminal tab. The place is named (AI Settings on its page), never what
                       // it shows, for the reason above: with no session there may be nothing there to see.
                       + '; if it stays off, look under AI Settings on its page'
