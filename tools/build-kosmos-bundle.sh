@@ -35,7 +35,7 @@ set -euo pipefail
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
 TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
+trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_wake_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -305,6 +305,19 @@ startInFlight=true committed=true lastLoadFailed=true -> ignore'
 _reload_table_stderr="$(mktemp "${TMPDIR:-/tmp}/reload-table-stderr.XXXXXXXXXX")"
 _reload_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-reload-decision-selftest 2>"$_reload_table_stderr")" || { echo "the native app's --kosmos-app-reload-decision-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_reload_table_stderr" >&2; exit 1; }
 [ "$_reload_table_actual" = "$_reload_table_expected" ] || { printf '%s\n' "the native app's Reload decision table drifted from the expected eight rows (#965)." "EXPECTED:" "$_reload_table_expected" "ACTUAL:" "$_reload_table_actual" >&2; exit 1; }
+# #4342: the wake-recovery decision, diffed against its expected table, so the machine that decides
+# whether a board left wedged by sleep gets reclaim-restarted is checked at build time, no window
+# server needed. A drift here means the wake path could either kill a healthy board (a false .wedged,
+# interrupting the person's agents) or fail to recover a genuinely wedged one. -1001 is a timeout
+# (holds the port, never replied -> wedged); -1004 is a refusal (board exited, launchd relaunches ->
+# down, no reclaim); any HTTP answer -> alive.
+_wake_table_expected='hasHTTPResponse=false errorCode=-1001 -> wedged
+hasHTTPResponse=false errorCode=-1004 -> down
+hasHTTPResponse=true errorCode=-1001 -> alive
+hasHTTPResponse=true errorCode=-1004 -> alive'
+_wake_table_stderr="$(mktemp "${TMPDIR:-/tmp}/wake-table-stderr.XXXXXXXXXX")"
+_wake_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-wake-reclaim-selftest 2>"$_wake_table_stderr")" || { echo "the native app's --kosmos-app-wake-reclaim-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_wake_table_stderr" >&2; exit 1; }
+[ "$_wake_table_actual" = "$_wake_table_expected" ] || { printf '%s\n' "the native app's #4342 wake-recovery decision table drifted (alive on any HTTP answer, wedged only on a timeout, down on a refusal)." "EXPECTED:" "$_wake_table_expected" "ACTUAL:" "$_wake_table_actual" >&2; exit 1; }
 # The #2124 single-instance DEFER decision, diffed against its expected table, so BOTH
 # arms are machine-checked at build time (no window server): the duplicate-launch arm
 # (dedup FIRES) and the #2094 relaunch-handoff arm (dedup EXCLUDED, so the deliberate
