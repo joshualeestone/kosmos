@@ -19,6 +19,7 @@
  */
 
 const fs = require('node:fs');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const os = require('node:os');
 const path = require('node:path');
 
@@ -31,6 +32,9 @@ process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SANDBOX, 'codex-home');
 // Every sibling create/discover test sets it for the same reason (create.test.js:13).
 // Must be set BEFORE ./create / ../test-support/fleet are required below.
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 for (const d of [process.env.AGENT_WORKFORCE_DATA, process.env.AGENT_WORKFORCE_WORKERS,
   process.env.AGENT_WORKFORCE_CODEX_HOME, process.env.AGENT_WORKFORCE_LAUNCH]) fs.mkdirSync(d, { recursive: true });
 
@@ -68,8 +72,8 @@ function writeRollout(name, completedAt) {
      here), which is where these rollouts are written. */
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.writeFileSync(
-    create.plistPath(name),
-    create.plistFor(name, path.join(SANDBOX, 'claude'), path.join(SANDBOX, 'tmux'), null, null, 'codex'),
+    jobfix.jobPath(name),
+    jobfix.jobFor(name, path.join(SANDBOX, 'claude'), path.join(SANDBOX, 'tmux'), null, null, 'codex'),
     'utf8',
   );
   const day = path.join(process.env.AGENT_WORKFORCE_CODEX_HOME, 'sessions', '2026', '09', '11');

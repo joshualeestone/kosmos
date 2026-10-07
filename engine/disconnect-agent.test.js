@@ -25,6 +25,9 @@ process.env.HOME = path.join(SB, 'home');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 /* 🛑 THE FOURTH ROOT. Creating an agent registers it with Claude Code, and a
    suite that leaves this unset writes into the operator's real config -- the
    sandbox-everything rule this repo enforces in `fixture-discipline`, which
