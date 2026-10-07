@@ -555,9 +555,12 @@ function readUsage(page) {
     const held2 = new Promise((r) => { release2 = r; });
     await p.unroute('**/api/usage*');
     await p.route('**/api/usage*', async (r) => { await held2; await r.fulfill({ json: USAGE }); });
-    await p.reload({ waitUntil: 'networkidle' });
+    // Not networkidle: the reloaded address reopens Token Usage itself, so the held read keeps the network busy. The
+    // reading below proves the section is on screen at that moment instead (its heading has client rects).
+    await p.reload({ waitUntil: 'load' });
     await p.evaluate(() => showTab('settings'));
     await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForSelector('#s-sec-usage:not([hidden])');
     await p.waitForFunction(() => USAGE_BUSY === true);
     const firstLoad = await histDrawn();
     ok(firstLoad.heading === true && firstLoad.drawn === false && firstLoad.rows === 0, `while a first read loads, the empty usage history draws no box under its heading (got ${JSON.stringify(firstLoad)})`);
