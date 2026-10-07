@@ -58842,14 +58842,14 @@ function tskRepeatSentence(t, now) {
   const words = t.repeatWords || 'on a schedule';
   /* kosmos#4787 slice 2: a missed run leads the line, in the board's own words (taskrepeat.missedRuns), so the person
      sees it before the rhythm. The latest missed slot is the one named; more than one is counted. */
-  let s = tskRepeatMissed(t);
-  s += (s ? ' ' : '') + 'Repeats ' + words + '.';
+  const missed = tskRepeatMissed(t);
+  let s = missed + (missed ? ' ' : '') + 'Repeats ' + words + '.';
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
     s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
-  } else {
-    s += ' No run reported yet.';
+  } else if (!missed) {
+    s += ' No run reported yet.';   // #5444 (Mona Lisa): after "Missed 3 runs" it said the same thing twice
   }
   // The board's own words for the next run (review 1: never this browser's time zone beside the board's rule).
   if (t.repeatNextWords) s += ' Next ' + t.repeatNextWords + '.';
