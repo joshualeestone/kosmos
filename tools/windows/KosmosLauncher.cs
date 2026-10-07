@@ -2894,9 +2894,10 @@ class BoardWindowForm : System.Windows.Forms.Form
     // a refusal or a completion of some OTHER navigation while it is pending is never taken for it.
     ulong connectLoadNavId;
     bool connectLoadNavKnown;
-    // #5483: the page the window last COMMITTED in a connect window, as the Mac's committedPageURL: the
-    // address of the last in-window navigation that completed successfully (null before the first). Only
-    // the Kosmos Plus SITE may send the window to another site by script (its checkout hand-off).
+    // #5483: the page the window last COMMITTED in a connect window, as the Mac's committedPageURL: set when
+    // a new document commits (ContentLoading, before its scripts run), to the address its in-window
+    // navigation was allowed for; null before the first, on an error page, after a mode switch or a crashed
+    // page. Only the Kosmos Plus SITE may send the window to another site by script (its checkout hand-off).
     string committedPage;
     readonly Dictionary<ulong, string> connectInWindow = new Dictionary<ulong, string>();
     bool runAgentsItemShown;
@@ -2975,6 +2976,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.add_ProcessFailed(new ProcessFailed(this), out token);
         webView.add_WebMessageReceived(new WebMessageReceived(this), out token);
         webView.add_NavigationCompleted(new NavigationCompleted(this), out token);
+        webView.add_ContentLoading(new ContentLoading(this), out token);
         FitViewToWindow();
         controller.MoveFocus(0);
         if (mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
@@ -3015,6 +3017,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         connectLoadRefused = false;
         connectLoadNavKnown = false;
         committedPage = null;
+        connectInWindow.Clear();
         webView.Navigate(KosmosLauncher.KosmosPlusSignIn);
     }
 
@@ -3091,7 +3094,10 @@ class BoardWindowForm : System.Windows.Forms.Form
             args.get_IsRedirected(out redirected);
             ulong navId;
             args.get_NavigationId(out navId);
-            if (connectLoadPending && !connectLoadNavKnown) { connectLoadNavId = navId; connectLoadNavKnown = true; }
+            // The first load is the navigation to the sign-in address itself (not a redirect), not merely the
+            // first to start: a script on the page being left can start one a moment earlier.
+            if (connectLoadPending && !connectLoadNavKnown && redirected == 0 && string.Equals(uri, KosmosLauncher.KosmosPlusSignIn, StringComparison.OrdinalIgnoreCase))
+            { connectLoadNavId = navId; connectLoadNavKnown = true; }
             // #5483, as the Mac: a redirect is never a click (WebKit calls it .other, however the navigation
             // began; WebView2 counts its own Navigate as user-initiated), and only a committed Kosmos Plus
             // SITE page may send the window to another site by script.
@@ -3129,6 +3135,21 @@ class BoardWindowForm : System.Windows.Forms.Form
         else BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
     }
 
+    // #5483: a new document committed. It is the page the next navigation leaves, as the Mac sets
+    // committedPageURL at didCommit: before the page's own scripts run, so a site page's checkout hand-off
+    // from its load handler is judged as coming from the site, and a board page's as coming from a board.
+    // An error page, or a document no in-window navigation was allowed for, is not the site.
+    internal void OnContentLoading(ICoreWebView2ContentLoadingEventArgs args)
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        ulong navId;
+        args.get_NavigationId(out navId);
+        int isErrorPage;
+        args.get_IsErrorPage(out isErrorPage);
+        string inWindow;
+        committedPage = isErrorPage == 0 && connectInWindow.TryGetValue(navId, out inWindow) ? inWindow : null;
+    }
+
     // #4381: a connect computer's sign-in that did not load says so, in a box titled Kosmos (WebView2's own
     // error page stays behind it, so the window is never blank). Only the load this window started
     // (LoadConnect): a page the person moved on to is that page's business. A load cancelled on purpose
@@ -3142,12 +3163,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         args.get_NavigationId(out navId);
         int success;
         args.get_IsSuccess(out success);
-        string inWindow;
-        if (connectInWindow.TryGetValue(navId, out inWindow))
-        {
-            connectInWindow.Remove(navId);
-            if (success != 0) committedPage = inWindow;
-        }
+        connectInWindow.Remove(navId);
         if (!connectLoadPending || !connectLoadNavKnown || navId != connectLoadNavId) return;
         connectLoadPending = false;
         int status;
@@ -3176,6 +3192,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         }
         if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE)
         {
+            committedPage = null;   // #5483: no page is committed until the reload commits one (the Mac clears it on terminate)
             BeginInvoke(new Action(() => { try { webView.Reload(); } catch { /* F5 is still there */ } }));
         }
     }
@@ -3387,6 +3404,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     void SwitchToConnect()
     {
         mode = KosmosLauncher.ComputerMode.Connect;
+        // #5483: the board page still on screen is not the Kosmos Plus site (the Mac clears it here too).
+        committedPage = null;
+        connectInWindow.Clear();
         StopBadge();
         UpdateRunAgentsItem();
         StopBoardInBackground(true);
@@ -3447,6 +3467,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         }
         mode = KosmosLauncher.ComputerMode.Run;
         UpdateRunAgentsItem();
+        committedPage = null;
+        connectInWindow.Clear();
         connectLoadPending = false;
         connectLoadFailed = false;
         navigatedToBoard = false;
@@ -3585,6 +3607,19 @@ public class WebMessageReceived : ICoreWebView2WebMessageReceivedEventHandler
     public int Invoke(ICoreWebView2 sender, ICoreWebView2WebMessageReceivedEventArgs args)
     {
         try { form.OnWebMessage(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+// #5483: which page a connect window has committed (BoardWindowForm.OnContentLoading).
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class ContentLoading : ICoreWebView2ContentLoadingEventHandler
+{
+    readonly BoardWindowForm form;
+    internal ContentLoading(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2ContentLoadingEventArgs args)
+    {
+        try { form.OnContentLoading(args); } catch { /* see above */ }
         return 0;
     }
 }
@@ -3902,6 +3937,20 @@ public interface ICoreWebView2NavigationCompletedEventHandler
     [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2NavigationCompletedEventArgs args);
 }
 
+// #5483: a new document has committed (the Mac's didCommit), before its scripts run.
+[ComImport, Guid("364471e7-f2be-4910-bdba-d72077d51c4b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2ContentLoadingEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2ContentLoadingEventArgs args);
+}
+
+[ComImport, Guid("0c8a1275-9b6b-4901-87ad-70df25bafa6e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2ContentLoadingEventArgs
+{
+    void get_IsErrorPage(out int isErrorPage);
+    void get_NavigationId(out ulong navigationId);
+}
+
 [ComImport, Guid("79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 public interface ICoreWebView2ProcessFailedEventHandler
 {
@@ -3957,7 +4006,7 @@ public interface ICoreWebView2
     void NavigateToString([MarshalAs(UnmanagedType.LPWStr)] string htmlContent);
     void add_NavigationStarting(ICoreWebView2NavigationStartingEventHandler eventHandler, out long token);
     void _unused_remove_NavigationStarting();
-    void _unused_add_ContentLoading();
+    void add_ContentLoading(ICoreWebView2ContentLoadingEventHandler eventHandler, out long token);
     void _unused_remove_ContentLoading();
     void _unused_add_SourceChanged();
     void _unused_remove_SourceChanged();

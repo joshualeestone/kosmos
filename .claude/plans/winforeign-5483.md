@@ -4,8 +4,11 @@
 - `tools/windows/KosmosLauncher.cs` `ConnectLinkDecision(address, clicked, fromKosmosPlusPage)`: an https address
   that is not Kosmos Plus returns `(clicked || fromKosmosPlusPage) ? Browser : Block` (was `Browser` either way),
   exactly the Mac's rule. `fromKosmosPlusPage` is `IsKosmosPlusSiteAddress(page)` (the Mac's isKosmosPlusSiteURL:
-  the coordinator or its apex, NOT a computer's board), where `page` is the address of the last in-window navigation
-  that COMPLETED successfully (`committedPage`, the Mac's committedPageURL), tracked by WebView2 NavigationId. And
+  the coordinator or its apex, NOT a computer's board), where `page` is the page the window last COMMITTED
+  (`committedPage`, the Mac's committedPageURL): set at WebView2 ContentLoading (a new document committed, before its
+  scripts run, the Mac's didCommit) to the address its in-window navigation was allowed for, matched by NavigationId;
+  null on an error page, an unknown document, a mode switch, a crashed page, a fresh first load (iteration 4 moved it
+  from NavigationCompleted, which lagged the page's own scripts in both directions). And
   "clicked" is `IsUserInitiated && !IsRedirected`: WebView2 counts its own `Navigate` as user-initiated, but a redirect
   is never a click (WebKit calls it `.other`). Iteration 3 found both: reading `get_Source` mid-navigation and taking
   `IsUserInitiated` alone could each let a first-load redirect through, unlike the Mac. The SITE hands off to checkout by
@@ -53,6 +56,15 @@ On #5482 (runboth-nav-5169, open), which adds MAC_ONLY_WHYS. After it merges: re
 - The refused-first-load flag is set and consumed only for the first load's OWN navigation (its NavigationId, which
   WebView2 keeps across that navigation's redirects), so another navigation refused or completed while it is pending
   is never taken for it (iteration 3).
+
+- The first load is captured as the navigation to the sign-in address itself (not a redirect), not as whichever
+  navigation starts first after LoadConnect (iteration 4).
+- WebView2's IsUserInitiated follows Chromium user activation, so a script navigation or form submit inside a click
+  handler counts as a click, where WebKit says .other. Such a navigation opens in the person's BROWSER on Windows (as
+  it always did) and is refused on the Mac. Decided: WebView2 exposes no link-activated signal, and the Windows
+  outcome never replaces the window; noted, not built.
+- Nothing on the Mac exercises the committedPage state machine (ContentLoading, NavigationStarting, the clears): the
+  pins check its text. A real Windows run is the only full check (#570's box).
 
 ## Weakest premise
 WebView2 raises NavigationStarting again for a server redirect with the SAME NavigationId and IsRedirected true (its
