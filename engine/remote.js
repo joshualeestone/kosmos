@@ -1376,7 +1376,7 @@ function pendingDevices() {
      device row at the coordinator (every session is one), and registering the Mac records no grant for it, so it
      stays pending for good. It is never a request: the app's window loads the board on this computer, not through
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
-  const selves = [settings.device_id, ...(settings.past_device_ids || [])].filter((x) => typeof x === 'string' && x);
+  const selves = ownDeviceIds(settings);
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
     .filter((d) => !selves.includes(String(d.device_id)))
@@ -1645,10 +1645,20 @@ let heldIdentity = null;
 const PAST_IDS = 8;
 /* kosmos#5422: record that this computer now signs in as `id`. The id it used before moves to past_device_ids, so
    its row (still pending at the coordinator) stays this computer's own. Best-effort, like the mint below. */
+/* kosmos#5422: every id this computer has signed in with (the file's and, when the file cannot be read, the ones this
+   process holds). Its rows at the coordinator are its own: never a request to allow (#4610), never in the allowed
+   list (server.js /api/remote/devices). */
+function ownDeviceIds(settings = read()) {
+  const ids = [settings.device_id, ...(settings.past_device_ids || [])];
+  if (heldIdentity) ids.push(heldIdentity.device_id, ...heldIdentity.past_device_ids);
+  return ids.filter((x, i, all) => typeof x === 'string' && x && all.indexOf(x) === i);
+}
 function useDeviceId(id) {
   const cur = read();
-  const past = cur.device_id === id ? cur.past_device_ids
-    : [cur.device_id, ...cur.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i).slice(0, PAST_IDS);
+  // A file that cannot be read says nothing about the ids before: the ones this process holds stand in for it.
+  const base = cur.ok === false && heldIdentity ? heldIdentity : cur;
+  const past = base.device_id === id ? base.past_device_ids
+    : [base.device_id, ...base.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i).slice(0, PAST_IDS);
   heldIdentity = { device_id: id, past_device_ids: past };
   if (cur.device_id !== id) write({ device_id: id, past_device_ids: past });
 }
@@ -1672,15 +1682,17 @@ function signinDeviceId() {
    refuses the sign-in in words: falling back would sign in as another device, and a k1 id is never sent without its
    key. The key file is deterministic, so a start and its verify name one device. */
 const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
+const DEVICE_ID_ASK_MS = 15000;
 async function signinDeviceArgs(forVerify) {
   /* A verify never makes a key (the tunnel's own rule): one made now could not answer a code sent for the key that is
      gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
      so; with no key file and no key id, this is an older tunnel's sign-in and the opaque id carries on. */
   if (forVerify && !fs.existsSync(DEVICE_KEY_FILE())) {
-    if (KEYED_ID.test(read().device_id)) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
+    if (KEYED_ID.test(read().device_id) || (heldIdentity && KEYED_ID.test(heldIdentity.device_id))) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
     return { args: ['--device-id', signinDeviceId()] };
   }
-  const asked = await setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()]);
+  // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
+  const asked = await setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS);
   // clap prints "error: unrecognized subcommand 'device-id'" first and the usage after it (exit 2); match it as the
   // other verbs here do, so no other failure is read as an older tunnel.
   if (!asked.ok && asked.code === 2 && /unrecognized subcommand|invalid subcommand/i.test(String(asked.stderr || '') + '\n' + String(asked.because || ''))) {
@@ -2374,6 +2386,7 @@ async function signinRegister(name) {
 module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
+  ownDeviceIds,
   kosmosPlus,
   fedSetStanding,
   refreshStandingIfStale,

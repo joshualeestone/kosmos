@@ -1766,13 +1766,33 @@ test('kosmos#5422: a new key (a Forget, a restore) keeps the older key id as thi
 });
 
 test('kosmos#5422: on a damaged remote.json, the repair keeps the key id and the ids before it', async () => {
-  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  const KEYED = 'k1.' + 'A'.repeat(31) + 'Q';
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
   process.env.FAKE_TUNNEL_MODE = 'devkey';
-  try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
-  assert.ok(recorded().some((c) => c[0] === 'signin' && c[1] === 'start' && c.includes('--device-key')), 'precondition: keyed');
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+    // The file is damaged, and the person starts again: the ids before must survive both.
+    fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.deepEqual(remote.ownDeviceIds(), [KEYED, 'old-opaque-id'], 'this computer forgot an id while the file was damaged');
   assert.equal(remote.setOn(true).ok, true);   // the person's repair
-  assert.equal(remote.read().device_id, 'k1.' + 'A'.repeat(31) + 'Q', 'the repair dropped the key id (#4610 again)');
+  assert.equal(remote.read().device_id, KEYED, 'the repair dropped the key id (#4610 again)');
+  assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id'], 'the repair dropped the ids before');
   remote.setOn(false);
+});
+
+test('kosmos#5422: on a damaged remote.json, a verify whose key file is gone still says start again', async () => {
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+    const start = recorded().find((c) => c[1] === 'start');
+    fs.rmSync(start[start.indexOf('--device-key') + 1]);
+    fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+    fs.rmSync(RECORD, { force: true });
+    assert.match((await remote.signinVerify('her@example.com', '123456')).because || '', /start the sign-in again/);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(recorded().length, 0, 'the verify went out as another device');
 });
 
 test('kosmos#5422: a verify whose key file is gone says so and sends nothing; it never makes a new key', async () => {

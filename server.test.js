@@ -11563,6 +11563,25 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
   assert.deepEqual(list.allowed, [], 'an unenrolled Mac lists devices');
 });
 
+test('kosmos#5422: the allowed list hides every id this computer has signed in with, and only those', async () => {
+  const remoteEngine = require('./engine/remote');
+  const orig = { devicesList: remoteEngine.devicesList, pendingDevices: remoteEngine.pendingDevices, ownDeviceIds: remoteEngine.ownDeviceIds };
+  const KEYED = 'k1.' + 'E'.repeat(32);
+  try {
+    remoteEngine.devicesList = async () => ({ ok: true, because: null, data: { devices: [
+      { device_id: KEYED, name: 'This Mac (Kosmos app)' },
+      { device_id: 'old-opaque-id', name: 'This Mac (Kosmos app)' },
+      { device_id: 'dev-phone', name: 'iPhone' },
+    ] } });
+    remoteEngine.pendingDevices = () => ({ devices: [], snapshot: false, email: '' });
+    remoteEngine.ownDeviceIds = () => [KEYED, 'old-opaque-id'];
+    const list = JSON.parse((await req('/api/remote/devices')).body);
+    assert.deepEqual(list.allowed.map((d) => d.device_id), ['dev-phone'], 'this computer\'s own row is offered for removal');
+  } finally {
+    Object.assign(remoteEngine, orig);
+  }
+});
+
 test('#4824: the Remove route hands the page every field of the connector answer, unchanged', async () => {
   /* The page's wording (removedWords) is decided by these fields alone, so a route that dropped or renamed one
      would put every Remove into the wrong sentence. The engine is stubbed at the one function the route calls. */

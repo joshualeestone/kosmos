@@ -9494,9 +9494,10 @@ const server = http.createServer(async (req, res) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
         /* #4610: nor in the ALLOWED list. Josh: "never display to the user"; shown there it also carried a Remove
-           the automatic grant would quietly undo. Matched by the id this board minted for its own sign-in. */
-        const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
-        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !self || !d || d.device_id !== self);
+           the automatic grant would quietly undo. Matched by every id this board has signed in with (kosmos#5422: the
+           key's id and the ones before it, which stay at the coordinator). */
+        const selves = remote.ownDeviceIds();
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id));
         sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
