@@ -72,6 +72,14 @@ if (args[0] === 'setup' && args[1] === 'complete') {
 }
 if (args[0] === 'signin') {
   const verb = args[1];
+  // kosmos#5422: a tunnel that keeps a device key (FAKE_TUNNEL_MODE devkey) answers its id; without that mode this
+  // fake is an older tunnel, which refuses the verb (falls through to 'unknown signin verb').
+  if (verb === 'device-id' && mode.includes('devkey')) {
+    fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
+    fs.writeFileSync(flag('--device-key'), 'fake key');
+    console.log(JSON.stringify({ device_id: 'k1.' + 'A'.repeat(31) + 'Q' }));
+    process.exit(0);
+  }
   if (verb === 'start') {
     // Anti-enum: the same answer whatever the email, except an unreachable
     // coordinator (email carrying 'down'), which fails like setup start.
@@ -1703,6 +1711,90 @@ test('a malformed answer AFTER a good one fails closed: the earlier session is c
   const reg = await remote.signinRegister('hers');
   assert.equal(reg.ok, false, 'a stale session survived a malformed answer');
   assert.match(reg.because, /finish the code steps/);
+});
+
+test('kosmos#5422: with a tunnel that keeps a device key, sign-in passes the key file, not an id', async () => {
+  const KEYED = 'k1.' + 'A'.repeat(31) + 'Q';
+  // This computer signed in before, on the opaque id.
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+    assert.equal((await remote.signinVerify('her@example.com', '123456')).ok, true);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  const start = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  const verify = recorded().find((c) => c[0] === 'signin' && c[1] === 'verify');
+  for (const call of [start, verify]) {
+    assert.ok(call.includes('--device-key'), 'no key file was passed: ' + call.join(' '));
+    assert.ok(!call.includes('--device-id'), 'an opaque id was passed next to the key');
+  }
+  const keyFile = start[start.indexOf('--device-key') + 1];
+  assert.equal(verify[verify.indexOf('--device-key') + 1], keyFile, 'start and verify named different key files');
+  const stateDir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  assert.equal(nodePath.dirname(keyFile), stateDir, 'the key file is outside the tunnel state folder: ' + keyFile);
+  // Asked once for the process, so a start and its verify cannot disagree.
+  assert.equal(recorded().filter((c) => c[0] === 'signin' && c[1] === 'device-id').length, 1, 'asked the tunnel more than once');
+  // remote.json names the key's id, and keeps the opaque one so its old row is still this computer's own.
+  assert.equal(remote.read().device_id, KEYED);
+  assert.equal(remote.read().legacy_device_id, 'old-opaque-id');
+});
+
+test('kosmos#5422: an older tunnel (no device-id verb) signs in on the opaque id, as before', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  assert.equal((await remote.signinStart('her@example.com')).ok, true);
+  const start = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  assert.ok(recorded().some((c) => c[0] === 'signin' && c[1] === 'device-id'), 'precondition: the tunnel was asked');
+  assert.equal(start[start.indexOf('--device-id') + 1], 'old-opaque-id');
+  assert.ok(!start.includes('--device-key'), 'a key file was passed to a tunnel that cannot use it');
+  assert.equal(remote.read().device_id, 'old-opaque-id', 'the stored id changed');
+});
+
+test('kosmos#5422: after a key, a fallback to an older tunnel uses the opaque id, never the key id without its key', async () => {
+  const KEYED = 'k1.' + 'B'.repeat(32);
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: KEYED, legacy_device_id: 'old-opaque-id' }));
+  assert.equal((await remote.signinStart('her@example.com')).ok, true);
+  const start = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  assert.equal(start[start.indexOf('--device-id') + 1], 'old-opaque-id', 'a k1 id went out without its proof');
+  // CONTROL: with no opaque id kept, a new one is made and the key id stays where it is.
+  remote.resetForTests(); fs.rmSync(RECORD, { force: true });
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: KEYED }));
+  await remote.signinStart('her@example.com');
+  const again = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  const made = again[again.indexOf('--device-id') + 1];
+  assert.match(made, /^[A-Za-z0-9_-]{1,128}$/);
+  assert.equal(remote.read().device_id, KEYED);
+  assert.equal(remote.read().legacy_device_id, made);
+});
+
+test('kosmos#5422: a k1 device id is a device the Mac can see and allow; only exactly that shape', async () => {
+  const KEYED = 'k1.' + 'C'.repeat(32);
+  for (const bad of ['k1.' + 'C'.repeat(31), 'k1.' + 'C'.repeat(33), 'k1..' + 'C'.repeat(31), '../evil', 'k2.' + 'C'.repeat(32)]) {
+    assert.match((await remote.deviceAllow(bad)).because || '', /not a device we know/, 'accepted ' + bad);
+  }
+  assert.notEqual((await remote.deviceAllow(KEYED)).because, 'that is not a device we know', 'refused a k1 id');
+});
+
+test('kosmos#5422: after the move to a key, neither of this computer\'s ids asks to be allowed; a keyed browser does', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const reg = await remote.signinRegister('keymac');
+    assert.equal(reg.ok, true, reg.because);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  const self = remote.read().device_id;
+  assert.match(self, /^k1\./, 'precondition: this computer signed in with its key');
+  const browser = 'k1.' + 'D'.repeat(32);
+  const dir = nodePath.join(DATA_ROOT, 'remote');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: self, name: 'This Mac (Kosmos app)', first_seen: 1756000000, code: 'W6-M4' },
+    { device_id: 'old-opaque-id', name: 'This Mac (Kosmos app)', first_seen: 1755000000, code: 'W6-M5' },
+    { device_id: browser, name: 'Mac · Safari', first_seen: 1756000100, code: 'VR-D6' },
+  ] }));
+  assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), [browser]);
+  remote.setOn(false);
 });
 
 test('signinDeviceId replaces a stored id that fails the shape check rather than trusting it', async () => {

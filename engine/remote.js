@@ -203,7 +203,7 @@ function read() {
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false };
+  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', legacy_device_id: '', ok: false };
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -216,6 +216,9 @@ function read() {
        shape is checked where it is minted/used (signinDeviceId), not here, the
        same way relay/email carry through unvalidated. */
     device_id: typeof parsed.device_id === 'string' ? parsed.device_id : '',
+    /* kosmos#5422: the opaque id this computer signed in with before it had a key. Kept so that row, which stays
+       pending at the coordinator, is still recognised as this computer's own (#4610) and never asks to be allowed. */
+    legacy_device_id: typeof parsed.legacy_device_id === 'string' ? parsed.legacy_device_id : '',
     /* Federation Kosmos+ gate: the account's last-known coordinator standing,
        cached from the sign-in flow (the only place the coordinator surfaces it,
        per ICK's contract). '' means unknown -> kosmosPlus() is false (fail-safe:
@@ -1272,7 +1275,11 @@ async function setupComplete(code, name) {
    writer of this Mac's allow_list; this module asks it in the shape setup
    already uses, and reads the pending snapshot the running tunnel refreshes
    every five seconds, so every open board can poll without spawning. ---- */
-const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+/* kosmos#5422: a sign-in device id is either the older opaque label or one proven by a key (`k1.` and 32 base64url
+   characters, the coordinator's fingerprint of the key). Exactly that shape, so a dot never lets a path through. */
+const LEGACY_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const KEYED_ID = /^k1\.[A-Za-z0-9_-]{32}$/;
+const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
 /* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
@@ -1365,10 +1372,10 @@ function pendingDevices() {
      device row at the coordinator (every session is one), and registering the Mac records no grant for it, so it
      stays pending for good. It is never a request: the app's window loads the board on this computer, not through
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
-  const self = typeof settings.device_id === 'string' ? settings.device_id : '';
+  const selves = [settings.device_id, settings.legacy_device_id].filter((x) => typeof x === 'string' && x);
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
-    .filter((d) => !self || String(d.device_id) !== self)
+    .filter((d) => !selves.includes(String(d.device_id)))
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
@@ -1629,16 +1636,40 @@ let signinSession = null;
     file, or mints again if the write never landed. */
 let mintedDeviceId = null;
 function signinDeviceId() {
-  if (mintedDeviceId && DEVICE_ID.test(mintedDeviceId)) return mintedDeviceId;
+  if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) return mintedDeviceId;
   const r = read();
-  if (typeof r.device_id === 'string' && DEVICE_ID.test(r.device_id)) {
-    mintedDeviceId = r.device_id;
-    return mintedDeviceId;
+  // kosmos#5422: once this computer has a key, device_id holds the key's id and the opaque one moved to legacy_device_id.
+  for (const kept of [r.legacy_device_id, r.device_id]) {
+    if (typeof kept === 'string' && LEGACY_ID.test(kept)) { mintedDeviceId = kept; return kept; }
   }
   const id = crypto.randomUUID();
   mintedDeviceId = id;      // hold it even if the persist below fails
-  write({ device_id: id });
+  write(KEYED_ID.test(r.device_id) ? { legacy_device_id: id } : { device_id: id });
   return id;
+}
+
+/* kosmos#5422: the sign-in's device arguments. A tunnel that knows `signin device-id --device-key` keeps this
+   computer's key in a file in its own state folder and proves it on verify (the crypto stays in the tunnel: this
+   module passes a path). The app bundles whichever tunnel was built for the release and nothing pins the two, so it
+   asks once per process: a `k1.` answer means the key; anything else (an older tunnel refuses the verb) means the
+   opaque id, exactly as before. The answer is held for the process, so a start and its verify name one device. */
+const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
+let signinKeyed = null;   // null: not asked yet in this process; '': this tunnel has no key; else the key's id
+async function signinDeviceArgs() {
+  if (signinKeyed === null) {
+    const r = parseSaid(await setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()]));
+    const id = r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
+    if (signinKeyed === null) signinKeyed = id;
+    if (signinKeyed) {
+      const cur = read();
+      if (cur.device_id !== signinKeyed) {
+        // The opaque id this computer used before moves aside, so its row is still known as this computer's own.
+        const before = LEGACY_ID.test(cur.device_id) ? cur.device_id : cur.legacy_device_id;
+        write({ device_id: signinKeyed, legacy_device_id: before || '' });
+      }
+    }
+  }
+  return signinKeyed ? ['--device-key', DEVICE_KEY_FILE()] : ['--device-id', signinDeviceId()];
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
@@ -1828,7 +1859,7 @@ async function signinStart(email, deviceName) {
   }
   signinSession = null;
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
-    '--email', email, '--device-id', signinDeviceId()];
+    '--email', email, ...(await signinDeviceArgs())];
   pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
   // Deliberately does NOT persist the email. The setup flow writes it because
@@ -1851,10 +1882,12 @@ async function signinVerify(email, code, deviceName) {
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
-  const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
-    '--email', email, '--device-id', signinDeviceId(), '--code', String(code)];
-  pushDeviceName(args, deviceName);
+  // Taken before anything is awaited (kosmos#5422: the device arguments may ask the tunnel), so a cancel made while
+  // this verify waits is seen.
   const epoch = signinEpoch;
+  const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
+    '--email', email, ...(await signinDeviceArgs()), '--code', String(code)];
+  pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   // A CLI error (wrong code, coordinator down) is a TRANSIENT "try again" and
@@ -2370,7 +2403,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; signinKeyed = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
