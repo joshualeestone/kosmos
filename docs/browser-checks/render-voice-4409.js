@@ -200,6 +200,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const micAt = await page.locator('#d-mic').boundingBox();
     await page.click('#d-mic');
     await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    await page.waitForTimeout(50);   // the alert is filled a moment after it is in the page (a region born with text is not announced)
     const pill = await page.evaluate(() => {
       const p = document.querySelector('.voice-pill');
       const r = p && p.getBoundingClientRect();

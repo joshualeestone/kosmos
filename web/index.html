@@ -65541,7 +65541,8 @@ function voiceSettingsOffer(btn, pane, said) {
      reader hears it even though a click in the app moves no focus. Not the mic's message line: other messages share
      that line (a send that is still going, a Create refusal), and hiding it would hide them too. */
   const alert = document.createElement('span');
-  alert.className = 'vh'; alert.setAttribute('role', 'alert'); alert.textContent = said || '';
+  alert.className = 'vh'; alert.setAttribute('role', 'alert');   // filled a moment after it is in the page, like voiceWhoHidden:
+  // a live region born with its text is not announced
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'vp-x'; x.textContent = '\u00d7';
   x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss, back to the microphone');
@@ -65570,6 +65571,7 @@ function voiceSettingsOffer(btn, pane, said) {
   }, 500);
   btn.classList.add('has-pill');
   btn.insertAdjacentElement('afterend', pill);
+  setTimeout(() => { if (VOICE_SETTINGS.alert === alert) alert.textContent = said || ''; }, 0);
   if (hadFocus) go.focus();
 }
 function voiceOnEvent(ev) {
@@ -65604,7 +65606,7 @@ function voiceOnEvent(ev) {
   // back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
   if (ev && ev.kind === 'refused') {
     const btn = VOICE_SETTINGS.btn;
-    if (!btn || ev.id !== VOICE_SETTINGS.id || !VOICE_SAYS[ev.reason]) return;
+    if (!btn || ev.id !== VOICE_SETTINGS.id || !Object.hasOwn(VOICE_SAYS, ev.reason)) return;
     const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
     voiceSettingsClear();
     voiceSay(btn, VOICE_SAYS[ev.reason]);
@@ -65619,9 +65621,11 @@ function voiceOnEvent(ev) {
     const was = VOICE_SETTINGS.alert;
     if (was && was.parentNode) {
       const now = document.createElement('span');
-      now.className = 'vh'; now.setAttribute('role', 'alert'); now.textContent = VOICE_SAYS[ev.pane === 'mic' ? 'mic-denied' : 'speech-denied'] || '';
+      now.className = 'vh'; now.setAttribute('role', 'alert');
       was.parentNode.replaceChild(now, was);
       VOICE_SETTINGS.alert = now;
+      const say = VOICE_SAYS[ev.pane === 'mic' ? 'mic-denied' : 'speech-denied'] || '';
+      setTimeout(() => { if (VOICE_SETTINGS.alert === now) now.textContent = say; }, 0);   // filled once in the page, as above
     }
     return;
   }
@@ -65663,7 +65667,7 @@ function voiceOnEvent(ev) {
     const b = voiceBridge();
     const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
     const said = (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer;
-    if (b && !b.phone && ev.canOpenSettings === true && VOICE_SETTINGS_PANE[ev.reason]) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
+    if (b && !b.phone && ev.canOpenSettings === true && Object.hasOwn(VOICE_SETTINGS_PANE, ev.reason)) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
     else voiceSay(btn, said);
     return;
   }

@@ -420,7 +420,7 @@ test('#4409 slice 3 review 25: on the Mac, a press while Finishing is one more s
   assert.equal(h.VOICE.btn, btn, 'the Mac session ended at once instead of waiting for its final words');
 });
 
-test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [X   Turn on in Settings], with no sentence; the label asks for that pane, X puts the mic back, "allowed" starts the same mic', () => {
+test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [X   Turn on in Settings], with no sentence; the label asks for that pane, X puts the mic back, "allowed" starts the same mic', async () => {
   const { h, posted, mkBtn, mkBox, doc, tick } = voiceHarness();
   const pills = [];
   const listeners = [];
@@ -455,7 +455,9 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(doc.activeElement, go(), 'a mic that had focus handed it to nothing when the pill replaced it');
   const msg = doc.boxes['d-say-msg'];
   const alert = pills[0].kids[0];
-  assert.ok(alert.attrs.role === 'alert' && alert.textContent === '(speech refused)', 'the refusal is not said to a screen reader');
+  assert.ok(alert.attrs.role === 'alert' && alert.textContent === '', 'the alert was born with its text, which is not announced');
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(alert.textContent, '(speech refused)', 'the refusal is not said to a screen reader');
   assert.equal(msg.textContent, '', 'a sentence was said below the input (and that line is shared with other messages)');
   go().handlers.click();
   const ask = posted.at(-1);
@@ -466,6 +468,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   go().handlers.click();
   assert.equal(posted.at(-1).pane, 'speech', 'a next pane from another visit, or one that is not a pane, was taken');
   h.voiceOnEvent({ kind: 'settings-next', pane: 'mic', id: posted.at(-1).id });
+  await new Promise((r) => setTimeout(r, 5));
   assert.equal(pills[0].kids[0].textContent, '(mic refused)', 'the pill now opens the Microphone pane and a screen reader is not told why');
   go().handlers.click();
   const ask2 = posted.at(-1);

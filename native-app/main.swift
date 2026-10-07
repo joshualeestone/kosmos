@@ -1534,12 +1534,12 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         if let event = allowedEvent(awaiting: true, pane: pane, speech: speech, mic: mic, settingsId: settingsId) { return (event, false) }
         return (nil, true)
     }
-    /// the page may name a pane, never a URL; it also may not open Settings over and over (more than once a
-    /// second; a clock moved backwards counts as a second gone by, which only ever allows one more open).
     /// The cancels that mean the page itself is gone (reloaded or crashed), not merely out of sight. PURE, selftested.
     static func pageGone(_ why: String) -> Bool { why == "page process ended" || why == "new page loaded" }
     /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else). PURE.
     static func settingsAccepted(lastRefusal: String) -> Bool { lastRefusal == "speech-denied" || lastRefusal == "mic-denied" }
+    /// The page may name a pane, never a URL; it also may not open Settings over and over (more than once a second; a
+    /// clock moved backwards counts as a second gone by, which only ever allows one more open). PURE, selftested.
     static func settingsOpenAllowed(sinceLast: TimeInterval?) -> Bool { sinceLast.map { $0 < 0 || $0 >= 1 } ?? true }
     private func recheckAfterSettings() {
         guard awaitingAllow, let at = settingsAt else { return }
