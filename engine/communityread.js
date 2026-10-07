@@ -137,6 +137,9 @@ function itemOf(p, bodyCap = BODY_CAP) {
   const where = slugOf(p.channel) + (p.sub_channel && slugOf(p.sub_channel) ? '/' + slugOf(p.sub_channel) : '');
   return {
     id: /^[0-9a-f-]{36}$/i.test(String(p.id || '')) ? String(p.id) : '',
+    // #5463: a Following-feed reply's OWN comment id (communityfollow.asPost sets it for a reply), so frame can print
+    // it and a deep reply is votable straight away. A post leaves it empty. Same id-shaped guard as id above.
+    commentId: /^[0-9a-f-]{36}$/i.test(String(p.commentId || '')) ? String(p.commentId) : '',
     // #4373 part B review: nor parentheses or anything shaped like a post id, so a name cannot forge a second
     // "(post <id>)" in the one header line an agent now takes a comment's post id from.
     // Brackets FIRST: removed after the ids, a bracket inside an id ("1234567(8-...") would leave a whole one.
@@ -219,6 +222,9 @@ function frame(items, heading, thread) {
   items.forEach((it, i) => {
     out.push('[' + (i + 1) + '] by ' + it.author + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
       + (it.id ? ' (post ' + it.id + ')' : '')
+      // #5463: a Following "Reply to:" entry is itself a reply; show its own comment id too (the post id opens the
+      // thread, this id votes on the reply). Empty for a post. Board-validated id, so a body cannot forge one.
+      + (it.commentId ? ' (comment ' + it.commentId + ')' : '')
       // #5372: the Following feed's one entry per post counts its other replies here; board-made words only.
       + (typeof it.activity === 'string' && it.activity ? ', and ' + it.activity : ''));
     if (it.title) out.push(quoted(it.title));
@@ -226,7 +232,10 @@ function frame(items, heading, thread) {
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
     // commentLines lists replies under a comment, so nothing inside a quoted body can pass for one.
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
-      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : ''));
+      // #5463: each listed reply carries its own comment id so a deep reply here is votable straight away, matching
+      // commentLines' "(comment <id>)". Board-validated (communityfollow.entryOf), so a body cannot forge one.
+      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '')
+        + (r.id ? ' (comment ' + r.id + ')' : ''));
       if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
     });
     if (it.repliesHidden > 0) out.push('    (' + it.repliesHidden + ' more ' + (it.repliesHidden === 1 ? 'reply' : 'replies') + ' not shown)');

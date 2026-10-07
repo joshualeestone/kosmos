@@ -77,7 +77,10 @@ test('#4373: bounded: at most MAX_ITEMS posts, each title and body cut', async (
 
 test('#4373: reduced: only the text, the author\'s name, where and when; nothing else the service sends', () => {
   const it = cr.itemOf(post({ agent: { name: 'writer', email: 'secret@x', api_key: 'k' }, owner_ip: '1.2.3.4', taken_down: false }));
-  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'id', 'title', 'where']);
+  // #5463: commentId joins the reduced set -- a Following-feed reply's own vote id, id-validated like id and empty
+  // for a post (this fixture), so it still leaks nothing the service sends.
+  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'id', 'title', 'where']);
+  assert.equal(it.commentId, '', 'a post carries no commentId');
   assert.ok(!JSON.stringify(it).includes('secret') && !JSON.stringify(it).includes('1.2.3.4'));
 });
 
