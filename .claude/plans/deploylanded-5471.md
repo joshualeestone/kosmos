@@ -42,9 +42,12 @@ did not run, and the operator had to verify by hand while resisting a revert or 
    that reused a previously built tarball without rebuilding would make an earlier attempt's served .sha256
    equal this cut's, and a failed deploy would read as landed. Step 9 then verifies the same served state,
    so the harm is bounded, but the "landed" line would be wrong.
-- On any non-zero exit the cut first prints this cut's sha and the served .sha256 URL (the trap deletes the
-  local copy on whatever ends the cut next). Then a deploy stopped by a signal (130, 137, 143, which may be
+- Before deploying, the cut prints this cut's sha and the .sha256 URL it will be served at, so the record
+  is in the log however the cut ends (a Ctrl-C reaches release.sh's own INT trap too, and the trap deletes
+  the local copy). On a non-zero exit, a deploy stopped by a signal (130, 137, 143, which may be
   an operator or an out-of-memory kill) fails at once, and so does a cut whose own .sha256 cannot be read.
+- docs/releasing.md says what to do when it landed late: no revert, no re-cut, run step 9's checks by
+  hand (step 7b had pushed the site commit), refresh the local site checkout.
 - docs/staging-channel.md's manual promote recipe has its own `vercel deploy` under `set -e`; it is a
   different path (an operator watching it), left as is.
 

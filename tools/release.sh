@@ -1595,6 +1595,10 @@ elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_
 fi
 # #5471: refuse a mistyped landed-check override now, while nothing has been deployed.
 site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was deployed"; exit 1; }
+# #5471: the record, BEFORE deploying, so it is in the log on every path (a Ctrl-C reaches this shell's
+# own INT trap as well as vercel, and the trap deletes the local copy).
+_my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)"   # set -e: a missing file must not end the cut here
+echo "   THIS cut's build is sha256 ${_my_sha:-<unreadable>}; once deployed it is served as ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served)."
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
@@ -1607,10 +1611,7 @@ if [ "$_vdep_rc" != 0 ]; then
   # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: about 6 min,
   # up to about 18 min if every fetch times out at -m 30). Not seen landing: DEPLOYED stays unset and the
   # trap restores, exactly as before.
-  # The record comes FIRST, on every non-zero exit: whatever ends this cut next (a signal, an unreadable
-  # local file, the poll giving up, a Ctrl-C during it) runs the trap, which deletes the local copy.
-  _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)"   # set -e: a missing file must not end the cut here
-  echo "   vercel deploy exited $_vdep_rc (#5471). THIS cut's build is sha256 ${_my_sha:-<unreadable>}; the served copy is ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served). Compare them before any revert or re-cut."
+  echo "   vercel deploy exited $_vdep_rc (#5471). Before any revert or re-cut, compare the served .sha256 with this cut's sha, printed above."
   case "$_vdep_rc" in
     130|137|143) echo "vercel deploy was stopped by a signal (exit $_vdep_rc); not waiting to see whether it landed"; exit "$_vdep_rc" ;;
   esac

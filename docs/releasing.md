@@ -192,9 +192,16 @@ cut's sha before it starts waiting:
   curl -fsS "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256?t=$(date +%s)"
   ```
   The same sha means this cut landed late; a different one means another build of `<V>` is served.
+  **If it landed late, the release shipped: do not revert and do not re-cut.** Step 7b had already
+  pushed the site commit before deploying, so the site repo matches what is served. What did not run is
+  steps 9 onward, so run their checks by hand
+  (`KOSMOS_VERIFY_POINTER=latest-staging.json KOSMOS_VERIFY_SETUP=setup-staging SITE=<site> REPO=<repo> bash tools/verify-served.sh`
+  on a staging cut), confirm prod's `latest.json` and `/setup` did not move, and refresh the local site
+  checkout from origin before the next cut (the trap restored it to the pre-cut state).
 
-A deploy stopped by a signal (exit 130, 137 or 143), or a cut whose own `.sha256` cannot be read, fails at
-once without waiting; it still prints the sha first.
+The cut prints this sha before it deploys, so it is in the log however the cut ends. A deploy stopped by
+a signal (exit 130, 137 or 143), or a cut whose own `.sha256` cannot be read (it printed
+`<unreadable>`), fails at once without waiting.
 
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
 
