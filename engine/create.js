@@ -6121,7 +6121,9 @@ function switchedOffSentence(name, switchedOff, platform) {
   if (plat === 'linux') {
     let masked = false;
     try { masked = require('./linuxjob').masked(name); } catch { masked = false; }
-    if (masked) return 'this agent is not running because ' + require('./linuxjob').maskedFact() + '. ' + require('./linuxjob').maskedRemedy(name);
+    /* Ends with no full stop, as the Mac sentence does (the row adds its own; review 10), and without "so it does not
+       start", which "not running" already says. */
+    if (masked) return 'this agent is not running because its startup unit is masked in systemd. ' + require('./linuxjob').maskedRemedy(name).replace(/\.$/, '');
     if (!(switchedOff && switchedOff.has(name))) return null;
     /* The command, as the Mac sentence names a screen (review 7): Linux has no settings screen for a user unit. A
        runtime mask (the file stays ordinary) needs unmask --runtime first. */
