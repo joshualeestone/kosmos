@@ -65624,7 +65624,7 @@ function voiceOnEvent(ev) {
   // Speech is now on but the mic is still refused (both were off): the same pill now opens the Microphone pane.
   if (ev && ev.kind === 'settings-next') {
     if (!VOICE_SETTINGS.btn || ev.id !== VOICE_SETTINGS.id || !['speech', 'mic'].includes(ev.pane)) return;
-    VOICE_SETTINGS.pane = ev.pane;
+    VOICE_SETTINGS.pane = ev.pane;   // the place is taken again on the next press, so it is not refreshed here
     /* Said again: the same button now opens another pane, and a screen reader must hear why. A fresh alert node, since
        changing an alert's text in place is not reliably announced. */
     const was = VOICE_SETTINGS.alert;

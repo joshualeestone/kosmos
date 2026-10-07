@@ -1586,7 +1586,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             settingsAt = Date()
             settingsPane = pane
             awaitingAllow = true
-            guard Self.settingsOpenAllowed(sinceLast: settingsOpenedAt.map { Date().timeIntervalSince($0) }) else { return }
+            guard Self.settingsOpenAllowed(sinceLast: settingsOpenedAt.map { Date().timeIntervalSince($0) }) else {
+                logLine("voice: Settings press within a second of the last, not opened again (" + pane + ")"); return
+            }
             settingsOpenedAt = Date()
             NSWorkspace.shared.open(url)
         default: return
@@ -1671,7 +1673,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
                         let micAfter = AVCaptureDevice.authorizationStatus(for: .audio)
                         logLine("voice: microphone permission " + Self.statusName(micBefore) + " -> " + Self.statusName(micAfter) + " in \(Int(Date().timeIntervalSince(micAsked) * 1000)) ms")
                         guard mine == self.session else { return }
-                        guard granted else { self.refuse(Self.micRefusal(micAfter)); return }
+                        // A grant that lands between the answer and the re-read is a grant: never offer a pane already on.
+                        guard granted || micAfter == .authorized else { self.refuse(Self.micRefusal(micAfter)); return }
                         self.begin(mine)
                     }
                 }
