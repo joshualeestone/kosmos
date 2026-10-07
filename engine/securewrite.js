@@ -262,6 +262,16 @@ function secureDir(dir, mode) {
   try { fs.chmodSync(dir, mode); } catch { /* see above */ }
 }
 
+/* #5434: flush a directory so a rename into it survives a crash. Not on Windows, where Node
+   cannot flush a directory (the file's own flush, FlushFileBuffers there, is the part #5431
+   needs). Best effort everywhere: it never throws. */
+function syncDir(dir) {
+  if (process.platform === 'win32') return;
+  let fd = null;
+  try { fd = fs.openSync(dir, 'r'); fs.fsyncSync(fd); } catch { /* best effort */ }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } } }
+}
+
 /**
  * Write `data` to `file` at `mode`, so that `file` is never briefly loose and
  * never partially written.
@@ -270,15 +280,6 @@ function secureDir(dir, mode) {
  * in place where it can, because the alternative is destroying what it failed to
  * replace.
  */
-/* #5434: flush a directory so a rename into it survives a crash. Not on Windows, where a
-   directory cannot be opened for this and NTFS journals the rename. Best effort everywhere. */
-function syncDir(dir) {
-  if (process.platform === 'win32') return;
-  let fd = null;
-  try { fd = fs.openSync(dir, 'r'); fs.fsyncSync(fd); } catch { /* best effort */ }
-  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } } }
-}
-
 function writeSecret(file, data, mode) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
      once per directory per process, before we add our own. Best-effort: it never
@@ -401,6 +402,7 @@ function writeSecret(file, data, mode) {
        loose would read as a promise. Pre-existing on main, carried, not hidden. */
     try { fs.fchmodSync(fd, mode); } catch { /* best effort, cost named above */ }
     fs.writeFileSync(fd, data);
+    try { fs.fsyncSync(fd); } catch { /* #5434: best effort, as on the atomic path */ }
     wrote = true;
   } catch (err) {
     /* The fallback failed too. Attach why the ATOMIC path was abandoned, so a
