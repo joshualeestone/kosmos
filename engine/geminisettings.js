@@ -221,13 +221,12 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   if (!changed) return { prepared: true, changed: false };
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    /* #5434: through securewrite.writeSecret. Its temp name is unique per process, thread, start and
-       write, so two concurrent writers of this file never share a staging file (the reason this was
-       pid-suffixed). The temp is flushed before the rename; an existing file keeps its mode (where the
-       file system lets it be set; see the plan), a new one
-       takes the umask default (null); never rewritten in place (atomicOnly), so a failed save leaves
-       the file as it was. */
-    securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', prevMode, { atomicOnly: true });
+    /* #5434: through securewrite.writeSecret (unique temp per process, thread, start and write, so two
+       concurrent writers never share one; the reason this was pid-suffixed). Flushed before the rename.
+       An existing file keeps its mode where the file system allows a chmod; a new one takes the umask
+       default (null). atomicOnly: a failed save leaves the file as it was. ownTempsOnly: in a folder
+       Kosmos does not own, only this file's own dead temps are reaped. See the slice-3 plan. */
+    securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', prevMode, { atomicOnly: true, ownTempsOnly: true });
   } catch {
     return { prepared: false, because: 'we could not save the settings file' };
   }

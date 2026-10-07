@@ -349,6 +349,9 @@ function syncDir(dir) {
  * is not a secret and holds other content a failed write must never empty (an account's Claude
  * settings.json), where failing the save beats rewriting it in place.
  *
+ * `opts.ownTempsOnly` (#5434 slice 3): before writing, reap only this file's own dead temps rather
+ * than sweeping the whole folder once per process. For a folder Kosmos does not own.
+ *
  * `mode` null or undefined (#5434 slice 3): create at the process umask default (0666 less the
  * umask) and set no mode, exactly as a plain writeFileSync would. For callers that write a
  * person's own config file, keep an existing file's mode by passing it, and must not choose a
@@ -361,7 +364,10 @@ function writeSecret(file, data, mode, opts) {
      once per directory per process, before we add our own. Best-effort: it never
      throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
      so it cannot take a concurrent writer's in-flight temp. */
-  reapOrphanTemps(path.dirname(file));
+  // #5434 slice 3: `opts.ownTempsOnly` (a person's own config folder) reaps only THIS file's dead
+  // temps, never a folder-wide sweep of a folder Kosmos does not own.
+  if (opts && opts.ownTempsOnly) reapDeadTempsOf(file);
+  else reapOrphanTemps(path.dirname(file));
   /* Up to three attempts at the atomic path before abandoning it. `++SEQ` gives
      a fresh name each time, so the one realistic trigger after the unique-name
      fix, an EEXIST from a PLANTED file, cannot recur on the next name. This is

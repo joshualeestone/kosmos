@@ -4,7 +4,7 @@
  * groksettings and geminisettings ensurePrepared) save through securewrite.writeSecret, so the bytes are
  * flushed to disk BEFORE the rename makes them the file (#5431), an existing file keeps its exact mode, a
  * new one takes the umask default, and a save whose every atomic attempt fails leaves the file as it was.
- * Every arm writes in its own scratch folder.
+ * Only this file's own dead temps are reaped in such a folder. Every arm writes in its own scratch folder.
  *
  *   node --test engine/settingswrite.fsync-5434.test.js
  */
@@ -127,4 +127,18 @@ test('#5434: reporthook writes THROUGH a symlinked settings file (to its target)
   assert.equal(reporthook.writeSettings(read.target, { a: 1 }, read.prevMode), true);
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the link was replaced');
   assert.deepEqual(JSON.parse(fs.readFileSync(real, 'utf8')), { a: 1 });
+});
+
+test('#5434: in a config folder only the written file\'s own dead temps are reaped, never another file\'s', (t) => {
+  const dir = scratch(t);
+  const DEAD = 2147483646;
+  assert.throws(() => process.kill(DEAD, 0), (e) => e.code === 'ESRCH');
+  const file = path.join(dir, 'settings.json');
+  const own = path.join(dir, 'settings.json.kosmos-' + DEAD + '-t0-1-1.tmp');
+  const other = path.join(dir, 'other.json.kosmos-' + DEAD + '-t0-1-1.tmp');   // a different file's dead temp
+  fs.writeFileSync(own, 'x');
+  fs.writeFileSync(other, 'x');
+  assert.equal(reporthook.writeSettings(file, { a: 1 }, null), true);
+  assert.equal(fs.existsSync(own), false, 'this file\'s dead temp was left');
+  assert.equal(fs.existsSync(other), true, 'another file\'s temp in the person\'s folder was swept');
 });
