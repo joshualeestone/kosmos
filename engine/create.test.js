@@ -1379,6 +1379,8 @@ test('a write that fails stops the creation instead of loading a job that cannot
   // runs it first (#4254), and it starts nothing. Everything else still counts.
   assert.equal(calls2.filter(notAReadOrPrep).length, 1,
     'the control did not actually load a job');
+  // #5500 review 5: and that one call is the start, not some other command the filter let through.
+  assert.ok(calls2.filter(notAReadOrPrep).every(([f, a]) => startsJob(f, a)), 'the one remaining call is not a start');
 });
 
 test('the startup script will not kill a session it cannot prove is ours', () => {
