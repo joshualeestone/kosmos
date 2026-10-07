@@ -260,8 +260,9 @@ const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd 
   + 'the same refusal) is NOT tested on Linux yet: #5500';
 /* #5432 review 4: the #4279 leftover-job rules read launchctl print output and plist paths (macOS temp folders, the
    printed first-level path). A Linux create has no such sweep, so these have no Linux equivalent to test. */
-const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl print output and plist paths; a Linux create has no '
-  + 'such sweep (it refuses an already-loaded or orphan unit instead), so there is no Linux equivalent to test';
+const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl print output and plist paths (boot out a temp '
+  + 'leftover, never our own); a Linux create has no such sweep, it refuses an already-loaded or orphan unit instead '
+  + '(create.linux-4918.test.js reviews 7 and 27)';
 const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job itself (plist, launchctl, the launchd runner seam); this behaviour is NOT '
   + 'tested on Linux yet: #5500 (the Linux job in general is tested in create.linux-4918, linuxjob and linuxwiring-4918)';
 const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; the switch is NOT tested on Linux yet: #5500 '

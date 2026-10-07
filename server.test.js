@@ -5217,6 +5217,8 @@ test('no style rule depends on a custom property that is never defined', () => {
 
 
 test('an agent whose card shows a different name than its session still leaves the board', async () => {
+  // #5432: the legacy com.<session>.discord.plist below is a macOS fixture; on Linux nothing reads it, so there the
+  // test measures the name-versus-session removal with no legacy job.
   /**
    * ⚠️ THE TEST THE FIRST VERSION OF THIS FEATURE DID NOT HAVE, and its absence
    * is why the board filter shipped keyed on the wrong field.
