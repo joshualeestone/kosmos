@@ -68,8 +68,8 @@ const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);
  * Windows build. So Claude gets its own list, and win32 is on it because the vendor
  * build happened -- the same discipline SUPPORTED and SELF_INSTALL state.
  *
- * ⇒ One list per runner. `RUNNER_DOWNLOADS` is the codex/vendored-runner gate
- * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 and (#5419)
+ * ⇒ One list per runner. `RUNNER_DOWNLOADS` was the codex/vendored-runner gate and is now only the claude
+ * arm's of runners.install (darwin only; Codex, Gemini and Grok have their own lists below); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 and (#5419)
  * linux join because checksum-verifiable builds are published for them. A platform on
  * neither list fetches nothing and says so honestly. */
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);

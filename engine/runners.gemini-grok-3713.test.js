@@ -101,8 +101,47 @@ test('#5419: on Linux, Grok installs the same way: expanded after the checksum, 
   const native = nodePath.join(SANDBOX, 'runners', 'grok', 'pkg', 'bin', 'grok-native');
   assert.equal(fs.readFileSync(native, 'utf8'), program, 'grok.br was expanded byte for byte');
   assert.ok((fs.statSync(native).mode & 0o111) !== 0, 'and made executable');
-  const r = runners.resolveBin('grok', { legacyBin: LEGACY_GROK });
+  const r = runners.resolveBin('grok', { legacyBin: LEGACY_GROK, platform: 'linux', arch: 'x64' });   // resolved as Linux
   assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED_GROK, present: true, managed: true });
+  clean();
+});
+
+test('#5419: on Linux arm64, Codex installs its arm64 musl build, runs from the managed path, and is found afterwards', async () => {
+  fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
+  const program = '#!/bin/sh\necho "codex-cli 0.149.1 $1"\n';
+  const { tgz, integrity } = tarball([['package/vendor/aarch64-unknown-linux-musl/bin/codex', program, 0o755],
+    ['package/package.json', '{"name":"@openai/codex","version":"0.149.1-linux-arm64"}']]);
+  let askedUrl = null;
+  const legacy = nodePath.join(SANDBOX, 'legacy', 'codex');
+  const job = runners.install('openai', {
+    platform: 'linux', arch: 'arm64', legacyBin: legacy, integrity,
+    download: (url, file, j) => { askedUrl = url; return downloadFrom(tgz)(url, file, j); },
+    prove: (bin, done) => execFileSyncDone(bin, done),
+  });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(askedUrl, 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz', 'not the Linux arm64 tarball');
+  assert.equal(job.proved, 'codex-cli 0.149.1 --version', 'the arm64 binary path inside the tarball is the one that ran');
+  const r = runners.resolveBin('openai', { legacyBin: legacy, platform: 'linux', arch: 'arm64' });
+  assert.equal(r.present, true, 'not found afterwards on Linux');
+  assert.equal(r.managed, true);
+  fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
+});
+
+test('#5419: on Linux, Gemini installs as the POSIX launcher running its bundle with the board\'s node', async () => {
+  clean();
+  const bundle = "console.log('gemini ' + process.argv.slice(2).join(' '));\n";
+  const { tgz, integrity } = tarball([['package/bundle/gemini.js', bundle],
+    ['package/package.json', '{"name":"@google/gemini-cli","version":"0.61.0"}']]);
+  const job = runners.install('gemini', {
+    platform: 'linux', arch: 'x64', legacyBin: LEGACY_GEMINI, download: downloadFrom(tgz), integrity, nodeBin: process.execPath,
+  });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(job.proved, 'gemini --version');
+  assert.match(fs.readFileSync(MANAGED_GEMINI, 'utf8'), /^#!\/bin\/sh\n/, 'the POSIX launcher, not the Windows .cmd');
+  const r = runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI, platform: 'linux', arch: 'x64' });
+  assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED_GEMINI, present: true, managed: true });
   clean();
 });
 

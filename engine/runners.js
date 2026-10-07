@@ -1437,7 +1437,7 @@ function install(provider, opts) {
      before ~45-49 MB moves rather than after, by the same detector Claude's Linux download uses. Codex's Linux builds
      are static musl and need no check. */
   if (provider === 'grok' && plat === 'linux' && require('./connect').isMusl()) {
-    return refuse(`there is no ${m.name} build for this kind of Linux (it uses musl, as Alpine does); no download was attempted`);
+    return refuse(`xAI does not publish a Grok CLI build for this kind of Linux (it uses musl, as Alpine does); no download was attempted`);
   }
 
   if (m.kind === 'vendor-external') return installVendor(provider, m, o, existing);

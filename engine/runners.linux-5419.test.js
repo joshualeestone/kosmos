@@ -84,7 +84,7 @@ test('#5419: on a musl Linux host Grok is refused before a byte moves; Codex (st
   let fetched = false;
   const grok = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => { fetched = true; return Promise.reject(new Error('stop')); } });
   assert.equal(grok.phase, 'failed', 'Grok was not refused on musl');
-  assert.match(grok.because, /build for this kind of Linux \(it uses musl, as Alpine does\); no download was attempted/);
+  assert.match(grok.because, /xAI does not publish a Grok CLI build for this kind of Linux \(it uses musl, as Alpine does\); no download was attempted/);
   assert.equal(fetched, false, 'Grok was downloaded on a musl host');
   connect.setMuslDetectForTests(() => false);
   let asked = false;
