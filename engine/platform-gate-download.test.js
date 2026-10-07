@@ -60,8 +60,8 @@ test('#3159 connect.download PASSES win32 THROUGH the gate now (Claude publishes
       (e) => /did not answer with a version/.test(e.message)
         && !/no published Claude Code build/.test(e.message),
       'linux reaches the download service (past the gate), then fails on the bad version');
-    connect.setTmuxCheckForTests(null);
   } finally {
+    connect.setTmuxCheckForTests(null);   // review 8: in the finally, so a failed assertion cannot leak the seam
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
     server.close();

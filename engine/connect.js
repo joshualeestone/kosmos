@@ -181,7 +181,9 @@ function setTmuxCheckForTests(fn) { tmuxCheckOverride = typeof fn === 'function'
 function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
   /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick. Review 6: on Linux that pick is not reliable:
      with tmux installed but no tmux server running yet, the launcher falls back to the bundle path, which a Linux box
-     may not have. So on Linux the pick is used only when it is runnable, and otherwise create's picker decides. */
+     may not have. So for sign-in on Linux the pick is used only when it is runnable, and otherwise create's
+     linuxTmuxBin decides. (Review 8: agents still take create.binPaths' own pick, which trusts the launcher's; making
+     that pick runnable-checked on Linux is piece D's, #4920.) */
   if (env.AGENT_WORKFORCE_TMUX_BIN) {
     const can = runnable || ((f) => require('./runners').isRunnable(f));
     if (platform !== 'linux' || can(env.AGENT_WORKFORCE_TMUX_BIN)) return env.AGENT_WORKFORCE_TMUX_BIN;
@@ -684,8 +686,18 @@ function publicView(s, platform = process.platform) {
      * the process lives, so there is nothing to record and no stale record to
      * serve. That also means it is right on every phase, not just STUCK. */
     platform,
-    canInstallClaude: platformGate.canDownloadClaude(platform),
+    canInstallClaude: platformGate.canDownloadClaude(platform) && !linuxInstallWouldRefuse(platform),
   };
+}
+
+/* #5419 review 8: the facts download() would refuse on that this machine already knows, so the screen does not offer
+   an install that is certain to fail: an arch Anthropic does not build for Linux, or no tmux for sign-in. Asked only
+   on a real Linux host (a test drives platform 'linux' from a Mac), or through the tmux seam. */
+function linuxInstallWouldRefuse(platform) {
+  if (platform !== 'linux') return false;
+  if (!tmuxCheckOverride && process.platform !== 'linux') return false;
+  if (process.platform === 'linux' && !['x64', 'arm64'].includes(os.arch())) return true;
+  return tmuxCheckOverride ? tmuxCheckOverride() : tmuxMissingOnLinux();
 }
 
 /* ── the download ────────────────────────────────────────────────────────── */
@@ -1186,7 +1198,8 @@ async function download(onProgress, track, platform = process.platform) {
   }
   // review 5: only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
   if (platform === 'linux' && (tmuxCheckOverride ? tmuxCheckOverride() : (process.platform === 'linux' && tmuxMissingOnLinux()))) {
-    throw new Error('Kosmos needs tmux on this computer to sign Claude in and run agents, and none was found, so Claude was not downloaded. Install tmux (for example: sudo apt install tmux) and try again');
+    // review 8: sign-in only (the agent path's tmux pick on Linux is piece D's); the install hint names no single package manager.
+    throw new Error('Kosmos needs tmux on this computer to sign Claude in, and none was found, so Claude was not downloaded. Install tmux with your system\'s package manager (apt install tmux, dnf install tmux, apk add tmux) and try again');
   }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
