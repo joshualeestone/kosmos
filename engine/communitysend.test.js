@@ -780,28 +780,6 @@ test('#5431: an unreadable keys.json, sent.json or deletes.json is never advised
   }
 });
 
-test('#5431: a folder that cannot be flushed does not fail the save, and is said once (off Windows)', { skip: process.platform === 'win32' && 'Windows ignores it' }, async () => {
-  fresh();
-  await on();
-  const dirs = new Set([path.dirname(cs._paths.stateFile()), path.dirname(cs._paths.sentFile())]);
-  const realSync = fs.fsyncSync, realOpen = fs.openSync, realError = console.error;
-  const opened = new Map(); const said = []; let refused = 0;
-  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };
-  fs.fsyncSync = (fd) => { if (dirs.has(opened.get(fd))) { refused += 1; const e = new Error('EIO'); e.code = 'EIO'; throw e; } return realSync(fd); };
-  console.error = (...a) => { said.push(a.join(' ')); };
-  try {
-    const r1 = agentPost('dsy', { topic: 'one', body: 'a' });
-    await cs.sweep();
-    const r2 = agentPost('dsy', { topic: 'two', body: 'b' });
-    await cs.sweep();
-    assert.ok(refused >= 2, `control: folder flushes were refused (${refused})`);
-    assert.deepEqual([cs.statuses()[r1.id].state, cs.statuses()[r2.id].state], ['sent', 'sent'], 'a folder flush failure failed a save');
-  } finally { fs.fsyncSync = realSync; fs.openSync = realOpen; console.error = realError; }
-  const lines = said.filter((l) => l.includes('could not be flushed'));
-  assert.ok(lines.length >= 1, 'the folder flush failure was not said');
-  assert.equal(new Set(lines).size, lines.length, 'the same folder\'s failure was said more than once');
-});
-
 test('#5431: a zero-filled keys.json is still told not to be removed (resetting it beside an empty sent.json sends again)', async () => {
   // Review 7: advice to write {} to it would empty the keys check while sent.json is torn, and the repair would then
   // reset sent.json and send every post in the window again.
@@ -816,9 +794,30 @@ test('#5431: a zero-filled keys.json is still told not to be removed (resetting 
   try { await cs.sweep(); } finally { console.error = realError; }
   const line = said.find((l) => l.includes('keys.json cannot be read'));
   assert.ok(line, 'control: the torn keys.json was reported');
-  assert.match(line, /do NOT remove it/);
-  assert.doesNotMatch(line, /\{\}/, 'the advice offers {} as a way out');
+  assert.match(line, /do NOT remove it or write \{\} to it/, 'it must forbid {} as a way out, not offer it');
+  assert.match(line, /from a backup/);
   assert.deepEqual([...fs.readFileSync(cs._paths.keysFile())], [0, 0, 0], 'the engine reset keys.json itself');
+});
+
+test('#5431: a save of the bytes already on disk writes nothing (each flush costs about 4 ms on a Mac)', async () => {
+  fresh();
+  await on();
+  agentPost('idm', { topic: 'i', body: 'j' });
+  await cs.sweep();
+  const realRename = fs.renameSync;
+  const same = [];
+  fs.renameSync = (from, to) => {
+    let before = null; try { before = fs.readFileSync(to); } catch { /* new file */ }
+    if (before && before.equals(fs.readFileSync(from))) same.push(path.basename(String(to)));
+    return realRename(from, to);
+  };
+  try { for (let i = 0; i < 3; i += 1) await cs.sweep(); } finally { fs.renameSync = realRename; }
+  assert.deepEqual(same, [], 'a save rewrote the same bytes');
+  // Control: a change still writes.
+  agentPost('idm', { topic: 'k', body: 'l' });
+  const before = fs.readFileSync(cs._paths.sentFile(), 'utf8');
+  await cs.sweep();
+  assert.notEqual(fs.readFileSync(cs._paths.sentFile(), 'utf8'), before, 'control: a new send changed sent.json');
 });
 
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {

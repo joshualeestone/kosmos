@@ -10,9 +10,8 @@ returned `skipped: 'unreadable'` from 2026-10-01 on, while status told the agent
 
 ## The fix
 
-1. `saveJson` flushes the temp file (fsync) before the rename, and the folder after it. Windows cannot flush a
-   folder, so there that failure is ignored; elsewhere it is logged once per folder and never fails the save. A
-   failed write removes its temp file. A file system that does not support a flush at all still saves: EINVAL and
+1. `saveJson` flushes the temp file (fsync) before the rename. It skips the write entirely when the file already
+   holds the same bytes. A failed write removes its temp file. A file system that does not support a flush at all still saves: EINVAL and
    ENOTSUP (some network or FUSE mounts), EISDIR (libuv's name for Windows' ERROR_INVALID_FUNCTION), ENOSYS (some
    FUSE mounts). Any other flush error (EIO, ENOSPC) fails the save as before.
 2. `repairTornRecords`, run at the start of every exclusive section (before the pending retirements land, and unable
@@ -24,7 +23,8 @@ returned `skipped: 'unreadable'` from 2026-10-01 on, while status told the agent
    person if it stays, and that the board's log names the record.
 4. A corrupt `keys.json`, `sent.json` or `deletes.json` is no longer advised "repaired or removed": removing one can
    send again (every agent under a second public name, posts already sent, or a post the owner removed). Each now
-   says "repaired (do NOT remove it)", as comments-sent.json and comment-deletes.json already did, in any service's
+   says "repaired from a backup of it (do NOT remove it or write {} to it)", as comments-sent.json and
+   comment-deletes.json already said not to remove theirs, in any service's
    folder (matched by file name: the retirement pass reads other services' folders). The advice for state.json and
    the retire files is unchanged; what removing those does was not examined here.
 
@@ -59,8 +59,11 @@ key that had sent.
 - The class: of the 84 non-test files in `engine/` and `server.js` that call renameSync at origin/main, 81 contain
   no fsyncSync (80 with this branch). Counted per file, not per write. Filed as #5434.
 - Not done: surfacing a torn record on the owner's page (card ask 2b). The status line and the log now say it.
-- Cost, not measured: every save now flushes the file and its folder (on macOS a full flush to the drive), and a
-  sweep saves keys.json many times per agent. Correctness first; #5434 is where a shared helper can weigh batching.
+- Cost, measured on this Mac (APFS, review 8 asked): a flush costs about 4 ms per save (fsync and fdatasync alike;
+  no flush, 0.1 ms). communitysend.test.js took 2.4 s on main, 20 s with the file and folder flushed, 11.5 s with the
+  file only, and 7 s once identical saves are skipped (869 of its 1407 sent.json saves rewrote the same bytes).
+  So: no folder flush (it protects only the rename itself, a crash could then keep the previous whole file; Windows
+  cannot do it), and no write when the bytes are unchanged. What remains is about 4 ms per real change.
 
 ## Verification
 
@@ -68,12 +71,12 @@ key that had sent.
   NUL bytes); no reset once a key exists, for sent.json and for comments-sent.json; no reset with a keys.json
   holding only a retired account; a torn keys.json never reset; no reset of a zero-filled record of any other
   length (5000, 5, 4 and 0 bytes; at 5 and 0, keys.json removed after a sweep that sent); a corrupt keys.json,
-  sent.json or deletes.json is advised "do NOT remove it"; a zero-filled keys.json is too, with no `{}` offered; a
-  save on a file system that refuses flushes (EINVAL, ENOTSUP, EISDIR, ENOSYS) still goes; a folder that cannot be
-  flushed does not fail the save and is said once per folder (off Windows); a failed sent.json flush leaves no temp
-  file; every record flushed before its rename.
+  sent.json or deletes.json is advised "do NOT remove it"; a zero-filled keys.json is too, told to restore from a
+  backup and never to write `{}`; a save on a file system that refuses flushes (EINVAL, ENOTSUP, EISDIR, ENOSYS)
+  still goes; a save of the bytes already on disk writes nothing; a failed sent.json flush leaves no temp file;
+  every record flushed before its rename.
 - Mutations, each red: the repair call removed; the keys check removed; the keys check applied to sent.json only;
   an unreadable keys.json read as empty; retired entries ignored; the size limit removed; 0 bytes admitted; the old
-  keys.json advice; the sent.json advice removed; the fsync removed; an unsupported-flush code removed; the folder
-  failure thrown; the folder failure said every time; the temp-file cleanup removed.
+  keys.json advice; the sent.json advice removed; the fsync removed; an unsupported-flush code removed; the
+  identical-save skip removed; the temp-file cleanup removed.
 - Every community test file: the count and result are in the proof.

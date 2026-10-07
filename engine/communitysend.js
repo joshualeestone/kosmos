@@ -102,17 +102,21 @@ function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json');
 // #4922: this install's community group id, one per endpoint like the keys (another server never sees it).
 function installGroupFile() { return path.join(endpointDir(), 'install-group.json'); }
 
-/* #5431: the temp file is flushed to disk before the rename, and the folder after it where the system allows. Without
-   that, a crash or power loss can leave the renamed file at its full length with zeroed contents (measured on a Windows
-   box: sent.json was 3 NUL bytes), which loadJson rightly cannot read, so sending paused with no end. */
-const reportedDirSync = new Set();   // folders whose flush failure was already said
+/* #5431: the temp file is flushed to disk before the rename. Without that, a crash or power loss can leave the renamed
+   file at its full length with zeroed contents (seen on a Windows box: sent.json was 3 NUL bytes), which loadJson
+   rightly cannot read, so sending paused with no end. The folder is not flushed: that protects only the rename itself
+   (a crash could then keep the previous, whole file), Windows cannot do it, and it doubled the cost of every save. */
 function saveJson(file, data) {
+  const body = JSON.stringify(data, null, 2) + '\n';
+  // The same bytes already on disk need no write and no flush: measured, 869 of 1407 sent.json saves in this module's
+  // tests rewrote what was there, and each flush costs about 4 ms on a Mac.
+  try { if (fs.readFileSync(file, 'utf8') === body) return; } catch { /* missing or unreadable: write it */ }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   try {
     const fd = fs.openSync(tmp, 'w', FILE_MODE);
     try {
-      fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n');
+      fs.writeFileSync(fd, body);
       // A file system that does not support a flush at all (some network or FUSE mounts) is not a failed save.
       // EISDIR is how libuv reports Windows' ERROR_INVALID_FUNCTION (a redirector without a flush); ENOSYS is what some
       // FUSE mounts answer.
@@ -120,14 +124,6 @@ function saveJson(file, data) {
     } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
   } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
-  // Windows cannot flush a folder (the call fails); there the rename is what NTFS journals. Elsewhere a failure is said.
-  try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } }
-  catch (e) {
-    if (process.platform !== 'win32' && !reportedDirSync.has(path.dirname(file))) {
-      reportedDirSync.add(path.dirname(file));
-      log(`the folder holding ${path.basename(file)} could not be flushed to disk (${e && e.code ? e.code : 'unknown'}); a crash could lose its last change`);
-    }
-  }
 }
 
 /* #5431: a record zero-filled at exactly the length of an empty record ({}\n) is a write torn by a crash, not a
@@ -162,7 +158,7 @@ function repairTornRecords() {
     try {
       saveJson(f, {});
       reportedCorrupt.delete(f); reportedCorrupt.delete('torn:' + f);
-      log(`${path.basename(f)} was empty or zero-filled (a write cut off by a crash or power loss) and no agent has a key on this service, so nothing was sent: reset it`);
+      log(`${path.basename(f)} was 3 NUL bytes (an empty record whose write was cut off by a crash or power loss) and no agent has a key on this service, so nothing was sent: reset it`);
     } catch (e) {
       if (!reportedCorrupt.has('torn:' + f)) { reportedCorrupt.add('torn:' + f); log(`${path.basename(f)} is torn and could not be reset (${e && e.code ? e.code : 'unknown'})`); }
     }
@@ -204,7 +200,9 @@ function corrupt(file, why) {
     // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
     // #5431: nor keys.json, sent.json or deletes.json (removing one sends again), in any service's folder: matched by
     // name, since the retirement pass reads other services' folders too.
-    const fix = DO_NOT_REMOVE[path.basename(file)] ? `repaired (do NOT remove it: ${DO_NOT_REMOVE[path.basename(file)]})`
+    const keep = Object.prototype.hasOwnProperty.call(DO_NOT_REMOVE, path.basename(file)) ? DO_NOT_REMOVE[path.basename(file)] : null;
+    // Review 8: say what a repair is, since writing {} to it is the same as removing it.
+    const fix = keep ? `repaired from a backup of it (do NOT remove it or write {} to it: ${keep})`
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
