@@ -105,7 +105,8 @@ function chk(ok, label, extra) {
         whyText: shown(document.getElementById('d-runson-why')),
         whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
         msg: shown(document.getElementById('d-model-msg')),
-        modelBlock: document.getElementById('d-model-row').closest('.mstep').getClientRects().length > 0,
+        modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
+        restartHint: document.getElementById('d-model-restart-hint').getClientRects().length > 0,
         said: (document.getElementById('d-sec-model') || document.body).innerText.split('from Found agents in Settings').length - 1,
       };
     });
@@ -114,6 +115,7 @@ function chk(ok, label, extra) {
        not shown, so the card says it once. Bob below is the control: his block is shown. */
     chk(rick.modelBlock === false && rick.msg === '', '#5491 the model block is not shown for a never-recorded agent (no second telling)', JSON.stringify({ block: rick.modelBlock, msg: rick.msg }));
     chk(rick.said === 1, '#5491 the Runs on card says the way in once', String(rick.said));
+    chk(rick.restartHint === false, '#5491 nor a line about changing a model it cannot change', String(rick.restartHint));
     await page.screenshot({ path: path.join(OUT, 'made-before-rick.png'), fullPage: false });
 
     // The regression the review caught: switch to Bob, nothing lingers.
@@ -128,12 +130,14 @@ function chk(ok, label, extra) {
       // A control for absence: DOM text is the stricter read, hidden text included.
       msg: document.getElementById('d-model-msg').textContent,
       disabled: document.getElementById('d-model').disabled,
-      modelBlock: document.getElementById('d-model-row').closest('.mstep').getClientRects().length > 0,
+      modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
+        restartHint: document.getElementById('d-model-restart-hint').getClientRects().length > 0,
     }));
     chk(bob.whyH === 0, 'CONTROL: the explainer is off Bob’s screen', String(bob.whyH));
     chk(bob.msg === '', 'CONTROL: Rick’s refusal did not linger on Bob’s panel', bob.msg);
     chk(bob.disabled === false, 'CONTROL: the with-plist picker is usable');
     chk(bob.modelBlock === true, 'CONTROL #5491: a recorded agent still shows its model block (it came back after Rick)', String(bob.modelBlock));
+    chk(bob.restartHint === true, 'CONTROL #5491: and its line about changing the model', String(bob.restartHint));
     await page.screenshot({ path: path.join(OUT, 'made-before-bob-control.png'), fullPage: false });
 
     // The stopped never-recorded agent: the panel OPENS (this used to throw
@@ -152,7 +156,8 @@ function chk(ok, label, extra) {
       return {
         why: shown(document.getElementById('d-runson-why')),
         msg: shown(document.getElementById('d-model-msg')),
-        modelBlock: document.getElementById('d-model-row').closest('.mstep').getClientRects().length > 0,
+        modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
+        restartHint: document.getElementById('d-model-restart-hint').getClientRects().length > 0,
       };
     });
     chk(/To bring it in: add it from Found agents/.test(gone.why) && !/stop it/.test(gone.why),
