@@ -3096,7 +3096,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             args.get_NavigationId(out navId);
             // The first load is the navigation to the sign-in address itself (not a redirect), not merely the
             // first to start: a script on the page being left can start one a moment earlier.
-            if (connectLoadPending && !connectLoadNavKnown && redirected == 0 && string.Equals(uri, KosmosLauncher.KosmosPlusSignIn, StringComparison.OrdinalIgnoreCase))
+            if (connectLoadPending && !connectLoadNavKnown && redirected == 0 && string.Equals(uri.TrimEnd('/'), KosmosLauncher.KosmosPlusSignIn.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
             { connectLoadNavId = navId; connectLoadNavKnown = true; }
             // #5483, as the Mac: a redirect is never a click (WebKit calls it .other, however the navigation
             // began; WebView2 counts its own Navigate as user-initiated), and only a committed Kosmos Plus
@@ -3152,8 +3152,8 @@ class BoardWindowForm : System.Windows.Forms.Form
 
     // #4381: a connect computer's sign-in that did not load says so, in a box titled Kosmos (WebView2's own
     // error page stays behind it, so the window is never blank). Only the load this window started
-    // (LoadConnect): a page the person moved on to is that page's business. A load cancelled on purpose
-    // (a click the connect rules sent to the browser) is not Kosmos Plus failing to answer. But a first
+    // (LoadConnect): a page the person moved on to is that page's business. A load cancelled for another reason
+    // (say, replaced by a newer navigation) is not Kosmos Plus failing to answer. But a first
     // load the rules REFUSED (#5483: an unclicked redirect off Kosmos Plus, e.g. a captive portal) is: it
     // never reached Kosmos Plus, so the box shows and Reopen (SignInAgain) loads it again.
     internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)

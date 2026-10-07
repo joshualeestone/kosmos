@@ -63,6 +63,8 @@ On #5482 (runboth-nav-5169, open), which adds MAC_ONLY_WHYS. After it merges: re
   handler counts as a click, where WebKit says .other. Such a navigation opens in the person's BROWSER on Windows (as
   it always did) and is refused on the Mac. Decided: WebView2 exposes no link-activated signal, and the Windows
   outcome never replaces the window; noted, not built.
+- For the real Windows run: a page restored from a back/forward cache without ContentLoading would keep the page left
+  as committed (WebView2 is not believed to enable that cache; the outcome would only open the browser).
 - Nothing on the Mac exercises the committedPage state machine (ContentLoading, NavigationStarting, the clears): the
   pins check its text. A real Windows run is the only full check (#570's box).
 
