@@ -1255,10 +1255,12 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 4;
   display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: max-content;
   max-width: min(460px, 100%); pointer-events: none; }
-/* #5443 (Mona Lisa): the stack is one column. It is as wide as its widest notice (max-content, capped above) and every
-   slot stretches to that, so two notices showing at once share both edges instead of each hugging its own text. The
-   words take the spare width, so a narrower notice's close X and buttons stay at its right edge, not mid-row. */
-.utoast .utxt { flex: 1 1 auto; min-width: 0; }
+/* #5443 (Mona Lisa): the notice cards (.utoast) are one column. The stack is as wide as its widest notice (max-content,
+   capped above) and its slots stretch to that, so two cards showing at once share both edges. The update chip (.uchip)
+   is a small pill by design (#3955) and stays one, centred in its slot. A card's words take its spare width, so a
+   narrower card's buttons and close X stay at its right edge. render-login-expiry-3532 measures all three. */
+#utoast-slot > .uchip { display: flex; width: fit-content; margin-inline: auto; }
+.utoast .utxt { flex: 1 1 auto; }
 .apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
 /* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
    a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
