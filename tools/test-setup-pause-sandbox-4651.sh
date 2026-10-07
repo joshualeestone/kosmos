@@ -97,7 +97,7 @@ chk "control: outside a sandbox, a free port passes the pause" '[[ "$OUT" == *"P
 # CONTROL: outside a sandbox, a listener that accepts but never answers keeps the existing kill advice.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
 chk "control: outside a sandbox, a silent listener still gets the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
-chk "control: the third stop (a process that answers, still holding the port) keeps the put-back armed" '[[ "$OUT" == *"STATE put-back=yes take-back=no"* ]]'
+chk "control: the third stop (a process that answers, still holding the port) keeps the put-back armed, with no app advice" '[[ "$OUT" == *"STATE put-back=yes take-back=no"* && "$OUT" != *"open the Kosmos app"* ]]'
 
 # Outside a sandbox, a listener that speaks first and not HTTP keeps the existing pid advice too.
 P="$(free_port)"; start_listener "$P" banner; OUT="$(run_pause "" "$P")"; stop_listener
@@ -107,7 +107,7 @@ chk "control: outside a sandbox, a non-HTTP banner listener keeps the existing p
 # ordinary Terminal, so the words must still name the pid and say what to quit, not only "use a normal Terminal".
 P="$(free_port)"; start_listener "$P" v6; OUT="$(run_pause "" "$P")"; V6PID="$LISTENER"; stop_listener
 chk "outside a sandbox, a ::1-only listener stops the update and names its pid to quit" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"quit the app with pid $V6PID"* ]]'
-chk "outside a sandbox, a ::1-only listener (the check failed): no put-back; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
+chk "outside a sandbox, a ::1-only listener (the check failed): no put-back; its own marker is taken back, and says to open the app if it is not running" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* && "$OUT" == *"open the Kosmos app"* ]]'
 
 # A with nothing listening: lsof works and finds nothing, so the board really stopped. Must PASS: failing closed
 # on an unreadable port must not turn into refusing every update from a sandboxed shell.
@@ -135,12 +135,12 @@ chk "sandbox B, a board the person stopped: no put-back, no take-back, no advice
 # C: no file can be written, and lsof is denied. Must still stop.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
 chk "sandbox C (no temp writes either), live board: the update stops, and says to use a normal Terminal" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
-chk "sandbox C, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
+chk "sandbox C, live board: no put-back from a blocked shell; its own marker is taken back, and says to open the app if it is not running" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* && "$OUT" == *"open the Kosmos app"* ]]'
 
 # B with nothing listening: the shell still cannot tell, so it stops too (fail closed, by decision).
 P="$(free_port)"; OUT="$(run_pause "$PROFILE_B" "$P")"
 chk "sandbox B, free port: still stops, because this shell cannot tell (fail closed)" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* ]]'
-chk "sandbox B, free port: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
+chk "sandbox B, free port: no put-back from a blocked shell; its own marker is taken back, and says to open the app if it is not running" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* && "$OUT" == *"open the Kosmos app"* ]]'
 
 echo "test-setup-pause-sandbox-4651: $FAILS failures"
 [ "$FAILS" -eq 0 ]
