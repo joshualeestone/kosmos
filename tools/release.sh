@@ -1593,30 +1593,28 @@ if [ "$_dep_frc" = 1 ]; then echo "the export has no .vercelignore; nothing was 
 elif [ "$_dep_frc" != 0 ]; then echo "could not evaluate the export's .vercelignore (rc=$_dep_frc); nothing was deployed"; exit 1
 elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_dep_dropped; nothing was deployed"; exit 1
 fi
+# #5471: refuse a mistyped landed-check override now, while nothing has been deployed.
+site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was deployed"; exit 1; }
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
-  # #5471: the CLI's own failure is not the answer; what is served is. Landed means BOTH: the served
-  # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote (only this cut's upload can serve it, where an
-  # earlier attempt at $V would pass a pointer check alone), and step 9's verifier passes (this cut's
-  # pointer names $V, and every artifact a user receives checks out). Asked up to
-  # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: at least
-  # 6 min, plus each check's own fetches). DEPLOYED stays unset until it passes, so a deploy that is
-  # not seen landing still gets the trap's restore and tarball cleanup, exactly as before.
-  echo "   vercel deploy exited $_vdep_rc; checking whether the deploy landed anyway before calling it a failure (#5471)"
-  _landed_host="${HOST:-https://installkosmos.com}"   # one host for both checks, passed explicitly
-  _deploy_landed_check() {
-    site_deploy_serves_this_build "$_landed_host" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz" \
-      && env HOST="$_landed_host" KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"
-  }
-  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" _deploy_landed_check; then
-    echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served host carries this cut's $V build. Continuing as a successful deploy (#5471)."
+  # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
+  # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote: only this cut's upload can serve it (an
+  # earlier attempt at $V passes a pointer check, never this; the bundle embeds build timestamps). That
+  # is the same position as a CLI success, so DEPLOYED=1 follows and step 9 verifies everything a user
+  # receives, with its own retries, exactly as it does after a CLI success. Asked up to
+  # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s, about 6 min;
+  # each check is one small fetch with -m 30). Not seen landing: DEPLOYED stays unset and the trap
+  # restores, exactly as before.
+  echo "   vercel deploy exited $_vdep_rc; checking whether this cut's build is served anyway before calling it a failure (#5471)"
+  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
+       site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
+    echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served kosmos-$V-arm64.tar.gz.sha256 is this cut's. Continuing as a successful deploy; step 9 verifies the rest (#5471)."
   else
-    echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after ${KOSMOS_DEPLOY_LANDED_TRIES:-24} checks. It may still land: before any revert or re-cut, read the served dist/$POINTER_FILE and re-hash dist/kosmos-$V-arm64.tar.gz against it. (This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; a late landing serves the uploaded copy.)"
+    echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks. It may still land: before any revert or re-cut, read the served dist/$POINTER_FILE and re-hash dist/kosmos-$V-arm64.tar.gz against it. This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; where that line below says \"never served\", read \"not seen served\". A late landing serves the uploaded copy."
     exit "$_vdep_rc"
   fi
 fi
-
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 # #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes
 # on every path, so there is nothing to clean up in the site checkout here. (On a

@@ -38,7 +38,7 @@ export COUNT="$T/c3" PASS_ON=1
 out="$(site_deploy_landed 4 0 "$T/verify")"; rc=$?
 [ "$rc" = 0 ] && [ "$(calls)" = 1 ] && [ -z "$out" ] && ok "served at once: one call, no waiting line" || bad "at once: rc=$rc calls=$(calls) out=$out"
 
-for bad_tries in 0 "" x3; do
+for bad_tries in 0 00 "" x3; do
   site_deploy_landed "$bad_tries" 0 true 2>/dev/null && bad "tries '$bad_tries' was accepted" || ok "tries '$bad_tries' is refused (not a positive whole number; BSD seq would count 0 down to 1 and run the check twice)"
 done
 
@@ -57,55 +57,63 @@ site_deploy_serves_this_build https://h "$T/missing.sha256" kosmos-9.9.9-arm64.t
 [ "$(sort -u "$T/curl.urls")" = "https://h/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "it fetches <host>/dist/<name>.sha256 and nothing else" || bad "fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ')"
 
 # ---- release.sh's real step-8 block ---------------------------------------------------
-BLOCK="$(awk '/^_vdep_rc=0$/ { f=1 } f { print } f && /^DEPLOYED=1/ { exit }' tools/release.sh)"
+# From the override check to DEPLOYED=1, cut out of the file (not a copy).
+BLOCK="$(awk '/^site_deploy_landed_args_ok / { f=1 } f { print } f && /^DEPLOYED=1/ { exit }' tools/release.sh)"
 case "$BLOCK" in
-  *'vercel deploy --prod --yes'*site_deploy_landed*'DEPLOYED=1'*) ok "CONTROL: the step-8 block was cut out of release.sh whole (deploy, landed check, DEPLOYED)" ;;
+  site_deploy_landed_args_ok*'vercel deploy --prod --yes'*site_deploy_landed*site_deploy_serves_this_build*'DEPLOYED=1'*) ok "CONTROL: the step-8 block was cut out of release.sh whole (override check, deploy, landed check, DEPLOYED)" ;;
   *) bad "could not cut the step-8 block out of release.sh (anchor drift?)"; echo "test-deploy-landed-5471: $FAILS failure(s)"; exit 1 ;;
 esac
 
-# A fake REPO whose tools/verify-served.sh is the counting stub, and a `vercel` that exits $VERCEL_RC.
+# A fake REPO whose tools/verify-served.sh is the counting stub: step 8 must never run it now (step 9 does).
 FR="$T/repo"; mkdir -p "$FR/tools" "$T/export"
 cp "$T/verify" "$FR/tools/verify-served.sh"
 mkdir -p "$T/site/dist"; printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256"
-run_step8() { # vercel_rc pass_on [served sha] -> prints the block's output, then "DEPLOYED=<value>"; returns the block's exit code
+# run_step8 <vercel rc> <served sha, or none> [fetches before it is served] [tries override]
+#   prints the block's output then "DEPLOYED=<value>"; returns the block's exit code
+run_step8() {
   (
     set -e
-    export COUNT="$T/step8count" PASS_ON="$2"; rm -f "$COUNT" "$COUNT.env"
-    printf '%s  kosmos-9.9.9-arm64.tar.gz\n' "${3:-aaa111}" > "$T/served.sha256"
-    VERCEL_RC="$1"; vercel() { return "$VERCEL_RC"; }
+    export COUNT="$T/step8count" PASS_ON=1; rm -f "$COUNT" "$T/curl.urls" "$T/vercel.called"
+    if [ "$2" = none ]; then rm -f "$T/served.sha256"; else printf '%s  kosmos-9.9.9-arm64.tar.gz\n' "$2" > "$T/served.sha256"; fi
+    LATE="${3:-0}"
+    curl() { local a n; for a in "$@"; do :; done; printf '%s\n' "$a" >> "$T/curl.urls"; n=$(wc -l < "$T/curl.urls")
+             [ "$n" -gt "$LATE" ] && [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
+    VERCEL_RC="$1"; vercel() { : > "$T/vercel.called"; return "$VERCEL_RC"; }
     REPO="$FR"; SITE="$T/site"; V=9.9.9; POINTER_FILE=latest-staging.json; SETUP_FILE=setup-staging
     _site_export="$T/export"; DEPLOYED=0
-    export KOSMOS_DEPLOY_LANDED_TRIES=3 KOSMOS_DEPLOY_LANDED_WAIT_S=0
-    HOST=https://stub.example; rm -f "$T/curl.urls"
+    export KOSMOS_DEPLOY_LANDED_TRIES="${4:-3}" KOSMOS_DEPLOY_LANDED_WAIT_S=0
+    HOST=https://stub.example
     eval "$BLOCK"
-    [ ! -f "$T/curl.urls" ] || sort -u "$T/curl.urls" > "$T/step8.urls"
     echo "DEPLOYED=$DEPLOYED"
   )
 }
+fetches() { [ -f "$T/curl.urls" ] && wc -l < "$T/curl.urls" | tr -d ' ' || echo 0; }
 
-out="$(run_step8 1 2)"; rc=$?
-case "$out" in *"THE DEPLOY LANDED"*"DEPLOYED=1") ok "CLI failed, deploy landed on the 2nd check: continues to DEPLOYED=1 (rc=$rc)" ;; *) bad "landed: rc=$rc out=$out" ;; esac
+out="$(run_step8 1 aaa111 1)"; rc=$?
+case "$out" in *"THE DEPLOY LANDED"*"DEPLOYED=1") ok "CLI failed, this cut's build served from the 2nd check: continues to DEPLOYED=1 (rc=$rc)" ;; *) bad "landed: rc=$rc out=$out" ;; esac
 [ "$rc" = 0 ] || bad "landed: the block should finish 0, got $rc"
-[ "$(cat "$T/step8.urls")" = "https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "release.sh asks the own-build check on HOST for this cut's tarball .sha256" || bad "step 8 fetched: $(cat "$T/step8.urls" 2>/dev/null)"
-[ "$(cat "$T/step8count.env")" = "latest-staging.json setup-staging https://stub.example" ] && ok "the verifier is asked about this cut's channel (latest-staging.json, setup-staging) on the SAME host as the own-build check" || bad "verifier env: $(cat "$T/step8count.env")"
+[ "$(sort -u "$T/curl.urls")" = "https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && [ "$(fetches)" = 2 ] && ok "it asked HOST for this cut's tarball .sha256, twice, then stopped" || bad "landed fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ') x$(fetches)"
+[ ! -f "$T/step8count" ] && ok "landed: step 8 does not run the full verifier; step 9 does, as after a CLI success" || bad "landed: the verifier ran in step 8"
 
-out="$(run_step8 1 1 bbb222)"; rc=$?
-[ "$rc" = 1 ] && ok "an EARLIER attempt's 9.9.9 build is served and passes the verifier: NOT this deploy, so it fails as before" || bad "earlier attempt: rc=$rc"
-case "$out" in *"DEPLOYED="*) bad "earlier attempt: DEPLOYED was reached" ;; *) : ;; esac
-[ ! -f "$T/step8count" ] && ok "an earlier attempt's build: the full verifier is not even run (the cheap own-build check fails first)" || bad "earlier attempt: verifier ran $(cat "$T/step8count") times"
+out="$(run_step8 1 bbb222)"; rc=$?
+[ "$rc" = 1 ] && ok "an EARLIER attempt's 9.9.9 build is served: not this deploy, so it fails as before" || bad "earlier attempt: rc=$rc"
+case "$out" in *"DEPLOYED="*) bad "earlier attempt: DEPLOYED was reached" ;; *) ok "earlier attempt: DEPLOYED is never set" ;; esac
 
-out="$(run_step8 1 0)"; rc=$?
-[ "$rc" = 1 ] && ok "CLI failed and never served: exits with the CLI's code (1)" || bad "never served: rc=$rc"
-case "$out" in *"DEPLOYED="*) bad "never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "never served: DEPLOYED is never set, so the trap still restores and removes the never-served tarball" ;; esac
-case "$out" in *"may still land"*"re-hash"*) ok "never served: the message says it may still land and to measure before a revert or re-cut" ;; *) bad "never served: message does not warn it may still land (out=$out)" ;; esac
-[ "$(cat "$T/step8count")" = 3 ] && ok "never served: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "never served: asked $(cat "$T/step8count") times"
+out="$(run_step8 1 none)"; rc=$?
+[ "$rc" = 1 ] && ok "CLI failed and nothing served: exits with the CLI's code (1)" || bad "never served: rc=$rc"
+case "$out" in *"DEPLOYED="*) bad "never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "never served: DEPLOYED is never set, so the trap still restores and removes the tarball" ;; esac
+case "$out" in *"may still land"*"re-hash"*"not seen served"*) ok "never served: the message says it may still land, how to measure, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
+[ "$(fetches)" = 3 ] && ok "never served: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "never served: asked $(fetches) times"
 
-out="$(run_step8 7 0)"; rc=$?
+out="$(run_step8 7 none)"; rc=$?
 [ "$rc" = 7 ] && ok "the CLI's own exit code is kept (7), not flattened to 1" || bad "exit code: rc=$rc"
 
-out="$(run_step8 0 0)"; rc=$?
+out="$(run_step8 1 aaa111 0 x3)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$T/vercel.called" ] && ok "a mistyped KOSMOS_DEPLOY_LANDED_TRIES is refused BEFORE vercel deploy runs" || bad "bad override: rc=$rc vercel called=$([ -f "$T/vercel.called" ] && echo yes || echo no)"
+
+out="$(run_step8 0 none)"; rc=$?
 case "$out" in *"DEPLOYED=1") : ;; *) bad "CLI success: did not reach DEPLOYED=1 (out=$out)" ;; esac
-[ "$rc" = 0 ] && [ ! -f "$T/step8count" ] && ok "CONTROL: the CLI succeeded, so the served host is not asked here (step 9 still verifies)" || bad "CLI success: rc=$rc asked=$(cat "$T/step8count" 2>/dev/null)"
+[ "$rc" = 0 ] && [ "$(fetches)" = 0 ] && ok "CONTROL: the CLI succeeded, so step 8 asks the served host nothing (step 9 verifies)" || bad "CLI success: rc=$rc fetches=$(fetches)"
 
 echo "test-deploy-landed-5471: $FAILS failure(s)"
 [ "$FAILS" = 0 ]
