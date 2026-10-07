@@ -20842,16 +20842,22 @@ function start(port = PORT) {
          so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
       /* Review 1 NIT: the records are read at most once every few seconds, not once per line typed (a room post to N
          members), and anyOwed answers the common case (nothing owed anywhere) first; a told() drops the cached read. */
-      const movedRecs = { at: 0, recs: null };
+      const movedRecs = { at: 0, recs: null, roster: null };
       const movedRecords = () => {
-        if (!movedRecs.recs || Date.now() - movedRecs.at > 5000) { movedRecs.recs = projects.readAll(); movedRecs.at = Date.now(); }
+        if (!movedRecs.recs || Date.now() - movedRecs.at > 5000) { movedRecs.recs = projects.readAll(); movedRecs.roster = null; movedRecs.at = Date.now(); }
         return movedRecs.recs;
+      };
+      /* #5382 review 3 x #5400 (rebase): the note names the agent now holding the part as the board shows it, so it needs
+         the roster; read only when something is owed, and cached with the records. */
+      const movedRoster = () => {
+        if (!movedRecs.roster) { try { movedRecs.roster = safeRoster(); } catch { movedRecs.roster = []; } }
+        return movedRecs.roster;
       };
       chat.setMovedTell({
         owed: (session) => {
           const ft = require('./engine/failovertell');
           const recs = movedRecords();
-          return ft.anyOwed(recs) ? ft.owedFor(session, recs) : [];
+          return ft.anyOwed(recs) ? ft.owedFor(session, recs, movedRoster()) : [];
         },
         note: (items) => require('./engine/failovertell').noteFor(items),
         told: (session, items) => { movedRecs.recs = null; require('./engine/failovertell').markAll(session, items, tasks.markMoveTold); },

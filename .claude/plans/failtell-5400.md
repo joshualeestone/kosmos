@@ -42,3 +42,11 @@ Every rule above is mutation-checked: removing it reds a test in engine/chat.mov
 ## Weakest premise
 That Claude Code's "continue after reset" resumes the interrupted turn (inferred from its menu labels, not observed);
 and Enter pressed on its own limit menu reaches no Kosmos line, so that resume stays covered only by the idle sweep.
+
+## Rebased onto failover-5382 after #5382 merged main (2026-10-07)
+- Rebased the 11 #5400 commits from 76ae966d6 onto failover-5382 @ 699301322 with no conflicts; 340 related tests green.
+- FIXED (a composition defect between the two branches): #5382's post-merge review 3 made owedFor name the agent now
+  holding a part by its card name, given the roster. This branch's note hook called owedFor without one, so its note
+  still named agents by session key. The hook now passes a roster cached with the records (read only when something is
+  owed). The review 7 source pin requires it; it reddened on the old call.
+- The proof's hash is over the stacked diff and is recomputed after #5382 merges and this is rebased onto main.

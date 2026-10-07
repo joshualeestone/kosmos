@@ -283,7 +283,8 @@ test('review 5: server.js installs the hook with the note that asks for nothing,
   assert.match(block, /told: \(session, items\) => \{ movedRecs\.recs = null;/, 'told keeps a stale read, so the next lines repeat the note');
   assert.match(block, /markAll\(session, items, tasks\.markMoveTold\)/);
   // Review 7: and owed asks the records for THIS session, and the read is at most 5 s old.
-  assert.match(block, /return ft\.anyOwed\(recs\) \? ft\.owedFor\(session, recs\) : \[\];/, 'owed could answer nothing for everybody, and the feature would be off');
+  // #5382 review 3 (after the rebase): with the roster, so the note names the holder as the board shows it, not its key.
+  assert.match(block, /return ft\.anyOwed\(recs\) \? ft\.owedFor\(session, recs, movedRoster\(\)\) : \[\];/, 'owed could answer nothing for everybody, or name agents by their session keys');
   const cache = src.slice(src.lastIndexOf('const movedRecords', at), at);
   assert.match(cache, /Date\.now\(\) - movedRecs\.at > 5000/, 'the records may be read once and kept far longer than a few seconds');
 });
