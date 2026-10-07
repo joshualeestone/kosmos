@@ -11,6 +11,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -28,6 +29,9 @@ process.env.AGENT_WORKFORCE_HOME = SB;
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = CONFIG_ROOT;
 process.env.AGENT_WORKFORCE_DATA = STORE;
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
 const store = require('./store');
@@ -41,9 +45,9 @@ function codexAgentWithRollout(name, model) {
   fs.mkdirSync(wd, { recursive: true });
   store.writeProfile(name, { dir: wd, provider: 'openai' });
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
-  const plist = create.plistPath(name);
+  const plist = jobfix.jobPath(name);
   assert.ok(plist.startsWith(SB), 'the job is written inside the sandbox');
-  fs.writeFileSync(plist, create.plistFor(name, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, HOME_B, 'codex'), 'utf8');
+  fs.writeFileSync(plist, jobfix.jobFor(name, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, HOME_B, 'codex'), 'utf8');
   const day = path.join(HOME_B, 'sessions', '2026', '09', '28');
   fs.mkdirSync(day, { recursive: true });
   const file = path.join(day, `rollout-2026-09-28T10-00-00-${name}.jsonl`);
