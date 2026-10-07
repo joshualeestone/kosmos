@@ -80,6 +80,32 @@ test('#3713: Grok installs from its compressed binary, expanded after the checks
   clean();
 });
 
+test('#5419: on Linux, Grok installs the same way: expanded after the checksum, made executable, found afterwards', async (t) => {
+  // The Linux path through install() is the Mac's POSIX one; this drives it end to end with platform 'linux'.
+  const connect = require('./connect');
+  connect.setMuslDetectForTests(() => false);   // a glibc host (a musl one is refused before the download)
+  t.after(() => connect.setMuslDetectForTests(null));
+  clean();
+  const program = '#!/bin/sh\necho "grok 1.0.41 $1"\n';
+  const { tgz, integrity } = tarball([['package/bin/grok.br', zlib.brotliCompressSync(Buffer.from(program))],
+    ['package/package.json', '{"name":"@xai-official/grok-linux-x64","version":"1.0.41"}']]);
+  let askedUrl = null;
+  const job = runners.install('grok', {
+    platform: 'linux', arch: 'x64', legacyBin: LEGACY_GROK, integrity,
+    download: (url, file, j) => { askedUrl = url; return downloadFrom(tgz)(url, file, j); },
+    prove: (bin, done) => execFileSyncDone(bin, done),
+  });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(askedUrl, 'https://registry.npmjs.org/@xai-official/grok-linux-x64/-/grok-linux-x64-1.0.41.tgz', 'not the Linux tarball');
+  const native = nodePath.join(SANDBOX, 'runners', 'grok', 'pkg', 'bin', 'grok-native');
+  assert.equal(fs.readFileSync(native, 'utf8'), program, 'grok.br was expanded byte for byte');
+  assert.ok((fs.statSync(native).mode & 0o111) !== 0, 'and made executable');
+  const r = runners.resolveBin('grok', { legacyBin: LEGACY_GROK });
+  assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED_GROK, present: true, managed: true });
+  clean();
+});
+
 test('#3713: a Grok download whose compressed binary will not expand is refused, and nothing is installed', async () => {
   clean();
   const { tgz, integrity } = tarball([['package/bin/grok.br', Buffer.from('this is not brotli at all')]]);

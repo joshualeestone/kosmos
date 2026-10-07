@@ -77,16 +77,19 @@ test('#5419: tar on Linux is /usr/bin/tar where /usr is merged and /bin/tar wher
   assert.equal(runners.tarBin('darwin', {}, () => false), '/usr/bin/tar', 'CONTROL: the Mac path is the same as before');
 });
 
-test('#5419: on a musl Linux host Grok is refused before a byte moves; Codex (static musl) is not', (t) => {
+test('#5419: on a musl Linux host Grok is refused before a byte moves; Codex (static musl) is not', async (t) => {
   const connect = require('./connect');
   connect.setMuslDetectForTests(() => true);
   t.after(() => connect.setMuslDetectForTests(null));
   let fetched = false;
   const grok = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => { fetched = true; return Promise.reject(new Error('stop')); } });
   assert.equal(grok.phase, 'failed', 'Grok was not refused on musl');
-  assert.match(grok.because, /no xAI's Grok CLI build for this kind of Linux|no .* build for this kind of Linux \(it uses musl/);
+  assert.match(grok.because, /build for this kind of Linux \(it uses musl, as Alpine does\); no download was attempted/);
   assert.equal(fetched, false, 'Grok was downloaded on a musl host');
   connect.setMuslDetectForTests(() => false);
-  const glibc = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => Promise.reject(new Error('stop: a test download')) });
+  let asked = false;
+  const glibc = runners.install('grok', { platform: 'linux', arch: 'x64', legacyBin: path.join(SANDBOX, 'no-legacy'), download: () => { asked = true; return Promise.reject(new Error('stop: a test download')); } });
+  await glibc.settled;   // nothing left running after the test
+  assert.equal(asked, true, 'CONTROL: on a glibc host the download is asked for');
   assert.doesNotMatch(String(glibc.because || ''), /uses musl/, 'CONTROL: a glibc host is not refused for musl');
 });
